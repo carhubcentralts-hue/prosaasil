@@ -2299,21 +2299,30 @@ class MediaStreamHandler:
                                     self.noise_floor = 0.9 * self.noise_floor + 0.1 * rms
                                     if self.calibration_frames == 100:
                                         # Calibration complete!
-                                        audio_gate_threshold = min(self.noise_floor + 80, 200)
+                                        # ✅ REDUCED THRESHOLD: Don't block soft speech
+                                        # Formula: min(noise_floor + 50, 140) - more conservative
+                                        audio_gate_threshold = min(self.noise_floor + 50, 140)
                                         print(f"✅ [AUDIO_GATE] Calibration complete: noise_floor={self.noise_floor:.1f}, threshold={audio_gate_threshold:.1f}")
                                         self.audio_gate_threshold = audio_gate_threshold
                                         self.is_calibrated = True
                             
                             # Gate: After calibration, check RMS
                             if self.is_calibrated:
-                                gate_threshold = getattr(self, 'audio_gate_threshold', 160)
+                                gate_threshold = getattr(self, 'audio_gate_threshold', 120)
                                 if rms < gate_threshold:
                                     # ❌ Blocked: too quiet
                                     if not hasattr(self, '_gate_blocks'):
                                         self._gate_blocks = 0
+                                        self._gate_blocks_by_range = {}
                                     self._gate_blocks += 1
+                                    # Log with range info
+                                    rms_range = int(rms // 10) * 10
+                                    if rms_range not in self._gate_blocks_by_range:
+                                        self._gate_blocks_by_range[rms_range] = 0
+                                    self._gate_blocks_by_range[rms_range] += 1
+                                    
                                     if self._gate_blocks <= 5:  # Log only first 5 blocks
-                                        print(f"[AUDIO_GATE] rms={rms:.1f}, threshold={gate_threshold:.1f}, send_to_openai=False ❌")
+                                        print(f"[AUDIO_GATE] rms={rms:.0f}, threshold={gate_threshold:.0f}, send_to_openai=False ❌ (total_blocks={self._gate_blocks})")
                                     continue  # Skip sending this chunk
                                 else:
                                     # ✅ Passed: send to OpenAI
@@ -2321,7 +2330,7 @@ class MediaStreamHandler:
                                         self._gate_passes = 0
                                     self._gate_passes += 1
                                     if self._gate_passes <= 5:  # Log first 5 passes
-                                        print(f"[AUDIO_GATE] rms={rms:.1f}, threshold={gate_threshold:.1f}, send_to_openai=True ✅")
+                                        print(f"[AUDIO_GATE] rms={rms:.0f}, threshold={gate_threshold:.0f}, send_to_openai=True ✅ (total_passes={self._gate_passes})")
                             
                             # 🔍 DEBUG: Log first few frames from Twilio
                             if not hasattr(self, '_twilio_audio_chunks_sent'):

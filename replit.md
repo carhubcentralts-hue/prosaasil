@@ -34,10 +34,11 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
     - **Rule 9 - Appointment Flow**: AI forbidden from confirming appointments before [SERVER] ✅ appointment_created. After confirmation, AI MUST stay silent (no re-validation loops).
     - **Guard System**: Post-filter detects forbidden words ("קבעתי", "התור נקבע") without server approval and sends immediate correction.
     - **Loop Prevention**: pending_slot cleared immediately after appointment creation to prevent re-validation cycles.
-  - **Hallucination Prevention (Nov 2025 - COMPLETE REWRITE)**: Multi-layer approach prevents AI from responding to phantom speech:
-    - **Layer 1 - Audio Gate Calibration**: Measures noise floor during first 2 seconds (collecting RMS<120 samples), calculates threshold = min(noise_floor+80, 200). Filters low-RMS chunks before sending to OpenAI.
+  - **Hallucination Prevention (Nov 2025 - FINAL FIX)**: Multi-layer approach prevents AI from responding to phantom speech:
+    - **Layer 1 - Audio Gate Calibration**: Measures noise floor during first 2 seconds (collecting RMS<120 samples), calculates threshold = min(noise_floor+50, 140). ✅ CONSERVATIVE threshold prevents blocking soft speech. Filters low-RMS chunks before sending to OpenAI.
     - **Layer 2 - OpenAI VAD (Balanced)**: threshold=0.5 (not too aggressive, avoids speech cutoff), silence_duration_ms=700ms, prefix_padding_ms=300. ✅ REMOVED invalid `smoothing_duration_ms` parameter.
     - **Layer 3 - Transcription Filter**: Rejects transcriptions <3 chars and gibberish, but ACCEPTS all languages (Hebrew, English, etc.) for understanding. AI always responds in Hebrew only.
+    - **Frame Validation**: Verifies all audio sent to Twilio is 160-byte frames (20ms @ 8kHz μ-law), prevents double-encoding and ensures clean audio transmission.
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
   - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF with auto-submit after 10 digits) → **DTMF triggers NLP** → Create appointment.
   - **Customer Data Persistence (Nov 2025)**: 4-path hydration system ensures name survival:
