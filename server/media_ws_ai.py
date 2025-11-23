@@ -658,6 +658,7 @@ class MediaStreamHandler:
         self.last_tts_end_ts = 0.0
         self.voice_in_row = 0
         self.greeting_sent = False
+        self.user_has_spoken = False  # Track if user has spoken at least once
         self.state = STATE_LISTEN        # מצב נוכחי
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
@@ -1184,6 +1185,22 @@ class MediaStreamHandler:
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
+                    # 🛡️ GUARD: Block AI audio before first real user utterance
+                    if not self.user_has_spoken and not getattr(self, "greeting_sent", False):
+                        # User never spoke, and this is not the greeting – block it
+                        print("[GUARD] Blocking AI audio response before first real user utterance")
+                        # If there is a response_id in the event, send response.cancel once
+                        response_id = event.get("response_id")
+                        if response_id:
+                            try:
+                                await client.send_event({
+                                    "type": "response.cancel",
+                                    "response_id": response_id,
+                                })
+                            except Exception:
+                                print("[GUARD] Failed to send response.cancel for pre-user-response")
+                        continue  # do NOT enqueue audio for TTS
+                    
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
                         # 🎯 Track AI speaking state for barge-in detection
@@ -1284,6 +1301,9 @@ class MediaStreamHandler:
                         continue
                     
                     transcript = text
+                    
+                    # Mark that the user really spoke at least once
+                    self.user_has_spoken = True
                     
                     # 💰 COST TRACKING: User finished speaking - stop timer  
                     if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
