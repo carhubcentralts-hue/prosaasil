@@ -235,6 +235,8 @@ def update_business_prompt(business_id):
             "success": True,  # ✅ תיקון: הוספת success field שהfrontend מצפה לו
             "calls_prompt": current_prompts.get('calls', ''),
             "whatsapp_prompt": current_prompts.get('whatsapp', ''),
+            "greeting_message": business.greeting_message or "",
+            "whatsapp_greeting": business.whatsapp_greeting or "",
             "version": next_version,
             "updated_at": settings.updated_at.isoformat() if settings.updated_at else datetime.utcnow().isoformat(),
             "message": "הפרומפט נשמר בהצלחה"
