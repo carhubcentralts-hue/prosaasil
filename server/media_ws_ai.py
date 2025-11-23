@@ -1030,27 +1030,9 @@ class MediaStreamHandler:
             # ⏰ Wait for bridges to be ready before sending greeting
             await asyncio.sleep(0.2)  # 200ms for bridge initialization
             
-            # 🚀 REALTIME API: Greeting is now part of system prompt (in realtime_prompt_builder.py)
-            # Trigger AI to speak by sending a minimal user message
-            if hasattr(self, 'greeting_text') and not self.greeting_sent:
-                if self.greeting_text:
-                    print(f"✅ [REALTIME] Greeting is in system prompt - triggering AI response")
-                    self.greeting_sent = True
-                    
-                    # 🔥 TRIGGER AI: Send response.create to make AI speak greeting
-                    try:
-                        # Trigger AI response without user message
-                        # The system prompt contains the greeting instruction
-                        await client.send_event({"type": "response.create"})
-                        print(f"✅ [REALTIME] Triggered AI to say greeting (from system prompt)")
-                    except Exception as e:
-                        print(f"⚠️ [REALTIME] Trigger error (will wait for user): {e}")
-                else:
-                    # No greeting configured - AI will wait for user to speak
-                    print("📭 [REALTIME] No greeting defined - AI will wait for user to speak")
-                    self.greeting_sent = True
-            else:
-                print(f"📭 [REALTIME] Greeting already handled (greeting_sent={getattr(self, 'greeting_sent', None)})")
+            # Greeting is now handled by system prompt (in realtime_prompt_builder.py)
+            # AI will say it when user speech is detected or naturally as first response
+            # Do NOT send automatic responses
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             
