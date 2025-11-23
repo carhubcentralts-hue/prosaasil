@@ -1300,14 +1300,6 @@ class MediaStreamHandler:
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
                         
-                        # 🔥 CRITICAL: With turn_detection=None, we must manually trigger AI response!
-                        # Send response.create to make AI respond to user's message
-                        try:
-                            await client.send_event({"type": "response.create"})
-                            print(f"✅ [REALTIME] Sent response.create (AI will now respond to user)")
-                        except Exception as e:
-                            print(f"❌ [REALTIME] Failed to send response.create: {e}")
-                        
                         # Check for appointment confirmation after user speaks
                         print(f"🔍 [DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                         self._check_appointment_confirmation(transcript)
