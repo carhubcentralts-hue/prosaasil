@@ -1033,14 +1033,19 @@ class MediaStreamHandler:
             # 🚀 REALTIME API: Send greeting OR trigger AI to speak first
             if hasattr(self, 'greeting_text') and not self.greeting_sent:
                 if self.greeting_text:
-                    # יש פתיח מוגדר - שלח אותו
-                    print(f"🚀 [REALTIME] Sending greeting: '{self.greeting_text[:50]}...'")
+                    # יש פתיח מוגדר - שלח אותו לתור
+                    print(f"🚀 [REALTIME] Queueing greeting: '{self.greeting_text[:50]}...'")
                     try:
                         # ⚡ CRITICAL: Mark BEFORE sending to avoid race condition
                         self.is_playing_greeting = True  # Mark greeting is playing
                         self.greeting_sent = True
-                        await client.send_text_response(self.greeting_text)
-                        print(f"✅ [REALTIME] Greeting sent successfully!")
+                        
+                        # 🔥 CRITICAL: Queue greeting with system marker so AI outputs it verbatim
+                        # Format: [SYSTEM_GREETING]...[/SYSTEM_GREETING]
+                        greeting_message = f"[SYSTEM_GREETING]{self.greeting_text}[/SYSTEM_GREETING]"
+                        self.realtime_text_input_queue.put_nowait(greeting_message)
+                        print(f"✅ [REALTIME] Greeting queued with system marker: '{greeting_message[:80]}...'")
+                        
                         # Track in conversation history
                         if hasattr(self, 'conversation_history'):
                             self.conversation_history.append({
@@ -1049,7 +1054,9 @@ class MediaStreamHandler:
                                 "ts": time.time()
                             })
                     except Exception as e:
-                        print(f"❌ [REALTIME] Greeting send failed: {e}")
+                        print(f"❌ [REALTIME] Greeting queue failed: {e}")
+                        import traceback
+                        traceback.print_exc()
                 else:
                     # No greeting configured - do NOT trigger AI, just wait for user speech
                     print("📭 [REALTIME] No greeting defined - waiting for user to speak (no auto response.create)")
