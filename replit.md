@@ -29,7 +29,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **AI Behavior Optimization (Nov 2025 - AGENT 3 FIX)**:
   - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.18.
   - **Language**: Understands all languages (Hebrew, English, Russian, Arabic, etc.) but ALWAYS responds in Hebrew only.
-  - **First Utterance Guard**: Prevents AI from talking on pure silence/noise. Only responds after detecting real user speech (transcript >= 3 chars, not whitespace/punctuation).
+  - **First Utterance Guard (Nov 2025 - PHASE 6)**: Prevents AI from talking on pure silence/noise. Blocks initial `response.create` and server prompts until first real user utterance (transcript >= 3 meaningful chars). Uses simple retry flags (`bootstrap_response_blocked`, `pending_server_prompt`) to replay blocked responses after user speaks. No complex queues or architectural changes.
   - **Transcript Filtering**: Ignores transcripts < 2 chars or pure punctuation to prevent gibberish responses.
   - **Critical Rules**: 10 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, turn-taking, hours_info, and appointment flow.
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).

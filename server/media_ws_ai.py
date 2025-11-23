@@ -675,6 +675,10 @@ class MediaStreamHandler:
         self.has_real_user_utterance = False  # 🎯 AGENT 3: Track if user has actually spoken
         self.allow_opening_greeting = True    # 🎯 AGENT 3: Allow greeting before first utterance (from settings)
         
+        # 🔥 AGENT 3 FIX - PHASE 6: Simple retry flags (no queues, no functions)
+        self.bootstrap_response_blocked = False  # Track if no-greeting response.create was blocked
+        self.pending_server_prompt = None        # Store blocked server prompt text
+        
         self.mark_pending = False        # האם ממתינים לסימון TTS
         self.mark_sent_ts = 0.0          # זמן שליחת סימון
         
@@ -1058,9 +1062,9 @@ class MediaStreamHandler:
                     # אין פתיח מוגדר - ה-AI ידבר ראשון בעצמו!
                     # 🔥 AGENT 3 FIX - PHASE 6: Block AI from speaking before real user utterance
                     if not self.has_real_user_utterance:
-                        logger.info("[GUARD] Blocking AI first speech — no real user utterance yet")
-                        print(f"🛡️ [GUARD] Blocking AI first speech — waiting for real user utterance")
-                        self.greeting_sent = True  # Mark as handled to avoid retry
+                        logger.info("[GUARD] Blocking bootstrap response.create — no real user utterance yet")
+                        print(f"🛡️ [GUARD] Blocking bootstrap response.create — will retry after user speaks")
+                        self.bootstrap_response_blocked = True  # Mark for retry
                     else:
                         print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
                         try:
@@ -1326,6 +1330,26 @@ class MediaStreamHandler:
                         if not self.has_real_user_utterance and len(meaningful_chars) >= 3:
                             self.has_real_user_utterance = True
                             print(f"🎤 [NLP] First real user utterance detected – has_real_user_utterance=True (transcript='{transcript[:30]}...')")
+                            
+                            # 🔥 AGENT 3 FIX - PHASE 6: Retry blocked responses
+                            if self.bootstrap_response_blocked:
+                                print(f"🔄 [GUARD] Retrying blocked bootstrap response.create")
+                                try:
+                                    await client.send_event({"type": "response.create"})
+                                    print(f"✅ [GUARD] Bootstrap response.create sent after first utterance")
+                                except Exception as e:
+                                    print(f"❌ [GUARD] Failed to send bootstrap response.create: {e}")
+                                finally:
+                                    self.bootstrap_response_blocked = False  # Clear flag
+                            
+                            if self.pending_server_prompt:
+                                print(f"🔄 [GUARD] Retrying blocked server prompt: '{self.pending_server_prompt[:50]}...'")
+                                try:
+                                    await self._send_server_event_to_ai(self.pending_server_prompt)
+                                except Exception as e:
+                                    print(f"❌ [GUARD] Failed to send pending server prompt: {e}")
+                                finally:
+                                    self.pending_server_prompt = None  # Clear stored prompt
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
@@ -1391,8 +1415,9 @@ class MediaStreamHandler:
                     # Allow greeting once
                     pass
                 else:
-                    logger.info("[GUARD] Blocking AI response — no real user utterance yet")
-                    print(f"🛡️ [GUARD] Blocking AI response — waiting for real user utterance")
+                    logger.info("[GUARD] Blocking server prompt — no real user utterance yet")
+                    print(f"🛡️ [GUARD] Blocking server prompt — will retry after user speaks")
+                    self.pending_server_prompt = message_text  # Store for retry
                     return
             
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
