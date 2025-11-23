@@ -1030,39 +1030,27 @@ class MediaStreamHandler:
             # ⏰ Wait for bridges to be ready before sending greeting
             await asyncio.sleep(0.2)  # 200ms for bridge initialization
             
-            # 🚀 REALTIME API: Send greeting OR trigger AI to speak first
+            # 🚀 REALTIME API: Greeting is now part of system prompt (in realtime_prompt_builder.py)
+            # Trigger AI to speak by sending a minimal user message
             if hasattr(self, 'greeting_text') and not self.greeting_sent:
                 if self.greeting_text:
-                    # יש פתיח מוגדר - שלח אותו לתור
-                    print(f"🚀 [REALTIME] Queueing greeting: '{self.greeting_text[:50]}...'")
+                    print(f"✅ [REALTIME] Greeting is in system prompt - triggering AI response")
+                    self.greeting_sent = True
+                    
+                    # 🔥 TRIGGER AI: Send response.create to make AI speak greeting
                     try:
-                        # ⚡ CRITICAL: Mark BEFORE sending to avoid race condition
-                        self.is_playing_greeting = True  # Mark greeting is playing
-                        self.greeting_sent = True
-                        
-                        # 🔥 CRITICAL: Queue greeting with system marker so AI outputs it verbatim
-                        # Format: [SYSTEM_GREETING]...[/SYSTEM_GREETING]
-                        greeting_message = f"[SYSTEM_GREETING]{self.greeting_text}[/SYSTEM_GREETING]"
-                        self.realtime_text_input_queue.put_nowait(greeting_message)
-                        print(f"✅ [REALTIME] Greeting queued with system marker: '{greeting_message[:80]}...'")
-                        
-                        # Track in conversation history
-                        if hasattr(self, 'conversation_history'):
-                            self.conversation_history.append({
-                                "speaker": "ai",
-                                "text": self.greeting_text,
-                                "ts": time.time()
-                            })
+                        # Trigger AI response without user message
+                        # The system prompt contains the greeting instruction
+                        await client.send_event({"type": "response.create"})
+                        print(f"✅ [REALTIME] Triggered AI to say greeting (from system prompt)")
                     except Exception as e:
-                        print(f"❌ [REALTIME] Greeting queue failed: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        print(f"⚠️ [REALTIME] Trigger error (will wait for user): {e}")
                 else:
-                    # No greeting configured - do NOT trigger AI, just wait for user speech
-                    print("📭 [REALTIME] No greeting defined - waiting for user to speak (no auto response.create)")
-                    # Do NOT call response.create and do NOT set greeting_sent here.
+                    # No greeting configured - AI will wait for user to speak
+                    print("📭 [REALTIME] No greeting defined - AI will wait for user to speak")
+                    self.greeting_sent = True
             else:
-                print(f"📭 [REALTIME] Greeting already sent (greeting_sent={getattr(self, 'greeting_sent', None)})")
+                print(f"📭 [REALTIME] Greeting already handled (greeting_sent={getattr(self, 'greeting_sent', None)})")
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             

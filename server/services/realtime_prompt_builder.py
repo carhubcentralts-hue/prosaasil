@@ -118,16 +118,17 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         
         # 🔥 PREPEND GREETING INSTRUCTION IF GREETING EXISTS
         if greeting_text:
-            greeting_instruction = f"""🎤 **פתיחה ראשונה (חובה - בדיוק כמו שכתוב למטה!):**
+            greeting_instruction = f"""🎤 **תגובה ראשונה שלך (חובה מוחלטת!):**
 
-כשהקול של הלקוח מתחיל - תגיד בדיוק את הברכה הזו (בלי שום תוספות):
+בתור התגובה הראשונה שלך בשיחה, תגיד **בדיוק** את הברכה הזאת (**בלי** שום תוספות, שינויים או שאלות):
 
 "{greeting_text}"
 
-**אחרי הברכה:**
-- תחכה בשקט לתגובת הלקוח
-- אל תוסיף "מה אוכל לעזור?" או שום דבר אחר
-- רק הברכה בלבד ותמשך אל הקריאה היוצאת הבא
+**חשוב מאוד:**
+1. אל תוסיף "מה אוכל לעזור?" או כל משפט אחר
+2. אל תדבר על דירות או שירותים
+3. רק הברכה המדויקת הזאת, ואז **שקט**
+4. תחכה שהלקוח יגיב קודם
 
 ---
 

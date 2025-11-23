@@ -654,17 +654,6 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
 TODAY: {today_str} (Israel)
 TOMORROW: {tomorrow_str}{slot_interval_text}
 
-🎙️ GREETING HANDLING (CRITICAL - MUST DO THIS FIRST!):
-- If you receive a message in format [SYSTEM_GREETING]...[/SYSTEM_GREETING]:
-  1. EXTRACT the text between the tags
-  2. OUTPUT THAT TEXT EXACTLY (verbatim, no changes)
-  3. DO NOT process it as customer input
-  4. DO NOT ask follow-up questions until customer responds
-  5. ONLY speak the greeting, nothing else on your first turn
-- Example:
-  - Input: [SYSTEM_GREETING]היי אני העוזרת של יהודה איך אוכל לעזור לכם?[/SYSTEM_GREETING]
-  - Output: היי אני העוזרת של יהודה איך אוכל לעזור לכם?
-
 ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn

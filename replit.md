@@ -57,12 +57,13 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Greeting Message Response (Nov 24, 2025)**: 
   - `update_business_prompt` endpoint now returns `greeting_message` and `whatsapp_greeting` in response
   - UI can display saved greeting immediately after update
-- **Greeting System Integration (Nov 24, 2025 - CRITICAL FIX)**:
-  - Greeting is now queued to Realtime API with `[SYSTEM_GREETING]...[/SYSTEM_GREETING]` markers
-  - System prompt explicitly instructs AI to recognize these markers and output greeting verbatim
-  - AI does NOT process greeting as customer input, only outputs it on first turn
-  - Ensures greeting plays BEFORE AI starts responding to user input
-  - Prevents AI from ignoring greeting and immediately describing properties
+- **Greeting System Integration (Nov 24, 2025 - FINAL FIX)**:
+  - Greeting loaded automatically from `business.greeting_message` in DB
+  - Added to system prompt as first response instruction in `realtime_prompt_builder.py`
+  - AI instructed to output greeting verbatim as its first turn (no additions, no property descriptions)
+  - `response.create` event triggers AI to speak greeting immediately upon connection
+  - Prevents AI from talking about properties/services before greeting
+  - Ensures consistent greeting delivery on every call
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
