@@ -1,0 +1,111 @@
+2025-11-23 22:10:19.96
+aa155660
+User
+{'OPTIONS', 'POST'} /api/auth/forgot
+2025-11-23 22:10:20.25
+aa155660
+User
+APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+2025-11-23 22:10:20.25
+aa155660
+User
+⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+2025-11-23 22:10:20.40
+aa155660
+User
+Traceback (most recent call last):
+2025-11-23 22:10:20.40
+aa155660
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-11-23 22:10:20.41
+aa155660
+User
+self.dialect.do_execute(
+2025-11-23 22:10:37.23
+aa155660
+User
+WHERE table_name = %(table_name)s
+2025-11-23 22:10:37.23
+aa155660
+User
+⚠️ [BACKGROUND] Migration error: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+2025-11-23 22:10:37.23
+aa155660
+User
+SELECT table_name FROM information_schema.tables
+2025-11-23 22:10:37.23
+aa155660
+User
+[SQL:
+2025-11-23 22:10:37.23
+aa155660
+User
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2025-11-23 22:10:37.23
+aa155660
+User
+[parameters: {'table_name': 'business_settings'}]
+2025-11-23 22:10:37.23
+aa155660
+User
+]
+2025-11-23 22:10:37.73
+aa155660
+User
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2025-11-23 22:10:37.73
+aa155660
+User
+SELECT table_name FROM information_schema.tables
+
+2025-11-23 22:10:37.73
+aa155660
+User
+⚠️ [BACKGROUND] Migration error: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+2025-11-23 22:10:37.73
+aa155660
+User
+[SQL:
+2025-11-23 22:10:37.73
+aa155660
+User
+WHERE table_name = %(table_name)s
+2025-11-23 22:10:37.73
+aa155660
+User
+]
+2025-11-23 22:10:37.73
+aa155660
+User
+[parameters: {'table_name': 'business_settings'}]
+2025-11-23 22:10:42.13
+aa155660
+User
+👤 Admin exists (ID=2), resetting password to 'admin123'
+2025-11-23 22:10:42.23
+aa155660
+User
+👤 Admin exists (ID=2), resetting password to 'admin123'
+2025-11-23 22:10:45.13
+aa155660
+User
+✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+2025-11-23 22:10:46.03
+aa155660
+User
+✅ DATA PROTECTION: 4 leads preserved (no deletions)
+2025-11-23 22:10:46.53
+aa155660
+User
+✅ [BACKGROUND] Migrations applied
+2025-11-23 22:10:56.93
+aa155660
+User
+👤 Admin exists (ID=2), resetting password to 'admin123'
+2025-11-23 22:10:56.93
+aa155660
+User
+👤 Admin exists (ID=2), resetting password to 'admin123'
+2025-11-23 22:10:56.93
+aa155660
