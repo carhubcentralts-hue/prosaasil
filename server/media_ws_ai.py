@@ -1036,9 +1036,10 @@ class MediaStreamHandler:
                     # יש פתיח מוגדר - שלח אותו
                     print(f"🚀 [REALTIME] Sending greeting: '{self.greeting_text[:50]}...'")
                     try:
-                        await client.send_text_response(self.greeting_text)
-                        self.greeting_sent = True
+                        # ⚡ CRITICAL: Mark BEFORE sending to avoid race condition
                         self.is_playing_greeting = True  # Mark greeting is playing
+                        self.greeting_sent = True
+                        await client.send_text_response(self.greeting_text)
                         print(f"✅ [REALTIME] Greeting sent successfully!")
                         # Track in conversation history
                         if hasattr(self, 'conversation_history'):
@@ -1189,8 +1190,8 @@ class MediaStreamHandler:
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
-                        # 🎤 GREETING PRIORITY: If this is the greeting phase, ALWAYS allow audio
-                        if self.is_playing_greeting and not self.user_has_spoken:
+                        # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
+                        if self.greeting_sent and not self.user_has_spoken:
                             print("[GREETING] Passing greeting audio to caller")
                             # Enqueue greeting audio - NO guards, NO cancellation
                             try:
@@ -1201,8 +1202,8 @@ class MediaStreamHandler:
                             continue
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
-                        if not self.user_has_spoken and not getattr(self, "greeting_sent", False):
-                            # User never spoke, and this is not the greeting – block it
+                        if not self.user_has_spoken:
+                            # User never spoke, and greeting not sent yet – block it
                             print("[GUARD] Blocking AI audio response before first real user utterance")
                             # If there is a response_id in the event, send response.cancel once
                             response_id = event.get("response_id")
