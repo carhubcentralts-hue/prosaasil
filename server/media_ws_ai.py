@@ -1192,19 +1192,24 @@ class MediaStreamHandler:
                     if audio_b64:
                         # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
                         if self.greeting_sent and not self.user_has_spoken:
-                            print("[GREETING] Passing greeting audio to caller")
+                            print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
                             # Enqueue greeting audio - NO guards, NO cancellation
+                            # Track AI speaking state for barge-in
+                            now = time.time()
+                            if not self.is_ai_speaking_event.is_set():
+                                self.ai_speaking_start_ts = now
+                                self.speaking_start_ts = now
+                            self.is_ai_speaking_event.set()
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                             except queue.Full:
                                 pass
-                            self.is_ai_speaking_event.set()
                             continue
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
                         if not self.user_has_spoken:
                             # User never spoke, and greeting not sent yet – block it
-                            print("[GUARD] Blocking AI audio response before first real user utterance")
+                            print(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
                             # If there is a response_id in the event, send response.cancel once
                             response_id = event.get("response_id")
                             if response_id:
@@ -2231,12 +2236,15 @@ class MediaStreamHandler:
                             print(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME START!")
                             # Store greeting as instance variable instead of queue (more reliable)
                             self.greeting_text = greet
-                            self.greeting_sent = False  # Will be set to True after sending
+                            # ⚡ DON'T reset greeting_sent here - it's set in the async loop
+                            if not hasattr(self, 'greeting_sent'):
+                                self.greeting_sent = False
                             print(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...'")
                         else:
                             print(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first dynamically!")
                             self.greeting_text = None
-                            self.greeting_sent = False
+                            if not hasattr(self, 'greeting_sent'):
+                                self.greeting_sent = False
                     
                     # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
                     if USE_REALTIME_API and not self.realtime_thread:
