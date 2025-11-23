@@ -254,7 +254,7 @@ class OpenAIRealtimeClient:
         voice: str = "alloy",
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.7,
+        vad_threshold: float = 0.5,
         silence_duration_ms: int = 700,
         temperature: float = 0.18,
         max_tokens: int = 300
@@ -269,7 +269,7 @@ class OpenAIRealtimeClient:
             voice: Voice to use (alloy, echo, shimmer, verse, ash, ballad)
             input_audio_format: Audio format from Twilio (g711_ulaw, pcm16)
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
-            vad_threshold: Voice activity detection threshold (0-1)
+            vad_threshold: Voice activity detection threshold (0-1), default 0.5 (not too aggressive)
             silence_duration_ms: Silence duration to detect end of speech
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
@@ -293,8 +293,8 @@ class OpenAIRealtimeClient:
                 "type": "server_vad",
                 "threshold": vad_threshold,
                 "silence_duration_ms": silence_duration_ms,
-                "prefix_padding_ms": 300,
-                "smoothing_duration_ms": 200  # 🔥 NEW: Smooth out brief noise spikes
+                "prefix_padding_ms": 300
+                # ❌ REMOVED: smoothing_duration_ms is NOT a valid parameter in OpenAI Realtime API
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
@@ -313,4 +313,4 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=ENABLED (whisper-1)")
+        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold} (0.5=balanced), silence={silence_duration_ms}ms, transcription=ENABLED (whisper-1)")

@@ -205,6 +205,7 @@ def _build_critical_rules(business_name: str, today_hebrew: str, weekday_hebrew:
     Build critical conversation rules - TOP priority instructions
     
     Agent 3 compliance - enforces:
+    - Multi-language support: understand user in any language, respond ONLY in Hebrew
     - Identity from custom prompt (NOT business DB name)
     - BREVITY: 1-2 sentence answers max
     - Silence handling: don't talk when user is quiet
@@ -212,7 +213,9 @@ def _build_critical_rules(business_name: str, today_hebrew: str, weekday_hebrew:
     - DTMF phone collection with clear instructions
     - Turn-taking: never talk over user
     """
-    return f"""⚠️ עברית בלבד! היום: {today_hebrew} ({weekday_hebrew})
+    return f"""⚠️ תמיד בעברית! היום: {today_hebrew} ({weekday_hebrew})
+    
+🌍 שפות: אתה מבין לקוחות בכל שפה (עברית, אנגלית, וכו'), אבל תמיד עונה בעברית בלבד!
 
 🎯 חוקים קריטיים (Agent 3):
 

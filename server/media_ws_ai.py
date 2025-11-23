@@ -2291,6 +2291,38 @@ class MediaStreamHandler:
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         try:
+                            # 🔥 AUDIO GATE: Filter by RMS before sending to OpenAI
+                            # Calibration: first 100 frames (2 sec), collect RMS<120 as noise_floor
+                            if self.calibration_frames < 100:
+                                self.calibration_frames += 1
+                                if rms < 120:
+                                    self.noise_floor = 0.9 * self.noise_floor + 0.1 * rms
+                                    if self.calibration_frames == 100:
+                                        # Calibration complete!
+                                        audio_gate_threshold = min(self.noise_floor + 80, 200)
+                                        print(f"✅ [AUDIO_GATE] Calibration complete: noise_floor={self.noise_floor:.1f}, threshold={audio_gate_threshold:.1f}")
+                                        self.audio_gate_threshold = audio_gate_threshold
+                                        self.is_calibrated = True
+                            
+                            # Gate: After calibration, check RMS
+                            if self.is_calibrated:
+                                gate_threshold = getattr(self, 'audio_gate_threshold', 160)
+                                if rms < gate_threshold:
+                                    # ❌ Blocked: too quiet
+                                    if not hasattr(self, '_gate_blocks'):
+                                        self._gate_blocks = 0
+                                    self._gate_blocks += 1
+                                    if self._gate_blocks <= 5:  # Log only first 5 blocks
+                                        print(f"[AUDIO_GATE] rms={rms:.1f}, threshold={gate_threshold:.1f}, send_to_openai=False ❌")
+                                    continue  # Skip sending this chunk
+                                else:
+                                    # ✅ Passed: send to OpenAI
+                                    if not hasattr(self, '_gate_passes'):
+                                        self._gate_passes = 0
+                                    self._gate_passes += 1
+                                    if self._gate_passes <= 5:  # Log first 5 passes
+                                        print(f"[AUDIO_GATE] rms={rms:.1f}, threshold={gate_threshold:.1f}, send_to_openai=True ✅")
+                            
                             # 🔍 DEBUG: Log first few frames from Twilio
                             if not hasattr(self, '_twilio_audio_chunks_sent'):
                                 self._twilio_audio_chunks_sent = 0
@@ -2300,8 +2332,7 @@ class MediaStreamHandler:
                                 first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
                                 print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}")
                             
-                            # ✅ Send ALL audio to OpenAI - let OpenAI VAD (threshold=0.7) handle noise filtering
-                            # This ensures clean audio transmission without tx_q overflow
+                            # Send audio to OpenAI (after gate filtering)
                             self.realtime_audio_in_queue.put_nowait(b64)
                         except queue.Full:
                             pass
