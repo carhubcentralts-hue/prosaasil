@@ -662,11 +662,19 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        # 🎯 AGENT 3 HEBREW: VAD = noise + 80, capped at 175 (detects 180-220 RMS speech)
-        self.noise_floor = 80.0          # רמת רעש (calibrated from RMS<120 frames)
-        self.vad_threshold = 170.0        # סף VAD (Hebrew: noise+80, max 175)
-        self.is_calibrated = False       # האם כוילרנו את רמת הרעש
-        self.calibration_frames = 0      # מונה פריימים לכיול
+        
+        # 🔥 AGENT 3 FIX: Advanced VAD with adaptive noise calibration
+        self.noise_floor = 100.0          # רמת רעש (will be calibrated)
+        self.speech_threshold = 160.0     # סף דיבור (will be updated after calibration)
+        self.is_calibrated = False        # האם כוילרנו את רמת הרעש
+        self.calibration_frames = 0       # מונה פריימים לכיול
+        self.calibration_ms = 1500        # 🎯 AGENT 3: 1500ms calibration window
+        self.noise_floor_samples = []     # 🎯 AGENT 3: Collect quiet frames for calibration
+        
+        # 🔥 AGENT 3 FIX: First utterance detection (prevent AI talking on silence)
+        self.has_real_user_utterance = False  # 🎯 AGENT 3: Track if user has actually spoken
+        self.allow_opening_greeting = True    # 🎯 AGENT 3: Allow greeting before first utterance (from settings)
+        
         self.mark_pending = False        # האם ממתינים לסימון TTS
         self.mark_sent_ts = 0.0          # זמן שליחת סימון
         
@@ -750,7 +758,7 @@ class MediaStreamHandler:
         self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
-        self.min_ai_talk_guard_ms = 400  # 🎯 AGENT 3: Grace period after AI starts speaking (400ms spec)
+        self.min_ai_talk_guard_ms = 300  # 🔥 AGENT 3 FIX: Grace period after AI starts speaking (300ms from spec)
         self.barge_in_rms_threshold = 150.0  # 🎯 AGENT 3: Lower threshold for reliable Hebrew speech detection (~180-220 RMS)
         self.min_voice_duration_ms = 400  # 🎯 AGENT 3: 400-500ms minimum voice duration to detect speech
         self.barge_in_min_ms = 400  # 🎯 AGENT 3: Minimum continuous speech for barge-in (~400ms)
@@ -1290,8 +1298,28 @@ class MediaStreamHandler:
                         print(f"💰 [COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
                         self._user_speech_start = None  # Reset for next utterance
                     
-                    if transcript:
+                    # 🔥 AGENT 3 FIX: Filter out gibberish/noise transcriptions
+                    # Ignore if < 2 chars or pure punctuation
+                    text_clean = transcript.strip()
+                    
+                    # Skip processing if transcript is too short or pure noise
+                    should_process = True
+                    if len(text_clean) < 2:
+                        print(f"🚫 [TRANSCRIPT FILTER] Too short (len={len(text_clean)}), ignoring: '{transcript}'")
+                        should_process = False
+                    elif all(ch in ".?!, -" for ch in text_clean):
+                        print(f"🚫 [TRANSCRIPT FILTER] Punctuation noise, ignoring: '{transcript}'")
+                        should_process = False
+                    
+                    if transcript and should_process:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        
+                        # 🔥 AGENT 3 FIX: Mark first real user utterance
+                        # Only mark as real if transcript is meaningful (>= 3 chars after strip, not just punctuation)
+                        meaningful_chars = ''.join([c for c in text_clean if c not in ".?!, -"])
+                        if not self.has_real_user_utterance and len(meaningful_chars) >= 3:
+                            self.has_real_user_utterance = True
+                            print(f"🎤 [NLP] First real user utterance detected – has_real_user_utterance=True (transcript='{transcript[:30]}...')")
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
@@ -2248,6 +2276,19 @@ class MediaStreamHandler:
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         try:
+                            # 🔥 AGENT 3 FIX: Audio gate - only send speech above threshold to OpenAI
+                            # This prevents silence/noise from being transcribed and triggering AI responses
+                            frame_rms = audioop.rms(pcm16, 2)
+                            
+                            # Apply gate only after calibration
+                            if self.is_calibrated:
+                                if frame_rms < self.speech_threshold:
+                                    # 🚫 Silence/noise - do not send to OpenAI
+                                    if not hasattr(self, '_last_gate_log') or (time.time() - self._last_gate_log) > 5.0:
+                                        print(f"[AUDIO GATE] Dropping frames rms={frame_rms:.1f} < {self.speech_threshold:.1f}")
+                                        self._last_gate_log = time.time()
+                                    continue  # Skip this frame
+                            
                             # 🔍 DEBUG: Log first few frames from Twilio
                             if not hasattr(self, '_twilio_audio_chunks_sent'):
                                 self._twilio_audio_chunks_sent = 0
@@ -2255,7 +2296,7 @@ class MediaStreamHandler:
                             
                             if self._twilio_audio_chunks_sent <= 3:
                                 first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}")
+                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={frame_rms:.1f}")
                             
                             self.realtime_audio_in_queue.put_nowait(b64)
                         except queue.Full:
@@ -2325,50 +2366,54 @@ class MediaStreamHandler:
                                 print(f"🔇 [BARGE-IN] User stopped speaking (RMS={rms:.0f} < {self.barge_in_rms_threshold})")
                             self.current_user_voice_start_ts = None
                     
-                    # 🎯 AGENT 3 VAD: Calibrate ONLY on true background noise (RMS < 120)
+                    # 🔥 AGENT 3 FIX: Time-based noise calibration (1500ms window)
                     if not self.is_calibrated:
-                        # Track total attempts (timeout after 4 seconds)
-                        total_frames = getattr(self, '_total_calibration_attempts', 0) + 1
-                        self._total_calibration_attempts = total_frames
+                        # Initialize calibration start time if not set
+                        if not hasattr(self, '_calibration_start_ts'):
+                            self._calibration_start_ts = time.time()
+                            print(f"🎛️ [VAD] Starting calibration (1500ms window)...")
                         
-                        # Only calibrate on VERY quiet frames (RMS < 120) - excludes all speech!
-                        # Speech onset is typically 180+ RMS, so this is pure background noise
+                        # Collect quiet frames (RMS < 120) for noise floor measurement
                         if rms < 120:
-                            self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
-                            self.calibration_frames += 1
+                            self.noise_floor_samples.append(rms)
                         
-                        # Complete calibration after 40 quiet frames OR 4 seconds timeout
-                        if self.calibration_frames >= 40 or total_frames >= 200:
-                            # 🎯 AGENT 3 HEBREW FIX: threshold = noise + 80, capped at 175
-                            # Ensures Hebrew speech (180-220 RMS) always detected
-                            # margin: 80 RMS prevents noise false triggers
-                            if self.calibration_frames < 10:
-                                self.vad_threshold = 170.0  # Default baseline for Hebrew
-                                logger.warning(f"🎛️ [VAD VERIFICATION] TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
-                                print(f"🎛️ VAD TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
+                        # Check if calibration window has elapsed
+                        elapsed_ms = (time.time() - self._calibration_start_ts) * 1000
+                        
+                        if elapsed_ms >= self.calibration_ms:
+                            # Calibration complete
+                            if len(self.noise_floor_samples) > 0:
+                                # Calculate average noise floor from samples
+                                self.noise_floor = sum(self.noise_floor_samples) / len(self.noise_floor_samples)
+                                # 🎯 AGENT 3: threshold = noise + 60, capped at 175
+                                self.speech_threshold = min(175.0, self.noise_floor + 60.0)
+                                print(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f} (samples={len(self.noise_floor_samples)})")
+                                logger.info(f"[VAD] Calibrated noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f}")
                             else:
-                                # Calibrated: noise + 80, capped at 175 to guarantee detection
-                                # Typical: noise ~80-110 → threshold ~160-175 (catches 180+ RMS)
-                                self.vad_threshold = min(175.0, self.noise_floor + 80.0)
-                                logger.info(f"✅ [VAD VERIFICATION] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames}")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames})")
+                                # No quiet samples - use conservative baseline
+                                self.speech_threshold = 160.0
+                                print(f"⚠️ [VAD] No quiet samples - using baseline threshold={self.speech_threshold:.1f}")
+                                logger.warning(f"[VAD] No quiet samples - using baseline threshold={self.speech_threshold:.1f}")
+                            
                             self.is_calibrated = True
+                            # Clear samples to save memory
+                            self.noise_floor_samples = []
                     
                     # 🎯 Simple voice detection: RMS > threshold
                     if self.is_calibrated:
-                        is_strong_voice = rms > self.vad_threshold
+                        is_strong_voice = rms > self.speech_threshold
                     else:
-                        # Before calibration - use Hebrew baseline (170 RMS)
-                        is_strong_voice = rms > 170.0
+                        # Before calibration - use Hebrew baseline (160 RMS)
+                        is_strong_voice = rms > 160.0
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
                     # ✅ EXTRA CHECK: Only if RMS is significantly above threshold
-                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', 200) * 1.2):
+                    if is_strong_voice and rms > (getattr(self, 'speech_threshold', 200) * 1.2):
                         self.last_voice_ts = current_time
                         # 🔧 Reduced logging spam - max once per 3 seconds
                         if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 3.0:
-                            print(f"🎙️ REAL_VOICE: rms={rms:.1f} > threshold={getattr(self, 'vad_threshold', 'uncalibrated'):.1f}")
+                            print(f"🎙️ REAL_VOICE: rms={rms:.1f} > threshold={getattr(self, 'speech_threshold', 'uncalibrated'):.1f}")
                             self.last_debug_ts = current_time
                     
                     # חישוב דממה אמיתי - מאז הקול האחרון! 

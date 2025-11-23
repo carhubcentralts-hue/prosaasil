@@ -26,8 +26,11 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **DTMF Menu**: Interactive voice response system for phone calls.
 - **Data Protection**: Strictly additive database migrations.
 - **OpenAI Realtime API**: Integrates **gpt-4o-realtime-preview** for phone calls with dedicated asyncio threads and thread-safe queues.
-- **AI Behavior Optimization**:
+- **AI Behavior Optimization (Nov 2025 - AGENT 3 FIX)**:
   - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.18.
+  - **Language**: Understands all languages (Hebrew, English, Russian, Arabic, etc.) but ALWAYS responds in Hebrew only.
+  - **First Utterance Guard**: Prevents AI from talking on pure silence/noise. Only responds after detecting real user speech (transcript >= 3 chars, not whitespace/punctuation).
+  - **Transcript Filtering**: Ignores transcripts < 2 chars or pure punctuation to prevent gibberish responses.
   - **Critical Rules**: 10 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, turn-taking, hours_info, and appointment flow.
   - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
   - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF with auto-submit after 10 digits) → **DTMF triggers NLP** → Create appointment.
@@ -44,8 +47,8 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - **AI Step-by-Step Guidance (Nov 2025)**: AI prompt explicitly instructs to collect name FIRST, then phone SECOND (never together). AI instructs: "תקליד מספר טלפון במקלדת הטלפון - 10 ספרות שמתחילות ב-05" - NO mention of # key.
   - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. AI does NOT instruct user to press # - system handles it silently.
   - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
-- **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
-- **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
+- **Hebrew-Optimized VAD (Nov 2025 - AGENT 3 FIX)**: Time-based calibration (1500ms window) with adaptive noise floor. `speech_threshold = min(175.0, noise_floor + 60.0)` for reliable Hebrew speech detection. Audio gate prevents sending silence/noise to OpenAI.
+- **Smart Barge-In (Nov 2025 - AGENT 3 FIX)**: Thread-safe Event-based implementation with 300ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown. Sends `response.cancel` to OpenAI for immediate interruption.
 - **Cost Tracking (Nov 2025)**: Real-time chunk-based audio tracking with precise cost calculations. Automatic cost summary displayed at end of EVERY call with breakdown: user audio (chunks→minutes→$), AI audio (chunks→minutes→$), total in USD and NIS (₪). Supports all OpenAI Realtime models including new gpt-realtime (2025).
 - **Error Resilience**: DB query failures fall back to minimal prompt.
 
