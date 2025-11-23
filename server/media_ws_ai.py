@@ -2176,6 +2176,12 @@ class MediaStreamHandler:
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
                     self.t0_connected = time.time()  # ⚡ [T0] WebSocket connected
+                    
+                    # 🔥 AGENT 3 FIX - PHASE 2: Initialize calibration on start
+                    self.calibration_start_ts = time.time()
+                    self.noise_floor_samples = []
+                    self.is_calibrated = False
+                    
                     print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
@@ -2274,22 +2280,28 @@ class MediaStreamHandler:
                         stream_registry.touch_media(self.call_sid)
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
+                    # 🔥 AGENT 3 FIX - PHASE 3: Audio gate with flag-based approach
+                    frame_rms = audioop.rms(pcm16, 2)
+                    should_send_to_realtime = True
+                    
+                    # Apply audio gate BEFORE sending to Realtime
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+                        # Audio gate: block silence/noise frames
+                        if self.is_calibrated:
+                            if frame_rms < self.speech_threshold:
+                                should_send_to_realtime = False
+                                if not hasattr(self, '_last_gate_log') or (time.time() - self._last_gate_log) > 5.0:
+                                    logger.info(f"[AUDIO GATE] Dropping frame rms={frame_rms:.1f} < {self.speech_threshold:.1f}")
+                                    self._last_gate_log = time.time()
+                        else:
+                            # Before calibration - drop very quiet frames
+                            if frame_rms < 120:
+                                should_send_to_realtime = False
+                    
+                    # 🔥 CRITICAL: Only send if passed gate
+                    if USE_REALTIME_API and should_send_to_realtime and self.realtime_thread and self.realtime_thread.is_alive():
                         try:
-                            # 🔥 AGENT 3 FIX: Audio gate - only send speech above threshold to OpenAI
-                            # This prevents silence/noise from being transcribed and triggering AI responses
-                            frame_rms = audioop.rms(pcm16, 2)
-                            
-                            # Apply gate only after calibration
-                            if self.is_calibrated:
-                                if frame_rms < self.speech_threshold:
-                                    # 🚫 Silence/noise - do not send to OpenAI
-                                    if not hasattr(self, '_last_gate_log') or (time.time() - self._last_gate_log) > 5.0:
-                                        print(f"[AUDIO GATE] Dropping frames rms={frame_rms:.1f} < {self.speech_threshold:.1f}")
-                                        self._last_gate_log = time.time()
-                                    continue  # Skip this frame
-                            
-                            # 🔍 DEBUG: Log first few frames from Twilio
+                            # 🔍 DEBUG: Log first few frames
                             if not hasattr(self, '_twilio_audio_chunks_sent'):
                                 self._twilio_audio_chunks_sent = 0
                             self._twilio_audio_chunks_sent += 1
@@ -2366,38 +2378,29 @@ class MediaStreamHandler:
                                 print(f"🔇 [BARGE-IN] User stopped speaking (RMS={rms:.0f} < {self.barge_in_rms_threshold})")
                             self.current_user_voice_start_ts = None
                     
-                    # 🔥 AGENT 3 FIX: Time-based noise calibration (1500ms window)
-                    if not self.is_calibrated:
-                        # Initialize calibration start time if not set
-                        if not hasattr(self, '_calibration_start_ts'):
-                            self._calibration_start_ts = time.time()
-                            print(f"🎛️ [VAD] Starting calibration (1500ms window)...")
+                    # 🔥 AGENT 3 FIX - PHASE 2: Time-based noise calibration (exact 1500ms window)
+                    now = time.time()
+                    if not self.is_calibrated and self.calibration_start_ts:
+                        elapsed = (now - self.calibration_start_ts) * 1000
                         
-                        # Collect quiet frames (RMS < 120) for noise floor measurement
+                        # Collect quiet frames (RMS < 120) - pure background noise
                         if rms < 120:
                             self.noise_floor_samples.append(rms)
                         
-                        # Check if calibration window has elapsed
-                        elapsed_ms = (time.time() - self._calibration_start_ts) * 1000
-                        
-                        if elapsed_ms >= self.calibration_ms:
-                            # Calibration complete
-                            if len(self.noise_floor_samples) > 0:
-                                # Calculate average noise floor from samples
+                        # Complete calibration after 1500ms
+                        if elapsed >= 1500:
+                            if self.noise_floor_samples:
                                 self.noise_floor = sum(self.noise_floor_samples) / len(self.noise_floor_samples)
-                                # 🎯 AGENT 3: threshold = noise + 60, capped at 175
                                 self.speech_threshold = min(175.0, self.noise_floor + 60.0)
-                                print(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f} (samples={len(self.noise_floor_samples)})")
                                 logger.info(f"[VAD] Calibrated noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f}")
+                                print(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f} (samples={len(self.noise_floor_samples)})")
                             else:
-                                # No quiet samples - use conservative baseline
+                                # No quiet samples - use default
+                                self.noise_floor = 100.0
                                 self.speech_threshold = 160.0
-                                print(f"⚠️ [VAD] No quiet samples - using baseline threshold={self.speech_threshold:.1f}")
-                                logger.warning(f"[VAD] No quiet samples - using baseline threshold={self.speech_threshold:.1f}")
-                            
+                                logger.warning(f"[VAD] No quiet samples - using defaults noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f}")
+                                print(f"⚠️ [VAD] No quiet samples - using defaults")
                             self.is_calibrated = True
-                            # Clear samples to save memory
-                            self.noise_floor_samples = []
                     
                     # 🎯 Simple voice detection: RMS > threshold
                     if self.is_calibrated:

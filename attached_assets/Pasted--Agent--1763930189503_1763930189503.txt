@@ -1,0 +1,226 @@
+הבנתי בדיוק מה קרה פה:
+ה־Agent שלך ניסה “ליישם” את ההנחיית־על בצורה של שלבים — אבל הוא לא הבין את מבנה הקוד שלך, וביצע שינויי־דמה שלא באמת עובדים.
+עכשיו הוא גם תקוע על הבעיה של ה-continue שלא חוסם את השולח ל-Realtime.
+
+אתה צריך הנחיה מושלמת אחת שתגרום לו:
+
+✔ ליישם את כל ההנחיית־על בצורה נכונה
+✔ להשיג audio gate אמיתי
+✔ למנוע Fake utterances בתחילת שיחה
+✔ לתקן את ה-barge-in
+✔ להוסיף תמלול יציב + סינון ג’יבריש
+✔ לשמור על מבנה הקוד של הפרויקט שלך (זה חשוב!!)
+✔ לתקן כל טעות ארכיטקטונית שהוא עשה בדרך
+
+אז הנה מה שאתה צריך להדביק לו —
+זאת ההנחיה המושלמת והיחידה שהוא צריך.
+
+⸻
+
+🚨 THE ONLY VALID INSTRUCTION FOR THE AGENT (FIX EVERYTHING)
+
+Paste this exactly as-is to Agent 3.
+
+⸻
+
+🧠 READ THIS FIRST – DO NOT APPLY CHANGES UNTIL YOU FULLY UNDERSTAND THE CURRENT PROJECT STRUCTURE
+
+You must follow this workflow:
+	1.	Load ALL relevant files FIRST
+	•	server/media_ws_ai.py
+	•	server/services/openai_realtime_client.py
+	•	server/services/realtime_prompt_builder.py
+	2.	Analyze the actual structure —
+NOT what you “think” it should be, but what is really in the project uploaded.
+	3.	Do NOT invent new architecture.
+You must fit the changes into the existing pipeline:
+	•	Twilio → media_ws_ai.run() → audio RMS
+	•	Realtime queues (audio_in / audio_out)
+	•	Realtime receiver + sender
+	•	barge-in via is_ai_speaking_event
+	•	greeting logic
+	•	appointment rules
+	•	transcript handling
+	4.	Make modifications only where instructed, nothing extra.
+
+⸻
+
+✅ PHASE 1 — ADD MISSING STATE VARIABLES (EXACT)
+
+In MediaStreamHandler.__init__ add:
+
+self.has_real_user_utterance = False
+self.noise_floor_samples = []
+self.calibration_start_ts = None
+self.speech_threshold = 175.0
+self.allow_opening_greeting = False  # or detect from business settings
+
+If some exist, do not duplicate — update them.
+
+⸻
+
+✅ PHASE 2 — FIX NOISE CALIBRATION (TIME-BASED 1500ms)
+
+Inside run():
+
+At start of media stream (event == "start"):
+
+Add:
+
+self.calibration_start_ts = time.time()
+self.noise_floor_samples = []
+self.is_calibrated = False
+
+During frame processing:
+
+Replace existing calibration logic with EXACT:
+
+now = time.time()
+if not self.is_calibrated:
+    elapsed = (now - self.calibration_start_ts) * 1000
+    rms = frame_rms  # already computed
+
+    if rms < 120:
+        self.noise_floor_samples.append(rms)
+
+    if elapsed >= 1500:
+        if self.noise_floor_samples:
+            self.noise_floor = sum(self.noise_floor_samples) / len(self.noise_floor_samples)
+        self.speech_threshold = min(175.0, self.noise_floor + 60.0)
+        self.is_calibrated = True
+        logger.info(f"[VAD] Calibrated noise={self.noise_floor:.1f}, speech_threshold={self.speech_threshold:.1f}")
+
+
+⸻
+
+🚨 PHASE 3 — FIX THE AUDIO GATE (THE PART YOU BROKE)
+
+🔥 CRITICAL RULE:
+
+The audio gate MUST be placed BEFORE you push audio into realtime_audio_in_queue.
+
+NEVER use continue inside try/except for this block.
+Instead, use:
+
+should_send_to_realtime = True
+
+if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+    if self.is_calibrated:
+        if frame_rms < self.speech_threshold:
+            should_send_to_realtime = False
+    else:
+        if frame_rms < 120:
+            should_send_to_realtime = False
+
+if USE_REALTIME_API and should_send_to_realtime:
+    # THIS IS THE ONLY PLACE THAT ENQUEUES AUDIO
+    self.realtime_audio_in_queue.put_nowait(b64)
+
+This ensures no silent/noise frames ever reach OpenAI.
+
+⸻
+
+🚨 PHASE 4 — FIX BARGE-IN (GRACE PERIOD 300ms)
+
+Inside _handle_realtime_barge_in() leave logic as-is.
+
+BUT update grace check inside run():
+
+if self.is_ai_speaking_event.is_set():
+    if (time.time() - self.ai_speaking_start_ts) * 1000 < 300:
+        pass  # ignore early echo
+    else:
+        if frame_rms >= self.speech_threshold:
+            self._handle_realtime_barge_in()
+
+
+⸻
+
+🚨 PHASE 5 — FIX TRANSCRIPT HANDLING (NO MORE FAKE SPEECH)
+
+Inside _realtime_audio_receiver() on:
+
+conversation.item.input_audio_transcription.completed
+
+Replace the existing logic with EXACT:
+
+text = (event.get("transcript") or "").strip()
+
+# 1. Filter meaningless transcripts
+if len(text) < 3:
+    logger.debug("[TRANSCRIPT FILTER] too short")
+    return
+if all(ch in ".?!, " for ch in text):
+    logger.debug("[TRANSCRIPT FILTER] punctuation only")
+    return
+
+# 2. Mark as real speech
+self.has_real_user_utterance = True
+
+# 3. Store
+logger.info(f"👤 [REALTIME] User said: {text}")
+self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time()})
+self.has_pending_ai_response = True
+
+# 4. NLP
+self._check_appointment_confirmation(text)
+
+
+⸻
+
+🚨 PHASE 6 — BLOCK AI FROM TALKING BEFORE A REAL UTTERANCE
+
+Inside _run_realtime_mode_async()
+wrap outgoing AI responses with:
+
+if not self.has_real_user_utterance and not self.greeting_text:
+    logger.info("[GUARD] Blocking AI response – no real user utterance")
+    return
+
+
+⸻
+
+🚨 PHASE 7 — UPDATE PROMPT (HEBREW OUTPUT, MULTI-LANGUAGE INPUT)
+
+In realtime_prompt_builder.py, inside critical rules:
+
+Add:
+
+• אתה מבין את כל השפות (עברית, אנגלית, רוסית, ערבית ועוד), אך ALWAYS עונה בעברית בלבד.
+• אם המשתמש מדבר בשפה אחרת - תשתמש רק במילה או שתיים בלשון שלו לצורך הכוונה, אבל התשובה תהיה בעברית מלאה.
+
+Keep the rest unchanged.
+
+⸻
+
+🚨 PHASE 8 — LOGGING REQUIRED
+
+Where indicated in this instruction, you MUST add logs with exactly these labels:
+	•	[VAD]
+	•	[AUDIO GATE]
+	•	[TRANSCRIPT FILTER]
+	•	[BARGE-IN]
+	•	[GUARD]
+
+No additional debug spam.
+
+⸻
+
+🧨 PHASE 9 — DO NOT CHANGE ANYTHING ELSE
+
+No architecture rewrites.
+No refactoring.
+No creative suggestions.
+No reformatting.
+No duplicate logic.
+No invented classes.
+
+Only implement EXACTLY what is written above.
+
+⸻
+
+✔️ זהו.
+
+זו ההנחיה שאתה צריך להדביק לו והיא תגרום לו לעבוד מושלם.
+
+אם אתה רוצה — אשחזר לך גם את כל החלקים האלה כדמוי-קוד מלא בצורה שהסוכן יבין 1:1 בלי פירוש.
