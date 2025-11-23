@@ -1,0 +1,189 @@
+Context / Current State
+-----------------------
+We are on the version AFTER:
+- Phase A: removed auto response.create when no greeting_text
+- Phase B: simple transcript noise filter (<3 chars / punctuation only)
+- Phase C: faster barge-in thresholds
+- Prompt Rule 3 changed: the assistant must NOT talk during silence
+
+This is all OK and should remain.
+
+Current problems:
+
+1) When a business HAS greeting_text, I see in logs that the greeting is sent,
+   but on the actual phone call the user does not hear the greeting at all.
+   So the greeting path is being logged but effectively muted / cancelled.
+
+2) Barge-in is still weak:
+   When the AI is speaking and the caller starts talking,
+   the AI finishes the whole sentence and only then responds,
+   instead of being interrupted within ~0.3–0.5 seconds.
+
+You must fix both issues with SMALL, SURGICAL CHANGES in:
+- server/media_ws_ai.py ONLY
+
+Do NOT:
+- change OpenAI Realtime turn_detection
+- modify openai_realtime_client.py
+- add complex new state machines
+- touch greeting_text business logic itself (the text and when it is chosen)
+
+------------------------------------------------
+STEP 1 – Track whether the user has ever spoken, and whether we are playing greeting
+------------------------------------------------
+
+In MediaStreamHandler.__init__, add two simple flags:
+
+    self.user_has_spoken = False      # becomes True after first real transcript
+    self.is_playing_greeting = False  # True only while greeting audio is playing
+
+In `_realtime_audio_receiver`, inside the
+    "conversation.item.input_audio_transcription.completed"
+handler, AFTER the noise filter and AFTER you set `transcript = text`,
+add:
+
+    # Mark that the user has really spoken at least once
+    self.user_has_spoken = True
+
+In `_run_realtime_mode_async`, in the REALTIME greeting block where we send
+the business greeting, you already have something like:
+
+    if hasattr(self, 'greeting_text') and not self.greeting_sent:
+        if self.greeting_text:
+            ...
+            await client.send_text_response(self.greeting_text)
+            self.greeting_sent = True
+            ...
+
+After a successful send of the greeting (no exception), set:
+
+            self.is_playing_greeting = True
+
+Do NOT change the greeting selection logic, just set this flag.
+
+------------------------------------------------
+STEP 2 – Make sure the greeting audio is actually played (not cancelled)
+------------------------------------------------
+
+Still in `_realtime_audio_receiver`, in the blocks that handle assistant audio,
+e.g.:
+
+    elif event_type == "response.audio.delta":
+        ...
+        # enqueue audio to TTS / Twilio
+
+    elif event_type == "response.audio.done":
+        ...
+
+We must guarantee that:
+
+- While `self.is_playing_greeting is True` AND `self.user_has_spoken is False`,
+  greeting audio is allowed to go through to Twilio and is NOT blocked or
+  cancelled by any guard or barge-in.
+
+Implement:
+
+1) In `response.audio.delta` handling:
+
+    # If this is the greeting phase (greeting sent, user hasn't spoken yet),
+    # ALWAYS allow the audio to be enqueued for playback.
+    if self.is_playing_greeting and not self.user_has_spoken:
+        logger.info("[GREETING] Passing greeting audio to caller")
+        # enqueue as usual (no guard here)
+        <existing enqueue logic>
+        self.is_ai_speaking = True
+        return
+
+    # For all other cases, fall through to the normal handling below.
+
+2) In `response.audio.done` handling:
+
+    # When audio finishes and we were in greeting mode, unset the flag
+    if self.is_playing_greeting:
+        logger.info("[GREETING] Greeting audio finished")
+        self.is_playing_greeting = False
+
+    # then proceed with existing is_ai_speaking clearing etc.
+
+This ensures:
+- Greeting audio is not accidentally suppressed by any later guards.
+- After greeting is done, we fall back to normal AI speech behavior.
+
+------------------------------------------------
+STEP 3 – Simplify barge-in: speech-based, only AFTER user has spoken at least once
+------------------------------------------------
+
+In the Twilio media loop where you process incoming audio frames from the caller,
+there is already barge-in logic using:
+- grace_period
+- barge_in_threshold
+- self.voice_in_row
+- etc.
+
+We want a simpler, more reliable barge-in:
+
+RULES:
+- Barge-in should NEVER trigger before the user has spoken at least once.
+  (We don't want noise during initial greeting to cancel it.)
+- After the first real user utterance, while AI is speaking, if we detect
+  a speech frame above the calibrated speech threshold, and a short grace period
+  (echo window) has passed, we immediately call _handle_realtime_barge_in().
+
+Implement the following:
+
+1) Remove or comment out:
+   - self.voice_in_row increments
+   - large thresholds like 3000 RMS
+   - conditions like voice_in_row >= 200 or similar
+
+2) Replace the barge-in block with this logic:
+
+    if self.is_ai_speaking:
+        # Do NOT allow barge-in before the user has ever spoken
+        if not self.user_has_spoken:
+            # User never spoke yet → do not treat noise as barge-in
+            return
+
+        current_time = time.monotonic()
+        time_since_tts_start = current_time - self.speaking_start_ts
+
+        # Short grace period (300ms) to avoid echo of our own TTS
+        grace_period = 0.3
+        if time_since_tts_start < grace_period:
+            return
+
+        # Use our calibrated speech threshold as barge-in trigger
+        speech_threshold = getattr(self, "speech_threshold", None) or getattr(self, "vad_threshold", None) or 1200
+
+        if rms >= speech_threshold:
+            logger.info(f"[BARGE-IN] User speech detected while AI speaking "
+                        f"(rms={rms:.1f}, threshold={speech_threshold:.1f})")
+            self._handle_realtime_barge_in()
+            return
+
+No extra counters, no long continuous speech requirement.
+One strong speech frame above speech_threshold after 300ms is enough.
+
+------------------------------------------------
+RULES / DO-NOTS
+------------------------------------------------
+
+- Do NOT modify OpenAI Realtime turn_detection or session configuration.
+- Do NOT touch greeting_text selection logic.
+- Do NOT touch the prompt again (Rule 3 is already correct).
+- Do NOT add more flags than:
+    self.user_has_spoken
+    self.is_playing_greeting
+
+After this change, verify:
+
+1) Business with greeting_text:
+   - Greeting appears in logs AND is actually heard once at call start.
+   - After greeting, AI stays silent until caller speaks.
+
+2) Business without greeting_text:
+   - No voice at all until caller speaks.
+
+3) While AI is answering a user question:
+   - If caller starts talking over it, AI stops within ~0.3–0.5 seconds
+     and then responds to the latest utterance.

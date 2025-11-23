@@ -659,6 +659,7 @@ class MediaStreamHandler:
         self.voice_in_row = 0
         self.greeting_sent = False
         self.user_has_spoken = False  # Track if user has spoken at least once
+        self.is_playing_greeting = False  # True only while greeting audio is playing
         self.state = STATE_LISTEN        # מצב נוכחי
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
@@ -1037,6 +1038,7 @@ class MediaStreamHandler:
                     try:
                         await client.send_text_response(self.greeting_text)
                         self.greeting_sent = True
+                        self.is_playing_greeting = True  # Mark greeting is playing
                         print(f"✅ [REALTIME] Greeting sent successfully!")
                         # Track in conversation history
                         if hasattr(self, 'conversation_history'):
@@ -1185,24 +1187,34 @@ class MediaStreamHandler:
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
-                    # 🛡️ GUARD: Block AI audio before first real user utterance
-                    if not self.user_has_spoken and not getattr(self, "greeting_sent", False):
-                        # User never spoke, and this is not the greeting – block it
-                        print("[GUARD] Blocking AI audio response before first real user utterance")
-                        # If there is a response_id in the event, send response.cancel once
-                        response_id = event.get("response_id")
-                        if response_id:
-                            try:
-                                await client.send_event({
-                                    "type": "response.cancel",
-                                    "response_id": response_id,
-                                })
-                            except Exception:
-                                print("[GUARD] Failed to send response.cancel for pre-user-response")
-                        continue  # do NOT enqueue audio for TTS
-                    
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
+                        # 🎤 GREETING PRIORITY: If this is the greeting phase, ALWAYS allow audio
+                        if self.is_playing_greeting and not self.user_has_spoken:
+                            print("[GREETING] Passing greeting audio to caller")
+                            # Enqueue greeting audio - NO guards, NO cancellation
+                            try:
+                                self.realtime_audio_out_queue.put_nowait(audio_b64)
+                            except queue.Full:
+                                pass
+                            self.is_ai_speaking_event.set()
+                            continue
+                        
+                        # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
+                        if not self.user_has_spoken and not getattr(self, "greeting_sent", False):
+                            # User never spoke, and this is not the greeting – block it
+                            print("[GUARD] Blocking AI audio response before first real user utterance")
+                            # If there is a response_id in the event, send response.cancel once
+                            response_id = event.get("response_id")
+                            if response_id:
+                                try:
+                                    await client.send_event({
+                                        "type": "response.cancel",
+                                        "response_id": response_id,
+                                    })
+                                except Exception:
+                                    print("[GUARD] Failed to send response.cancel for pre-user-response")
+                            continue  # do NOT enqueue audio for TTS
                         # 🎯 Track AI speaking state for barge-in detection
                         now = time.time()
                         if not self.is_ai_speaking_event.is_set():
@@ -1236,6 +1248,11 @@ class MediaStreamHandler:
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
+                    # When audio finishes and we were in greeting mode, unset the flag
+                    if self.is_playing_greeting:
+                        print("[GREETING] Greeting audio finished")
+                        self.is_playing_greeting = False
+                    
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
                     if self.is_ai_speaking_event.is_set():
@@ -2415,70 +2432,48 @@ class MediaStreamHandler:
                         else:
                             self.voice_in_row = max(0, self.voice_in_row - 2)  # קיזוז מהיר לרעשים
 
-                        # ⚡ BUILD 109: SMART BARGE-IN - Disable for long responses, enable for short ones
-                        # ⚡ BUILD 121: DISABLE barge-in when waiting for DTMF input!
-                        if self.speaking and not self.waiting_for_dtmf:
-                            # 🧠 SMART: If response is long (>20 words), DISABLE barge-in completely!
-                            if self.long_response:
-                                # 🔒 Long response - let it finish! No interruptions allowed
+                        # ⚡ SIMPLIFIED BARGE-IN: Fast and speech-based
+                        # Only trigger after user has spoken at least once (no false positives during greeting)
+                        if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
+                            # Do NOT allow barge-in before the user has ever spoken
+                            if not self.user_has_spoken:
+                                # User never spoke yet → do not treat noise as barge-in
                                 continue
                             
-                            # 🔓 Short response - allow barge-in with a short grace period
-                            grace_period = 0.7  # ~700ms before barge-in is allowed
                             time_since_tts_start = current_time - self.speaking_start_ts
                             
+                            # Short grace period (300ms) to avoid echo of our own TTS
+                            grace_period = 0.3
                             if time_since_tts_start < grace_period:
-                                # Inside grace period - NO barge-in allowed
                                 continue
                             
-                            # More reasonable threshold for human speech above noise
-                            barge_in_threshold = max(900, self.noise_floor * 5.0 + 300) if self.is_calibrated else 1200
-                            is_barge_in_voice = rms > barge_in_threshold
+                            # Use our calibrated speech threshold as barge-in trigger
+                            speech_threshold = getattr(self, "vad_threshold", None) or 1200
                             
-                            if is_barge_in_voice:
-                                self.voice_in_row += 1
-                                # Require ~0.8s of continuous strong voice (40 frames x 20ms)
-                                if self.voice_in_row >= 40:
-                                    print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
-                                    
-                                    # ✅ מדידת Interrupt Halt Time
-                                    interrupt_start = time.time()
-                                    
-                                    # ✅ FIXED: רק בצע interrupt, הוא יטפל בכל המצבים
-                                    self._interrupt_speaking()
-                                    
-                                    # ✅ מדידת זמן עצירה
-                                    halt_time = (time.time() - interrupt_start) * 1000
-                                    print(f"📊 INTERRUPT_HALT: {halt_time:.1f}ms (target: ≤200ms)")
-                                    
-                                    # ✅ מעבר מיידי ל-LISTENING
-                                    self.state = STATE_LISTEN
-                                    self.processing = False
-                                    
-                                    # ✅ ניקוי באפר ופתיחה חדשה לתמלול
-                                    self.buf.clear()
-                                    self.last_voice_ts = current_time  # התחל מדידת שקט מחדש
-                                    self.voice_in_row = 0
-                                    
-                                    print("🎤 BARGE-IN -> LISTENING (user can speak now)")
-                                    
-                                    # שלח clear לטוויליו כדי לנקות אודיו תקוע (אם החיבור תקין)
-                                    if not self.ws_connection_failed:
-                                        try:
-                                            self._tx_enqueue({"type": "clear"})
-                                        except:
-                                            pass
-                                    else:
-                                        print("💔 SKIPPING barge-in clear - WebSocket connection failed")
-                                    continue
+                            if rms >= speech_threshold:
+                                print(f"[BARGE-IN] User speech detected while AI speaking (rms={rms:.1f}, threshold={speech_threshold:.1f})")
+                                
+                                # Call Realtime barge-in handler (cancels OpenAI response)
+                                self._handle_realtime_barge_in()
+                                
+                                # Clean up state
+                                self.state = STATE_LISTEN
+                                self.processing = False
+                                self.buf.clear()
+                                self.last_voice_ts = current_time
+                                self.voice_in_row = 0
+                                
+                                print("🎤 BARGE-IN -> LISTENING (user can speak now)")
+                                
+                                # Send clear to Twilio
+                                if not self.ws_connection_failed:
+                                    try:
+                                        self._tx_enqueue({"type": "clear"})
+                                    except:
+                                        pass
                                 else:
-                                    # אם אין קול חזק מספיק - קזז את הספירה
-                                    self.voice_in_row = max(0, self.voice_in_row - 1)
-                            else:
-                                self.voice_in_row = 0  # אפס ספירה אם לא במצב speaking
-                    else:
-                        # 🔥 PHASE 2N: Barge-in DISABLED - reset counter to prevent any state buildup
-                        self.voice_in_row = 0
+                                    print("💔 SKIPPING barge-in clear - WebSocket connection failed")
+                                continue
                     
                     # ✅ איסוף אודיו עם זיהוי דממה תקין
                     if not self.processing and self.state == STATE_LISTEN:
