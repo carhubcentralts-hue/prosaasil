@@ -123,6 +123,34 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             import time
             agent_start = time.time()
             
+            # 🔥 CRITICAL FIX: Load DB prompt if not provided
+            if not custom_instructions or not isinstance(custom_instructions, str) or not custom_instructions.strip():
+                try:
+                    from server.models_sql import BusinessSettings
+                    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                    if settings and settings.ai_prompt:
+                        import json
+                        try:
+                            prompt_data = json.loads(settings.ai_prompt)
+                            if isinstance(prompt_data, dict):
+                                # Extract channel-specific prompt
+                                if channel == "whatsapp":
+                                    custom_instructions = prompt_data.get('whatsapp', '')
+                                else:
+                                    custom_instructions = prompt_data.get('calls', '')
+                                print(f"✅ Loaded {channel} prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                            else:
+                                # Legacy single prompt
+                                custom_instructions = settings.ai_prompt
+                                print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                        except json.JSONDecodeError:
+                            # Legacy single prompt
+                            custom_instructions = settings.ai_prompt
+                            print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}")
+                    custom_instructions = None
+            
             print(f"🔨 CALLING create_booking_agent(business_id={business_id}, channel={channel})")
             logger.info(f"🔨 Creating agent for business={business_id}, channel={channel}")
             
@@ -1184,7 +1212,33 @@ def get_agent(agent_type: str = "booking", business_name: str = "העסק", cust
     
     if cache_key not in _agent_cache:
         if agent_type == "booking":
-            _agent_cache[cache_key] = create_booking_agent(business_name, None, business_id, channel)
+            # 🔥 CRITICAL: Load DB prompt if not provided
+            actual_instructions = custom_instructions
+            if not actual_instructions or not isinstance(actual_instructions, str) or not actual_instructions.strip():
+                try:
+                    from server.models_sql import BusinessSettings
+                    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                    if settings and settings.ai_prompt:
+                        import json
+                        try:
+                            prompt_data = json.loads(settings.ai_prompt)
+                            if isinstance(prompt_data, dict):
+                                # Extract channel-specific prompt
+                                if channel == "whatsapp":
+                                    actual_instructions = prompt_data.get('whatsapp', '')
+                                else:
+                                    actual_instructions = prompt_data.get('calls', '')
+                            else:
+                                # Legacy single prompt
+                                actual_instructions = settings.ai_prompt
+                        except json.JSONDecodeError:
+                            # Legacy single prompt
+                            actual_instructions = settings.ai_prompt
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not load DB prompt in get_agent for business={business_id}: {e}")
+                    actual_instructions = None
+            
+            _agent_cache[cache_key] = create_booking_agent(business_name, actual_instructions, business_id, channel)
         elif agent_type == "sales":
             _agent_cache[cache_key] = create_sales_agent(business_name)
         elif agent_type == "ops":

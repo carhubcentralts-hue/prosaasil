@@ -48,6 +48,15 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Smart Barge-In**: 400ms grace period, 150 RMS threshold, 400ms minimum voice duration, 800ms cooldown.
 - **Cost Tracking (Nov 2025)**: Real-time chunk-based audio tracking with precise cost calculations. Automatic cost summary displayed at end of EVERY call with breakdown: user audio (chunks→minutes→$), AI audio (chunks→minutes→$), total in USD and NIS (₪). Supports all OpenAI Realtime models including new gpt-realtime (2025).
 - **Error Resilience**: DB query failures fall back to minimal prompt.
+- **Automatic DB Prompt Loading (Nov 24, 2025 - CRITICAL FIX)**: 
+  - Both `get_or_create_agent` and `get_agent` now automatically load AI prompts from `BusinessSettings.ai_prompt` table
+  - Channel-specific prompt extraction: parses JSON to get 'calls' or 'whatsapp' prompt
+  - Fallback support for legacy single-prompt format
+  - Eliminates "⚠️ NO DB prompt - using minimal fallback" warning
+  - Prompts load transparently without requiring explicit custom_instructions parameter
+- **Greeting Message Response (Nov 24, 2025)**: 
+  - `update_business_prompt` endpoint now returns `greeting_message` and `whatsapp_greeting` in response
+  - UI can display saved greeting immediately after update
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

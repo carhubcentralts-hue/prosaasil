@@ -1,0 +1,107 @@
+2025-11-24 00:42:18.62
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:18.68
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:18.73
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:18.84
+8373c48a
+User
+🎙️ [BARGE-IN] User voice detected (RMS=505, AI speaking=True)
+2025-11-24 00:42:18.84
+8373c48a
+User
+🎙️ REAL_VOICE: rms=505.0 > threshold=120.3
+2025-11-24 00:42:18.85
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:18.90
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:18.94
+8373c48a
+User
+🔇 [BARGE-IN] User stopped speaking (RMS=21 < 150.0)
+2025-11-24 00:42:18.96
+8373c48a
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-24 00:42:18.96
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:18.98
+8373c48a
+User
+🎙️ [BARGE-IN] User voice detected (RMS=413, AI speaking=True)
+2025-11-24 00:42:18.98
+8373c48a
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-11-24 00:42:18.98
+8373c48a
+User
+[REALTIME] event: response.content_part.done
+2025-11-24 00:42:18.98
+8373c48a
+User
+[GREETING] Greeting audio finished
+2025-11-24 00:42:18.98
+8373c48a
+User
+[REALTIME] event: response.output_item.done
+2025-11-24 00:42:18.98
+8373c48a
+User
+[REALTIME] event: response.audio_transcript.done
+2025-11-24 00:42:18.98
+8373c48a
+User
+[REALTIME] event: response.done
+2025-11-24 00:42:18.98
+8373c48a
+User
+🤖 [REALTIME] AI said: הדירה בחנקין 82 היא דירת 4 חדרים, 103 מ"ר בנוי ועוד מרפסת. המחיר הוא 1,890,000 ש"ח. מעוניין
+2025-11-24 00:42:18.98
+8373c48a
+User
+[REALTIME] event: response.audio.done
+2025-11-24 00:42:20.77
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:20.81
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:20.87
+8373c48a
+User
+[GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+2025-11-24 00:42:20.87
+8373c48a
+User
+💰 [COST] User utterance: 4.66s (276 chunks total)
+2025-11-24 00:42:20.87
+8373c48a
+User
+🔍 [DEBUG] _check_appointment_confirmation called with transcript: 'Thank you....'
+2025-11-24 00:42:23.34
+8373c48a
+User
+✅ Resolved business_id=1 from to_number=+97233763805 (Business: שי דירות)
+2025-11-24 00:42:23.40
+8373c48a
+User
+🔵 CREATE_LEAD_FROM_CALL - App context created
+2025-11-24 00:42:23.40
+8373c48a
+User
