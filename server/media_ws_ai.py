@@ -1047,17 +1047,9 @@ class MediaStreamHandler:
                     except Exception as e:
                         print(f"❌ [REALTIME] Greeting send failed: {e}")
                 else:
-                    # אין פתיח מוגדר - ה-AI ידבר ראשון בעצמו!
-                    print(f"🎤 [REALTIME] No greeting defined - AI will speak first dynamically!")
-                    try:
-                        # Trigger AI to start speaking based on system prompt
-                        await client.send_event({
-                            "type": "response.create"
-                        })
-                        self.greeting_sent = True
-                        print(f"✅ [REALTIME] AI triggered to speak first!")
-                    except Exception as e:
-                        print(f"❌ [REALTIME] Failed to trigger AI first speech: {e}")
+                    # No greeting configured - do NOT trigger AI, just wait for user speech
+                    print("📭 [REALTIME] No greeting defined - waiting for user to speak (no auto response.create)")
+                    # Do NOT call response.create and do NOT set greeting_sent here.
             else:
                 print(f"📭 [REALTIME] Greeting already sent (greeting_sent={getattr(self, 'greeting_sent', None)})")
             
@@ -1282,7 +1274,16 @@ class MediaStreamHandler:
                         # Removing this call to prevent loop (NLP should only analyze user input)
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
-                    transcript = event.get("transcript", "")
+                    raw_text = event.get("transcript", "") or ""
+                    text = raw_text.strip()
+                    
+                    # Simple noise filter: ignore very short or punctuation-only transcripts
+                    if len(text) < 3 or all(ch in ".?!, " for ch in text):
+                        print("[TRANSCRIPT FILTER] Ignoring very short / noise transcript:", repr(text))
+                        print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
+                        continue
+                    
+                    transcript = text
                     
                     # 💰 COST TRACKING: User finished speaking - stop timer  
                     if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
@@ -2402,23 +2403,22 @@ class MediaStreamHandler:
                                 # 🔒 Long response - let it finish! No interruptions allowed
                                 continue
                             
-                            # 🔓 Short response - allow barge-in with grace period
-                            # 🔥 PHASE 2N: Conservative settings (if enabled via env)
-                            grace_period = 4.5  # Was 3.5s - even more time to finish
+                            # 🔓 Short response - allow barge-in with a short grace period
+                            grace_period = 0.7  # ~700ms before barge-in is allowed
                             time_since_tts_start = current_time - self.speaking_start_ts
                             
                             if time_since_tts_start < grace_period:
                                 # Inside grace period - NO barge-in allowed
                                 continue
                             
-                            # 🔥 PHASE 2N: VERY HIGH threshold - 3000+ RMS (was 2200+)
-                            barge_in_threshold = max(3000, self.noise_floor * 30.0 + 1000) if self.is_calibrated else 3500
+                            # More reasonable threshold for human speech above noise
+                            barge_in_threshold = max(900, self.noise_floor * 5.0 + 300) if self.is_calibrated else 1200
                             is_barge_in_voice = rms > barge_in_threshold
                             
                             if is_barge_in_voice:
                                 self.voice_in_row += 1
-                                # 🔥 PHASE 2N: Require 4000ms (4.0s) continuous VERY LOUD voice
-                                if self.voice_in_row >= 200:  # 4000ms = 4.0 שניות קול חזק מאוד רציף!
+                                # Require ~0.8s of continuous strong voice (40 frames x 20ms)
+                                if self.voice_in_row >= 40:
                                     print(f"⚡ BARGE-IN DETECTED (after {time_since_tts_start*1000:.0f}ms)")
                                     
                                     # ✅ מדידת Interrupt Halt Time
