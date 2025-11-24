@@ -463,12 +463,12 @@ export function MainLayout() {
                           onClick={() => {
                             setUserMenuOpen(false);
                             setSidebarOpen(false);
-                            navigate('/app/settings/profile');
+                            navigate('/app/settings');
                           }}
                           data-testid="button-profile"
                         >
                           <User className="h-4 w-4 ml-3" />
-                          הגדרות פרופיל
+                          הגדרות מערכת
                         </button>
                         
                         <button

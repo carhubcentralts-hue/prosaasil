@@ -249,7 +249,7 @@ def update_business_prompt(business_id):
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['GET'])
 @csrf.exempt  # GET requests don't need CSRF
-@require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לקרוא פרומפטים גם כשהוא מתחזה
+@require_api_auth(['system_admin', 'owner', 'admin'])  # BUILD 138: owner can access AI settings
 def get_current_business_prompt():
     """Get AI prompt for current business - Business (Impersonated)"""
     try:
@@ -264,7 +264,7 @@ def get_current_business_prompt():
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
-@require_api_auth(['business', 'admin'])  # ✅ אדמין יכול לעדכן פרומפטים גם כשהוא מתחזה
+@require_api_auth(['system_admin', 'owner', 'admin'])  # BUILD 138: owner can update AI settings
 def update_current_business_prompt():
     """Update AI prompt for current business - Business (Impersonated, דורש CSRF)"""
     try:
