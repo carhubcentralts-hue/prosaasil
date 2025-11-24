@@ -72,7 +72,7 @@ def initialize_production_database():
                 password_hash=password_hash,
                 name='System Administrator',
                 role='system_admin',  # ✅ Updated from 'admin' to 'system_admin'
-                business_id=None,  # ✅ BUILD 139: system_admin is GLOBAL, not tied to any business
+                business_id=None,  # ✅ BUILD 141: system_admin is GLOBAL, not tied to any business
                 is_active=True,
                 created_at=datetime.utcnow()
             )
@@ -81,31 +81,41 @@ def initialize_production_database():
             print(f"✅ Created system admin user: admin@admin.com (ID: {admin.id})")
             logger.info(f"✅ Created system admin user: admin@admin.com (ID: {admin.id})")
         else:
-            print(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role})")
-            logger.info(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role})")
+            print(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role}, business_id: {admin.business_id})")
+            logger.info(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role}, business_id: {admin.business_id})")
             
-            # 3. Ensure correct role and REMOVE business_id for system_admin (BUILD 139)
+            # ✅ BUILD 141: ONLY modify admin@admin.com, not other users!
+            # 3. Ensure correct role and REMOVE business_id for system_admin (BUILD 141)
             updates_needed = False
             
-            # BUILD 139: REMOVE business_id from system_admin (they should be global)
+            # BUILD 141: REMOVE business_id from system_admin (they should be global)
             if admin.role == 'system_admin' and admin.business_id is not None:
                 print("🔓 Unlinking system_admin from business (making global)...")
                 logger.info("🔓 Unlinking system_admin from business (making global)...")
                 admin.business_id = None
                 updates_needed = True
             
-            # Update role from 'admin' to 'system_admin' for backward compatibility (BUILD 124)
+            # ✅ BUILD 141: ONLY upgrade admin@admin.com role, not other admins!
+            # This ONLY applies to admin@admin.com user, not business owners/admins
             if admin.role in ['admin', 'manager']:
-                print(f"📝 Upgrading admin role from '{admin.role}' to 'system_admin'...")
-                logger.info(f"📝 Upgrading admin role from '{admin.role}' to 'system_admin'...")
+                print(f"📝 Upgrading admin@admin.com role from '{admin.role}' to 'system_admin'...")
+                logger.info(f"📝 Upgrading admin@admin.com role from '{admin.role}' to 'system_admin'...")
                 admin.role = 'system_admin'
-                admin.business_id = None  # ✅ BUILD 139: Also remove business_id when upgrading
+                admin.business_id = None  # ✅ BUILD 141: Also remove business_id when upgrading
                 updates_needed = True
             
             if updates_needed:
                 db.session.commit()
-                print(f"✅ Admin updated successfully (now global)")
-                logger.info(f"✅ Admin updated successfully (now global)")
+                print(f"✅ Admin (admin@admin.com) updated successfully (now global)")
+                logger.info(f"✅ Admin (admin@admin.com) updated successfully (now global)")
+        
+        # ✅ BUILD 141: Print all users for debugging
+        all_users = User.query.all()
+        print(f"\n📊 Total users in database: {len(all_users)}")
+        logger.info(f"📊 Total users in database: {len(all_users)}")
+        for u in all_users:
+            print(f"  - User {u.id}: {u.email} | role={u.role} | business_id={u.business_id}")
+            logger.info(f"  - User {u.id}: {u.email} | role={u.role} | business_id={u.business_id}")
         
         # 4. Ensure default lead statuses exist for this business
         existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()

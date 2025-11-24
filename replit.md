@@ -14,22 +14,32 @@ ProSaaS features a multi-tenant architecture with complete business isolation, i
 
 ## Recent Changes
 
-### BUILD 141 (Latest) - Bug Fixes: Impersonation, Lead Names, Popup Scroll
-**Fixed 3 critical UI/UX bugs**:
+### BUILD 141 (Latest) - Critical Multi-Tenant Authentication Fix
+**Fixed critical "No tenant access" bug affecting business users in production**:
 
-1. **Impersonation Not Working**: system_admin couldn't access business pages when impersonating
+1. **Session Key Inconsistency**: `get_current_tenant()` searched for `session['al_user']` but `require_api_auth()` stores in `session['user']`
+   - **Fix**: Updated `get_current_tenant()` and `get_current_user()` in routes_leads.py to check both session keys (`user` and `al_user`)
+   - **Impact**: Fixes "No tenant access" errors in Dashboard, Settings, and all business-scoped endpoints
+   - **File**: `server/routes_leads.py`
+
+2. **Impersonation Not Working**: system_admin couldn't access business pages when impersonating
    - **Fix**: Added system_admin bypass in `require_api_auth()` - system_admin now bypasses all role checks (global access)
    - **File**: `server/auth_api.py`
 
-2. **Lead Names Not Displaying**: Lead cards showed "ללא שם" until clicked
+3. **Lead Names Not Displaying**: Lead cards showed "ללא שם" until clicked
    - **Fix**: Improved fallback logic in LeadCard.tsx - now displays full_name → first_name/last_name → phone_e164 → "ללא שם"
    - **File**: `client/src/pages/Leads/components/LeadCard.tsx`
 
-3. **Lead Popup Not Scrollable**: Lead detail modal content was cut off
+4. **Lead Popup Not Scrollable**: Lead detail modal content was cut off
    - **Fix**: Removed `overflow-hidden` from modal Card container, allowing inner content to scroll
    - **File**: `client/src/pages/Leads/components/LeadDetailModal.tsx`
 
+5. **Debug Logging**: Added user listing in init_database.py to help diagnose authentication issues in production
+   - **File**: `server/init_database.py`
+
 **Additional Fix**: Updated `create_default_admin()` in auth_api.py to create system_admin with `business_id=None` (consistent with BUILD 140)
+
+**Critical Note**: If you see "No tenant access" after login, check that you're logging in with a business owner/admin account (not admin@admin.com). The init database logs will show all users and their roles.
 
 ### BUILD 140 - System Admin Global Entity Fix
 **Critical Bug Fixed**: system_admin incorrectly bound to business_id=1, causing setting changes to modify business #1 instead of being global.

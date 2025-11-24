@@ -17,15 +17,20 @@ leads_bp = Blueprint("leads_bp", __name__)
 
 def get_current_user():
     """
-    BUILD 136 FIX: Get current user from g.user (populated by @require_api_auth)
+    BUILD 141 FIX: Get current user from g.user (populated by @require_api_auth)
     
     IMPORTANT: This relies on @require_api_auth decorator populating g.user
     """
-    return g.user if hasattr(g, 'user') else session.get('al_user')
+    # Priority 1: Use g.user if available (set by @require_api_auth)
+    if hasattr(g, 'user') and g.user:
+        return g.user
+    
+    # Priority 2: Fallback to session - try both keys for compatibility
+    return session.get('user') or session.get('al_user')
 
 def get_current_tenant():
     """
-    BUILD 136 FIX: Get current tenant from g.tenant (populated by @require_api_auth)
+    BUILD 141 FIX: Get current tenant from g.tenant (populated by @require_api_auth)
     
     IMPORTANT: This relies on @require_api_auth decorator populating g.tenant
     """
@@ -37,7 +42,8 @@ def get_current_tenant():
     if session.get('impersonating') and session.get('impersonated_tenant_id'):
         return session.get('impersonated_tenant_id')
     
-    user = session.get('al_user')
+    # Priority 3: Get from user session - try both session keys
+    user = session.get('user') or session.get('al_user')
     return user.get('business_id') if user else None
 
 def require_auth():
