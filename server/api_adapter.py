@@ -53,47 +53,62 @@ def check_permissions(required_roles):
 
 @api_adapter_bp.route('/api/dashboard/stats', methods=['GET'])
 def dashboard_stats():
-    """Unified dashboard stats - accessible to all authenticated users"""
+    """BUILD 135: Business-scoped dashboard stats - filtered by tenant_id"""
     perm_check = check_permissions(['admin', 'manager', 'business'])
     if perm_check:
         return perm_check
     
     try:
+        # BUILD 135: Get current tenant for filtering
+        from server.tenant import get_current_tenant
+        tenant_id = get_current_tenant()
+        if not tenant_id:
+            return jsonify({"error": "No tenant access"}), 403
+        
         # Get today's data
         today = datetime.utcnow().date()
         week_ago = today - timedelta(days=7)
         
-        # Calls stats
+        # BUILD 135: Calls stats - FILTERED by tenant_id
         calls_today = CallLog.query.filter(
+            CallLog.business_id == tenant_id,
             db.func.date(CallLog.created_at) == today
         ).count()
         
         calls_last7d = CallLog.query.filter(
+            CallLog.business_id == tenant_id,
             CallLog.created_at >= week_ago
         ).count()
         
         # Real average handle time
         avg_handle_sec = 0
         
-        # WhatsApp stats  
+        # BUILD 135: WhatsApp stats - FILTERED by tenant_id
         whatsapp_today = WhatsAppMessage.query.filter(
+            WhatsAppMessage.business_id == tenant_id,
             db.func.date(WhatsAppMessage.created_at) == today
         ).count()
         
         whatsapp_last7d = WhatsAppMessage.query.filter(
+            WhatsAppMessage.business_id == tenant_id,
             WhatsAppMessage.created_at >= week_ago
         ).count()
         
-        # Real unread messages count
-        unread = WhatsAppMessage.query.filter_by(status='received').count()
+        # BUILD 135: Real unread messages count - FILTERED by tenant_id
+        unread = WhatsAppMessage.query.filter_by(
+            business_id=tenant_id,
+            status='received'
+        ).count()
         
-        # Real revenue stats
+        # BUILD 135: Real revenue stats - FILTERED by tenant_id
         from sqlalchemy import func
         revenue_this_month = Payment.query.with_entities(func.sum(Payment.amount)).filter(
+            Payment.business_id == tenant_id,
             func.extract('month', Payment.created_at) == today.month,
             func.extract('year', Payment.created_at) == today.year
         ).scalar() or 0
         revenue_ytd = Payment.query.with_entities(func.sum(Payment.amount)).filter(
+            Payment.business_id == tenant_id,
             func.extract('year', Payment.created_at) == today.year
         ).scalar() or 0
         
@@ -120,19 +135,29 @@ def dashboard_stats():
 
 @api_adapter_bp.route('/api/dashboard/activity', methods=['GET'])
 def dashboard_activity():
-    """Recent activity across all channels"""
+    """BUILD 135: Business-scoped recent activity - filtered by tenant_id"""
     perm_check = check_permissions(['admin', 'manager', 'business'])
     if perm_check:
         return perm_check
     
     try:
-        # Get recent WhatsApp messages
-        recent_whatsapp = WhatsAppMessage.query.order_by(
+        # BUILD 135: Get current tenant for filtering
+        from server.tenant import get_current_tenant
+        tenant_id = get_current_tenant()
+        if not tenant_id:
+            return jsonify({"error": "No tenant access"}), 403
+        
+        # BUILD 135: Get recent WhatsApp messages - FILTERED by tenant_id
+        recent_whatsapp = WhatsAppMessage.query.filter_by(
+            business_id=tenant_id
+        ).order_by(
             WhatsAppMessage.created_at.desc()
         ).limit(10).all()
         
-        # Get recent calls
-        recent_calls = CallLog.query.order_by(
+        # BUILD 135: Get recent calls - FILTERED by tenant_id
+        recent_calls = CallLog.query.filter_by(
+            business_id=tenant_id
+        ).order_by(
             CallLog.created_at.desc()
         ).limit(10).all()
         
