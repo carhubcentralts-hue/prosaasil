@@ -172,14 +172,14 @@ def create_app():
             REMEMBER_COOKIE_HTTPONLY=True,   # ✅ גם remember cookie מאובטח
         )
     else:
-        # BUILD 142 FINAL FIX: Replit production uses HTTPS termination, forwards HTTP to Flask
-        # So SESSION_COOKIE_SECURE=True breaks cookies! Set to False for Replit deployment
+        # BUILD 142 ARCHITECT FIX: Replit has HTTPS termination + ProxyFix handles X-Forwarded-Proto
+        # So we CAN use SECURE=True! Browsers reject SAMESITE=None with SECURE=False
         app.config.update(
-            SESSION_COOKIE_SAMESITE='None',  # None for Replit production (architect recommendation)
-            SESSION_COOKIE_SECURE=False,     # FALSE for Replit (HTTPS→HTTP forwarding)
+            SESSION_COOKIE_SAMESITE='None',  # None for cross-origin (required by Replit)
+            SESSION_COOKIE_SECURE=True,      # TRUE because ProxyFix sees HTTPS headers
             SESSION_COOKIE_HTTPONLY=True,    # ✅ Keep HttpOnly for security
             REMEMBER_COOKIE_SAMESITE='None',
-            REMEMBER_COOKIE_SECURE=False,    # Match session cookie setting
+            REMEMBER_COOKIE_SECURE=True,     # Match session cookie setting
             REMEMBER_COOKIE_HTTPONLY=True,   # ✅ Keep HttpOnly for security
         )
 
