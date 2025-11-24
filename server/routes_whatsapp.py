@@ -18,29 +18,38 @@ def get_auth_dir(tenant_id: str) -> tuple:
     return auth_dir, qr_txt, creds
 
 def tenant_id_from_ctx():
-    """Get tenant_id from request context (business selection or auth)"""
-    # ✅ BUILD 91: Multi-tenant - get from request or auth context
-    from flask import request, abort
+    """
+    BUILD 136: SECURE tenant resolution - only from session/auth, NO query params
+    
+    🔒 SECURITY: Prevents cross-tenant access by ignoring business_id query parameter
+    unless the user is system_admin with explicit permission.
+    """
+    from flask import request, abort, session
     import logging
     log = logging.getLogger(__name__)
     
-    # Try to get business_id from query params
-    business_id = request.args.get('business_id', type=int)
+    # Get current user from session
+    user = session.get('al_user', {})
+    user_role = user.get('role')
     
-    # Try to get from session/auth (if logged in)
-    if not business_id:
-        from flask import session
-        # 🔥 FIX: Get business_id from correct session location
+    # BUILD 136: Only system_admin can override business_id via query params
+    query_business_id = request.args.get('business_id', type=int)
+    if query_business_id:
+        if user_role != 'system_admin':
+            log.error(f"❌ SECURITY: Non-admin user tried to access business_id={query_business_id}")
+            abort(403, description="Permission denied - only system_admin can specify business_id")
+        # system_admin can access any business
+        business_id = query_business_id
+        log.info(f"✅ system_admin accessing business_id={business_id}")
+    else:
+        # Get from session/auth (regular users)
         # Check for impersonation first, then get from user object
-        user = session.get('al_user', {})
         business_id = session.get('impersonated_tenant_id') or user.get('business_id')
     
     # 🔒 SECURITY: NO FALLBACK - require explicit business context
-    # Previously: defaulted to business_id=1, causing cross-tenant data exposure
-    # Now: return 401 to enforce proper authentication
     if not business_id:
         log.error("❌ REJECTED: Missing business_id in request context")
-        abort(401, description="Business context required - please login or provide business_id parameter")
+        abort(401, description="Business context required - please login")
     
     # Return in business_X format (as expected by Baileys)
     return f'business_{business_id}'
@@ -50,14 +59,15 @@ def _headers():
 
 @whatsapp_bp.route('/status', methods=['GET'])
 @csrf.exempt  # GET requests don't need CSRF
+@require_api_auth()  # BUILD 136: AUTHENTICATION REQUIRED - prevents cross-tenant snooping
 def status():
-    """BUILD 136: Multi-tenant status - each business has its own QR/creds"""
+    """BUILD 136: SECURE multi-tenant status - each business sees only its own QR/creds"""
     try:
-        # BUILD 136: Get tenant-specific paths
+        # BUILD 136: Get tenant from AUTHENTICATED session (secure)
         t = tenant_id_from_ctx()
         _, qr_txt, creds = get_auth_dir(t)
         
-        # Check files for this specific tenant
+        # Check files for this specific tenant ONLY
         has_qr = os.path.exists(qr_txt)
         connected = os.path.exists(creds) and not has_qr
         if has_qr or connected:
@@ -71,14 +81,15 @@ def status():
 
 @whatsapp_bp.route('/qr', methods=['GET'])
 @csrf.exempt  # GET requests don't need CSRF
+@require_api_auth()  # BUILD 136: AUTHENTICATION REQUIRED - prevents QR code theft
 def qr():
-    """BUILD 136: Multi-tenant QR - each business gets its own QR code"""
+    """BUILD 136: SECURE multi-tenant QR - each business sees only its own QR code"""
     try:
-        # BUILD 136: Get tenant-specific paths
+        # BUILD 136: Get tenant from AUTHENTICATED session (secure)
         t = tenant_id_from_ctx()
         _, qr_txt, _ = get_auth_dir(t)
         
-        # Check file for this specific tenant
+        # Check file for this specific tenant ONLY
         if os.path.exists(qr_txt):
             with open(qr_txt, "r", encoding="utf-8") as f:
                 qr_text = f.read().strip()
