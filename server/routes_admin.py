@@ -966,12 +966,13 @@ def get_users():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.post("/api/admin/users")
-@require_api_auth(["business", "admin", "manager"])
+@require_api_auth(["business", "admin", "manager", "superadmin"])
 def create_user():
-    """Create new business user - admin/manager only"""
+    """Create new business user - admin/manager/superadmin only"""
     try:
         data = request.get_json() or {}
         business_id = g.business_id
+        user_role = g.role  # Get user's role from auth
         
         email = data.get('email', '').strip()
         name = data.get('name', '').strip()
@@ -985,8 +986,12 @@ def create_user():
             return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
         if not name:
             return jsonify({"error": "שם משתמש נדרש"}), 400
-        if role not in ['business', 'manager']:
+        if role not in ['business', 'manager', 'admin']:
             return jsonify({"error": "תפקיד לא חדש"}), 400
+        
+        # Only superadmin can create admin users
+        if role == 'admin' and user_role != 'superadmin':
+            return jsonify({"error": "רק מנהל מערכת יכול ליצור משתמשי admin"}), 403
         
         # Check if user exists
         existing = User.query.filter_by(email=email).first()
@@ -1039,7 +1044,10 @@ def update_user(user_id):
             if len(data['password']) < 6:
                 return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
             user.password_hash = generate_password_hash(data['password'], method='scrypt')
-        if 'role' in data and data['role'] in ['business', 'manager']:
+        if 'role' in data and data['role'] in ['business', 'manager', 'admin']:
+            # Only superadmin can change role to admin
+            if data['role'] == 'admin' and g.role != 'superadmin':
+                return jsonify({"error": "רק מנהל מערכת יכול להציב תפקיד admin"}), 403
             user.role = data['role']
         
         db.session.commit()
