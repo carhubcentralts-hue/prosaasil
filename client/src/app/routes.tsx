@@ -66,7 +66,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['business', 'admin', 'manager']}>
               <BusinessManagerPage />
             </RoleGuard>
           }
@@ -220,7 +220,7 @@ export function AppRoutes() {
         <Route
           path="admin/users"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['business', 'admin', 'manager']}>
               <UsersManagementPage />
             </RoleGuard>
           }

@@ -87,11 +87,12 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Multi-Tenant Isolation**: Complete business data separation.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice time.
 - **Users Management (Nov 25, 2025)**: 
-  - `POST /api/admin/users` - Create new business users (admin/manager only)
-  - `GET /api/admin/users` - List all users for a business
-  - `PUT /api/admin/users/<id>` - Update user details (name, password, role)
-  - `DELETE /api/admin/users/<id>` - Soft delete user
-  - UsersManagementPage component for admin panel user management
+  - `POST /api/admin/users` - Create new business users (business/admin/manager)
+  - `GET /api/admin/users` - List all users for a business (business/admin/manager)
+  - `PUT /api/admin/users/<id>` - Update user details (business/admin/manager)
+  - `DELETE /api/admin/users/<id>` - Soft delete user (business/admin/manager)
+  - UsersManagementPage component accessible by business, admin, and manager
+  - Business users can create staff users to access their business data
   - Users can manage role ('business' or 'manager') per business
 - **User Profile Page (Nov 25, 2025)**:
   - `/app/profile` route displays user profile info (name, email, role, business)
@@ -100,13 +101,16 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - Copy-to-clipboard for email address
   - Logout functionality
 - **Business Management (Nov 25, 2025)**:
-  - `GET /api/admin/businesses` - List all businesses with login credentials (superadmin only)
+  - **Admin/Manager Dashboard**: `/app/admin/businesses` - View their own business details (business/admin/manager accessible)
+  - **Superadmin Dashboard**: `/app/admin/businesses-management` - View all businesses with login credentials and password reset
+  - `GET /api/admin/businesses` - List all businesses (superadmin only for viewing all)
   - `PUT /api/admin/businesses/<id>/reset-password` - Reset business password (superadmin only)
   - BusinessesManagementPage component at `/app/admin/businesses-management`
   - View all businesses: ID, name, email, business type, phone number, active status
   - Password reset functionality with new password generation
   - Business model includes `email` and `password_hash` fields for primary account access
   - Complete RBAC protection with 'superadmin' role type added to UserRole
+  - Business users can view and manage their own business info
 
 # External Dependencies
 

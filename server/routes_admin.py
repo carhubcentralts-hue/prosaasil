@@ -943,7 +943,7 @@ def admin_support_phones():
 # ✅ Users Management Endpoints
 
 @admin_bp.get("/api/admin/users")
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["business", "admin", "manager"])
 def get_users():
     """Get all users for admin - can manage"""
     try:
@@ -963,7 +963,7 @@ def get_users():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.post("/api/admin/users")
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["business", "admin", "manager"])
 def create_user():
     """Create new business user - admin/manager only"""
     try:
@@ -1018,7 +1018,7 @@ def create_user():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.put("/api/admin/users/<int:user_id>")
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["business", "admin", "manager"])
 def update_user(user_id):
     """Update user details"""
     try:
@@ -1056,7 +1056,7 @@ def update_user(user_id):
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.delete("/api/admin/users/<int:user_id>")
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["business", "admin", "manager"])
 def delete_user(user_id):
     """Soft delete user"""
     try:

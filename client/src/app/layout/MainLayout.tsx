@@ -97,7 +97,7 @@ const menuItems = [
     icon: UserCog, 
     label: 'ניהול משתמשים', 
     to: '/app/admin/users',
-    roles: ['admin', 'manager']
+    roles: ['business', 'admin', 'manager']
   },
   { 
     icon: Settings, 
