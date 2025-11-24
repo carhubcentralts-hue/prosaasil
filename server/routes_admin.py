@@ -946,9 +946,9 @@ def admin_support_phones():
 # ✅ Users Management Endpoints
 
 @admin_bp.get("/api/admin/users")
-@require_api_auth(["admin", "manager", "superadmin"])
+@require_api_auth(["admin", "business", "superadmin"])
 def get_users():
-    """Get all users for admin - can manage"""
+    """Get all users for business/admin - business can manage managers, admin can manage all"""
     try:
         business_id = g.business_id
         users = User.query.filter_by(business_id=business_id, is_active=True).all()
@@ -966,9 +966,9 @@ def get_users():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.post("/api/admin/users")
-@require_api_auth(["admin", "manager", "superadmin"])
+@require_api_auth(["admin", "business", "superadmin"])
 def create_user():
-    """Create new business user - admin/manager/superadmin only"""
+    """Create new business user - business can create managers, admin can create all"""
     try:
         data = request.get_json() or {}
         business_id = g.business_id
@@ -977,7 +977,7 @@ def create_user():
         email = data.get('email', '').strip()
         name = data.get('name', '').strip()
         password = data.get('password', '').strip()
-        role = data.get('role', 'business')  # Default: business
+        role = data.get('role', 'manager')  # Default: manager (business creates managers)
         
         # Validation
         if not email or '@' not in email:
@@ -990,12 +990,12 @@ def create_user():
             return jsonify({"error": "תפקיד לא חדש"}), 400
         
         # Permission checks: who can create which roles
-        if user_role == 'manager':
-            # Manager can only create business or manager users
-            if role == 'admin':
-                return jsonify({"error": "ממנהל עסק לא יכול ליצור משתמשי admin"}), 403
+        if user_role == 'business':
+            # Business can ONLY create managers
+            if role != 'manager':
+                return jsonify({"error": "משתמשי עסק יכולים רק ליצור מנהלים"}), 403
         elif user_role == 'admin':
-            # Admin can create all roles (admin/manager/business)
+            # Admin can create business/manager/admin roles
             pass
         elif user_role == 'superadmin':
             # Superadmin can create all roles
@@ -1034,9 +1034,9 @@ def create_user():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.put("/api/admin/users/<int:user_id>")
-@require_api_auth(["admin", "manager", "superadmin"])
+@require_api_auth(["admin", "business", "superadmin"])
 def update_user(user_id):
-    """Update user details"""
+    """Update user details - business can only edit, admin/superadmin can change roles"""
     try:
         business_id = g.business_id
         user = User.query.get(user_id)
@@ -1054,14 +1054,12 @@ def update_user(user_id):
             user.password_hash = generate_password_hash(data['password'], method='scrypt')
         if 'role' in data and data['role'] in ['business', 'manager', 'admin']:
             # Permission checks for role changes
-            if g.role == 'manager':
-                # Manager cannot change anyone to admin
-                if data['role'] == 'admin':
-                    return jsonify({"error": "ממנהל עסק לא יכול להציב תפקיד admin"}), 403
+            if g.role == 'business':
+                # Business cannot change roles at all
+                return jsonify({"error": "משתמשי עסק לא יכולים לשנות תפקידים"}), 403
             elif g.role == 'admin' or g.role == 'superadmin':
                 # Admin and superadmin can set any role
-                pass
-            user.role = data['role']
+                user.role = data['role']
         
         db.session.commit()
         
@@ -1080,7 +1078,7 @@ def update_user(user_id):
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.delete("/api/admin/users/<int:user_id>")
-@require_api_auth(["admin", "manager", "superadmin"])
+@require_api_auth(["admin", "business", "superadmin"])
 def delete_user(user_id):
     """Soft delete user"""
     try:

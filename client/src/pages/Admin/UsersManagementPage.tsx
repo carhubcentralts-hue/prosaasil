@@ -39,8 +39,11 @@ export function UsersManagementPage() {
     role: ('business' as const) as 'business' | 'manager' | 'admin'
   });
 
-  // Permission check: only admin/manager/superadmin can create users
-  const canCreateUsers = currentUser && ['admin', 'manager', 'superadmin'].includes(currentUser.role);
+  // Permission check: only business/admin/superadmin can create/edit
+  const canManageUsers = currentUser && ['admin', 'business', 'superadmin'].includes(currentUser.role);
+  // Only business can create managers, admin/superadmin can create all
+  const canCreateManagers = currentUser?.role === 'business';
+  const canCreateAll = ['admin', 'superadmin'].includes(currentUser?.role || '');
 
   useEffect(() => {
     fetchUsers();
@@ -119,7 +122,7 @@ export function UsersManagementPage() {
   };
 
   const openEditModal = (user: User) => {
-    if (!canCreateUsers) return;
+    if (!canManageUsers) return;
     setFormData({
       name: user.name,
       email: user.email,
@@ -127,16 +130,6 @@ export function UsersManagementPage() {
       role: user.role
     });
     setEditingUser(user);
-  };
-
-  // Get available roles based on current user's role
-  const getAvailableRoles = () => {
-    if (currentUser?.role === 'manager') {
-      // Manager can only create business/manager
-      return ['business', 'manager'];
-    }
-    // Admin and superadmin can create all
-    return ['business', 'manager', 'admin'];
   };
 
   const closeModals = () => {
@@ -152,17 +145,18 @@ export function UsersManagementPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">ניהול משתמשים</h1>
           <p className="text-gray-600 mt-1">
-            {canCreateUsers ? 'צור וניהול משתמשי עסק' : 'צפה במשתמשים'}
+            {currentUser?.role === 'business' ? 'יצירת מנהלים' :
+             currentUser && ['admin', 'superadmin'].includes(currentUser.role) ? 'צור וניהול משתמשים' : 'צפה במשתמשים'}
           </p>
         </div>
-        {canCreateUsers && (
+        {canManageUsers && (canCreateManagers || canCreateAll) && (
           <Button 
             onClick={() => setIsCreateModalOpen(true)}
             className="bg-blue-600 hover:bg-blue-700 text-white"
             data-testid="button-create-user"
           >
             <Plus className="w-4 h-4 ml-2" />
-            משתמש חדש
+            {currentUser?.role === 'business' ? 'מנהל חדש' : 'משתמש חדש'}
           </Button>
         )}
       </div>
@@ -178,12 +172,12 @@ export function UsersManagementPage() {
           <div className="p-12 text-center">
             <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-600 mb-4">אין משתמשים עדיין</p>
-            {canCreateUsers && (
+            {canManageUsers && (canCreateManagers || canCreateAll) && (
               <Button 
                 onClick={() => setIsCreateModalOpen(true)}
                 className="bg-blue-600 hover:bg-blue-700 text-white"
               >
-                צור משתמש ראשון
+                {currentUser?.role === 'business' ? 'צור מנהל ראשון' : 'צור משתמש ראשון'}
               </Button>
             )}
           </div>
@@ -196,7 +190,7 @@ export function UsersManagementPage() {
                   <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">דוא"ל</th>
                   <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">תפקיד</th>
                   <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">כניסה אחרונה</th>
-                  {canCreateUsers && (
+                  {canManageUsers && (canCreateManagers || canCreateAll) && (
                     <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">פעולות</th>
                   )}
                 </tr>
@@ -225,7 +219,7 @@ export function UsersManagementPage() {
                         ? new Date(user.last_login).toLocaleDateString('he-IL')
                         : 'לעולם לא'}
                     </td>
-                    {canCreateUsers && (
+                    {canManageUsers && (canCreateManagers || canCreateAll) && (
                       <td className="px-6 py-4">
                         <div className="flex gap-2">
                           <button
@@ -304,17 +298,23 @@ export function UsersManagementPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2 text-right">תפקיד</label>
-                <Select
-                  value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
-                  data-testid="select-user-role"
-                >
-                  <SelectOption value="business">משתמש עסק</SelectOption>
-                  <SelectOption value="manager">מנהל</SelectOption>
-                  {currentUser && ['admin', 'superadmin'].includes(currentUser.role) && (
-                    <SelectOption value="admin">ממנהל</SelectOption>
-                  )}
-                </Select>
+                {currentUser?.role === 'business' ? (
+                  <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600">
+                    מנהל
+                  </div>
+                ) : (
+                  <Select
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
+                    data-testid="select-user-role"
+                  >
+                    <SelectOption value="business">משתמש עסק</SelectOption>
+                    <SelectOption value="manager">מנהל</SelectOption>
+                    {currentUser && ['admin', 'superadmin'].includes(currentUser.role) && (
+                      <SelectOption value="admin">ממנהל</SelectOption>
+                    )}
+                  </Select>
+                )}
               </div>
 
               <div className="flex gap-3 pt-4">
