@@ -14,7 +14,24 @@ ProSaaS features a multi-tenant architecture with complete business isolation, i
 
 ## Recent Changes
 
-### BUILD 140 (Latest) - System Admin Global Entity Fix
+### BUILD 141 (Latest) - Bug Fixes: Impersonation, Lead Names, Popup Scroll
+**Fixed 3 critical UI/UX bugs**:
+
+1. **Impersonation Not Working**: system_admin couldn't access business pages when impersonating
+   - **Fix**: Added system_admin bypass in `require_api_auth()` - system_admin now bypasses all role checks (global access)
+   - **File**: `server/auth_api.py`
+
+2. **Lead Names Not Displaying**: Lead cards showed "ללא שם" until clicked
+   - **Fix**: Improved fallback logic in LeadCard.tsx - now displays full_name → first_name/last_name → phone_e164 → "ללא שם"
+   - **File**: `client/src/pages/Leads/components/LeadCard.tsx`
+
+3. **Lead Popup Not Scrollable**: Lead detail modal content was cut off
+   - **Fix**: Removed `overflow-hidden` from modal Card container, allowing inner content to scroll
+   - **File**: `client/src/pages/Leads/components/LeadDetailModal.tsx`
+
+**Additional Fix**: Updated `create_default_admin()` in auth_api.py to create system_admin with `business_id=None` (consistent with BUILD 140)
+
+### BUILD 140 - System Admin Global Entity Fix
 **Critical Bug Fixed**: system_admin incorrectly bound to business_id=1, causing setting changes to modify business #1 instead of being global.
 
 **Changes Made**:
