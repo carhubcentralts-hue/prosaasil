@@ -946,7 +946,7 @@ def admin_support_phones():
 # ✅ Users Management Endpoints
 
 @admin_bp.get("/api/admin/users")
-@require_api_auth(["business", "admin", "manager"])
+@require_api_auth(["admin", "manager", "superadmin"])
 def get_users():
     """Get all users for admin - can manage"""
     try:
@@ -966,7 +966,7 @@ def get_users():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.post("/api/admin/users")
-@require_api_auth(["business", "admin", "manager", "superadmin"])
+@require_api_auth(["admin", "manager", "superadmin"])
 def create_user():
     """Create new business user - admin/manager/superadmin only"""
     try:
@@ -989,9 +989,17 @@ def create_user():
         if role not in ['business', 'manager', 'admin']:
             return jsonify({"error": "תפקיד לא חדש"}), 400
         
-        # Only superadmin can create admin users
-        if role == 'admin' and user_role != 'superadmin':
-            return jsonify({"error": "רק מנהל מערכת יכול ליצור משתמשי admin"}), 403
+        # Permission checks: who can create which roles
+        if user_role == 'manager':
+            # Manager can only create business or manager users
+            if role == 'admin':
+                return jsonify({"error": "ממנהל עסק לא יכול ליצור משתמשי admin"}), 403
+        elif user_role == 'admin':
+            # Admin can create all roles (admin/manager/business)
+            pass
+        elif user_role == 'superadmin':
+            # Superadmin can create all roles
+            pass
         
         # Check if user exists
         existing = User.query.filter_by(email=email).first()
@@ -1026,7 +1034,7 @@ def create_user():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.put("/api/admin/users/<int:user_id>")
-@require_api_auth(["business", "admin", "manager"])
+@require_api_auth(["admin", "manager", "superadmin"])
 def update_user(user_id):
     """Update user details"""
     try:
@@ -1045,9 +1053,14 @@ def update_user(user_id):
                 return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
             user.password_hash = generate_password_hash(data['password'], method='scrypt')
         if 'role' in data and data['role'] in ['business', 'manager', 'admin']:
-            # Only superadmin can change role to admin
-            if data['role'] == 'admin' and g.role != 'superadmin':
-                return jsonify({"error": "רק מנהל מערכת יכול להציב תפקיד admin"}), 403
+            # Permission checks for role changes
+            if g.role == 'manager':
+                # Manager cannot change anyone to admin
+                if data['role'] == 'admin':
+                    return jsonify({"error": "ממנהל עסק לא יכול להציב תפקיד admin"}), 403
+            elif g.role == 'admin' or g.role == 'superadmin':
+                # Admin and superadmin can set any role
+                pass
             user.role = data['role']
         
         db.session.commit()
@@ -1067,7 +1080,7 @@ def update_user(user_id):
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.delete("/api/admin/users/<int:user_id>")
-@require_api_auth(["business", "admin", "manager"])
+@require_api_auth(["admin", "manager", "superadmin"])
 def delete_user(user_id):
     """Soft delete user"""
     try:

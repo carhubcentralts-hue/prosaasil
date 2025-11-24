@@ -86,21 +86,27 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses using a 2-step matching process.
 - **Multi-Tenant Isolation**: Complete business data separation.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice time.
-- **Users Management (Nov 24, 2025 - PRODUCTION READY)**: 
+- **Users Management (Nov 25, 2025 - PRODUCTION READY)**: 
   - **Roles Structure**:
     - **superadmin** - System admin (no business_id) - created manually by you
-    - **admin** - Admin user per business - can ONLY be created by superadmin
-    - **manager** - Manager per business - can create/manage business and manager users
-    - **business** - Regular user per business
-  - `POST /api/admin/users` - Create new business users (superadmin/admin/manager/business)
-    - Only superadmin can create 'admin' role users
-  - `GET /api/admin/users` - List all users for a business (superadmin/admin/manager/business)
-  - `PUT /api/admin/users/<id>` - Update user details (superadmin/admin/manager/business)
-    - Only superadmin can change user role to 'admin'
-  - `DELETE /api/admin/users/<id>` - Soft delete user (superadmin/admin/manager/business)
-  - UsersManagementPage component accessible by all roles within their business scope
-  - Business users can create staff users (business/manager roles) to access their business data
-  - Users can manage roles ('business', 'manager', or 'admin' for superadmin) per business
+    - **admin** - Admin user per business - can ONLY be created by superadmin, has full permissions
+    - **manager** - Manager per business - can create business/manager users (NOT admin)
+    - **business** - Regular user per business - cannot create users
+  - **User Creation Permissions**:
+    - superadmin: creates admin/manager/business users
+    - admin: creates admin/manager/business users (same as superadmin)
+    - manager: creates business/manager users only (NOT admin)
+    - business: cannot create users
+  - **Role Change Permissions**:
+    - superadmin: can change any user to any role
+    - admin: can change any user to any role
+    - manager: can change users to business/manager only (NOT admin)
+  - `POST /api/admin/users` - Create new business users (admin/manager/superadmin only)
+  - `GET /api/admin/users` - List all users for a business (admin/manager/superadmin only)
+  - `PUT /api/admin/users/<id>` - Update user details (admin/manager/superadmin only)
+  - `DELETE /api/admin/users/<id>` - Soft delete user (admin/manager/superadmin only)
+  - UsersManagementPage component shows based on user's role and permissions
+  - Business users see view-only interface (no create/edit/delete buttons)
 - **User Profile Page (Nov 25, 2025)**:
   - `/app/profile` route displays user profile info (name, email, role, business)
   - `PUT /api/auth/profile/password` endpoint for password changes

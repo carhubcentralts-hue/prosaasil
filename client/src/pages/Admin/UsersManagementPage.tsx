@@ -13,18 +13,20 @@ import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Select, SelectOption } from '../../shared/components/ui/Select';
 import { apiRequest } from '../../lib/queryClient';
+import { useAuth } from '../../features/auth/hooks';
 
 interface User {
   id: number;
   name: string;
   email: string;
-  role: 'business' | 'manager';
+  role: 'business' | 'manager' | 'admin';
   business_id: number;
   created_at: string;
   last_login: string | null;
 }
 
 export function UsersManagementPage() {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -34,8 +36,11 @@ export function UsersManagementPage() {
     name: '',
     email: '',
     password: '',
-    role: ('business' as const) as 'business' | 'manager'
+    role: ('business' as const) as 'business' | 'manager' | 'admin'
   });
+
+  // Permission check: only admin/manager/superadmin can create users
+  const canCreateUsers = currentUser && ['admin', 'manager', 'superadmin'].includes(currentUser.role);
 
   useEffect(() => {
     fetchUsers();
@@ -114,6 +119,7 @@ export function UsersManagementPage() {
   };
 
   const openEditModal = (user: User) => {
+    if (!canCreateUsers) return;
     setFormData({
       name: user.name,
       email: user.email,
@@ -121,6 +127,16 @@ export function UsersManagementPage() {
       role: user.role
     });
     setEditingUser(user);
+  };
+
+  // Get available roles based on current user's role
+  const getAvailableRoles = () => {
+    if (currentUser?.role === 'manager') {
+      // Manager can only create business/manager
+      return ['business', 'manager'];
+    }
+    // Admin and superadmin can create all
+    return ['business', 'manager', 'admin'];
   };
 
   const closeModals = () => {
@@ -135,16 +151,20 @@ export function UsersManagementPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">ניהול משתמשים</h1>
-          <p className="text-gray-600 mt-1">צור וניהול משתמשי עסק</p>
+          <p className="text-gray-600 mt-1">
+            {canCreateUsers ? 'צור וניהול משתמשי עסק' : 'צפה במשתמשים'}
+          </p>
         </div>
-        <Button 
-          onClick={() => setIsCreateModalOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-          data-testid="button-create-user"
-        >
-          <Plus className="w-4 h-4 ml-2" />
-          משתמש חדש
-        </Button>
+        {canCreateUsers && (
+          <Button 
+            onClick={() => setIsCreateModalOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+            data-testid="button-create-user"
+          >
+            <Plus className="w-4 h-4 ml-2" />
+            משתמש חדש
+          </Button>
+        )}
       </div>
 
       {/* Users Table */}
@@ -158,12 +178,14 @@ export function UsersManagementPage() {
           <div className="p-12 text-center">
             <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <p className="text-gray-600 mb-4">אין משתמשים עדיין</p>
-            <Button 
-              onClick={() => setIsCreateModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              צור משתמש ראשון
-            </Button>
+            {canCreateUsers && (
+              <Button 
+                onClick={() => setIsCreateModalOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                צור משתמש ראשון
+              </Button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -174,7 +196,9 @@ export function UsersManagementPage() {
                   <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">דוא"ל</th>
                   <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">תפקיד</th>
                   <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">כניסה אחרונה</th>
-                  <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">פעולות</th>
+                  {canCreateUsers && (
+                    <th className="px-6 py-3 text-right text-sm font-medium text-gray-700">פעולות</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -188,8 +212,12 @@ export function UsersManagementPage() {
                     </td>
                     <td className="px-6 py-4 text-gray-600">{user.email}</td>
                     <td className="px-6 py-4">
-                      <Badge variant={user.role === 'manager' ? 'success' : 'neutral'}>
-                        {user.role === 'manager' ? 'מנהל' : 'עסק'}
+                      <Badge variant={
+                        user.role === 'admin' ? 'danger' :
+                        user.role === 'manager' ? 'success' : 'neutral'
+                      }>
+                        {user.role === 'admin' ? 'ממנהל' : 
+                         user.role === 'manager' ? 'מנהל' : 'עסק'}
                       </Badge>
                     </td>
                     <td className="px-6 py-4 text-gray-600 text-sm">
@@ -197,24 +225,26 @@ export function UsersManagementPage() {
                         ? new Date(user.last_login).toLocaleDateString('he-IL')
                         : 'לעולם לא'}
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => openEditModal(user)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition"
-                          data-testid={`button-edit-user-${user.id}`}
-                        >
-                          <Edit2 className="w-4 h-4 text-gray-600" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="p-2 hover:bg-red-50 rounded-lg transition"
-                          data-testid={`button-delete-user-${user.id}`}
-                        >
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </button>
-                      </div>
-                    </td>
+                    {canCreateUsers && (
+                      <td className="px-6 py-4">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => openEditModal(user)}
+                            className="p-2 hover:bg-gray-100 rounded-lg transition"
+                            data-testid={`button-edit-user-${user.id}`}
+                          >
+                            <Edit2 className="w-4 h-4 text-gray-600" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUser(user.id)}
+                            className="p-2 hover:bg-red-50 rounded-lg transition"
+                            data-testid={`button-delete-user-${user.id}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -281,6 +311,9 @@ export function UsersManagementPage() {
                 >
                   <SelectOption value="business">משתמש עסק</SelectOption>
                   <SelectOption value="manager">מנהל</SelectOption>
+                  {currentUser && ['admin', 'superadmin'].includes(currentUser.role) && (
+                    <SelectOption value="admin">ממנהל</SelectOption>
+                  )}
                 </Select>
               </div>
 
