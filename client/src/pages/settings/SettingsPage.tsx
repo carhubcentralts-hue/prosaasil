@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
+import { BusinessAISettings } from '@/components/settings/BusinessAISettings';
+import { useAuth } from '@/features/auth/hooks';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -98,88 +100,20 @@ interface AISettings {
   language: string;
 }
 
-interface FAQ {
-  id: number;
-  question: string;
-  answer: string;
-  intent_key?: string | null;
-  patterns_json?: string[] | null;
-  channels?: string;
-  priority?: number;
-  lang?: string;
-  order_index: number;
-  created_at?: string;
-}
-
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'faqs' | 'integrations' | 'ai' | 'security'>('business');
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'business' | 'appointments' | 'integrations' | 'ai' | 'security'>('business');
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
-  const [faqModalOpen, setFaqModalOpen] = useState(false);
-  const [editingFaq, setEditingFaq] = useState<FAQ | null>(null);
   
-  // FAQ Query with detailed error logging
-  const { data: faqs = [], isLoading: faqsLoading, error: faqsError } = useQuery<FAQ[]>({
-    queryKey: ['/api/business/faqs'],
-    enabled: activeTab === 'faqs',
-    retry: 1,
-    refetchOnMount: true
-  });
-
-  // Log FAQ query errors and success to console for debugging
+  // ✅ BUILD 130: AI tab restricted to system_admin, owner, admin (not agent)
+  const canEditAIPrompts = user?.role && ['system_admin', 'owner', 'admin'].includes(user.role);
+  
+  // ✅ Security: Prevent unauthorized access to AI tab
   React.useEffect(() => {
-    if (faqsError) {
-      console.error('❌ FAQ Query Error:', faqsError);
-      console.error('Error details:', {
-        message: faqsError instanceof Error ? faqsError.message : String(faqsError),
-        stack: faqsError instanceof Error ? faqsError.stack : undefined,
-        type: typeof faqsError,
-        raw: faqsError
-      });
+    if (activeTab === 'ai' && !canEditAIPrompts) {
+      setActiveTab('business');
     }
-    if (faqs && faqs.length > 0 && !faqsLoading && !faqsError) {
-      console.log('✅ FAQ Query Success:', faqs.length, 'FAQs loaded');
-    }
-  }, [faqsError, faqs, faqsLoading]);
-  
-  // FAQ Mutations
-  const createFaqMutation = useMutation({
-    mutationFn: (data: Partial<FAQ>) =>
-      apiRequest('/api/business/faqs', { method: 'POST', body: data }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
-      setFaqModalOpen(false);
-      alert('שאלה נוצרה בהצלחה!');
-    },
-    onError: (error) => {
-      alert(`שגיאה ביצירת שאלה: ${error}`);
-    }
-  });
-  
-  const updateFaqMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<FAQ> }) =>
-      apiRequest(`/api/business/faqs/${id}`, { method: 'PUT', body: data }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
-      setFaqModalOpen(false);
-      setEditingFaq(null);
-      alert('שאלה עודכנה בהצלחה!');
-    },
-    onError: (error) => {
-      alert(`שגיאה בעדכון שאלה: ${error}`);
-    }
-  });
-  
-  const deleteFaqMutation = useMutation({
-    mutationFn: (id: number) =>
-      apiRequest(`/api/business/faqs/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
-      alert('שאלה נמחקה בהצלחה!');
-    },
-    onError: (error) => {
-      alert(`שגיאה במחיקת שאלה: ${error}`);
-    }
-  });
+  }, [activeTab, canEditAIPrompts]);
   
   // Settings state
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>({
@@ -427,18 +361,20 @@ export function SettingsPage() {
             <Settings className="w-4 h-4 mr-2" />
             הגדרות תורים
           </button>
-          <button
-            onClick={() => setActiveTab('faqs')}
-            className={`${
-              activeTab === 'faqs'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-            data-testid="tab-faqs"
-          >
-            <MessageCircle className="w-4 h-4 mr-2" />
-            שאלות נפוצות (FAQ)
-          </button>
+          {canEditAIPrompts && (
+            <button
+              onClick={() => setActiveTab('ai')}
+              className={`${
+                activeTab === 'ai'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+              data-testid="tab-ai"
+            >
+              <Bot className="w-4 h-4 mr-2" />
+              הגדרות בינה מלאכותית
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('integrations')}
             className={`${
@@ -679,149 +615,21 @@ export function SettingsPage() {
           </div>
         )}
 
-        {activeTab === 'faqs' && (
-          <div className="max-w-4xl space-y-6">
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">שאלות נפוצות (FAQ)</h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    הגדר שאלות ותשובות נפוצות שהסוכן יענה עליהן מהר (פחות משנייה וחצי)
+        {activeTab === 'ai' && (
+          <div className="max-w-6xl">
+            {canEditAIPrompts ? (
+              <BusinessAISettings />
+            ) : (
+              <Card className="p-6">
+                <div className="text-center py-12">
+                  <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">גישה מוגבלת</h3>
+                  <p className="text-gray-600">
+                    רק מנהלים ובעלי עסקים יכולים לערוך הגדרות בינה מלאכותית
                   </p>
                 </div>
-                <Button 
-                  onClick={() => {
-                    setEditingFaq(null);
-                    setFaqModalOpen(true);
-                  }}
-                  variant="outline"
-                  data-testid="button-add-faq"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  הוסף שאלה
-                </Button>
-              </div>
-
-              <div className="space-y-4">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="font-medium text-blue-900 mb-2">איך זה עובד?</h4>
-                  <ul className="text-sm text-blue-800 space-y-1">
-                    <li>• כאשר לקוח שואל שאלה, המערכת מחפשת התאמה ב-FAQs שלך</li>
-                    <li>• אם נמצאה התאמה - תגיב מיידית (פחות משנייה וחצי)</li>
-                    <li>• אם לא - הסוכן המלא יטפל בשאלה (4-5 שניות)</li>
-                    <li>• שאלות טובות: מחיר, כתובת, שעות פעילות, מתקנים זמינים</li>
-                  </ul>
-                </div>
-
-                <div className="border-t pt-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-medium text-gray-900">השאלות הנפוצות שלך</h4>
-                    {faqs.length > 0 && (
-                      <span className="text-sm text-gray-500">{faqs.length} שאלות</span>
-                    )}
-                  </div>
-
-                  {faqsLoading && (
-                    <div className="text-center py-8 text-gray-500">טוען...</div>
-                  )}
-
-                  {faqsError && (
-                    <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4 text-red-900" data-testid="faq-error-display">
-                      <p className="font-bold mb-2 text-lg">❌ שגיאה בטעינת FAQ</p>
-                      <div className="bg-white border border-red-200 rounded p-3 mb-3 font-mono text-sm" dir="ltr">
-                        <p className="font-semibold text-red-700 mb-1">Error Message:</p>
-                        <p className="text-red-900 whitespace-pre-wrap break-words">
-                          {faqsError instanceof Error ? faqsError.message : String(faqsError)}
-                        </p>
-                        {faqsError instanceof Error && faqsError.stack && (
-                          <details className="mt-2">
-                            <summary className="cursor-pointer text-red-600 hover:text-red-800">Stack Trace</summary>
-                            <pre className="text-xs mt-1 overflow-auto max-h-40 bg-gray-50 p-2 rounded">
-                              {faqsError.stack}
-                            </pre>
-                          </details>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => {
-                            console.log('🔄 Retrying FAQ fetch...');
-                            queryClient.invalidateQueries({ queryKey: ['/api/business/faqs'] });
-                          }}
-                          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-medium"
-                        >
-                          🔄 נסה שוב
-                        </button>
-                        <button 
-                          onClick={() => {
-                            const errorText = faqsError instanceof Error ? faqsError.message : String(faqsError);
-                            navigator.clipboard.writeText(errorText);
-                            alert('השגיאה הועתקה ללוח! עכשיו תוכל לשלוח לתמיכה');
-                          }}
-                          className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 font-medium"
-                        >
-                          📋 העתק שגיאה
-                        </button>
-                      </div>
-                      <p className="text-xs text-red-700 mt-3 bg-red-100 p-2 rounded">
-                        💡 טיפ: צלם מסך של השגיאה הזאת ושלח לתמיכה לפתרון מהיר
-                      </p>
-                    </div>
-                  )}
-
-                  {!faqsLoading && !faqsError && faqs.length === 0 && (
-                    <div className="text-center py-8">
-                      <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                      <p className="text-gray-500">עדיין לא הוספת שאלות נפוצות</p>
-                      <p className="text-sm text-gray-400 mt-1">לחץ על "הוסף שאלה" כדי להתחיל</p>
-                    </div>
-                  )}
-
-                  {!faqsLoading && !faqsError && faqs.length > 0 && (
-                    <div className="space-y-3">
-                      {faqs.map((faq) => (
-                        <div key={faq.id} className="border rounded-lg p-4" data-testid={`faq-item-${faq.id}`}>
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <p className="font-medium text-gray-900" data-testid={`faq-question-${faq.id}`}>
-                                {faq.question}
-                              </p>
-                              <p className="text-sm text-gray-600 mt-1" data-testid={`faq-answer-${faq.id}`}>
-                                {faq.answer}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 mr-2">
-                              <button 
-                                onClick={() => {
-                                  setEditingFaq(faq);
-                                  setFaqModalOpen(true);
-                                }}
-                                className="text-blue-600 hover:text-blue-700 p-1"
-                                data-testid={`button-edit-faq-${faq.id}`}
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  if (confirm(`למחוק את השאלה "${faq.question}"?`)) {
-                                    deleteFaqMutation.mutate(faq.id);
-                                  }
-                                }}
-                                className="text-red-600 hover:text-red-700 p-1"
-                                disabled={deleteFaqMutation.isPending}
-                                data-testid={`button-delete-faq-${faq.id}`}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Card>
+              </Card>
+            )}
           </div>
         )}
 
@@ -1022,182 +830,6 @@ export function SettingsPage() {
           </div>
         )}
       </div>
-
-      {/* FAQ Modal */}
-      {faqModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              {editingFaq ? 'עריכת שאלה נפוצה' : 'הוספת שאלה נפוצה'}
-            </h3>
-            
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const formData = new FormData(e.currentTarget);
-                const question = formData.get('question') as string;
-                const answer = formData.get('answer') as string;
-                const intent_key = formData.get('intent_key') as string;
-                const patterns = formData.get('patterns') as string;
-                const channels = formData.get('channels') as string;
-                const priority = formData.get('priority') as string;
-                const lang = formData.get('lang') as string;
-                
-                if (!question?.trim() || !answer?.trim()) {
-                  alert('נא למלא את כל השדות');
-                  return;
-                }
-                
-                const data = {
-                  question: question.trim(),
-                  answer: answer.trim(),
-                  intent_key: intent_key?.trim() || null,
-                  patterns_json: patterns?.trim() ? patterns.split('\n').map(p => p.trim()).filter(Boolean) : null,
-                  channels: channels || 'voice',
-                  priority: priority ? parseInt(priority) : 0,
-                  lang: lang || 'he-IL'
-                };
-                
-                if (editingFaq) {
-                  updateFaqMutation.mutate({ id: editingFaq.id, data });
-                } else {
-                  createFaqMutation.mutate(data);
-                }
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  שאלה <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  name="question"
-                  defaultValue={editingFaq?.question || ''}
-                  placeholder="למשל: מה המחיר?"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  maxLength={200}
-                  required
-                  data-testid="input-faq-question"
-                />
-                <p className="text-xs text-gray-500 mt-1">מקסימום 200 תווים</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  תשובה <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  name="answer"
-                  defaultValue={editingFaq?.answer || ''}
-                  placeholder="למשל: המחיר מתחיל מ-500,000 ש״ח"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"
-                  maxLength={2000}
-                  required
-                  data-testid="input-faq-answer"
-                />
-                <p className="text-xs text-gray-500 mt-1">מקסימום 2000 תווים</p>
-              </div>
-
-              {/* Advanced Fields */}
-              <div className="border-t pt-4 space-y-3">
-                <h4 className="text-sm font-semibold text-gray-700">הגדרות מתקדמות (אופציונלי)</h4>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">מזהה כוונה</label>
-                    <input
-                      type="text"
-                      name="intent_key"
-                      defaultValue={editingFaq?.intent_key || ''}
-                      placeholder="price, hours, location"
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
-                      data-testid="input-faq-intent"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">עדיפות</label>
-                    <input
-                      type="number"
-                      name="priority"
-                      defaultValue={editingFaq?.priority ?? 0}
-                      min="0"
-                      max="10"
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
-                      data-testid="input-faq-priority"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">ערוצים</label>
-                    <select
-                      name="channels"
-                      defaultValue={editingFaq?.channels || 'voice'}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
-                      data-testid="select-faq-channels"
-                    >
-                      <option value="voice">טלפון בלבד</option>
-                      <option value="whatsapp">WhatsApp בלבד</option>
-                      <option value="both">שניהם</option>
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">שפה</label>
-                    <select
-                      name="lang"
-                      defaultValue={editingFaq?.lang || 'he-IL'}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
-                      data-testid="select-faq-lang"
-                    >
-                      <option value="he-IL">עברית</option>
-                      <option value="en-US">אנגלית</option>
-                      <option value="ar">ערבית</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">תבניות מילות מפתח (שורה לכל תבנית)</label>
-                  <textarea
-                    name="patterns"
-                    defaultValue={editingFaq?.patterns_json?.join('\n') || ''}
-                    placeholder="מחיר&#10;כמה עולה&#10;\\bמחיר\\b"
-                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md min-h-[60px] font-mono"
-                    data-testid="input-faq-patterns"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">תומך ב-regex (למשל: \bמילה\b)</p>
-                </div>
-              </div>
-
-              <div className="flex gap-2 justify-end pt-4 border-t">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setFaqModalOpen(false);
-                    setEditingFaq(null);
-                  }}
-                  disabled={createFaqMutation.isPending || updateFaqMutation.isPending}
-                  data-testid="button-cancel-faq"
-                >
-                  ביטול
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={createFaqMutation.isPending || updateFaqMutation.isPending}
-                  data-testid="button-save-faq"
-                >
-                  {createFaqMutation.isPending || updateFaqMutation.isPending ? 'שומר...' : 'שמור'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

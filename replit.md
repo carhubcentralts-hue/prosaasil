@@ -40,6 +40,7 @@ AgentLocator features a multi-tenant architecture with complete business isolati
 - **Routing**: React Router v7 with AuthGuard/RoleGuard.
 - **State Management**: Context API for authentication.
 - **Security**: CSRF protection, secure redirects, and role-based access control supporting the 4-tier role hierarchy.
+- **UI Navigation**: Main sidebar no longer shows separate "AI Prompts" menu item. All AI prompt editing (calls and WhatsApp) is consolidated into System Settings → AI Settings tab. AI tab access restricted to system_admin, owner, and admin roles only (not agent).
 
 ### Feature Specifications
 - **Call Logging**: Comprehensive tracking.
@@ -57,6 +58,7 @@ AgentLocator features a multi-tenant architecture with complete business isolati
 - **Multi-Tenant Isolation**: Complete business data separation.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice time.
 - **CRM Tasks**: Redesigned to show task board with Pending, Overdue, and Completed columns. Task notifications are integrated into the NotificationPanel.
+- **Consolidated AI Settings**: All AI prompt editing (for both calls and WhatsApp) is now accessed via System Settings → AI Settings tab, no longer as a separate sidebar menu item. The FAQ tab has been removed from System Settings.
 
 # External Dependencies
 

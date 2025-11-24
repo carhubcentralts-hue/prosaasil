@@ -69,12 +69,7 @@ const menuItems = [
     to: '/app/admin/businesses',
     roles: ['system_admin', 'owner', 'admin']
   },
-  { 
-    icon: Bot, 
-    label: 'AI Prompts', 
-    to: '/app/admin/prompts',
-    roles: ['system_admin', 'owner', 'admin']
-  },
+  // ✅ AI Prompts moved to System Settings → AI tab (BUILD 130)
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 
