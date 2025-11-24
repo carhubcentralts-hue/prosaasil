@@ -77,7 +77,7 @@ const menuItems = [
   },
   { 
     icon: UserCog, 
-    label: 'ניהול עסקים', 
+    label: 'ניהול נתוני עסקים', 
     to: '/app/admin/businesses-management',
     roles: ['admin', 'manager', 'superadmin']
   },
