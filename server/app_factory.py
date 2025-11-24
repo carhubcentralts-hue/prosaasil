@@ -684,6 +684,14 @@ def create_app():
                     apply_migrations()
                     print("✅ [BACKGROUND] Migrations applied")
                     
+                    # ✅ BUILD 124: Migrate legacy admin roles to system_admin
+                    try:
+                        from server.scripts.migrate_admin_roles import migrate_admin_roles
+                        migrate_admin_roles()
+                        print("✅ [BACKGROUND] Admin roles migrated")
+                    except Exception as e:
+                        print(f"⚠️ [BACKGROUND] Admin role migration error: {e}")
+                    
                     # Fix FAQ patterns
                     try:
                         from server.models_sql import FAQ
