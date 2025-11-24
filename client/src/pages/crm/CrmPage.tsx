@@ -493,7 +493,7 @@ export function CrmPage() {
                   <input
                     type="text"
                     value={taskForm.note}
-                    onChange={(e) => setReminderForm({...taskForm, note: e.target.value})}
+                    onChange={(e) => setTaskForm({...taskForm, note: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                     placeholder="לדוגמה: להתקשר לדוד כהן..."
                   />
@@ -506,7 +506,7 @@ export function CrmPage() {
                   </label>
                   <textarea
                     value={taskForm.description}
-                    onChange={(e) => setReminderForm({...taskForm, description: e.target.value})}
+                    onChange={(e) => setTaskForm({...taskForm, description: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
                     rows={3}
                     placeholder="הוסף פרטים נוספים..."
@@ -522,7 +522,7 @@ export function CrmPage() {
                     <input
                       type="date"
                       value={taskForm.due_date}
-                      onChange={(e) => setReminderForm({...taskForm, due_date: e.target.value})}
+                      onChange={(e) => setTaskForm({...taskForm, due_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                   </div>
@@ -533,7 +533,7 @@ export function CrmPage() {
                     <input
                       type="time"
                       value={taskForm.due_time}
-                      onChange={(e) => setReminderForm({...taskForm, due_time: e.target.value})}
+                      onChange={(e) => setTaskForm({...taskForm, due_time: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                   </div>
@@ -546,7 +546,7 @@ export function CrmPage() {
                   </label>
                   <select
                     value={taskForm.priority}
-                    onChange={(e) => setReminderForm({...taskForm, priority: e.target.value as any})}
+                    onChange={(e) => setTaskForm({...taskForm, priority: e.target.value as any})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="low">נמוך</option>
@@ -562,7 +562,7 @@ export function CrmPage() {
                   </label>
                   <select
                     value={taskForm.reminder_type}
-                    onChange={(e) => setReminderForm({...taskForm, reminder_type: e.target.value})}
+                    onChange={(e) => setTaskForm({...taskForm, reminder_type: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="general">כללי</option>
@@ -580,7 +580,7 @@ export function CrmPage() {
                   </label>
                   <select
                     value={taskForm.lead_id}
-                    onChange={(e) => setReminderForm({...taskForm, lead_id: e.target.value})}
+                    onChange={(e) => setTaskForm({...taskForm, lead_id: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="">-- לא משויך לליד --</option>
