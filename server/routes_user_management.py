@@ -40,8 +40,10 @@ def get_business_users(business_id):
         # Get business
         business = Business.query.get_or_404(business_id)
         
-        # Get all users for this business
-        users = User.query.filter_by(business_id=business_id).order_by(User.created_at.desc()).all()
+        # Get all users for this business (EXCLUDE global system_admins with business_id=NULL)
+        users = User.query.filter(
+            User.business_id == business_id
+        ).order_by(User.created_at.desc()).all()
         
         users_data = [{
             'id': user.id,
