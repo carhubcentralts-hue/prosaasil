@@ -91,18 +91,35 @@ class SessionSecurity:
     
     @staticmethod
     def rotate_session():
-        """Rotate session ID while preserving user data"""
-        if 'al_user' in session:
-            user_data = dict(session['al_user'])
+        """Rotate session ID while preserving user data - handle BOTH session keys"""
+        if 'user' in session or 'al_user' in session:
+            # Preserve both keys if they exist
+            user_data = dict(session.get('user', {}))
+            al_user_data = dict(session.get('al_user', {}))
+            impersonating = session.get('impersonating', False)
+            impersonated_tenant_id = session.get('impersonated_tenant_id')
+            token = session.get('token')
+            
             session.clear()
-            session['al_user'] = user_data
+            
+            # Restore both user data keys
+            if user_data:
+                session['user'] = user_data
+            if al_user_data:
+                session['al_user'] = al_user_data
+            if impersonated_tenant_id:
+                session['impersonated_tenant_id'] = impersonated_tenant_id
+            if token:
+                session['token'] = token
+            session['impersonating'] = impersonating
             session['_session_start'] = datetime.now().isoformat()
             # SeaSurf handles CSRF tokens - no manual _csrf_token needed
     
     @staticmethod
     def is_session_valid():
-        """Check if current session is valid"""
-        if 'al_user' not in session:
+        """Check if current session is valid - check BOTH session keys"""
+        # Check for either 'user' or 'al_user' for compatibility
+        if 'user' not in session and 'al_user' not in session:
             return False
             
         last_activity = session.get('_last_activity')
@@ -115,8 +132,8 @@ class SessionSecurity:
     
     @staticmethod 
     def update_activity():
-        """Update session activity timestamp"""
-        if 'al_user' in session:
+        """Update session activity timestamp - handle BOTH session keys"""
+        if 'user' in session or 'al_user' in session:
             session['_last_activity'] = datetime.now().isoformat()
 
 def password_strength_check(password):

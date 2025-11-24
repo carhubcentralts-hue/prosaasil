@@ -238,8 +238,8 @@ def create_app():
             any(request.path.startswith(p) for p in auth_paths)):
             return
             
-        # Session timeout check
-        if 'al_user' in session:
+        # Session timeout check - check BOTH session keys for compatibility
+        if 'user' in session or 'al_user' in session:
             last_activity = session.get('_last_activity')
             if last_activity:
                 last_time = datetime.fromisoformat(last_activity)

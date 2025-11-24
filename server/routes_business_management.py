@@ -588,9 +588,9 @@ def toggle_user_status(user_id):
         return jsonify({"error": "שגיאה בשינוי סטטוס המשתמש"}), 500
 
 @biz_mgmt_bp.route('/api/admin/businesses/<int:business_id>/impersonate', methods=['POST', 'OPTIONS'])
-@require_api_auth(['system_admin', 'admin', 'manager'])
+@require_api_auth(['system_admin'])
 def impersonate_business(business_id):
-    """Allow admin to impersonate business - WITH PROPER CSRF"""
+    """Allow system_admin to impersonate business - BUILD 142"""
     
     # Handle OPTIONS request for CORS preflight
     if request.method == 'OPTIONS':
@@ -598,14 +598,8 @@ def impersonate_business(business_id):
     
     try:
         logger.info(f"🔄 Impersonation attempt for business {business_id}")
-        logger.info(f"📋 Session keys: {list(session.keys())}")
-        current_admin = session.get('user') or session.get('al_user')  # Check both keys
-        logger.info(f"📋 Current admin from session: {current_admin}")
-        logger.info(f"📋 g.user from decorator: {getattr(g, 'user', None)}")
-        
-        if not current_admin or current_admin.get('role') not in ['system_admin', 'admin', 'manager']:
-            logger.error(f"❌ Authorization failed - current_admin: {current_admin}")
-            return jsonify({"error": "Unauthorized"}), 401
+        current_admin = session.get('user') or session.get('al_user')
+        logger.info(f"📋 Current admin: {current_admin.get('email')} (role={current_admin.get('role')})")
         
         business = Business.query.filter_by(id=business_id).first()
         if not business:
@@ -615,36 +609,28 @@ def impersonate_business(business_id):
         if not business.is_active:
             return jsonify({"error": "העסק אינו פעיל"}), 400
         
-        # ✅ אדמין יכול להתחזות גם בלי user business - יוצר התחזות ויוצר אחד במידת הצורך
-        
-        # Store original admin for restoration later (per guidelines: use 'impersonator' key)
-        current_admin_serialized = {
-            "id": current_admin.get('id'),
-            "name": current_admin.get('name'),
-            "email": current_admin.get('email'),
-            "role": current_admin.get('role'),
-            "business_id": current_admin.get('business_id')
-        }
-        session['impersonator'] = current_admin_serialized  # Fixed key name per guidelines
-        
-        # Switch session to business user - לפי ההנחיות המדויקות
+        # Store impersonation state - BUILD 142 format
         session['impersonating'] = True
-        session['impersonated_tenant_id'] = business.id  # Fixed key name per guidelines  
-        # ✅ DON'T override session['role'] - keep original admin role for capabilities
+        session['impersonated_tenant_id'] = business.id
+        session['impersonated_business_id'] = business.id
         
-        logger.info(f"✅ Admin successfully impersonating business {business_id}")
-        logger.info(f"📋 Session: impersonating=True, impersonated_tenant_id={business.id}, admin_role_preserved")
+        logger.info(f"✅ System admin {current_admin.get('email')} impersonating business {business.id}")
         
-        return jsonify({"ok": True, "impersonated_tenant_id": business.id}), 200
+        return jsonify({
+            "success": True,
+            "impersonating": True,
+            "business_id": business.id,
+            "business_name": business.name
+        }), 200
         
     except Exception as e:
         logger.error(f"Error impersonating business {business_id}: {e}")
         return jsonify({"error": "שגיאה בהתחזות לעסק"}), 500
 
 @biz_mgmt_bp.route('/api/admin/impersonate/exit', methods=['POST', 'OPTIONS'])
-@require_api_auth(['system_admin', 'admin', 'manager'])
+@require_api_auth(['system_admin'])
 def exit_impersonation():
-    """Exit impersonation and restore original user"""
+    """Exit impersonation and restore original user - BUILD 142"""
     
     # Handle OPTIONS request for CORS preflight
     if request.method == 'OPTIONS':
@@ -653,16 +639,14 @@ def exit_impersonation():
     try:
         logger.info("🔄 Exiting impersonation")
         
-        # נקה את מצב ההתחזות ושחזר מצב מקורי - לפי ההנחיות המדויקות
-        session.pop('impersonating', None)
-        session.pop('impersonated_tenant_id', None)  # Fixed key name
-        session.pop('impersonator', None)  # Clear impersonator key (DON'T restore to session['user'])
-        
-        # ✅ Per guidelines: DON'T modify session['user'] - it stays original throughout
+        # Clear impersonation state - BUILD 142
+        session['impersonating'] = False
+        session.pop('impersonated_tenant_id', None)
+        session.pop('impersonated_business_id', None)
         
         logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user')}")
         
-        return jsonify({"ok": True}), 200
+        return jsonify({"success": True, "impersonating": False}), 200
         
     except Exception as e:
         logger.error(f"Error exiting impersonation: {e}")
