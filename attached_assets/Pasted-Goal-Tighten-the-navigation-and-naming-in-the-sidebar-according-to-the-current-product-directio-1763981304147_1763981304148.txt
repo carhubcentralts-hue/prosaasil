@@ -1,0 +1,87 @@
+Goal
+----
+Tighten the navigation and naming in the sidebar according to the current product direction.
+
+Concrete changes:
+
+1) Hide "אינטליגנציה לקוחות" completely:
+   - Remove the "אינטליגנציה לקוחות" entry from the main sidebar (the one you see under CRM).
+   - Remove or disable the corresponding route, so that typing its URL directly will not render the page.
+   - If needed, redirect that route to a safe page (for example the main dashboard or "לידים").
+
+2) Hide the "תזכורות" page from the sidebar:
+   - The top-right bell icon (notifications modal) MUST remain as-is.
+   - Only the full-page "תזכורות" entry in the sidebar should be removed.
+   - Also remove/disable its route if it exists as a dedicated page. The notifications system should continue to work, only the standalone page should be unreachable.
+
+3) Rename "CRM" → "משימות":
+   - In the sidebar, change the label from "CRM" to "משימות".
+   - Do NOT change the icon or the route path for now (it can still be /crm in the URL), only the visible text.
+   - Inside the page:
+     - Change any main heading that says "CRM" to "משימות".
+     - Change any breadcrumb or title that uses the word "CRM" to say "משימות" instead.
+   - Conceptually, this page is now the "Tasks" page of the system.
+   - Do NOT change backend table names or API routes at this stage, only UI labels and routing names.
+
+Technical implementation details
+--------------------------------
+
+1) Sidebar updates
+   - Locate the React component that renders the main sidebar (the one that shows: לידים, WhatsApp, שיחות, CRM, אינטליגנציה לקוחות, ניהול עסקים, AI Prompts, ניהול משתמשים, הגדרות מערכת, לוח שנה, תזכורות).
+     Typical file names may be:
+       - client/src/components/layout/Sidebar.tsx
+       - client/src/components/navigation/MainSidebar.tsx
+   - In the array/list of nav items:
+     - Find the item with label "אינטליגנציה לקוחות" and REMOVE it completely from the list.
+     - Find the item with label "תזכורות" and REMOVE it completely from the list.
+     - Find the item with label "CRM" and change the label to "משימות":
+         from:
+             label: "CRM",
+         to:
+             label: "משימות",
+
+2) Routes protection (no access to removed pages)
+   - Locate the router configuration (React Router) for these pages.
+     Typical files:
+       - client/src/router.tsx
+       - client/src/routes/AppRoutes.tsx
+   - Search for the routes that render:
+       - CustomerIntelligence page (likely with path containing "customer-intelligence" or "client-intelligence").
+       - Reminders page (likely with path containing "reminders").
+   - For each of these routes:
+       - Either remove the route entirely,
+       - OR, if removal is risky, wrap them in a condition that will NEVER be true, such as:
+           {false && <Route ... />}
+       - Alternatively, redirect those paths to a safe default:
+           <Route path="/customer-intelligence" element={<Navigate to="/leads" replace />} />
+           <Route path="/reminders" element={<Navigate to="/tasks" replace />} />
+     The goal: user cannot access these pages even by typing URL manually.
+
+3) CRM page rebranding to Tasks
+   - Locate the React component for the CRM page (the one currently rendered when clicking CRM in sidebar).
+     Typical names:
+       - client/src/pages/Crm/CrmPage.tsx
+       - client/src/pages/CRM/Index.tsx
+   - Inside that component:
+       - Change the main title text "CRM" to "משימות".
+       - If there is any subtitle, breadcrumb, or tab label that explicitly says "CRM", rename to "משימות".
+   - If a layout or meta title is set (document.title), also update it to use "משימות".
+   - Do NOT rename the file or change the route path yet; keep the internals working and only change visible text.
+
+4) Permissions
+   - Make sure there are NO leftover links or quick-actions pointing to:
+       - customer intelligence page
+       - the old reminders page
+   - If any "View customer intelligence" or "Go to reminders" buttons exist, hide them or repoint them to relevant pages (for example to "לידים" or "משימות").
+
+5) Testing checklist
+   - After changes:
+     - The sidebar should show:
+       לידים, WhatsApp, שיחות, משימות, ניהול עסקים, AI Prompts, ניהול משתמשים, הגדרות מערכת, לוח שנה, התראות.
+       (No "אינטליגנציה לקוחות", No "תזכורות".)
+     - Clicking "משימות" opens the former CRM page, but all titles label it as "משימות".
+     - The bell icon at the top still opens the notifications modal and works normally.
+     - Typing the old URLs for:
+         - customer intelligence page
+         - reminders page
+       does NOT show these pages anymore (either 404 or redirect to a safe page).

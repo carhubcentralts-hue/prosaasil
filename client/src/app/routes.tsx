@@ -25,14 +25,12 @@ const AdminSupportPage = lazy(() => import('../pages/Admin/AdminSupportPage').th
 import { CalendarPage } from '../pages/Calendar/CalendarPage';
 import LeadsPage from '../pages/Leads/LeadsPage';
 import LeadDetailPage from '../pages/Leads/LeadDetailPage';
-import { NotificationsPage } from '../pages/Notifications/NotificationsPage';
 import { WhatsAppPage } from '../pages/wa/WhatsAppPage';
 import { CallsPage } from '../pages/calls/CallsPage';
 import { CrmPage } from '../pages/crm/CrmPage';
 import { BillingPage } from '../pages/billing/BillingPage';
 import { UsersPage } from '../pages/users/UsersPage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
-import CustomerIntelligencePage from '../pages/Intelligence/CustomerIntelligencePage';
 
 export function AppRoutes() {
   return (
@@ -223,25 +221,11 @@ export function AppRoutes() {
           }
         />
 
-        {/* Notifications Routes */}
-        <Route
-          path="notifications"
-          element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <NotificationsPage />
-            </RoleGuard>
-          }
-        />
+        {/* DISABLED: Notifications full page - replaced by bell icon modal only */}
+        <Route path="notifications" element={<Navigate to="/app/leads" replace />} />
 
-        {/* Customer Intelligence Dashboard */}
-        <Route
-          path="intelligence"
-          element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <CustomerIntelligencePage />
-            </RoleGuard>
-          }
-        />
+        {/* DISABLED: Customer Intelligence - removed from product */}
+        <Route path="intelligence" element={<Navigate to="/app/leads" replace />} />
 
         {/* Default redirect based on role handled by AuthGuard */}
         <Route path="" element={<Navigate to="/app/admin/overview" replace />} />

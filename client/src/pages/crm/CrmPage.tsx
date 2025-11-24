@@ -117,7 +117,7 @@ export function CrmPage() {
       setContacts([]);
       
     } catch (error) {
-      console.error('Error loading CRM data:', error);
+      console.error('Error loading tasks data:', error);
       setReminders([]);
       setContacts([]);
     } finally {
@@ -246,7 +246,7 @@ export function CrmPage() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p>טוען נתוני CRM...</p>
+          <p>טוען משימות...</p>
         </div>
       </div>
     );
@@ -259,7 +259,7 @@ export function CrmPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell className="w-6 h-6 text-purple-600" />
-            <h1 className="text-2xl font-bold text-gray-900">תזכורות ואנשי קשר</h1>
+            <h1 className="text-2xl font-bold text-gray-900">משימות</h1>
           </div>
           
           <div className="flex items-center gap-3">

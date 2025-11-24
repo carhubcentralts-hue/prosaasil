@@ -16,8 +16,7 @@ import {
   Search,
   Bell,
   User,
-  Bot,
-  Brain
+  Bot
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -53,14 +52,8 @@ const menuItems = [
   },
   { 
     icon: Building2, 
-    label: 'CRM',
+    label: 'משימות',
     to: '/app/crm',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
-  },
-  { 
-    icon: Brain, 
-    label: 'אינטליגנציה לקוחות',
-    to: '/app/intelligence',
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
@@ -98,12 +91,6 @@ const menuItems = [
     icon: Calendar, 
     label: 'לוח שנה',
     to: '/app/calendar'
-  },
-  { 
-    icon: Bell, 
-    label: 'תזכורות',
-    to: '/app/notifications',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
 ];
 
@@ -548,7 +535,7 @@ export function MainLayout() {
 
       {/* BUILD Indicator */}
       <div className="fixed bottom-1 left-1 text-xs text-gray-400 font-mono z-10 pointer-events-none">
-        BUILD: 108
+        BUILD: 109
       </div>
 
       {/* Notification Panel */}
