@@ -1252,7 +1252,7 @@ def get_all_reminders():
     })
 
 @leads_bp.route("/api/reminders", methods=["POST"])
-@require_api_auth()  # BUILD 136 FIX: Use proper decorator that sets g.user and g.tenant
+@require_api_auth()  # BUILD 142 FINAL: Allow all authenticated users (owner/admin/agent)
 def create_general_reminder():
     """Create a new reminder (with or without lead association)"""
     tenant_id = get_current_tenant()
