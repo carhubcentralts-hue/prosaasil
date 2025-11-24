@@ -83,13 +83,16 @@ def create_invoice_simple(amount_agorot: int) -> str:
         return f"INV-ERROR-{int(time.time())}"
 
 def get_business_id():
-    """Get business_id based on user role and permissions"""
+    """BUILD 135: SECURITY FIX - Get business_id with tenant isolation"""
     user_role = g.user.get("role")
-    if user_role in ("admin", "superadmin"):
-        # Admin can access all businesses or specify business_id
+    
+    # BUILD 135: ONLY system_admin can override business_id via query param
+    if user_role == "system_admin":
+        # System admin can access all businesses
         return request.args.get("business_id") or g.user.get("business_id")
     else:
-        # Business/agent users are scoped to their business
+        # BUILD 135: owner/admin/agent/business MUST use their own business_id
+        # Ignoring query param to prevent cross-tenant access
         return g.user.get("business_id")
 
 @crm_bp.get("/api/crm/threads")

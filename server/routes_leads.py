@@ -149,14 +149,14 @@ def list_leads():
     """List leads with filtering and pagination"""
     
     user = get_current_user()
-    is_admin = user.get('role') in ['admin', 'superadmin'] if user else False
+    is_system_admin = user.get('role') == 'system_admin' if user else False
     
-    # ✅ FIX: Admin/Superadmin can see ALL leads
-    if is_admin:
-        # Admin sees all leads
+    # BUILD 135: ONLY system_admin can see ALL leads
+    if is_system_admin:
+        # System admin sees all leads across all businesses
         query = Lead.query
     else:
-        # Regular users see only their tenant's leads
+        # BUILD 135: owner/admin/agent see only their tenant's leads
         tenant_id = get_current_tenant()
         if not tenant_id:
             return jsonify({"error": "No tenant access"}), 403
@@ -1061,10 +1061,10 @@ def bulk_delete_leads():
         return auth_error
     
     user = get_current_user()
-    is_admin = user.get('role') in ['admin', 'superadmin'] if user else False
+    is_system_admin = user.get('role') == 'system_admin' if user else False
     
-    # Admin can delete any leads
-    if is_admin:
+    # BUILD 135: ONLY system_admin can delete leads across tenants
+    if is_system_admin:
         tenant_id = None
     else:
         tenant_id = get_current_tenant()
@@ -1080,8 +1080,8 @@ def bulk_delete_leads():
     if not isinstance(lead_ids, list) or len(lead_ids) == 0:
         return jsonify({"error": "lead_ids must be a non-empty array"}), 400
     
-    # Validate access to all leads
-    if is_admin:
+    # BUILD 135: Validate access to all leads with tenant filtering
+    if is_system_admin:
         leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
     else:
         leads = Lead.query.filter(

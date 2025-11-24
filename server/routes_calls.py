@@ -29,13 +29,12 @@ def list_calls():
         search = request.args.get('search', '').strip()
         status = request.args.get('status', 'all')
         direction = request.args.get('direction', 'all')
-        business_id = request.args.get('business_id')
         limit = min(int(request.args.get('limit', 50)), 100)  # Max 100
         offset = int(request.args.get('offset', 0))
         
-        # Get business_id from session if not provided
-        if not business_id:
-            business_id = get_business_id()
+        # BUILD 135: SECURITY FIX - Always use get_business_id() (tenant-isolated)
+        # No longer accepting business_id from query param to prevent cross-tenant access
+        business_id = get_business_id()
         
         if not business_id:
             return jsonify({"success": False, "error": "Business ID required"}), 400
