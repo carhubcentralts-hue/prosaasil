@@ -1,0 +1,120 @@
+2025-11-24 04:35:19.08
+59dcdd9e
+User
+WHERE users.email = %(email_1)s
+2025-11-24 04:35:19.08
+59dcdd9e
+User
+[SQL: SELECT users.id AS users_id, users.business_id AS users_business_id, users.email AS users_email, users.password_hash AS users_password_hash, users.first_name AS users_first_name, users.last_name AS users_last_name, users.name AS users_name, users.role AS users_role, users.is_active AS users_is_active, users.created_at AS users_created_at, users.last_login AS users_last_login
+2025-11-24 04:35:19.08
+59dcdd9e
+User
+FROM users
+2025-11-24 04:35:20.18
+59dcdd9e
+User
+🔧 Starting database initialization...
+2025-11-24 04:35:21.18
+59dcdd9e
+User
+LIMIT %(param_1)s]
+2025-11-24 04:35:21.18
+59dcdd9e
+User
+FROM business
+2025-11-24 04:35:21.18
+59dcdd9e
+User
+[parameters: {'param_1': 1}]
+2025-11-24 04:35:21.18
+59dcdd9e
+User
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2025-11-24 04:35:21.18
+59dcdd9e
+User
+[SQL: SELECT business.id AS business_id, business.name AS business_name, business.business_type AS business_business_type, business.phone_number AS business_phone_number, business.whatsapp_number AS business_whatsapp_number, business.greeting_message AS business_greeting_message, business.whatsapp_greeting AS business_whatsapp_greeting, business.system_prompt AS business_system_prompt, business.whatsapp_enabled AS business_whatsapp_enabled, business.phone_permissions AS business_phone_permissions, business.whatsapp_permissions AS business_whatsapp_permissions, business.is_active AS business_is_active, business.calls_enabled AS business_calls_enabled, business.crm_enabled AS business_crm_enabled, business.payments_enabled AS business_payments_enabled, business.default_provider AS business_default_provider, business.working_hours AS business_working_hours, business.voice_message AS business_voice_message, business.created_at AS business_created_at, business.updated_at AS business_updated_at
+2025-11-24 04:35:21.18
+59dcdd9e
+User
+❌ Database initialization failed: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+2025-11-24 04:35:22.68
+59dcdd9e
+User
+✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+2025-11-24 04:35:27.38
+59dcdd9e
+User
+✅ DATA PROTECTION: 4 leads preserved (no deletions)
+2025-11-24 04:35:30.08
+59dcdd9e
+User
+✅ [BACKGROUND] Migrations applied
+2025-11-24 04:35:30.68
+59dcdd9e
+User
+🔄 Starting admin roles migration...
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+FROM users
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+[parameters: {'role_1_1': 'admin', 'role_1_2': 'manager', 'role_1_3': 'superadmin'}]
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+⚠️ [BACKGROUND] Admin role migration error: (psycopg2.errors.UndefinedColumn) column users.first_name does not exist
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+LINE 1: ...mail, users.password_hash AS users_password_hash, users.firs...
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+^
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+WHERE users.role IN (%(role_1_1)s, %(role_1_2)s, %(role_1_3)s)]
+2025-11-24 04:35:31.08
+59dcdd9e
+User
+[SQL: SELECT users.id AS users_id, users.business_id AS users_business_id, users.email AS users_email, users.password_hash AS users_password_hash, users.first_name AS users_first_name, users.last_name AS users_last_name, users.name AS users_name, users.role AS users_role, users.is_active AS users_is_active, users.created_at AS users_created_at, users.last_login AS users_last_login
+2025-11-24 04:35:31.48
+59dcdd9e
+User
+FROM faqs]
+2025-11-24 04:35:31.48
+59dcdd9e
+User
+(Background on this error at: https://sqlalche.me/e/20/2j85)
+2025-11-24 04:35:31.48
+59dcdd9e
+User
+⚠️ [BACKGROUND] FAQ fix error: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+2025-11-24 04:35:31.48
+59dcdd9e
+User
+[SQL: SELECT faqs.id AS faqs_id, faqs.business_id AS faqs_business_id, faqs.question AS faqs_question, faqs.answer AS faqs_answer, faqs.intent_key AS faqs_intent_key, faqs.patterns_json AS faqs_patterns_json, faqs.channels AS faqs_channels, faqs.priority AS faqs_priority, faqs.lang AS faqs_lang, faqs.is_active AS faqs_is_active, faqs.order_index AS faqs_order_index, faqs.created_at AS faqs_created_at, faqs.updated_at AS faqs_updated_at
+2025-11-24 04:35:34.38
+59dcdd9e
+User
+⚠️ Error creating admin user: (psycopg2.errors.UndefinedColumn) column users.first_name does not exist
+2025-11-24 04:35:34.38
+59dcdd9e
+User
+[parameters: {'email_1': 'admin@admin.com', 'param_1': 1}]
+
+2025-11-24 04:35:34.38
+59dcdd9e
+User
+LIMIT %(param_1)s]
+2025-11-24 04:35:34.38
+59dcdd9e
+User
