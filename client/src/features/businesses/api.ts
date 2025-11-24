@@ -63,6 +63,10 @@ export class BusinessAPI {
       phone_e164: data.defaultPhoneE164,  // ✅ התאמה לשרת
       whatsapp_number: data.whatsappJid?.replace('@s.whatsapp.net', ''), // ✅ המרה למספר רגיל
       timezone: data.timezone || 'Asia/Jerusalem',
+      // ✅ Owner fields for auto-creating owner user
+      owner_email: data.owner_email,
+      owner_password: data.owner_password,
+      owner_name: data.owner_name,
       _idempotencyKey: this.generateIdempotencyKey()
     };
     return http.post('/api/admin/business', serverData);

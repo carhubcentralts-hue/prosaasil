@@ -50,6 +50,10 @@ export interface BusinessEditData {
     [key: string]: Array<{ from: string; to: string; }>;
   };
   address?: string;
+  // ✅ Owner fields (required for new business creation)
+  owner_email?: string;
+  owner_password?: string;
+  owner_name?: string;
 }
 
 export interface ImpersonationData {

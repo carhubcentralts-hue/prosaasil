@@ -113,34 +113,73 @@ def create_business():
         if existing_business:
             return jsonify({"error": "שם העסק כבר קיים"}), 409
         
-        # הסרתי בדיקת admin email כי לא יוצרים משתמש אוטומטית
+        # ✅ Validate owner email and password (required for auto-create)
+        owner_email = data.get('owner_email')
+        owner_password = data.get('owner_password')
+        owner_name = data.get('owner_name', data['name'] + ' - Owner')
         
-        # Create business - לפי ההנחיות המדויקות + ALL required fields
-        business = Business()
-        business.name = data['name']
-        business.phone_e164 = data['phone_e164']  # השם שהפרונטאנד שולח
-        business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
-        business.is_active = True
+        if not owner_email or not owner_password:
+            return jsonify({"error": "owner_email וowner_password נדרשים ליצירת עסק"}), 400
         
-        # Set ALL required fields to prevent NOT NULL constraint violations
-        business.whatsapp_number = data.get('whatsapp_number', data['phone_e164'])  # Default to same phone
-        business.greeting_message = data.get('greeting_message', "שלום! איך אפשר לעזור?")
-        business.whatsapp_greeting = data.get('whatsapp_greeting', "שלום! איך אפשר לעזור?")
-        business.system_prompt = data.get('system_prompt', f"אתה עוזר נדל\"ן מקצועי ב{{{{business_name}}}}. תפקידך לעזור ללקוחות למצוא נכסים.")  # ✅ עם placeholder!
-        business.voice_message = data.get('voice_message', f"שלום מ{{{{business_name}}}}")
-        business.working_hours = data.get('working_hours', "08:00-18:00")
-        business.phone_permissions = True
-        business.whatsapp_permissions = True
-        business.calls_enabled = True
-        business.crm_enabled = True
-        business.whatsapp_enabled = True
-        business.payments_enabled = False
-        business.default_provider = "paypal"
+        if len(owner_password) < 6:
+            return jsonify({"error": "הסיסמה חייבת להכיל לפחות 6 תווים"}), 400
         
-        db.session.add(business)
-        db.session.commit()
+        # Check if owner email already exists
+        existing_user = User.query.filter_by(email=owner_email).first()
+        if existing_user:
+            return jsonify({"error": "כתובת האימייל של הבעלים כבר רשומה במערכת"}), 409
         
-        logger.info(f"Created business {business.id}: {business.name}")
+        # ✅ ATOMIC TRANSACTION: Create business + owner together
+        try:
+            # Create business - לפי ההנחיות המדויקות + ALL required fields
+            business = Business()
+            business.name = data['name']
+            business.phone_e164 = data['phone_e164']  # השם שהפרונטאנד שולח
+            business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
+            business.is_active = True
+            
+            # Set ALL required fields to prevent NOT NULL constraint violations
+            business.whatsapp_number = data.get('whatsapp_number', data['phone_e164'])  # Default to same phone
+            business.greeting_message = data.get('greeting_message', "שלום! איך אפשר לעזור?")
+            business.whatsapp_greeting = data.get('whatsapp_greeting', "שלום! איך אפשר לעזור?")
+            business.system_prompt = data.get('system_prompt', f"אתה עוזר נדל\"ן מקצועי ב{{{{business_name}}}}. תפקידך לעזור ללקוחות למצוא נכסים.")  # ✅ עם placeholder!
+            business.voice_message = data.get('voice_message', f"שלום מ{{{{business_name}}}}")
+            business.working_hours = data.get('working_hours', "08:00-18:00")
+            business.phone_permissions = True
+            business.whatsapp_permissions = True
+            business.calls_enabled = True
+            business.crm_enabled = True
+            business.whatsapp_enabled = True
+            business.payments_enabled = False
+            business.default_provider = "paypal"
+            
+            db.session.add(business)
+            db.session.flush()  # Get business.id WITHOUT committing yet
+            
+            logger.info(f"Creating business {business.name} with owner {owner_email}")
+            
+            # AUTO-CREATE OWNER USER for new business (same transaction)
+            owner_user = User(
+                email=owner_email,
+                password_hash=generate_password_hash(owner_password, method='scrypt'),
+                name=owner_name,
+                role='owner',
+                business_id=business.id,
+                is_active=True,
+                created_at=datetime.utcnow()
+            )
+            db.session.add(owner_user)
+            
+            # ✅ SINGLE COMMIT: Both business + owner atomically
+            db.session.commit()
+            logger.info(f"✅ Created business {business.id}: {business.name} with owner {owner_email}")
+        except Exception as error:
+            # Rollback BOTH business and owner if anything fails
+            db.session.rollback()
+            logger.error(f"Failed to create business or owner, rolling back: {error}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return jsonify({"error": "שגיאה ביצירת עסק או משתמש הבעלים"}), 500
         
         # ✅ החזר JSON של העסק החדש עם id + ALL fields (consistent with DB)
         return jsonify({
