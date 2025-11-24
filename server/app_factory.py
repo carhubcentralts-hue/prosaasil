@@ -238,13 +238,14 @@ def create_app():
             any(request.path.startswith(p) for p in auth_paths)):
             return
             
-        # Session timeout check - check BOTH session keys for compatibility
+        # BUILD 142 FINAL: Session timeout check - DON'T clear session automatically!
         if 'user' in session or 'al_user' in session:
             last_activity = session.get('_last_activity')
             if last_activity:
                 last_time = datetime.fromisoformat(last_activity)
                 if datetime.now() - last_time > timedelta(hours=8):
-                    session.clear()
+                    # BUILD 142 FINAL: Return 401 but DON'T clear session
+                    # Let the client handle re-authentication
                     return jsonify({'error': 'Session expired'}), 401
             
             # Update last activity
@@ -257,24 +258,27 @@ def create_app():
                 # SeaSurf handles CSRF - no manual _csrf_token needed
             else:
                 start_time = datetime.fromisoformat(session_start)
-                # FIXED: Increase rotation period from 2 to 24 hours and preserve session data better
+                # BUILD 142 FINAL: Increase rotation period and preserve BOTH session keys!
                 if datetime.now() - start_time > timedelta(hours=24):
-                    # Rotate session but preserve ALL user data
-                    user_data = session.get('al_user')
-                    impersonated_tenant_id = session.get('impersonated_tenant_id')  # Fixed key per guidelines
+                    # Preserve ALL user session data (BOTH keys + impersonation)
+                    user_data = session.get('user')  # BUILD 142: Save BOTH keys!
+                    al_user_data = session.get('al_user')
+                    impersonated_tenant_id = session.get('impersonated_tenant_id')
                     token = session.get('token')
-                    impersonating = session.get('impersonating', False)
                     
                     session.clear()
                     
-                    # Restore all user session data
+                    # Restore BOTH user session keys
                     if user_data:
-                        session['al_user'] = user_data
-                        session['impersonated_tenant_id'] = impersonated_tenant_id  # Fixed key per guidelines
+                        session['user'] = user_data
+                    if al_user_data:
+                        session['al_user'] = al_user_data
+                    if impersonated_tenant_id:
+                        session['impersonated_tenant_id'] = impersonated_tenant_id
+                    if token:
                         session['token'] = token
-                        session['impersonating'] = impersonating
-                        session['_session_start'] = datetime.now().isoformat()
-                        # SeaSurf handles CSRF - no manual _csrf_token needed
+                    session['_session_start'] = datetime.now().isoformat()
+                    # SeaSurf handles CSRF - no manual _csrf_token needed
     
     # CSRF כבר מוגדר למעלה - הסרת כפילות
     
@@ -337,12 +341,13 @@ def create_app():
             # Update session activity
             SessionSecurity.update_activity()
             
-            # Check session validity for protected routes - EXCLUDE auth endpoints from validation
+            # BUILD 142 FINAL: Check session validity - DON'T clear session automatically!
             if request.endpoint and request.endpoint.startswith(('ui.', 'data_api.')):
                 if not SessionSecurity.is_session_valid():
-                    session.clear()
+                    # Return 401 but DON'T clear session
                     if request.headers.get('HX-Request'):
                         return '<div class="text-red-600 p-4 bg-red-50 rounded-lg">🔒 Session expired - please login again</div>', 401
+                    return jsonify({'error': 'Session invalid'}), 401
         
         # Register auth system FIRST (after security middleware)
         # Using simplified auth from auth_api.py only

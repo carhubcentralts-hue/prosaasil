@@ -609,10 +609,8 @@ def impersonate_business(business_id):
         if not business.is_active:
             return jsonify({"error": "העסק אינו פעיל"}), 400
         
-        # Store impersonation state - BUILD 142 format
-        session['impersonating'] = True
-        session['impersonated_tenant_id'] = business.id
-        session['impersonated_business_id'] = business.id
+        # BUILD 142 FINAL: Store ONLY impersonated_tenant_id (no other keys needed!)
+        session["impersonated_tenant_id"] = business.id
         
         logger.info(f"✅ System admin {current_admin.get('email')} impersonating business {business.id}")
         
@@ -642,12 +640,10 @@ def exit_impersonation():
     try:
         logger.info("🔄 Exiting impersonation")
         
-        # Clear impersonation state - BUILD 142
-        session['impersonating'] = False
-        session.pop('impersonated_tenant_id', None)
-        session.pop('impersonated_business_id', None)
+        # BUILD 142 FINAL: Clear ONLY impersonated_tenant_id (no other keys!)
+        session.pop("impersonated_tenant_id", None)
         
-        logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user')}")
+        logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user') or session.get('al_user')}")
         
         # BUILD 142: Return both formats for compatibility
         return jsonify({

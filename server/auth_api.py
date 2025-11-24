@@ -227,14 +227,21 @@ def get_current_user():
     Returns current user data from session - single source of truth
     """
     try:
-        # BUILD 142: Check BOTH session keys for compatibility
-        u = session.get('user') or session.get('al_user')
+        # BUILD 142 FINAL: Check al_user first, then user (priority order)
+        u = session.get('al_user') or session.get('user')
         if not u:
             return jsonify({"error":"Not authenticated"}), 401
         
+        # BUILD 142 FINAL: Compute tenant - impersonation overrides business_id
+        if session.get("impersonated_tenant_id"):
+            tenant_id = session.get("impersonated_tenant_id")
+            impersonating = True
+        else:
+            tenant_id = u.get('business_id')
+            impersonating = False
+        
         # Get tenant info from business
         business = None
-        tenant_id = session.get('impersonated_tenant_id') or u.get('business_id')  # Fixed key per guidelines
         if tenant_id:
             business = Business.query.get(tenant_id)
         
@@ -243,9 +250,6 @@ def get_current_user():
             'id': business.id if business else tenant_id or 1,
             'name': business.name if business else 'Default Tenant'
         }
-        
-        # ✅ חישוב נכון של impersonating לפי ההנחיות
-        impersonating = bool(session.get('impersonating') and session.get('impersonated_tenant_id'))  # Fixed key per guidelines
         
         # Include original user data during impersonation for frontend banner
         response_data = {
@@ -268,8 +272,8 @@ def get_current_user():
 def get_current_user_legacy():
     """Get current logged in user data"""
     try:
-        # BUILD 142: Check BOTH session keys for compatibility
-        user = session.get('user') or session.get('al_user')
+        # BUILD 142 FINAL: Check al_user first, then user (priority order)
+        user = session.get('al_user') or session.get('user')
         if not user:
             return jsonify({'error': 'Not authenticated'}), 401
         
@@ -326,22 +330,27 @@ def require_api_auth(allowed_roles=None):
             if request.method == "OPTIONS":
                 return '', 204
             
-            # BUILD 142: Check BOTH session keys for compatibility
-            user_data = session.get('user') or session.get('al_user')
-            if not user_data:
+            # BUILD 142 FINAL: Check session keys in priority order (al_user first, then user)
+            user = session.get("al_user") or session.get("user")
+            if not user:
                 return jsonify({
                     'error': 'forbidden',
                     'reason': 'no_session',
                     'message': 'Authentication required'
                 }), 401
             
-            # Compute context once
-            user_role = user_data['role']
-            tenant = session.get('impersonated_tenant_id') or user_data.get('business_id')
-            impersonating = bool(session.get('impersonating'))
+            # BUILD 142 FINAL: Compute tenant - impersonation overrides business_id
+            if session.get("impersonated_tenant_id"):
+                tenant = session.get("impersonated_tenant_id")
+            else:
+                tenant = user.get('business_id')  # Can be None for system_admin - THIS IS OK!
             
-            # 🔍 BUILD 142 DEBUG: Log auth context
-            print(f"🔍 AUTH DEBUG: user_id={user_data.get('id')}, role={user_role}, business_id={user_data.get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
+            # Compute role and impersonation status
+            user_role = user['role']
+            impersonating = bool(session.get("impersonated_tenant_id"))
+            
+            # 🔍 BUILD 142 FINAL DEBUG: Log auth context
+            print(f"🔍 AUTH DEBUG: user_id={user.get('id')}, role={user_role}, business_id={user.get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
             
             # BUILD 138: FIXED legacy role mapping - only map ACTUAL legacy roles, not new ones!
             # Legacy roles (old): manager, business, superadmin
@@ -376,11 +385,11 @@ def require_api_auth(allowed_roles=None):
                         'message': f'This route requires one of {allowed_roles}, got {user_role} (mapped to {effective_user_role})'
                     }), 403
             
-            # BUILD 142: Store context in g for route use
-            g.business_id = tenant
-            g.user = user_data  # Use the found user data
+            # BUILD 142 FINAL: Store context in g for route use
+            g.user = user
             g.role = effective_user_role  # Use mapped role
-            g.tenant = tenant
+            g.tenant = tenant  # Can be None for system_admin - THIS IS OK!
+            g.business_id = tenant  # Backward compatibility
             g.impersonating = impersonating
             
             return f(*args, **kwargs)

@@ -91,18 +91,17 @@ class SessionSecurity:
     
     @staticmethod
     def rotate_session():
-        """Rotate session ID while preserving user data - handle BOTH session keys"""
+        """BUILD 142 FINAL: Rotate session ID while preserving user data - handle BOTH session keys"""
         if 'user' in session or 'al_user' in session:
             # Preserve both keys if they exist
             user_data = dict(session.get('user', {}))
             al_user_data = dict(session.get('al_user', {}))
-            impersonating = session.get('impersonating', False)
-            impersonated_tenant_id = session.get('impersonated_tenant_id')
+            impersonated_tenant_id = session.get('impersonated_tenant_id')  # Only this matters!
             token = session.get('token')
             
             session.clear()
             
-            # Restore both user data keys
+            # Restore both user data keys + impersonation
             if user_data:
                 session['user'] = user_data
             if al_user_data:
@@ -111,7 +110,6 @@ class SessionSecurity:
                 session['impersonated_tenant_id'] = impersonated_tenant_id
             if token:
                 session['token'] = token
-            session['impersonating'] = impersonating
             session['_session_start'] = datetime.now().isoformat()
             # SeaSurf handles CSRF tokens - no manual _csrf_token needed
     

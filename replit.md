@@ -18,7 +18,7 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **Framework**: Flask with SQLAlchemy ORM.
 - **Real-time**: Starlette-based native WebSocket handling, Uvicorn ASGI server.
 - **Database**: PostgreSQL (production), SQLite (development).
-- **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection. **BUILD 142**: Dual session key compatibility (`session['user']` OR `session['al_user']`) across all authentication endpoints and decorators for seamless legacy/modern session handling.
+- **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection. **BUILD 142 FINAL**: Complete session authentication overhaul - `@require_api_auth()` checks both `session['al_user']` OR `session['user']` in priority order, never clears session automatically, and accepts `business_id=None` for system_admin. Session rotation preserves both keys. Impersonation uses only `session['impersonated_tenant_id']` for state management.
 - **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts.
 - **Agent Cache**: Thread-safe singleton cache for Agent SDK instances with auto-expiration and warmup.
 - **Multi-Tenant Resolution**: `resolve_business_with_fallback()` for secure business identification.
