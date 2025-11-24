@@ -28,10 +28,10 @@ def get_business_statuses():
         if session.get('impersonating') and session.get('impersonated_tenant_id'):
             business_id = session.get('impersonated_tenant_id')
         
-        # ✅ FIX: Admin can get statuses from query param or default to first business
-        is_admin = user.get('role') in ['admin', 'superadmin']
-        if not business_id and is_admin:
-            # Try to get business_id from query parameter
+        # BUILD 138: ONLY system_admin can override business_id via query param
+        is_system_admin = user.get('role') == 'system_admin'
+        if not business_id and is_system_admin:
+            # Try to get business_id from query parameter (system_admin only)
             business_id = request.args.get('business_id', type=int)
             
             # If still no business_id, use first available business

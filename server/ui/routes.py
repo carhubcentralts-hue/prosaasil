@@ -33,18 +33,30 @@ def require_roles(*allowed_roles):
     return decorator
 
 def effective_business_id():
-    """Admin can choose ?business_id=; others locked to their business"""
-    bid = request.args.get("business_id")
+    """
+    BUILD 138 SECURITY FIX: Strict tenant isolation
+    
+    ONLY system_admin can override business_id via query param.
+    All other roles (owner/admin/agent) are LOCKED to their own business_id.
+    """
     user = session.get('al_user') or session.get('user')
+    if not user:
+        return None
+    
+    user_role = user.get('role')
     
     # Check if admin is impersonating a business
-    impersonating = session.get('impersonated_tenant_id')  # Fixed key per guidelines
-    if impersonating and user and user.get("role") in ("manager"):
-        bid = impersonating
+    impersonating = session.get('impersonated_tenant_id')
+    if impersonating:
+        return impersonating
     
-    if user and user.get("role") not in ("manager"):
-        bid = user.get("business_id")
-    return bid
+    # BUILD 138: ONLY system_admin can override via query param
+    if user_role == 'system_admin':
+        return request.args.get("business_id") or user.get("business_id")
+    
+    # BUILD 138: owner/admin/agent/business MUST use their own business_id
+    # IGNORE query param to prevent cross-tenant access
+    return user.get("business_id")
 
 def _load_counters_for_admin():
     """Load counters for admin dashboard"""

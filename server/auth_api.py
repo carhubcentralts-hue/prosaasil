@@ -123,6 +123,9 @@ def login():
         # Note: Don't set tenant_id here - use impersonated_tenant_id only for impersonation per guidelines
         session['token'] = f"session_{user.id}"  # Simple session token
         
+        # 🔍 BUILD 138 DEBUG: Log what we stored in session
+        print(f"🔍 LOGIN SUCCESS: user_id={user.id}, email={user.email}, role={user.role}, business_id={user.business_id}")
+        
         # Return format that matches frontend AuthResponse type
         return jsonify({
             'user': user_data,
@@ -332,6 +335,9 @@ def require_api_auth(allowed_roles=None):
             user_role = session['user']['role']
             tenant = session.get('impersonated_tenant_id') or session['user'].get('business_id')
             impersonating = bool(session.get('impersonating'))
+            
+            # 🔍 BUILD 138 DEBUG: Log auth context
+            print(f"🔍 AUTH DEBUG: user_id={session['user'].get('id')}, role={user_role}, business_id={session['user'].get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
             
             # Legacy role mapping for backward compatibility during migration
             legacy_role_map = {
