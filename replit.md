@@ -100,7 +100,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - Secure password change with current password verification
   - Copy-to-clipboard for email address
   - Logout functionality
-- **Business Management (Nov 24, 2025 - FINAL STRUCTURE)**:
+- **Business Management (Nov 24, 2025 - PRODUCTION READY)**:
   - **TWO SEPARATE PAGES** (no duplication):
     - **"ניהול עסקים"** (`/app/admin/businesses`) - BusinessManagerPage
       - Roles: admin, manager
@@ -111,10 +111,11 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
       - Simplified view: business ID, name, **email (primary login)**, business type, phone, status
       - Password reset functionality for primary business accounts
   - **Backend Endpoints**:
-    - `GET /api/admin/businesses` - List all businesses with pagination (email field included)
+    - `GET /api/admin/businesses` - List all businesses with pagination - Returns: id, name, email, business_type, phone_number, whatsapp_number, status, is_active, created_at
     - `PUT /api/admin/businesses/<id>/reset-password` - Reset business password (admin/manager/superadmin only)
   - **Business Model**: Includes `email` and `password_hash` fields for primary account access
   - Complete RBAC protection for both pages
+  - ✅ All TypeScript/React errors resolved - ready for production deployment
 
 # External Dependencies
 
