@@ -27,6 +27,7 @@ AgentLocator features a multi-tenant architecture with complete business isolati
 - **DTMF Menu**: Interactive voice response system.
 - **Data Protection**: Strictly additive database migrations.
 - **User Management API** (BUILD 134): `/api/admin/users` endpoint with automatic RBAC filtering - system_admin sees all users, owner/admin see only their business users. Tenant-scoped password reset at `/api/admin/businesses/<id>/users/<user_id>/change-password`.
+- **Cross-Tenant Security** (BUILD 135): Fixed critical data leakage - all dashboard endpoints (`/api/dashboard/stats`, `/api/dashboard/activity`) now enforce tenant_id filtering. Admin endpoints (`/api/admin/overview`) restricted to system_admin only. Prevents owner/admin users from accessing cross-tenant data.
 - **OpenAI Realtime API**: Integrates `gpt-4o-realtime-preview` for phone calls with asyncio threads and thread-safe queues.
 - **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` (max_tokens: 300, temperature: 0.18) with 10 critical behavioral rules. Includes a server-side GPT-4o-mini NLP appointment parser for `hours_info`, `ask`, and `confirm` actions. The appointment flow prioritizes date/time, checks availability, collects name verbally, and phone via DTMF (10-digit auto-submit without `#`). Customer data persistence is handled by a 4-path hydration system. NLP runs after DTMF is added to conversation history to ensure complete data processing, with extensive logging.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)`.
@@ -43,6 +44,7 @@ AgentLocator features a multi-tenant architecture with complete business isolati
 - **Security**: CSRF protection, secure redirects, and role-based access control supporting the 4-tier role hierarchy.
 - **UI Navigation**: Main sidebar no longer shows separate "AI Prompts" menu item. All AI prompt editing (calls and WhatsApp) is consolidated into System Settings → AI Settings tab. AI tab access restricted to system_admin, owner, and admin roles only (not agent).
 - **RBAC Sidebar** (BUILD 134): "Business Management" restricted to system_admin only (prevents owners from seeing other businesses). "User Management" accessible to system_admin/owner/admin (shows only their business users via automatic filtering).
+- **Role-Based Routing** (BUILD 135): Smart default redirect - system_admin → `/app/admin/overview` (global dashboard), owner/admin/agent → `/app/business/overview` (business-scoped dashboard). All `/app/admin/*` routes restricted to system_admin only. Prevents owner/admin from accessing global admin views.
 
 ### Feature Specifications
 - **Call Logging**: Comprehensive tracking.
