@@ -82,6 +82,12 @@ const menuItems = [
     roles: ['admin', 'manager']
   },
   { 
+    icon: UserCog, 
+    label: 'ניהול עסקים (מנהל מערכת)', 
+    to: '/app/admin/businesses-management',
+    roles: ['superadmin']
+  },
+  { 
     icon: Bot, 
     label: 'AI Prompts', 
     to: '/app/admin/prompts',
