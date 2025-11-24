@@ -1,4 +1,3 @@
-import React from 'react';
 import React, { useState, useEffect } from 'react';
 import { X, Phone, Mail, User, Tag, Clock, Activity, MessageSquare, Trash2, Edit3 } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';

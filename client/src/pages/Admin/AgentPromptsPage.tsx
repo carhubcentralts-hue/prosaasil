@@ -1,4 +1,3 @@
-import React from 'react';
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
@@ -39,7 +38,7 @@ export function AgentPromptsPage() {
   const [loading, setLoading] = useState(true);
   
   // Determine which business ID to use
-  const businessId = user?.role === 'business' ? user.business_id?.toString() : urlBusinessId;
+  const businessId = user?.role === 'admin' ? user.business_id?.toString() : urlBusinessId;
   const [saving, setSaving] = useState<{ calls: boolean; whatsapp: boolean }>({
     calls: false,
     whatsapp: false
@@ -60,8 +59,8 @@ export function AgentPromptsPage() {
   useEffect(() => {
     if (!businessId) {
       // Redirect based on user role
-      if (user?.role === 'business') {
-        console.error('Business user has no business_id');
+      if (user?.role === 'admin') {
+        console.error('Business admin has no business_id');
         return;
       }
       navigate('/app/admin/businesses');
@@ -73,7 +72,7 @@ export function AgentPromptsPage() {
         setLoading(true);
         
         // Load business info and prompts in parallel
-        const isBusinessRole = user?.role === 'business';
+        const isBusinessRole = user?.role === 'admin';
         const [businessData, promptsData] = await Promise.all([
           http.get<{ name: string }>(isBusinessRole ? `/api/business/current` : `/api/admin/business/${businessId}`),
           http.get<PromptData>(isBusinessRole ? `/api/business/current/prompt` : `/api/admin/businesses/${businessId}/prompt`)
@@ -96,7 +95,7 @@ export function AgentPromptsPage() {
   // Load history
   const loadHistory = async () => {
     try {
-      const isBusinessRole = user?.role === 'business';
+      const isBusinessRole = user?.role === 'admin';
       const { history } = await http.get<{ history: PromptRevision[] }>(
         isBusinessRole 
           ? `/api/business/current/prompt/history` 
@@ -113,7 +112,7 @@ export function AgentPromptsPage() {
     setSaving(prev => ({ ...prev, [channel]: true }));
     
     try {
-      const isBusinessRole = user?.role === 'business';
+      const isBusinessRole = user?.role === 'admin';
       
       const result = await http.put<{ success: boolean; version: number; message?: string; updated_at?: string }>(
         isBusinessRole 
@@ -176,7 +175,7 @@ export function AgentPromptsPage() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-4">
-          {user?.role !== 'business' && (
+          {user?.role !== 'admin' && (
             <button
               onClick={() => navigate('/app/admin/businesses')}
               className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"

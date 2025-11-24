@@ -1,4 +1,3 @@
-import React from 'react';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Clock, Phone, MessageSquare, CheckCircle2, AlertCircle, User } from 'lucide-react';

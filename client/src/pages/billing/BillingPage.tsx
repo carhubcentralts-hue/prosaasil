@@ -1,4 +1,3 @@
-import React from 'react';
 import React, { useState, useEffect } from 'react';
 import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X, PenTool, MessageSquare } from 'lucide-react';
 import { http } from '../../services/http';

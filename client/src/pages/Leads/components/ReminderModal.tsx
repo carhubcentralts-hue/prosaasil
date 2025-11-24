@@ -1,4 +1,3 @@
-import React from 'react';
 import React, { useState, useEffect } from 'react';
 import { Button } from "../../../shared/components/ui/Button";
 import { Lead, LeadReminder } from '../types';
