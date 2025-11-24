@@ -1291,12 +1291,18 @@ def get_all_reminders():
 @require_api_auth()  # BUILD 142 FINAL: Allow all authenticated users (owner/admin/agent)
 def create_general_reminder():
     """Create a new reminder (with or without lead association)"""
+    log.info(f"📝 CREATE REMINDER - Starting")
+    
     tenant_id = get_current_tenant()
+    log.info(f"📝 CREATE REMINDER - tenant_id={tenant_id}")
     if not tenant_id:
+        log.error(f"❌ CREATE REMINDER - No tenant access")
         return jsonify({"error": "No tenant access"}), 403
     
     data = request.get_json()
+    log.info(f"📝 CREATE REMINDER - data={data}")
     if not data or 'due_at' not in data or 'note' not in data:
+        log.error(f"❌ CREATE REMINDER - Missing required fields: due_at={data.get('due_at')}, note={data.get('note')}")
         return jsonify({"error": "due_at and note are required"}), 400
     
     try:
@@ -1338,6 +1344,7 @@ def create_general_reminder():
         )
     
     db.session.commit()
+    log.info(f"✅ CREATE REMINDER - Success! reminder_id={reminder.id}, tenant_id={tenant_id}")
     
     return jsonify({
         "message": "Reminder created successfully",
