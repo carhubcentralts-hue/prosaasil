@@ -29,6 +29,7 @@ export const queryClient = new QueryClient({
 export async function apiRequest(url: string, options: RequestInit & { body?: any } = {}) {
   const response = await fetch(url, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...options.headers,
