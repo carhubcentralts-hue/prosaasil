@@ -739,7 +739,7 @@ export default function LeadsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-gray-900 dark:text-white text-base mb-1 truncate" data-testid={`text-name-mobile-${lead.id}`}>
-                      {safe(lead.name) || safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
+                      {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || lead.display_phone || lead.phone_e164 || '—'}
                     </h3>
                     {lead.email && (
                       <p className="text-sm text-gray-600 dark:text-gray-400 truncate" data-testid={`text-email-mobile-${lead.id}`}>
