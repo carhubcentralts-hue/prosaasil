@@ -992,43 +992,46 @@ def get_due_reminders():
     })
 
 @leads_bp.route("/api/notifications", methods=["GET"])
-@require_api_auth()  # BUILD 136 FIX: Use proper decorator that sets g.user and g.tenant
+@require_api_auth()  # BUILD 142 FINAL FIX
 def get_notifications():
     """Get task notifications categorized by urgency (overdue, today, soon)"""
-    tenant_id = get_current_tenant()
+    try:
+        tenant_id = get_current_tenant()
+        print(f"🔔 /api/notifications - tenant_id={tenant_id}, g.tenant={getattr(g, 'tenant', None)}")
+        
+        # system_admin (no tenant) gets empty notifications
+        if not tenant_id:
+            return jsonify({
+                "notifications": [],
+                "overdue": [],
+                "today": [],
+                "soon": []
+            })
+        
+        from datetime import timedelta
+        from sqlalchemy import and_, cast, Date
+        
+        now = datetime.utcnow()
+        today = now.date()
+        soon_threshold = now + timedelta(hours=3)
+        
+        # BUILD 142 FINAL: Use tenant_id consistently (no business_id!)
+        # Get all incomplete reminders for this business
+        print(f"🔔 Querying reminders for tenant_id={tenant_id}")
+        reminders = db.session.query(LeadReminder, Lead).outerjoin(
+            Lead, LeadReminder.lead_id == Lead.id
+        ).filter(
+            LeadReminder.tenant_id == tenant_id,  # BUILD 142: Use tenant_id directly!
+            LeadReminder.completed_at.is_(None)
+        ).all()
+        
+        print(f"🔔 Found {len(reminders)} reminders")
     
-    # system_admin (no tenant) gets empty notifications
-    if not tenant_id:
-        return jsonify({
-            "notifications": [],
-            "overdue": [],
-            "today": [],
-            "soon": []
-        })
-    
-    from datetime import timedelta
-    from sqlalchemy import and_, cast, Date
-    
-    now = datetime.utcnow()
-    today = now.date()
-    soon_threshold = now + timedelta(hours=3)
-    
-    # Get all incomplete reminders for this business
-    # Use LEFT JOIN to include reminders without a lead (general tasks)
-    # For lead-less reminders, filter by created_by → user business_id
-    reminders = db.session.query(LeadReminder, Lead).outerjoin(
-        Lead, LeadReminder.lead_id == Lead.id
-    ).outerjoin(
-        User, LeadReminder.created_by == User.id
-    ).filter(
-        or_(
-            # Reminders with leads: filter by lead's tenant
-            and_(LeadReminder.lead_id.isnot(None), Lead.tenant_id == tenant_id),
-            # Reminders without leads: filter by creator's business
-            and_(LeadReminder.lead_id.is_(None), User.business_id == tenant_id)
-        ),
-        LeadReminder.completed_at.is_(None)
-    ).all()
+    except Exception as e:
+        import traceback
+        print(f"❌ ERROR in /api/notifications: {e}")
+        print(f"❌ STACKTRACE:\n{traceback.format_exc()}")
+        return jsonify({"error": f"Internal error: {str(e)}"}), 500
     
     notifications = []
     
