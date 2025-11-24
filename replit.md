@@ -24,6 +24,12 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Multi-Tenant Resolution**: `resolve_business_with_fallback()` for secure business identification.
 - **RBAC**: Role-based access control with 4-tier role hierarchy (system_admin → owner → admin → agent).
   - **User Model Fix (Nov 24, 2025 - BUILD 124)**: Fixed schema mismatch where production DB has single `name` column but model declared `first_name`/`last_name`. Removed non-existent columns, added read-only properties for backward compatibility. Migration script auto-converts legacy roles (admin/manager/superadmin → system_admin).
+- **Multi-Tenant Business Creation (Nov 24, 2025)**:
+  - **Atomic Transaction**: Business + owner user created in single database transaction (flush → add owner → single commit)
+  - **Auto-Owner Generation**: When system_admin creates business, owner user auto-created with provided credentials (email/password/name)
+  - **Transaction Safety**: If owner creation fails (duplicate email, etc), business creation also rolls back (no orphaned businesses)
+  - **Frontend Flow**: BusinessEditModal shows owner credential fields only for new businesses (!business), existing businesses skip owner creation
+  - **Validation**: Pre-transaction checks for duplicate business domain and owner email (409 response if exists)
 - **DTMF Menu**: Interactive voice response system for phone calls.
 - **Data Protection**: Strictly additive database migrations.
 - **OpenAI Realtime API**: Integrates **gpt-4o-realtime-preview** for phone calls with dedicated asyncio threads and thread-safe queues.
