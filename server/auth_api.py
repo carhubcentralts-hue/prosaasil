@@ -397,13 +397,13 @@ def create_default_admin():
             db.session.commit()
             print(f"✅ Admin password reset: admin@admin.com / admin123")
         elif not User.query.filter_by(role='system_admin').first():
-            # Create new system admin
+            # ✅ BUILD 140: Create system_admin with business_id=None (global entity)
             admin = User(
                 email='admin@admin.com',
                 password_hash=generate_password_hash('admin123', method='scrypt'),
                 name='System Administrator',
                 role='system_admin',
-                business_id=1,
+                business_id=None,  # Global entity - not tied to any business
                 is_active=True
             )
             db.session.add(admin)
