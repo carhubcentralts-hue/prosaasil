@@ -90,7 +90,7 @@ const menuItems = [
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 
-    to: '/app/users',
+    to: '/app/admin/users',
     roles: ['admin', 'manager']
   },
   { 
