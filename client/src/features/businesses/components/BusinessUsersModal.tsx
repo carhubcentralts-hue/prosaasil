@@ -5,7 +5,8 @@ import {
   Edit,
   Trash2,
   Crown,
-  X
+  X,
+  Key
 } from 'lucide-react';
 import { http } from '../../../services/http';
 
@@ -173,6 +174,28 @@ export function BusinessUsersModal({
       fetchUsers();
     } catch (err) {
       showMessage('error', 'לא הצלחנו להגדיר כבעלים');
+    }
+  };
+
+  const handleResetUserPassword = async (user: User) => {
+    const confirmed = confirm(`האם אתה בטוח שאתה רוצה לאפס את הסיסמה של ${user.email}?`);
+    if (!confirmed) return;
+
+    try {
+      // Generate temporary password
+      const tempPassword = Math.random().toString(36).slice(-8) + '123!';
+      
+      // ✅ Use correct endpoint: /api/admin/user/<user_id>/change-password
+      await http.post(`/api/admin/user/${user.id}/change-password`, {
+        password: tempPassword
+      });
+
+      showMessage('success', `סיסמה אופסה בהצלחה!\nסיסמה זמנית: ${tempPassword}\n(העתק לפני שתסגור הודעה זו)`);
+      
+      // Also show in browser alert so user can copy
+      alert(`סיסמה אופסה בהצלחה עבור ${user.email}\n\nסיסמה זמנית: ${tempPassword}\n\nהעתק את הסיסמה עכשיו!`);
+    } catch (err) {
+      showMessage('error', 'לא הצלחנו לאפס את הסיסמה');
     }
   };
 
@@ -404,6 +427,14 @@ export function BusinessUsersModal({
                             data-testid={`button-edit-user-${user.id}`}
                           >
                             <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleResetUserPassword(user)}
+                            className="p-1.5 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                            title="איפוס סיסמה"
+                            data-testid={`button-reset-password-${user.id}`}
+                          >
+                            <Key className="h-4 w-4" />
                           </button>
                           {user.role !== 'owner' && (
                             <button
