@@ -26,6 +26,7 @@ AgentLocator features a multi-tenant architecture with complete business isolati
 - **Multi-Tenant Business Creation**: Atomic transaction for business and owner user creation.
 - **DTMF Menu**: Interactive voice response system.
 - **Data Protection**: Strictly additive database migrations.
+- **User Management API** (BUILD 134): `/api/admin/users` endpoint with automatic RBAC filtering - system_admin sees all users, owner/admin see only their business users. Tenant-scoped password reset at `/api/admin/businesses/<id>/users/<user_id>/change-password`.
 - **OpenAI Realtime API**: Integrates `gpt-4o-realtime-preview` for phone calls with asyncio threads and thread-safe queues.
 - **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` (max_tokens: 300, temperature: 0.18) with 10 critical behavioral rules. Includes a server-side GPT-4o-mini NLP appointment parser for `hours_info`, `ask`, and `confirm` actions. The appointment flow prioritizes date/time, checks availability, collects name verbally, and phone via DTMF (10-digit auto-submit without `#`). Customer data persistence is handled by a 4-path hydration system. NLP runs after DTMF is added to conversation history to ensure complete data processing, with extensive logging.
 - **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)`.
@@ -41,6 +42,7 @@ AgentLocator features a multi-tenant architecture with complete business isolati
 - **State Management**: Context API for authentication.
 - **Security**: CSRF protection, secure redirects, and role-based access control supporting the 4-tier role hierarchy.
 - **UI Navigation**: Main sidebar no longer shows separate "AI Prompts" menu item. All AI prompt editing (calls and WhatsApp) is consolidated into System Settings → AI Settings tab. AI tab access restricted to system_admin, owner, and admin roles only (not agent).
+- **RBAC Sidebar** (BUILD 134): "Business Management" restricted to system_admin only (prevents owners from seeing other businesses). "User Management" accessible to system_admin/owner/admin (shows only their business users via automatic filtering).
 
 ### Feature Specifications
 - **Call Logging**: Comprehensive tracking.
