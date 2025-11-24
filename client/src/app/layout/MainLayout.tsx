@@ -182,7 +182,7 @@ export function MainLayout() {
     }
     
     // Hide "Business Management" during impersonation - only show business-specific items
-    if (isImpersonating && item.label === 'ניהול עסקים') {
+    if (isImpersonating && item.label === 'ניהול נתוני עסקים') {
       return false;
     }
     
