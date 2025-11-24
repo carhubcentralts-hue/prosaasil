@@ -16,7 +16,7 @@ interface User {
   first_name?: string;
   last_name?: string;
   name: string;
-  role: 'owner' | 'admin' | 'agent';
+  role: 'system_admin' | 'owner' | 'admin' | 'agent';
   is_active: boolean;
   created_at?: string;
   last_login?: string;
@@ -48,7 +48,7 @@ export function BusinessUsersModal({
     password: '',
     first_name: '',
     last_name: '',
-    role: 'agent' as 'owner' | 'admin' | 'agent'
+    role: 'agent' as 'system_admin' | 'owner' | 'admin' | 'agent'
   });
 
   // Load users when modal opens
@@ -224,6 +224,7 @@ export function BusinessUsersModal({
 
   const getRoleBadge = (role: string) => {
     const roleConfig = {
+      system_admin: { label: 'מנהל מערכת', color: 'bg-red-100 text-red-800' },
       owner: { label: 'בעלים', color: 'bg-purple-100 text-purple-800' },
       admin: { label: 'מנהל', color: 'bg-blue-100 text-blue-800' },
       agent: { label: 'סוכן', color: 'bg-gray-100 text-gray-800' }
@@ -355,10 +356,11 @@ export function BusinessUsersModal({
                   <label className="block text-sm font-medium text-slate-700 mb-1">תפקיד</label>
                   <select
                     value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value as 'owner' | 'admin' | 'agent' })}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value as 'system_admin' | 'owner' | 'admin' | 'agent' })}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white"
                     data-testid="select-role"
                   >
+                    <option value="system_admin">מנהל מערכת</option>
                     <option value="owner">בעלים</option>
                     <option value="admin">מנהל</option>
                     <option value="agent">סוכן</option>
@@ -394,14 +396,20 @@ export function BusinessUsersModal({
           ) : users.length === 0 ? (
             <div className="text-center py-8 text-slate-500">אין משתמשים בעסק זה</div>
           ) : (
-            <div className="border rounded-lg overflow-hidden">
-              <table className="w-full">
+            <>
+              {/* Mobile scroll hint */}
+              <div className="md:hidden text-center text-xs text-slate-500 mb-2 flex items-center justify-center gap-1">
+                <span>גלול שמאלה/ימינה לכפתורי פעולות</span>
+                <span>←→</span>
+              </div>
+              <div className="border rounded-lg overflow-x-auto">
+              <table className="w-full min-w-[600px]">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">אימייל</th>
                     <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">שם</th>
                     <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">תפקיד</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-700">פעולות</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-slate-700 min-w-[180px]">פעולות</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -461,6 +469,7 @@ export function BusinessUsersModal({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </div>
