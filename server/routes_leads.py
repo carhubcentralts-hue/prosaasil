@@ -16,24 +16,37 @@ log = logging.getLogger(__name__)
 leads_bp = Blueprint("leads_bp", __name__)
 
 def get_current_user():
-    """Get current user from session - consistent with auth system"""
-    return session.get('al_user')
+    """
+    BUILD 136 FIX: Get current user from g.user (populated by @require_api_auth)
+    
+    IMPORTANT: This relies on @require_api_auth decorator populating g.user
+    """
+    return g.user if hasattr(g, 'user') else session.get('al_user')
 
 def get_current_tenant():
-    """Get current tenant based on impersonation or user business"""
-    user = get_current_user()
-    if not user:
-        return None
-        
-    # Check if impersonating
+    """
+    BUILD 136 FIX: Get current tenant from g.tenant (populated by @require_api_auth)
+    
+    IMPORTANT: This relies on @require_api_auth decorator populating g.tenant
+    """
+    # Priority 1: Use g.tenant if available (set by @require_api_auth)
+    if hasattr(g, 'tenant') and g.tenant:
+        return g.tenant
+    
+    # Priority 2: Fallback to session for compatibility
     if session.get('impersonating') and session.get('impersonated_tenant_id'):
         return session.get('impersonated_tenant_id')
     
-    # Return user's business
-    return user.get('business_id')
+    user = session.get('al_user')
+    return user.get('business_id') if user else None
 
 def require_auth():
-    """Require authentication for API access"""
+    """
+    BUILD 136 DEPRECATED: Use @require_api_auth() decorator instead
+    
+    This function is kept for backward compatibility but should not be used
+    in new code. Use @require_api_auth() which properly sets g.user and g.tenant
+    """
     user = get_current_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
@@ -987,12 +1000,9 @@ def get_due_reminders():
     })
 
 @leads_bp.route("/api/notifications", methods=["GET"])
+@require_api_auth()  # BUILD 136 FIX: Use proper decorator that sets g.user and g.tenant
 def get_notifications():
     """Get task notifications categorized by urgency (overdue, today, soon)"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
-    
     tenant_id = get_current_tenant()
     if not tenant_id:
         return jsonify({"error": "No tenant access"}), 403
@@ -1205,12 +1215,9 @@ def send_whatsapp_message(lead_id):
 # ====================================
 
 @leads_bp.route("/api/reminders", methods=["GET"])
+@require_api_auth()  # BUILD 136 FIX: Use proper decorator that sets g.user and g.tenant
 def get_all_reminders():
     """Get all reminders for current business/tenant"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
-    
     tenant_id = get_current_tenant()
     if not tenant_id:
         return jsonify({"error": "No tenant access"}), 403
@@ -1246,12 +1253,9 @@ def get_all_reminders():
     })
 
 @leads_bp.route("/api/reminders", methods=["POST"])
+@require_api_auth()  # BUILD 136 FIX: Use proper decorator that sets g.user and g.tenant
 def create_general_reminder():
     """Create a new reminder (with or without lead association)"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
-    
     tenant_id = get_current_tenant()
     if not tenant_id:
         return jsonify({"error": "No tenant access"}), 403

@@ -2,8 +2,9 @@
 API Adapter Layer - Frontend Compatibility
 שכבת מתאם API - התאמה לפרונט-אנד
 """
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, g  # BUILD 136: Added g for @require_api_auth
 from server.models_sql import Business, CallLog, WhatsAppMessage, Customer, User, Payment, db
+from server.auth_api import require_api_auth  # BUILD 136: Added for proper authentication
 from datetime import datetime, timedelta
 import logging
 
@@ -52,16 +53,12 @@ def check_permissions(required_roles):
 # === DASHBOARD ENDPOINTS ===
 
 @api_adapter_bp.route('/api/dashboard/stats', methods=['GET'])
+@require_api_auth(['owner', 'admin', 'manager', 'business', 'agent'])  # BUILD 136 FIX: Use proper decorator
 def dashboard_stats():
-    """BUILD 135: Business-scoped dashboard stats - filtered by tenant_id"""
-    perm_check = check_permissions(['owner', 'admin', 'manager', 'business'])  # BUILD 135: Added 'owner'
-    if perm_check:
-        return perm_check
-    
+    """BUILD 136: Business-scoped dashboard stats - uses g.tenant from @require_api_auth"""
     try:
-        # BUILD 135: Get current tenant for filtering
-        from server.tenant import get_current_tenant
-        tenant_id = get_current_tenant()
+        # BUILD 136 FIX: Use g.tenant populated by @require_api_auth
+        tenant_id = g.tenant
         if not tenant_id:
             return jsonify({"error": "No tenant access"}), 403
         
@@ -134,16 +131,12 @@ def dashboard_stats():
         return jsonify({"error": "internal_server_error"}), 500
 
 @api_adapter_bp.route('/api/dashboard/activity', methods=['GET'])
+@require_api_auth(['owner', 'admin', 'manager', 'business', 'agent'])  # BUILD 136 FIX: Use proper decorator
 def dashboard_activity():
-    """BUILD 135: Business-scoped recent activity - filtered by tenant_id"""
-    perm_check = check_permissions(['owner', 'admin', 'manager', 'business'])  # BUILD 135: Added 'owner'
-    if perm_check:
-        return perm_check
-    
+    """BUILD 136: Business-scoped recent activity - uses g.tenant from @require_api_auth"""
     try:
-        # BUILD 135: Get current tenant for filtering
-        from server.tenant import get_current_tenant
-        tenant_id = get_current_tenant()
+        # BUILD 136 FIX: Use g.tenant populated by @require_api_auth
+        tenant_id = g.tenant
         if not tenant_id:
             return jsonify({"error": "No tenant access"}), 403
         
