@@ -337,7 +337,7 @@ export function SettingsPage() {
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200 px-6">
-        <nav className="flex space-x-8" dir="ltr">
+        <nav className="flex space-x-8 overflow-x-auto scrollbar-hide" dir="ltr" style={{WebkitOverflowScrolling: 'touch'}}>
           <button
             onClick={() => setActiveTab('business')}
             className={`${
