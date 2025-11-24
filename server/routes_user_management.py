@@ -128,13 +128,11 @@ def create_business_user(business_id):
         if User.query.filter_by(email=email).first():
             return jsonify({'error': 'Email already exists'}), 400
         
-        # Create user
+        # Create user (only use 'name' field, not first_name/last_name)
         user = User(
             business_id=business_id,
             email=email,
             password_hash=generate_password_hash(password, method='scrypt'),
-            first_name=first_name,
-            last_name=last_name,
             name=f"{first_name} {last_name}".strip() or email,
             role=role,
             is_active=True,
@@ -212,11 +210,17 @@ def update_business_user(business_id, user_id):
                 return jsonify({'error': 'Email already exists'}), 400
             user.email = data['email']
         
-        if 'first_name' in data:
-            user.first_name = data['first_name']
-        
-        if 'last_name' in data:
-            user.last_name = data['last_name']
+        # Update name from first_name + last_name (DB only has 'name' field)
+        if 'first_name' in data or 'last_name' in data:
+            # Parse existing name safely
+            existing_name_parts = (user.name or '').split(' ', 1)
+            existing_first = existing_name_parts[0] if existing_name_parts else ''
+            existing_last = existing_name_parts[1] if len(existing_name_parts) > 1 else ''
+            
+            # Merge with new values (only update provided fields)
+            first_name = data.get('first_name', existing_first)
+            last_name = data.get('last_name', existing_last)
+            user.name = f"{first_name} {last_name}".strip() or user.email
         
         if 'role' in data:
             if data['role'] not in ['owner', 'admin', 'agent']:
@@ -228,9 +232,6 @@ def update_business_user(business_id, user_id):
         
         if 'is_active' in data:
             user.is_active = data['is_active']
-        
-        # Update name from first_name + last_name
-        user.name = f"{user.first_name or ''} {user.last_name or ''}".strip() or user.email
         
         db.session.commit()
         
