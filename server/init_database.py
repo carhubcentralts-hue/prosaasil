@@ -162,8 +162,7 @@ def initialize_production_database():
                     "calls": "אתה עוזר AI למכירות נדל\"ן. שמור על שיחה קצרה וממוקדת.",
                     "whatsapp": "אתה עוזר AI למכירות נדל\"ן ב-WhatsApp. היה ידידותי ומקצועי."
                 }),
-                working_hours="09:00-18:00",
-                voice_message=None
+                working_hours="09:00-18:00"
             )
             db.session.add(settings)
             db.session.commit()

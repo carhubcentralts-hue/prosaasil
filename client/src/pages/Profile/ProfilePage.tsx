@@ -16,7 +16,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { useAuth } from '../../features/auth/hooks';
 import { useNavigate } from 'react-router-dom';
-import http from '../../lib/queryClient';
+import { apiRequest } from '../../lib/queryClient';
 
 export function ProfilePage() {
   const { user, tenant, logout } = useAuth();
@@ -65,15 +65,19 @@ export function ProfilePage() {
     }
 
     try {
-      await http.put('/api/profile/password', {
-        current_password: passwordForm.current,
-        new_password: passwordForm.new
+      await apiRequest('/api/auth/profile/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: passwordForm.current,
+          new_password: passwordForm.new
+        })
       });
       setSuccess('סיסמה שונתה בהצלחה!');
       setPasswordForm({ current: '', new: '', confirm: '' });
       setIsChangingPassword(false);
     } catch (err: any) {
-      setError(err.response?.data?.error || 'שגיאה בשינוי סיסמה');
+      setError(err.message || 'שגיאה בשינוי סיסמה');
     }
   };
 
