@@ -76,16 +76,10 @@ const menuItems = [
     roles: ['business', 'admin', 'manager']
   },
   { 
-    icon: Building2, 
+    icon: UserCog, 
     label: 'ניהול עסקים', 
     to: '/app/admin/businesses',
     roles: ['admin', 'manager']
-  },
-  { 
-    icon: UserCog, 
-    label: 'ניהול נתוני עסקים', 
-    to: '/app/admin/businesses-management',
-    roles: ['admin', 'manager', 'superadmin']
   },
   { 
     icon: Bot, 
@@ -96,8 +90,8 @@ const menuItems = [
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 
-    to: '/app/admin/users',
-    roles: ['business', 'admin', 'manager']
+    to: '/app/users',
+    roles: ['admin', 'manager']
   },
   { 
     icon: Settings, 
@@ -188,7 +182,7 @@ export function MainLayout() {
     }
     
     // Hide "Business Management" during impersonation - only show business-specific items
-    if (isImpersonating && item.label === 'ניהול נתוני עסקים') {
+    if (isImpersonating && item.label === 'ניהול עסקים') {
       return false;
     }
     

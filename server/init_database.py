@@ -71,8 +71,8 @@ def initialize_production_database():
                 email='admin@admin.com',
                 password_hash=password_hash,
                 name='Admin User',
-                role='superadmin',
-                business_id=None,
+                role='admin',
+                business_id=business.id,
                 is_active=True,
                 created_at=datetime.utcnow()
             )
@@ -84,15 +84,14 @@ def initialize_production_database():
             print(f"✅ Admin user exists: {admin.email} (ID: {admin.id})")
             logger.info(f"✅ Admin user exists: {admin.email} (ID: {admin.id})")
             
-            # 3. Ensure admin is superadmin with no business_id
-            if admin.role != 'superadmin':
-                print("🔧 Updating admin to superadmin...")
-                admin.role = 'superadmin'
+            # 3. Ensure admin has business_id
+            if not admin.business_id:
+                print("🔗 Linking admin to business...")
+                logger.info("🔗 Linking admin to business...")
+                admin.business_id = business.id
                 db.session.commit()
-            if admin.business_id is not None:
-                print("🔧 Removing admin business_id...")
-                admin.business_id = None
-                db.session.commit()
+                print(f"✅ Admin linked to business ID: {business.id}")
+                logger.info(f"✅ Admin linked to business ID: {business.id}")
         
         # 4. Ensure default lead statuses exist for this business
         existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()
@@ -162,7 +161,8 @@ def initialize_production_database():
                     "calls": "אתה עוזר AI למכירות נדל\"ן. שמור על שיחה קצרה וממוקדת.",
                     "whatsapp": "אתה עוזר AI למכירות נדל\"ן ב-WhatsApp. היה ידידותי ומקצועי."
                 }),
-                working_hours="09:00-18:00"
+                working_hours="09:00-18:00",
+                voice_message=None
             )
             db.session.add(settings)
             db.session.commit()

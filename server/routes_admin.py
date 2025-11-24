@@ -9,9 +9,7 @@ from server.models_sql import Business, User, CallLog, WhatsAppMessage, Customer
 from server.db import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
-from werkzeug.security import generate_password_hash
 import logging
-import secrets
 
 logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin_bp", __name__)
@@ -254,12 +252,9 @@ def api_admin_businesses():
             items.append({
                 "id": business.id,
                 "name": business.name,
-                "email": business.email or "",  # ✅ הוספה: email for primary account login
                 "business_type": business.business_type or "נדל\"ן",  # ✅ הוספה: חסר בתגובה המקורית
-                "phone_number": phone_e164,  # ✅ שינוי: phone_number במקום phone_e164
                 "phone_e164": phone_e164,
                 "whatsapp_number": business.whatsapp_number or "",  # ✅ הוספה: נדרש לפרונטאנד
-                "is_active": business.is_active,  # ✅ הוספה: active status
                 "status": "active" if business.is_active else "suspended",
                 "whatsapp_status": "connected" if business.whatsapp_enabled else "disconnected",
                 "call_status": "ready" if business.calls_enabled else "disabled",
@@ -942,200 +937,5 @@ def admin_support_phones():
         "working_hours": biz.working_hours or "08:00-18:00",
         "voice_message": biz.voice_message or "שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל\"ן. אנחנו כאן לעזור לכם."
     })
-
-# ✅ Users Management Endpoints
-
-@admin_bp.get("/api/admin/users")
-@require_api_auth(["admin", "business", "superadmin"])
-def get_users():
-    """Get all users for business/admin - business can manage managers, admin can manage all"""
-    try:
-        business_id = g.business_id
-        users = User.query.filter_by(business_id=business_id, is_active=True).all()
-        return jsonify([{
-            'id': u.id,
-            'name': u.name or u.email,
-            'email': u.email,
-            'role': u.role,
-            'business_id': u.business_id,
-            'created_at': u.created_at.isoformat() if u.created_at else None,
-            'last_login': u.last_login.isoformat() if u.last_login else None
-        } for u in users])
-    except Exception as e:
-        logger.error(f"Error getting users: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@admin_bp.post("/api/admin/users")
-@require_api_auth(["admin", "business", "superadmin"])
-def create_user():
-    """Create new business user - business can create managers, admin can create all"""
-    try:
-        data = request.get_json() or {}
-        business_id = g.business_id
-        user_role = g.role  # Get user's role from auth
-        
-        email = data.get('email', '').strip()
-        name = data.get('name', '').strip()
-        password = data.get('password', '').strip()
-        role = data.get('role', 'manager')  # Default: manager (business creates managers)
-        
-        # Validation
-        if not email or '@' not in email:
-            return jsonify({"error": "דוא\"ל חדש לא תקין"}), 400
-        if not password or len(password) < 6:
-            return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
-        if not name:
-            return jsonify({"error": "שם משתמש נדרש"}), 400
-        if role not in ['business', 'manager', 'admin']:
-            return jsonify({"error": "תפקיד לא חדש"}), 400
-        
-        # Permission checks: who can create which roles
-        if user_role == 'business':
-            # Business can ONLY create managers
-            if role != 'manager':
-                return jsonify({"error": "משתמשי עסק יכולים רק ליצור מנהלים"}), 403
-        elif user_role == 'admin':
-            # Admin can create business/manager roles (NOT admin)
-            if role == 'admin':
-                return jsonify({"error": "רק מנהל מערכת יכול ליצור משתמשי admin"}), 403
-        elif user_role == 'superadmin':
-            # Superadmin can create all roles
-            pass
-        
-        # Check if user exists
-        existing = User.query.filter_by(email=email).first()
-        if existing:
-            return jsonify({"error": "דוא\"ל זה כבר בשימוש"}), 400
-        
-        # Create new user
-        new_user = User(
-            email=email,
-            name=name,
-            password_hash=generate_password_hash(password, method='scrypt'),
-            role=role,
-            business_id=business_id,
-            is_active=True
-        )
-        
-        db.session.add(new_user)
-        db.session.commit()
-        
-        return jsonify({
-            'id': new_user.id,
-            'email': new_user.email,
-            'name': new_user.name,
-            'role': new_user.role,
-            'business_id': new_user.business_id,
-            'created_at': new_user.created_at.isoformat() if new_user.created_at else None
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error creating user: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@admin_bp.put("/api/admin/users/<int:user_id>")
-@require_api_auth(["admin", "business", "superadmin"])
-def update_user(user_id):
-    """Update user details - business can only edit, admin/superadmin can change roles"""
-    try:
-        business_id = g.business_id
-        user = User.query.get(user_id)
-        
-        if not user or user.business_id != business_id:
-            return jsonify({"error": "משתמש לא נמצא"}), 404
-        
-        data = request.get_json() or {}
-        
-        if 'name' in data:
-            user.name = data['name'].strip()
-        if 'password' in data and data['password']:
-            if len(data['password']) < 6:
-                return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
-            user.password_hash = generate_password_hash(data['password'], method='scrypt')
-        if 'role' in data and data['role'] in ['business', 'manager', 'admin']:
-            # Permission checks for role changes
-            if g.role == 'business':
-                # Business cannot change roles at all
-                return jsonify({"error": "משתמשי עסק לא יכולים לשנות תפקידים"}), 403
-            elif g.role == 'admin':
-                # Admin can change roles but NOT to admin
-                if data['role'] == 'admin':
-                    return jsonify({"error": "רק מנהל מערכת יכול להציב תפקיד admin"}), 403
-                user.role = data['role']
-            elif g.role == 'superadmin':
-                # Superadmin can set any role
-                user.role = data['role']
-        
-        db.session.commit()
-        
-        return jsonify({
-            'id': user.id,
-            'email': user.email,
-            'name': user.name,
-            'role': user.role,
-            'business_id': user.business_id,
-            'updated_at': datetime.utcnow().isoformat()
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error updating user: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@admin_bp.delete("/api/admin/users/<int:user_id>")
-@require_api_auth(["admin", "business", "superadmin"])
-def delete_user(user_id):
-    """Soft delete user"""
-    try:
-        business_id = g.business_id
-        user = User.query.get(user_id)
-        
-        if not user or user.business_id != business_id:
-            return jsonify({"error": "משתמש לא נמצא"}), 404
-        
-        user.is_active = False
-        db.session.commit()
-        
-        return jsonify({"success": True})
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error deleting user: {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-@admin_bp.put("/api/admin/businesses/<int:business_id>/reset-password")
-@require_api_auth(["admin", "manager", "superadmin"])
-def reset_business_password(business_id):
-    """Reset business password (admin/manager/superadmin)"""
-    try:
-        business = Business.query.get(business_id)
-        
-        if not business:
-            return jsonify({"error": "עסק לא נמצא"}), 404
-        
-        data = request.get_json() or {}
-        new_password = data.get('new_password')
-        
-        if not new_password:
-            return jsonify({"error": "נא להזין סיסמה חדשה"}), 400
-        
-        if len(new_password) < 6:
-            return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
-        
-        business.password_hash = generate_password_hash(new_password, method='scrypt')
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'business_id': business.id,
-            'business_name': business.name
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error resetting business password: {e}")
-        return jsonify({"error": str(e)}), 500
 
 

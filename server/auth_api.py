@@ -4,8 +4,7 @@ Based on attached instructions - creates missing auth endpoints
 """
 from flask import Blueprint, request, jsonify, session, g
 from werkzeug.security import check_password_hash, generate_password_hash
-from server.models_sql import User, Business
-from server.db import db
+from server.models_sql import User, Business, db
 from server.extensions import csrf
 from datetime import datetime, timedelta
 from functools import wraps
@@ -377,54 +376,16 @@ def create_default_admin():
             # Create new admin
             admin = User()
             admin.email = 'admin@admin.com'
-            admin.name = 'Admin'
             admin.password_hash = generate_password_hash('admin123', method='scrypt')
-            admin.role = 'superadmin'
-            admin.business_id = None
+            admin.username = 'admin'
+            admin.role = 'admin'
+            admin.business_id = 1
             admin.is_active = True
             db.session.add(admin)
             db.session.commit()
             print("✅ Created default admin user: admin@admin.com / admin123")
     except Exception as e:
         print(f"⚠️ Error creating admin user: {e}")
-
-@auth_api.route('/profile/password', methods=['PUT'])
-@require_api_auth()
-def change_password():
-    """Change password for authenticated user"""
-    try:
-        user_data = session.get('user') or session.get('al_user')
-        if not user_data:
-            return jsonify({'error': 'לא מאומת'}), 401
-        
-        user = User.query.get(user_data['id'])
-        if not user:
-            return jsonify({'error': 'משתמש לא נמצא'}), 404
-        
-        data = request.get_json() or {}
-        current_password = data.get('current_password', '').strip()
-        new_password = data.get('new_password', '').strip()
-        
-        if not current_password or not new_password:
-            return jsonify({'error': 'סיסמה נוכחית וחדשה נדרשות'}), 400
-        
-        if len(new_password) < 6:
-            return jsonify({'error': 'סיסמה חייבת להיות לפחות 6 תווים'}), 400
-        
-        # Verify current password
-        if not verify_password(user.password_hash, current_password):
-            return jsonify({'error': 'סיסמה נוכחית אינה נכונה'}), 401
-        
-        # Update password
-        user.password_hash = generate_password_hash(new_password, method='scrypt')
-        db.session.commit()
-        
-        return jsonify({'success': True, 'message': 'סיסמה שונתה בהצלחה'}), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        print(f"❌ Password change error: {e}")
-        return jsonify({'error': str(e)}), 500
 
 @csrf.exempt
 @auth_api.route('/init-admin', methods=['POST'])
