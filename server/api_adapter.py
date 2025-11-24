@@ -53,7 +53,7 @@ def check_permissions(required_roles):
 # === DASHBOARD ENDPOINTS ===
 
 @api_adapter_bp.route('/api/dashboard/stats', methods=['GET'])
-@require_api_auth(['owner', 'admin', 'manager', 'business', 'agent'])  # BUILD 136 FIX: Use proper decorator
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])  # BUILD 138 FIX: Use current role names only
 def dashboard_stats():
     """BUILD 136: Business-scoped dashboard stats - uses g.tenant from @require_api_auth"""
     try:
@@ -131,7 +131,7 @@ def dashboard_stats():
         return jsonify({"error": "internal_server_error"}), 500
 
 @api_adapter_bp.route('/api/dashboard/activity', methods=['GET'])
-@require_api_auth(['owner', 'admin', 'manager', 'business', 'agent'])  # BUILD 136 FIX: Use proper decorator
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])  # BUILD 138 FIX: Use current role names only
 def dashboard_activity():
     """BUILD 136: Business-scoped recent activity - uses g.tenant from @require_api_auth"""
     try:

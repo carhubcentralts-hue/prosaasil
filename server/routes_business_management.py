@@ -96,7 +96,7 @@ def get_business(business_id):
         return jsonify({"error": f"שגיאה בטעינת נתוני העסק: {str(e)}"}), 500
 
 @biz_mgmt_bp.route('/api/admin/business', methods=['POST'])
-@require_api_auth(['admin'])
+@require_api_auth(['system_admin'])  # BUILD 138: Only system_admin can create businesses
 def create_business():
     """Create new business with admin user"""
     try:
@@ -214,7 +214,7 @@ def create_business():
         return jsonify({"error": "שגיאה ביצירת העסק"}), 500
 
 @biz_mgmt_bp.route('/api/admin/business/<int:business_id>', methods=['PUT'])
-@require_api_auth(['admin'])
+@require_api_auth(['system_admin'])  # BUILD 138: Only system_admin can update businesses
 def update_business(business_id):
     """Update business details"""
     try:

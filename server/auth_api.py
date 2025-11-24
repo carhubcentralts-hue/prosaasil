@@ -339,58 +339,40 @@ def require_api_auth(allowed_roles=None):
             # 🔍 BUILD 138 DEBUG: Log auth context
             print(f"🔍 AUTH DEBUG: user_id={session['user'].get('id')}, role={user_role}, business_id={session['user'].get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
             
-            # Legacy role mapping for backward compatibility during migration
-            legacy_role_map = {
-                'manager': 'owner',        # Old manager → new owner
-                'business': 'admin',       # Old business → new admin  
-                'admin': 'system_admin',   # Old admin → new system_admin
-                'superadmin': 'system_admin'  # Old superadmin → new system_admin
+            # BUILD 138: FIXED legacy role mapping - only map ACTUAL legacy roles, not new ones!
+            # Legacy roles (old): manager, business, superadmin
+            # Current roles (new): system_admin, owner, admin, agent
+            legacy_to_new = {
+                'manager': 'owner',          # Old manager → new owner
+                'business': 'admin',         # Old business → new admin (business-level access)
+                'superadmin': 'system_admin' # Old superadmin → new system_admin
             }
             
-            # Reverse mapping for bidirectional support
-            reverse_role_map = {v: k for k, v in legacy_role_map.items()}
-            
-            # Map legacy role if needed
-            effective_role = legacy_role_map.get(user_role, user_role)
+            # Map user's role only if it's legacy
+            effective_user_role = legacy_to_new.get(user_role, user_role)
             
             # Check role-based access if roles are specified
             if allowed_roles:
-                # Build comprehensive allowed set (supports BOTH old and new role names)
-                allowed_set = set(allowed_roles)  # Start with requested roles
+                # Build allowed set: support BOTH legacy names in decorator AND user roles
+                allowed_set = set()
+                for role in allowed_roles:
+                    allowed_set.add(role)  # Add original
+                    # If this is a legacy role name, add its new equivalent
+                    if role in legacy_to_new:
+                        allowed_set.add(legacy_to_new[role])
                 
-                # For each requested role, add all its equivalents
-                roles_to_add = set()
-                for r in allowed_roles:
-                    # If it's a legacy role, add the new role
-                    if r in legacy_role_map:
-                        roles_to_add.add(legacy_role_map[r])
-                    
-                    # If it's a new role, add all legacy equivalents
-                    if r in reverse_role_map:
-                        roles_to_add.add(reverse_role_map[r])
-                    
-                    # Also add the other direction from the full map
-                    for legacy, new in legacy_role_map.items():
-                        if r == new:
-                            roles_to_add.add(legacy)
-                        elif r == legacy:
-                            roles_to_add.add(new)
-                
-                allowed_set.update(roles_to_add)
-                
-                # Check if user's effective role or original role is allowed
-                if effective_role not in allowed_set and user_role not in allowed_set:
+                # Check if user's role (mapped if legacy) is allowed
+                if effective_user_role not in allowed_set:
                     return jsonify({
                         'error': 'forbidden',
                         'reason': 'insufficient_permissions',
-                        'message': f'This route requires one of {allowed_roles}, got {user_role} (checked against: {allowed_set})'
+                        'message': f'This route requires one of {allowed_roles}, got {user_role} (mapped to {effective_user_role})'
                     }), 403
             
             # Store context in g for route use
             g.business_id = tenant
             g.user = session['user']
-            g.role = effective_role  # Use mapped role
-            g.original_role = user_role  # Keep original for reference
+            g.role = effective_user_role  # BUILD 138: Use mapped role
             g.tenant = tenant
             g.impersonating = impersonating
             
