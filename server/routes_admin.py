@@ -188,7 +188,7 @@ def api_overview():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.get("/api/admin/kpis/calls")
-@require_api_auth(["admin", "system_admin"])  
+@require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
 def api_kpis_calls():
     """Get calls KPI with date filtering"""
     try:
@@ -221,7 +221,7 @@ def api_kpis_calls():
         return "0"
 
 @admin_bp.get("/api/admin/kpis/whatsapp")
-@require_api_auth(["admin", "system_admin"])
+@require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
 def api_kpis_whatsapp():
     """Get WhatsApp KPI with date filtering"""
     try:
@@ -254,7 +254,7 @@ def api_kpis_whatsapp():
         return "0"
 
 @admin_bp.get("/api/admin/kpis/businesses")
-@require_api_auth(["admin", "system_admin"])
+@require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
 def api_kpis_businesses():
     """Get active businesses KPI"""
     try:
@@ -264,7 +264,7 @@ def api_kpis_businesses():
         return "0"
 
 @admin_bp.get("/api/admin/kpis/revenue")
-@require_api_auth(["admin", "system_admin"])
+@require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
 def api_kpis_revenue():
     """Get revenue KPI"""
     try:
@@ -280,7 +280,7 @@ def api_kpis_revenue():
 # ================================
 
 @admin_bp.route("/api/admin/businesses", methods=['GET'])
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: All businesses list - system_admin only
 def api_admin_businesses():
     """List all businesses with pagination - לפי ההנחיות המדויקות"""
     try:
@@ -347,7 +347,7 @@ def api_admin_businesses():
 
 # A2) צפייה/התחזות - לפי ההנחיות המדויקות
 @admin_bp.route("/api/admin/businesses/<int:business_id>/overview", methods=['GET'])
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: Business overview - system_admin only
 def get_business_overview(business_id):
     """צפייה בעסק (Admin View) - קריא בלבד, ללא שינוי סשן"""
     try:
@@ -404,7 +404,7 @@ def get_business_overview(business_id):
         return jsonify({"error": "שגיאה בטעינת נתוני העסק"}), 500
 
 @admin_bp.route("/api/admin/kpis/overview", methods=['GET'])
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
 def api_admin_kpis_overview():
     """Get overview KPIs - SINGLE SOURCE OF TRUTH"""
     try:
@@ -441,9 +441,9 @@ def api_admin_kpis_overview():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.get("/api/admin/kpis/calls")
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: Global/tenant KPIs - system_admin only
 def api_admin_kpis_calls():
-    """Get calls KPIs - REAL DATA ONLY"""
+    """Get calls KPIs - REAL DATA ONLY (duplicate endpoint, should be removed)"""
     try:
         from datetime import datetime, timedelta
         
@@ -470,9 +470,9 @@ def api_admin_kpis_calls():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.get("/api/admin/kpis/whatsapp")
-@require_api_auth(["admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: Global/tenant KPIs - system_admin only
 def api_admin_kpis_whatsapp():
-    """Get WhatsApp KPIs - REAL DATA ONLY"""
+    """Get WhatsApp KPIs - REAL DATA ONLY (duplicate endpoint, should be removed)"""
     try:
         from datetime import datetime, timedelta
         
@@ -503,7 +503,7 @@ def api_admin_kpis_whatsapp():
 # ================================
 
 @admin_bp.get("/api/admin/tenants")
-@require_api_auth(["admin", "system_admin"])
+@require_api_auth(["system_admin"])  # BUILD 135: All tenants list - system_admin only
 def api_tenants():
     """Get all businesses/tenants for admin management"""
     try:
@@ -537,7 +537,7 @@ def api_tenants():
         return f'<div class="text-center text-red-500 py-8">שגיאה: {str(e)}</div>'
 
 @admin_bp.get("/api/admin/calls")
-@require_api_auth(["admin", "system_admin"])
+@require_api_auth(["system_admin"])  # BUILD 135: All calls - system_admin only
 def api_admin_calls():
     """Get recent calls for admin dashboard"""
     try:
@@ -576,7 +576,7 @@ def api_admin_calls():
         return f'<div class="text-center text-red-500 py-8">שגיאה: {str(e)}</div>'
 
 @admin_bp.route("/api/admin/leads", methods=["GET"])
-@require_api_auth(["admin", "system_admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: All leads - system_admin only
 def admin_leads():
     """Get all leads across all tenants for admin"""
     try:
@@ -678,7 +678,7 @@ def admin_leads():
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.route("/api/admin/leads/stats", methods=["GET"])
-@require_api_auth(["admin", "system_admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: Global leads stats - system_admin only
 def admin_leads_stats():
     """Get leads statistics by status for admin dashboard"""
     try:
@@ -724,7 +724,7 @@ def admin_leads_stats():
 
 
 @admin_bp.route("/api/admin/phone-numbers", methods=["GET"])
-@require_api_auth(["admin", "system_admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: All phone numbers - system_admin only
 def admin_phone_numbers():
     """Get all business phone numbers and settings for admin"""
     try:
@@ -780,7 +780,7 @@ def admin_phone_numbers():
 
 
 @admin_bp.route("/api/admin/businesses/prompts", methods=["GET"])
-@require_api_auth(["admin", "system_admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: All business prompts - system_admin only
 def admin_businesses_prompts():
     """Get all businesses with their AI prompts status for admin"""
     try:

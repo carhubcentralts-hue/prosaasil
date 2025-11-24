@@ -127,7 +127,7 @@ export function AppRoutes() {
           }
         />
 
-        {/* Business Routes */}
+        {/* BUILD 135: MOVED from admin to business - owner/admin access their OWN business */}
         <Route
           path="business/agent-prompts"
           element={
@@ -137,7 +137,7 @@ export function AppRoutes() {
           }
         />
         <Route
-          path="admin/businesses/:id"
+          path="business/details"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <BusinessDetailsPage />
@@ -149,7 +149,7 @@ export function AppRoutes() {
         <Route
           path="business/overview"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <BusinessHomePage />
             </RoleGuard>
           }

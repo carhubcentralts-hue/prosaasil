@@ -54,7 +54,7 @@ def check_permissions(required_roles):
 @api_adapter_bp.route('/api/dashboard/stats', methods=['GET'])
 def dashboard_stats():
     """BUILD 135: Business-scoped dashboard stats - filtered by tenant_id"""
-    perm_check = check_permissions(['admin', 'manager', 'business'])
+    perm_check = check_permissions(['owner', 'admin', 'manager', 'business'])  # BUILD 135: Added 'owner'
     if perm_check:
         return perm_check
     
@@ -136,7 +136,7 @@ def dashboard_stats():
 @api_adapter_bp.route('/api/dashboard/activity', methods=['GET'])
 def dashboard_activity():
     """BUILD 135: Business-scoped recent activity - filtered by tenant_id"""
-    perm_check = check_permissions(['admin', 'manager', 'business'])
+    perm_check = check_permissions(['owner', 'admin', 'manager', 'business'])  # BUILD 135: Added 'owner'
     if perm_check:
         return perm_check
     
