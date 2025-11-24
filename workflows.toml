@@ -1,2 +1,2 @@
 [workflows]
-"Start application" = { type = "server", command = "bash ./start_production.sh" }
+"Start application" = { type = "server", command = "bash ./start_dev.sh" }
