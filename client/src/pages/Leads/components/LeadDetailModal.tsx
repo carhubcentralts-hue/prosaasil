@@ -189,7 +189,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4" dir="rtl">
-      <Card className="w-full max-w-4xl max-h-[95vh] overflow-hidden bg-white flex flex-col">
+      <Card className="w-full max-w-4xl max-h-[95vh] bg-white flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
