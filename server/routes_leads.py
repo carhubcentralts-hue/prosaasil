@@ -996,8 +996,15 @@ def get_due_reminders():
 def get_notifications():
     """Get task notifications categorized by urgency (overdue, today, soon)"""
     tenant_id = get_current_tenant()
+    
+    # system_admin (no tenant) gets empty notifications
     if not tenant_id:
-        return jsonify({"error": "No tenant access"}), 403
+        return jsonify({
+            "notifications": [],
+            "overdue": [],
+            "today": [],
+            "soon": []
+        })
     
     from datetime import timedelta
     from sqlalchemy import and_, cast, Date
