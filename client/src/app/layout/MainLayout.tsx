@@ -63,12 +63,13 @@ const menuItems = [
     to: '/app/intelligence',
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
-  { 
-    icon: CreditCard, 
-    label: 'תשלומים וחוזים',
-    to: '/app/billing',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
-  },
+  // ⚠️ BILLING DISABLED - Hidden until payments feature is activated
+  // { 
+  //   icon: CreditCard, 
+  //   label: 'תשלומים וחוזים',
+  //   to: '/app/billing',
+  //   roles: ['system_admin', 'owner', 'admin', 'agent']
+  // },
   { 
     icon: UserCog, 
     label: 'ניהול עסקים', 

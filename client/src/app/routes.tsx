@@ -193,15 +193,15 @@ export function AppRoutes() {
           }
         />
 
-        {/* Billing Routes */}
-        <Route
+        {/* Billing Routes - DISABLED until payments feature is activated */}
+        {/* <Route
           path="billing"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <BillingPage />
             </RoleGuard>
           }
-        />
+        /> */}
 
         {/* Users Routes */}
         <Route
