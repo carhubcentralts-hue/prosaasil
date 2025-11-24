@@ -462,7 +462,8 @@ export function MainLayout() {
                           className="w-full flex items-center px-4 py-2 text-slate-700 hover:bg-slate-50 transition-colors text-right"
                           onClick={() => {
                             setUserMenuOpen(false);
-                            alert('הגדרות פרופיל בפיתוח!');
+                            setSidebarOpen(false);
+                            navigate('/app/settings/profile');
                           }}
                           data-testid="button-profile"
                         >

@@ -123,22 +123,18 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
     navigate('/app/admin/businesses');
   };
 
-  const handleUserManagement = () => {
-    alert('ניהול משתמשים בפיתוח! כאן תוכלו לנהל משתמשים ולהעניק הרשאות.');
-  };
-
   if (!user) return null;
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Business Management - System Admin/Owner only, hide during impersonation */}
-      {(user.role === 'system_admin' || user.role === 'owner') && !impersonating && (
+      {/* Business Management - System Admin ONLY */}
+      {user.role === 'system_admin' && !impersonating && (
         <ManagementCard
           title="ניהול עסקים"
           description="נהלו את כל העסקים במערכת, הוסיפו עסקים חדשים ועדכנו הגדרות"
           icon={Building2}
           onClick={handleBusinessManagement}
-          requiredRoles={['system_admin', 'owner']}
+          requiredRoles={['system_admin']}
           stats={{
             count: loading ? 0 : (businessCount || 0),
             label: loading ? 'טוען...' : 'עסקים פעילים'
@@ -146,7 +142,7 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
         />
       )}
 
-      {/* User Management - All roles (with different permissions) */}
+      {/* User Management - Owner/Admin/System Admin */}
       <ManagementCard
         title="ניהול משתמשים"
         description={
@@ -155,7 +151,7 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
             : 'נהלו משתמשים בכל המערכת והעניקו הרשאות מתקדמות'
         }
         icon={UserCog}
-        onClick={handleUserManagement}
+        onClick={() => navigate('/app/users')}
         requiredRoles={['system_admin', 'owner', 'admin']}
         stats={{
           count: loading ? 0 : (userCount || 0),
