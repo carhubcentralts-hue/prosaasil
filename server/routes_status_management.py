@@ -12,7 +12,7 @@ import logging
 status_management_bp = Blueprint('status_management', __name__)
 
 @status_management_bp.route('/api/statuses', methods=['GET'])
-@require_api_auth(['admin', 'business_owner', 'business_agent'])
+@require_api_auth(['owner', 'admin', 'agent', 'system_admin'])
 def get_business_statuses():
     """Get all active statuses for the current business with auto-seeding"""
     try:
@@ -101,7 +101,7 @@ def get_business_statuses():
         return jsonify({'error': str(e)}), 500
 
 @status_management_bp.route('/api/statuses', methods=['POST'])  
-@require_api_auth(['admin', 'business_owner'])
+@require_api_auth(['owner', 'admin', 'system_admin'])
 def create_status():
     """Create a new custom status for the business"""
     try:
@@ -215,7 +215,7 @@ def create_status():
         return jsonify({'error': str(e)}), 500
 
 @status_management_bp.route('/api/statuses/<int:status_id>', methods=['PUT'])
-@require_api_auth(['admin', 'business_owner'])
+@require_api_auth(['owner', 'admin', 'system_admin'])
 def update_status(status_id):
     """Update an existing status"""
     try:
@@ -333,7 +333,7 @@ def update_status(status_id):
         return jsonify({'error': str(e)}), 500
 
 @status_management_bp.route('/api/statuses/<int:status_id>', methods=['DELETE'])
-@require_api_auth(['admin', 'business_owner'])
+@require_api_auth(['owner', 'admin', 'system_admin'])
 def delete_status(status_id):
     """Delete a status (mark as inactive if leads exist)"""
     try:
@@ -415,7 +415,7 @@ def delete_status(status_id):
         return jsonify({'error': str(e)}), 500
 
 @status_management_bp.route('/api/statuses/reorder', methods=['POST'])
-@require_api_auth(['admin', 'business_owner'])
+@require_api_auth(['owner', 'admin', 'system_admin'])
 def reorder_statuses():
     """Reorder statuses by updating order_index"""
     try:
@@ -462,7 +462,7 @@ def reorder_statuses():
         return jsonify({'error': str(e)}), 500
 
 @status_management_bp.route('/api/admin/statuses/initialize/<int:business_id>', methods=['POST'])
-@require_api_auth(['admin', 'superadmin'])
+@require_api_auth(['system_admin'])
 def initialize_default_statuses(business_id):
     """Initialize default statuses for a business (admin only)"""
     try:
