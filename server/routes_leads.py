@@ -986,6 +986,73 @@ def get_due_reminders():
         "overdue_count": len([r for r in reminders_data if r["overdue_minutes"] > 0])
     })
 
+@leads_bp.route("/api/notifications", methods=["GET"])
+def get_notifications():
+    """Get task notifications categorized by urgency (overdue, today, soon)"""
+    auth_error = require_auth()
+    if auth_error:
+        return auth_error
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    from datetime import timedelta
+    from sqlalchemy import and_, cast, Date
+    
+    now = datetime.utcnow()
+    today = now.date()
+    soon_threshold = now + timedelta(hours=3)
+    
+    # Get all incomplete reminders for this business
+    # Use LEFT JOIN to include reminders without a lead (general tasks)
+    # For lead-less reminders, filter by created_by → user business_id
+    reminders = db.session.query(LeadReminder, Lead).outerjoin(
+        Lead, LeadReminder.lead_id == Lead.id
+    ).outerjoin(
+        User, LeadReminder.created_by == User.id
+    ).filter(
+        or_(
+            # Reminders with leads: filter by lead's tenant
+            and_(LeadReminder.lead_id.isnot(None), Lead.tenant_id == tenant_id),
+            # Reminders without leads: filter by creator's business
+            and_(LeadReminder.lead_id.is_(None), User.business_id == tenant_id)
+        ),
+        LeadReminder.completed_at.is_(None)
+    ).all()
+    
+    notifications = []
+    
+    for reminder, lead in reminders:
+        # Categorize by date
+        category = None
+        if reminder.due_at < now:
+            category = "overdue"
+        elif reminder.due_at.date() == today:
+            category = "today"
+        elif reminder.due_at <= soon_threshold:
+            category = "soon"
+        else:
+            # Skip future tasks (beyond 3 hours)
+            continue
+        
+        notifications.append({
+            "id": str(reminder.id),
+            "title": reminder.note or "משימה ללא תיאור",
+            "due_date": reminder.due_at.isoformat(),
+            "category": category,
+            "phone": lead.display_phone if lead else None,
+            "lead_id": reminder.lead_id,
+            "lead_name": lead.full_name if lead else None,
+            "created_at": reminder.created_at.isoformat() if reminder.created_at else None
+        })
+    
+    return jsonify({
+        "success": True,
+        "notifications": notifications,
+        "count": len(notifications)
+    })
+
 @leads_bp.route("/api/leads/bulk-delete", methods=["POST"])
 def bulk_delete_leads():
     """Bulk delete multiple leads"""

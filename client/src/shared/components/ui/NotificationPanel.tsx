@@ -1,51 +1,29 @@
-import React from 'react'; // ✅ Classic JSX runtime
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import { 
-  Bell, 
-  X, 
-  Clock, 
-  User, 
-  Phone, 
-  MessageCircle, 
-  Calendar, 
-  AlertTriangle,
-  CheckCircle,
-  Info,
+import React, { useState, useEffect } from 'react';
+import {
+  Bell,
+  X,
+  Check,
+  User,
+  Phone,
+  MessageCircle,
+  Calendar,
   DollarSign,
+  Clock,
+  Info,
+  AlertTriangle,
   Building2
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../../features/auth/hooks';
+import { useNotifications, type Notification } from '../../contexts/NotificationContext';
 
-export interface Notification {
-  id: string;
-  type: 'call' | 'whatsapp' | 'lead' | 'task' | 'meeting' | 'payment' | 'system' | 'urgent';
-  title: string;
-  message: string;
-  timestamp: Date;
-  read: boolean;
-  businessId?: number;
-  userId?: number;
-  metadata?: {
-    clientName?: string;
-    clientPhone?: string;
-    amount?: number;
-    leadType?: string;
-    callDuration?: string;
-    priority?: 'low' | 'medium' | 'high' | 'urgent';
-    actionRequired?: boolean;
-    relatedId?: string;
-    dueAt?: string;
-  };
+// Re-export for backward compatibility
+export type { Notification } from '../../contexts/NotificationContext';
+
+interface NotificationItemProps {
+  notification: Notification;
+  onClick: () => void;
 }
-
-// REAL notification data - fetched from API
-function generateNotifications(userRole: string, businessId?: number): Notification[] {
-  // Return empty array - notifications will come from API in the future
-  // TODO: In future, fetch real notifications from /api/notifications endpoint
-  return [];
-}
-
 interface NotificationItemProps {
   notification: Notification;
   onClick: () => void;
@@ -158,10 +136,9 @@ interface NotificationDetailModalProps {
   notification: Notification | null;
   isOpen: boolean;
   onClose: () => void;
-  onMarkAsRead?: (id: string) => void;
 }
 
-function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }: NotificationDetailModalProps) {
+function NotificationDetailModal({ notification, isOpen, onClose }: NotificationDetailModalProps) {
   if (!isOpen || !notification) return null;
 
   const formatTime = (date: Date) => {
@@ -291,20 +268,9 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }
           <div className="flex gap-3 justify-end">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-slate-600 hover:text-slate-800 transition-colors"
-            >
-              סגור
-            </button>
-            <button
-              onClick={() => {
-                if (notification && !notification.read && onMarkAsRead) {
-                  onMarkAsRead(notification.id);
-                }
-                onClose();
-              }}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              {notification?.read ? 'סגור' : 'סמן כנקרא'}
+              סגור
             </button>
           </div>
         </div>
@@ -321,65 +287,34 @@ interface NotificationPanelProps {
 
 export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: NotificationPanelProps) {
   const { user } = useAuth();
+  const { notifications, refreshNotifications, setNotificationCountCallback } = useNotifications();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // REMOVED: Memoized callback was causing infinite loop
-
-  // SIMPLIFIED: Initialize notifications once and notify parent
+  // Fetch notifications when panel opens
   useEffect(() => {
-    const newNotifications = generateNotifications(user?.role || 'business', user?.business_id);
-    setNotifications(newNotifications);
-    
-    // Calculate and send count immediately
-    const unreadCount = newNotifications.filter(n => !n.read).length;
-    console.log('🔔 NotificationPanel מאתחל עם', unreadCount, 'התראות לא נקראות');
-    
-    // Notify parent once during initialization
-    if (onUnreadCountChange) {
-      onUnreadCountChange(unreadCount);
+    if (isOpen) {
+      setLoading(true);
+      refreshNotifications().finally(() => setLoading(false));
     }
-  }, [user?.role, user?.business_id]);
+  }, [isOpen, refreshNotifications]);
 
-  // SIMPLIFIED: Calculate unread count on every render - no fancy optimization
+  // Register callback to update parent's unread count
+  useEffect(() => {
+    if (onUnreadCountChange) {
+      setNotificationCountCallback(onUnreadCountChange);
+    }
+  }, [onUnreadCountChange, setNotificationCountCallback]);
+
+  // Calculate unread count from context
   const unreadCount = notifications.filter(n => !n.read).length;
 
   if (!isOpen) return null;
 
-  // Remove duplicate calculation - we already have memoized unread count above
-
-  // SIMPLIFIED: Remove all useCallback to avoid loops
-  const markAsRead = (notificationId: string) => {
-    setNotifications(prev => {
-      const updated = prev.map(n => 
-        n.id === notificationId ? { ...n, read: true } : n
-      );
-      // Notify parent of new count immediately
-      const newUnreadCount = updated.filter(n => !n.read).length;
-      if (onUnreadCountChange) {
-        onUnreadCountChange(newUnreadCount);
-      }
-      return updated;
-    });
-  };
-
   const handleNotificationClick = (notification: Notification) => {
     setSelectedNotification(notification);
     setIsDetailModalOpen(true);
-    // Auto mark as read when opening detail
-    markAsRead(notification.id);
-  };
-
-  const markAllAsRead = () => {
-    setNotifications(prev => {
-      const updated = prev.map(n => ({ ...n, read: true }));
-      // Notify parent that count is now 0
-      if (onUnreadCountChange) {
-        onUnreadCountChange(0);
-      }
-      return updated;
-    });
   };
 
   const handleDetailModalClose = () => {
@@ -434,32 +369,11 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
           )}
         </div>
 
-        {/* Footer */}
+        {/* Footer - Read-only notifications from API */}
         <div className="p-4 border-t border-slate-200 bg-slate-50">
-          <div className="flex justify-between items-center">
-            <button 
-              onClick={markAllAsRead}
-              className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
-              disabled={unreadCount === 0}
-              data-testid="button-mark-all-read"
-            >
-              סמן הכל כנקרא ({unreadCount})
-            </button>
-            <button 
-              onClick={() => {
-                // Mark first unread notification as read for testing
-                const firstUnread = notifications.find(n => !n.read);
-                if (firstUnread) {
-                  markAsRead(firstUnread.id);
-                }
-              }}
-              className="text-sm text-slate-600 hover:text-slate-800 transition-colors"
-              disabled={unreadCount === 0}
-              data-testid="button-mark-one-read"
-            >
-              סמן אחד כנקרא
-            </button>
-          </div>
+          <p className="text-xs text-slate-500 text-center">
+            {unreadCount > 0 ? `${unreadCount} התראות פעילות` : 'אין התראות פעילות'}
+          </p>
         </div>
       </div>
 
@@ -468,7 +382,6 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
         notification={selectedNotification}
         isOpen={isDetailModalOpen}
         onClose={handleDetailModalClose}
-        onMarkAsRead={markAsRead}
       />
     </>
   );

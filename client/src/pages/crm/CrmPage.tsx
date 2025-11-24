@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle } from 'lucide-react';
+import { useNotifications } from '../../shared/contexts/NotificationContext';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -65,6 +66,7 @@ interface Lead {
 }
 
 export function CrmPage() {
+  const { refreshNotifications } = useNotifications();
   const [tasks, setTasks] = useState<CRMTask[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,6 +158,8 @@ export function CrmPage() {
         alert(editingTask ? 'משימה עודכנה בהצלחה!' : 'משימה נוצרה בהצלחה!');
         closeTaskModal();
         loadData();
+        // Refresh notifications when task is created/updated
+        refreshNotifications();
       } else {
         const error = await response.json();
         alert(`שגיאה בשמירת משימה: ${error.error || 'שגיאה לא ידועה'}`);
@@ -179,6 +183,34 @@ export function CrmPage() {
       lead_id: task.lead_id?.toString() || ''
     });
     setShowTaskModal(true);
+  };
+
+  const handleCompleteTask = async (task: CRMTask) => {
+    if (!task.lead_id) {
+      alert('לא ניתן להשלים משימה ללא ליד מקושר');
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/leads/${task.lead_id}/reminders/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ completed: true })
+      });
+
+      if (response.ok) {
+        loadData();
+        // Refresh notifications when task is completed
+        refreshNotifications();
+      } else {
+        const error = await response.json();
+        alert(`שגיאה בסימון משימה: ${error.error || 'שגיאה לא ידועה'}`);
+      }
+    } catch (error) {
+      console.error('Error completing task:', error);
+      alert('שגיאה בסימון משימה');
+    }
   };
 
   const closeTaskModal = () => {
@@ -298,8 +330,19 @@ export function CrmPage() {
                         <Button 
                           variant="ghost" 
                           size="sm"
+                          onClick={() => handleCompleteTask(task)}
+                          className="flex-1 text-green-600 hover:bg-green-50"
+                          data-testid={`button-complete-task-${task.id}`}
+                        >
+                          <CheckCircle className="w-3 h-3 ml-1" />
+                          השלם
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
                           onClick={() => handleEditTask(task)}
                           className="flex-1"
+                          data-testid={`button-edit-task-${task.id}`}
                         >
                           <Edit2 className="w-3 h-3 ml-1" />
                           ערוך
@@ -353,8 +396,19 @@ export function CrmPage() {
                         <Button 
                           variant="ghost" 
                           size="sm"
+                          onClick={() => handleCompleteTask(task)}
+                          className="flex-1 text-green-600 hover:bg-green-50"
+                          data-testid={`button-complete-overdue-task-${task.id}`}
+                        >
+                          <CheckCircle className="w-3 h-3 ml-1" />
+                          השלם
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
                           onClick={() => handleEditTask(task)}
                           className="flex-1"
+                          data-testid={`button-edit-overdue-task-${task.id}`}
                         >
                           <Edit2 className="w-3 h-3 ml-1" />
                           ערוך

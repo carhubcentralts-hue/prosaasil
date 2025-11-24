@@ -1,28 +1,16 @@
 # Overview
 
-AgentLocator is a multi-tenant Hebrew CRM system designed for real estate professionals. It automates the sales pipeline with an AI-powered assistant that processes calls in real-time, intelligently collects lead information, and schedules meetings. The system utilizes advanced audio processing for natural conversations, aiming to boost efficiency and sales conversion. It offers customizable AI assistants and business branding, leveraging cutting-edge AI communication tools to streamline real estate operations.
+AgentLocator is a multi-tenant Hebrew CRM system for real estate professionals. It automates the sales pipeline with an AI-powered assistant that processes calls in real-time, intelligently collects lead information, and schedules meetings. The system aims to boost efficiency and sales conversion through advanced audio processing and customizable AI assistants, leveraging cutting-edge AI communication tools to streamline real estate operations.
 
 # User Preferences
 
 Preferred communication style: Simple, everyday language.
 
-## Navigation Updates (Nov 24, 2025 - BUILD 110)
-- **Removed Features**: "אינטליגנציה לקוחות" and full-page "תזכורות" removed from sidebar and routes
-- **Rebranding**: "CRM" renamed to "משימות" (Tasks) throughout UI
-  - CrmPage fully refactored: all "reminder" terminology → "task", Hebrew UI text updated
-  - Removed "Contacts" tab - now shows only task board with 3 columns (Pending, Overdue, Completed)
-- **Task Notifications**: NotificationPanel enhanced to support task-type notifications
-  - Added 'task' type with Clock icon and amber color
-  - Task notifications display Hebrew label "משימה" in detail modal
-  - Due dates (metadata.dueAt) shown in notification details with Hebrew locale formatting
-- **Navigation Structure**: Bell icon notification modal remains functional - only standalone reminders page removed
-- **Route Protection**: Blocked routes (/app/intelligence, /app/notifications) redirect to /app/leads
-
 # System Architecture
 
 ## System Design Choices
 
-AgentLocator employs a multi-tenant architecture with complete business isolation. It integrates Twilio Media Streams for real-time communication, featuring Hebrew-optimized Voice Activity Detection (VAD) and smart Text-to-Speech (TTS) truncation. The AI assistant uses an Agent SDK for appointment scheduling and lead creation, maintaining conversation memory and utilizing an Agent Cache System for improved response times. Name and phone number confirmation during scheduling occur via dual input (verbal name, DTMF phone number), with channel-aware responses and a DTMF Menu System for interactive voice navigation. Agent Validation Guards prevent AI hallucinations. Security features include business identification, rejection of unknown numbers, isolated data per business, universal warmup, and comprehensive Role-Based Access Control (RBAC). Performance is optimized through explicit OpenAI timeouts, increased Speech-to-Text (STT) streaming timeouts, and warnings for long prompts. Audio streaming uses a `tx_q` queue with backpressure. A FAQ Hybrid Fast-Path uses a two-step matching approach with channel filtering. STT reliability benefits from relaxed validation, Hebrew number context, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice and masculine phrasing, and agent behavioral constraints prevent verbalization of internal processes. Appointment scheduling uses server-side text parsing with GPT-4o-mini for intelligent Hebrew NLP, business hours validation, and DB-based deduplication.
+AgentLocator features a multi-tenant architecture with complete business isolation, integrating Twilio Media Streams for real-time communication. It includes Hebrew-optimized Voice Activity Detection (VAD) and smart Text-to-Speech (TTS) truncation. The AI assistant uses an Agent SDK for appointment scheduling and lead creation, maintaining conversation memory and utilizing an Agent Cache System. Name and phone number confirmation occur via dual input (verbal name, DTMF phone number), with channel-aware responses and a DTMF Menu System. Agent Validation Guards prevent AI hallucinations. Security features encompass business identification, rejection of unknown numbers, isolated data per business, universal warmup, and comprehensive Role-Based Access Control (RBAC) with a 4-tier hierarchy (system_admin, owner, admin, agent). Performance is optimized through explicit OpenAI timeouts, increased Speech-to-Text (STT) streaming timeouts, and warnings for long prompts. Audio streaming uses a `tx_q` queue with backpressure. A FAQ Hybrid Fast-Path employs a two-step matching approach with channel filtering. STT reliability is enhanced with relaxed validation, Hebrew number context, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice and masculine phrasing, while agent behavioral constraints prevent verbalization of internal processes. Appointment scheduling uses server-side text parsing with GPT-4o-mini for intelligent Hebrew NLP, business hours validation, and DB-based deduplication.
 
 ## Technical Implementations
 
@@ -31,91 +19,50 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Real-time**: Starlette-based native WebSocket handling, Uvicorn ASGI server.
 - **Database**: PostgreSQL (production), SQLite (development).
 - **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection.
-- **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts.
+- **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts, automatically loaded from `BusinessSettings.ai_prompt`.
 - **Agent Cache**: Thread-safe singleton cache for Agent SDK instances with auto-expiration and warmup.
 - **Multi-Tenant Resolution**: `resolve_business_with_fallback()` for secure business identification.
-- **RBAC**: Role-based access control with 4-tier role hierarchy (system_admin → owner → admin → agent).
-  - **User Model Fix (Nov 24, 2025 - BUILD 124)**: Fixed schema mismatch where production DB has single `name` column but model declared `first_name`/`last_name`. Removed non-existent columns, added read-only properties for backward compatibility. Migration script auto-converts legacy roles (admin/manager/superadmin → system_admin).
-- **Multi-Tenant Business Creation (Nov 24, 2025)**:
-  - **Atomic Transaction**: Business + owner user created in single database transaction (flush → add owner → single commit)
-  - **Auto-Owner Generation**: When system_admin creates business, owner user auto-created with provided credentials (email/password/name)
-  - **Transaction Safety**: If owner creation fails (duplicate email, etc), business creation also rolls back (no orphaned businesses)
-  - **Frontend Flow**: BusinessEditModal shows owner credential fields only for new businesses (!business), existing businesses skip owner creation
-  - **Validation**: Pre-transaction checks for duplicate business domain and owner email (409 response if exists)
-- **DTMF Menu**: Interactive voice response system for phone calls.
+- **RBAC**: 4-tier role hierarchy.
+- **Multi-Tenant Business Creation**: Atomic transaction for business and owner user creation.
+- **DTMF Menu**: Interactive voice response system.
 - **Data Protection**: Strictly additive database migrations.
-- **OpenAI Realtime API**: Integrates **gpt-4o-realtime-preview** for phone calls with dedicated asyncio threads and thread-safe queues.
-- **AI Behavior Optimization**:
-  - **Model**: gpt-4o-realtime-preview, max_tokens: 300, temperature: 0.18.
-  - **Critical Rules**: 10 comprehensive behavioral rules cover identity, brevity, silence, honesty, DTMF, turn-taking, hours_info, and appointment flow.
-  - **NLP Appointment Parser**: Server-side GPT-4o-mini text analysis with 3 actions: `hours_info` (general inquiry), `ask` (check availability), `confirm` (create appointment).
-  - **Appointment Flow (Nov 2025)**: Date/time first → Check availability → Suggest alternatives if busy → Collect name (verbal) → Collect phone (DTMF with auto-submit after 10 digits) → **DTMF triggers NLP** → Create appointment.
-  - **Customer Data Persistence (Nov 2025)**: 4-path hydration system ensures name survival:
-    - Path 1: Direct save to crm_context.customer_name when context exists
-    - Path 2: Temporary cache (self.pending_customer_name) when context doesn't exist yet
-    - Path 3: Auto-hydration when crm_context created (session_description event)
-    - Path 4: Auto-hydration when crm_context created by DTMF handler
-    - Fallback in confirm handler retrieves from both sources and writes back to context
-  - **NLP Trigger (Nov 2025 - CRITICAL FIX)**: NLP runs **AFTER** DTMF is added to conversation_history (line 4102-4109), ensuring NLP sees complete data: date✅ time✅ name✅ phone✅. Previous race condition (NLP before history update) caused silent failures.
-  - **NLP Debug Logging (Nov 2025)**: Added comprehensive logging to track NLP execution: conversation hash, deduplication logic, action detection (none/hours_info/ask/confirm), CRM context state, missing data detection, and appointment creation flow. Logs prefixed with 🔍 [DEBUG], 🎯 [NLP], ✅ [CONFIRM] for easy debugging.
-  - **CRITICAL FIX (Nov 2025)**: NLP now ALWAYS runs after DTMF (removed customer_name check). The IF statement that prevented NLP from running when customer_name was missing has been removed - NLP extracts name from conversation history. Added extensive error handling and logging throughout entire NLP pipeline (entry → GPT call → result parsing) to catch exceptions early.
-  - **Appointment Creation Fix (Nov 2025)**: Fixed `create_appointment_from_realtime` to correctly handle `CreateAppointmentOutput` dataclass instead of expecting dict. Now checks `hasattr(result, 'appointment_id')` and converts to dict for backwards compatibility.
-  - **AI Step-by-Step Guidance (Nov 2025)**: AI prompt explicitly instructs to collect name FIRST, then phone SECOND (never together). AI instructs: "תקליד מספר טלפון במקלדת הטלפון - 10 ספרות שמתחילות ב-05" - NO mention of # key.
-  - **DTMF Auto-Submit (Nov 2025)**: After collecting 10 digits, system automatically processes phone number without requiring # terminator. AI does NOT instruct user to press # - system handles it silently.
-  - **Availability Check**: Real-time slot validation with up to 3 alternative suggestions if requested time is taken.
-- **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)` for reliable Hebrew speech detection.
-- **Simplified Barge-In (Nov 24, 2025)**: 350ms grace period, calibrated speech threshold (vad_threshold or 900 default), instant trigger on speech detection, no minimum duration or cooldown requirements. Enhanced debug logging to track is_ai_speaking_event state and RMS values.
-- **Cost Tracking (Nov 2025)**: Real-time chunk-based audio tracking with precise cost calculations. Automatic cost summary displayed at end of EVERY call with breakdown: user audio (chunks→minutes→$), AI audio (chunks→minutes→$), total in USD and NIS (₪). Supports all OpenAI Realtime models including new gpt-realtime (2025).
+- **OpenAI Realtime API**: Integrates `gpt-4o-realtime-preview` for phone calls with asyncio threads and thread-safe queues.
+- **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` (max_tokens: 300, temperature: 0.18) with 10 critical behavioral rules. Includes a server-side GPT-4o-mini NLP appointment parser for `hours_info`, `ask`, and `confirm` actions. The appointment flow prioritizes date/time, checks availability, collects name verbally, and phone via DTMF (10-digit auto-submit without `#`). Customer data persistence is handled by a 4-path hydration system. NLP runs after DTMF is added to conversation history to ensure complete data processing, with extensive logging.
+- **Hebrew-Optimized VAD**: `threshold = min(175, noise_floor + 80)`.
+- **Simplified Barge-In**: 350ms grace period, calibrated speech threshold, instant trigger on speech detection.
+- **Cost Tracking**: Real-time chunk-based audio tracking, with cost summaries for user and AI audio displayed at the end of each call.
 - **Error Resilience**: DB query failures fall back to minimal prompt.
-- **Automatic DB Prompt Loading (Nov 24, 2025 - CRITICAL FIX)**: 
-  - Both `get_or_create_agent` and `get_agent` now automatically load AI prompts from `BusinessSettings.ai_prompt` table
-  - Channel-specific prompt extraction: parses JSON to get 'calls' or 'whatsapp' prompt
-  - Fallback support for legacy single-prompt format
-  - Eliminates "⚠️ NO DB prompt - using minimal fallback" warning
-  - Prompts load transparently without requiring explicit custom_instructions parameter
-- **Greeting Message Response (Nov 24, 2025)**: 
-  - `update_business_prompt` endpoint now returns `greeting_message` and `whatsapp_greeting` in response
-  - UI can display saved greeting immediately after update
-- **First Response Greeting System (Nov 24, 2025 - PROMPT-BASED)**:
-  - System prompt instructs AI to always include business-specific greeting in FIRST response after user speaks
-  - No automatic server-initiated responses - user must speak first
-  - Greeting template: "היי, אני העוזרת הדיגיטלית של [business_name], איך אפשר לעזור?"
-  - AI combines greeting with answering user's first question
-  - Greeting spoken only once per call (never repeated)
+- **Greeting System**: System prompt instructs AI to include a business-specific greeting in the first response after user speaks, integrating with the user's first question.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
 - **Styling**: Tailwind CSS v4 with RTL support and Hebrew typography (Heebo font).
 - **Routing**: React Router v7 with AuthGuard/RoleGuard.
 - **State Management**: Context API for authentication.
-- **Security**: CSRF protection, secure redirects, and role-based access control.
-- **Role System Update (Nov 24, 2025 - BUILD 124)**: Updated all frontend routes, navigation, and UI to support new 4-tier role hierarchy (system_admin → owner → admin → agent). Replaced legacy roles (admin/manager/business) with new structure throughout TypeScript types, route guards, and navigation menus.
+- **Security**: CSRF protection, secure redirects, and role-based access control supporting the 4-tier role hierarchy.
 
 ### Feature Specifications
-- **Call Logging**: Comprehensive tracking with transcription, status, duration, and direction.
+- **Call Logging**: Comprehensive tracking.
 - **Conversation Memory**: Full history for contextual AI responses.
 - **WhatsApp Integration**: Supports Twilio and Baileys.
-- **Intelligent Lead Collection**: Automated capture, creation, and deduplication of lead information.
-- **Calendar & Meeting Scheduling**: AI checks real-time availability and suggests appointment slots.
-- **Customizable AI Assistant**: Customizable names and introductions via prompts and greetings.
+- **Intelligent Lead Collection**: Automated capture, creation, and deduplication.
+- **Calendar & Meeting Scheduling**: AI checks real-time availability.
+- **Customizable AI Assistant**: Customizable names and introductions.
 - **Greeting Management UI**: Dedicated fields for initial greetings.
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation.
-- **Automatic Recording Cleanup**: 2-day retention policy for recordings.
-- **Enhanced Reminders System**: Comprehensive reminder management.
-- **FAQ Hybrid Fast-Path**: Sub-2s voice responses using a 2-step matching process.
+- **Automatic Recording Cleanup**: 2-day retention policy.
+- **Enhanced Reminders System**: Comprehensive management.
+- **FAQ Hybrid Fast-Path**: Sub-2s voice responses.
 - **Multi-Tenant Isolation**: Complete business data separation.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice time.
+- **CRM Tasks**: Redesigned to show task board with Pending, Overdue, and Completed columns. Task notifications are integrated into the NotificationPanel.
 
 # External Dependencies
 
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
-- **OpenAI**:
-  - GPT-4o-mini for FAQ responses and server-side NLP parsing for appointments.
-  - Realtime API using **gpt-4o-realtime-preview** for phone calls, with specific model parameters (max_tokens: 300, temperature: 0.18).
-  - Hebrew-Optimized VAD and Barge-in mechanisms.
-  - Internal Whisper transcription with auto-detect.
-- **Google Cloud Platform** (legacy/fallback): STT Streaming API v1 for Hebrew, TTS Standard API.
+- **OpenAI**: GPT-4o-mini (FAQ, server-side NLP), `gpt-4o-realtime-preview` (phone calls), Hebrew-Optimized VAD, and Whisper transcription.
+- **Google Cloud Platform**: (Legacy/fallback) STT Streaming API v1 for Hebrew, TTS Standard API.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
