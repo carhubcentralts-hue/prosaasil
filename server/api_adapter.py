@@ -193,12 +193,9 @@ def dashboard_activity():
 # === ADMIN ENDPOINTS ===
 
 @api_adapter_bp.route('/api/admin/businesses', methods=['GET'])
+@require_api_auth(['admin', 'manager', 'system_admin', 'owner'])  # BUILD 137: Use proper decorator
 def admin_businesses():
     """Get all businesses - admin and manager only"""
-    perm_check = check_permissions(['admin', 'manager'])
-    if perm_check:
-        return perm_check
-    
     try:
         businesses = Business.query.all()
         
@@ -229,12 +226,9 @@ def admin_businesses():
         return jsonify({"error": "internal_server_error"}), 500
 
 @api_adapter_bp.route('/api/admin/stats', methods=['GET'])
+@require_api_auth(['admin', 'manager', 'system_admin', 'owner'])  # BUILD 137: Use proper decorator
 def admin_stats():
     """Administrative KPIs - admin and manager only"""
-    perm_check = check_permissions(['admin', 'manager'])
-    if perm_check:
-        return perm_check
-    
     try:
         # Leads stats (using customers as leads)
         total_leads = Customer.query.count()

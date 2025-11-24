@@ -259,14 +259,11 @@ def list_leads():
     })
 
 @leads_bp.route("/api/leads", methods=["POST"])
+@require_api_auth()  # BUILD 137: Use proper decorator that sets g.user and g.tenant
 def create_lead():
     """Create new lead manually"""
     try:
         log.info(f"🔵 CREATE LEAD - Starting request")
-        auth_error = require_auth()
-        if auth_error:
-            log.warning(f"🔴 CREATE LEAD - Auth failed")
-            return auth_error
         
         tenant_id = get_current_tenant()
         log.info(f"🔵 CREATE LEAD - tenant_id: {tenant_id}")
@@ -434,12 +431,11 @@ def create_lead():
         return jsonify({"error": f"Failed to create lead: {str(e)}"}), 500
 
 @leads_bp.route("/api/leads/<int:lead_id>", methods=["GET"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def get_lead_detail(lead_id):
     """Get detailed lead information with activities and reminders"""
     try:
-        auth_error = require_auth()
-        if auth_error:
-            return auth_error
+        # BUILD 137: Authentication handled by @require_api_auth() decorator
         
         if not check_lead_access(lead_id):
             return jsonify({"error": "Lead not found or access denied"}), 404
@@ -518,11 +514,10 @@ def get_lead_detail(lead_id):
         return jsonify({"error": "Internal server error", "details": str(e)}), 500
 
 @leads_bp.route("/api/leads/<int:lead_id>", methods=["PATCH"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def update_lead(lead_id):
     """Update lead information"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -590,11 +585,10 @@ def update_lead(lead_id):
     })
 
 @leads_bp.route("/api/leads/<int:lead_id>", methods=["DELETE"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def delete_lead(lead_id):
     """Delete a lead"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     user = get_current_user()
     if not user:
@@ -624,11 +618,10 @@ def delete_lead(lead_id):
     return jsonify({"message": "Lead deleted successfully"}), 200
 
 @leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def update_lead_status(lead_id):
     """Update lead status (for Kanban board)"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -685,11 +678,10 @@ def update_lead_status(lead_id):
     return jsonify({"message": "Status unchanged"})
 
 @leads_bp.route("/api/leads/<int:lead_id>/reminders", methods=["GET"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def get_lead_reminders(lead_id):
     """Get all reminders for a lead"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -712,11 +704,10 @@ def get_lead_reminders(lead_id):
     })
 
 @leads_bp.route("/api/leads/<int:lead_id>/activities", methods=["GET"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def get_lead_activities(lead_id):
     """Get all activities for a lead"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -738,11 +729,10 @@ def get_lead_activities(lead_id):
     })
 
 @leads_bp.route("/api/leads/<int:lead_id>/reminders", methods=["POST"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def create_reminder(lead_id):
     """Create 'חזור אליי' reminder"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -797,11 +787,10 @@ def create_reminder(lead_id):
 # REMOVED: Duplicate /api/admin/leads route was here - now only in routes_admin.py
 
 @leads_bp.route("/api/leads/<int:lead_id>/move", methods=["PATCH"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def move_lead_in_kanban(lead_id):
     """Move lead position in Kanban board (drag & drop support)"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -880,11 +869,10 @@ def move_lead_in_kanban(lead_id):
     })
 
 @leads_bp.route("/api/leads/<int:lead_id>/reminders/<int:reminder_id>", methods=["GET"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def get_reminder(lead_id, reminder_id):
     """Get specific reminder details"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -904,11 +892,10 @@ def get_reminder(lead_id, reminder_id):
     })
 
 @leads_bp.route("/api/leads/<int:lead_id>/reminders/<int:reminder_id>", methods=["PATCH"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def update_reminder(lead_id, reminder_id):
     """Update or complete reminder"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -953,13 +940,12 @@ def update_reminder(lead_id, reminder_id):
 
 
 @leads_bp.route("/api/reminders/due", methods=["GET"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def get_due_reminders():
     """Get all due and overdue reminders for notifications"""
     
     # Use existing auth pattern
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     tenant_id = get_current_tenant()
     if not tenant_id:
@@ -1064,11 +1050,10 @@ def get_notifications():
     })
 
 @leads_bp.route("/api/leads/bulk-delete", methods=["POST"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def bulk_delete_leads():
     """Bulk delete multiple leads"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     user = get_current_user()
     is_system_admin = user.get('role') == 'system_admin' if user else False
@@ -1128,11 +1113,10 @@ def bulk_delete_leads():
     })
 
 @leads_bp.route("/api/leads/bulk", methods=["PATCH"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def bulk_update_leads():
     """Bulk update multiple leads"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     tenant_id = get_current_tenant()
     if not tenant_id:
@@ -1198,11 +1182,10 @@ def bulk_update_leads():
 
 # Placeholder for WhatsApp integration - will be implemented in task 7
 @leads_bp.route("/api/leads/<int:lead_id>/message/whatsapp", methods=["POST"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def send_whatsapp_message(lead_id):
     """Send WhatsApp message to lead"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     if not check_lead_access(lead_id):
         return jsonify({"error": "Lead not found or access denied"}), 404
@@ -1315,11 +1298,10 @@ def create_general_reminder():
     }), 201
 
 @leads_bp.route("/api/reminders/<int:reminder_id>", methods=["PATCH"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def update_general_reminder(reminder_id):
     """Update or complete a general reminder"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     tenant_id = get_current_tenant()
     if not tenant_id:
@@ -1389,11 +1371,10 @@ def update_general_reminder(reminder_id):
     return jsonify({"message": "Reminder updated successfully"})
 
 @leads_bp.route("/api/reminders/<int:reminder_id>", methods=["DELETE"])
+@require_api_auth()  # BUILD 137: Added missing decorator
 def delete_general_reminder(reminder_id):
     """Delete a general reminder"""
-    auth_error = require_auth()
-    if auth_error:
-        return auth_error
+    # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     tenant_id = get_current_tenant()
     if not tenant_id:
