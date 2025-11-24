@@ -67,14 +67,14 @@ const menuItems = [
     icon: UserCog, 
     label: 'ניהול עסקים', 
     to: '/app/admin/businesses',
-    roles: ['system_admin', 'owner', 'admin']
+    roles: ['system_admin']  // ✅ BUILD 134: רק system_admin רואה רשימת כל העסקים
   },
   // ✅ AI Prompts moved to System Settings → AI tab (BUILD 130)
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 
     to: '/app/users',
-    roles: ['system_admin', 'owner', 'admin']
+    roles: ['system_admin', 'owner', 'admin']  // ✅ BUILD 134: owner/admin מנהלים משתמשים של העסק שלהם
   },
   { 
     icon: Settings, 

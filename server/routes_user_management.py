@@ -11,6 +11,8 @@ from datetime import datetime
 
 user_mgmt_api = Blueprint('user_mgmt_api', __name__, url_prefix='/api/admin/businesses')
 
+# BUILD 134: Global /api/admin/users endpoint moved to routes_admin.py
+
 @user_mgmt_api.route('/<int:business_id>/users', methods=['GET'])
 @require_api_auth()
 def get_business_users(business_id):

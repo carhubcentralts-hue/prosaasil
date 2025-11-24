@@ -14,6 +14,69 @@ import logging
 logger = logging.getLogger(__name__)
 admin_bp = Blueprint("admin_bp", __name__)
 
+@admin_bp.get("/api/admin/users")
+@require_api_auth()
+def get_all_users():
+    """
+    GET /api/admin/users
+    Returns users based on role:
+    - system_admin: ALL users in the system
+    - owner/admin: Only users in their own business
+    - agent: Forbidden
+    """
+    try:
+        current_user = session.get('user')
+        if not current_user:
+            return jsonify({'error': 'Not authenticated'}), 401
+            
+        current_role = current_user.get('role')
+        
+        # Determine scope based on role
+        if current_role == 'system_admin':
+            # System admin sees ALL users
+            users = User.query.order_by(User.created_at.desc()).all()
+        elif current_role in ['owner', 'admin']:
+            # Owner/admin see only their business users
+            business_id = current_user.get('business_id')
+            if not business_id:
+                return jsonify({'error': 'No business access'}), 403
+            users = User.query.filter_by(business_id=business_id).order_by(User.created_at.desc()).all()
+        else:
+            # Agents cannot access user management
+            return jsonify({'error': 'Forbidden: Insufficient permissions'}), 403
+        
+        # Get business names for display
+        business_map = {}
+        for user in users:
+            if user.business_id and user.business_id not in business_map:
+                biz = Business.query.get(user.business_id)
+                business_map[user.business_id] = biz.name if biz else 'Unknown'
+        
+        # Format users data to match UsersPage interface
+        users_data = []
+        for user in users:
+            users_data.append({
+                'id': str(user.id),
+                'email': user.email,
+                'name': user.name,
+                'role': user.role,  # system_admin, owner, admin, agent
+                'business_id': str(user.business_id) if user.business_id else None,
+                'business_name': business_map.get(user.business_id, 'System Admin') if user.business_id else 'System Admin',
+                'status': 'active' if user.is_active else 'inactive',
+                'last_login': user.last_login.isoformat() if user.last_login else None,
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+                'phone': user.phone if hasattr(user, 'phone') else None,
+                'permissions': []  # Compatible with UsersPage interface
+            })
+        
+        return jsonify(users_data)
+        
+    except Exception as e:
+        logger.error(f"Error fetching users: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @admin_bp.get("/api/admin/overview")
 @require_api_auth(["admin", "system_admin", "manager"])
 def api_overview():
