@@ -32,6 +32,7 @@ import { CrmPage } from '../pages/crm/CrmPage';
 import { BillingPage } from '../pages/billing/BillingPage';
 import { UsersPage } from '../pages/users/UsersPage';
 import { UsersManagementPage } from '../pages/Admin/UsersManagementPage';
+import { BusinessesManagementPage } from '../pages/Admin/BusinessesManagementPage';
 import { ProfilePage } from '../pages/Profile/ProfilePage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
 import CustomerIntelligencePage from '../pages/Intelligence/CustomerIntelligencePage';
@@ -221,6 +222,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['admin', 'manager']}>
               <UsersManagementPage />
+            </RoleGuard>
+          }
+        />
+
+        {/* Admin Businesses Management - Superadmin Only */}
+        <Route
+          path="admin/businesses-management"
+          element={
+            <RoleGuard roles={['superadmin']}>
+              <BusinessesManagementPage />
             </RoleGuard>
           }
         />

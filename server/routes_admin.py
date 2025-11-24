@@ -1076,4 +1076,62 @@ def delete_user(user_id):
         logger.error(f"Error deleting user: {e}")
         return jsonify({"error": str(e)}), 500
 
+@admin_bp.get("/api/admin/businesses")
+@require_api_auth(["superadmin"])
+def get_all_businesses():
+    """Get all businesses with their login credentials (superadmin only)"""
+    try:
+        businesses = Business.query.all()
+        
+        result = []
+        for business in businesses:
+            result.append({
+                'id': business.id,
+                'name': business.name,
+                'email': business.email,
+                'business_type': business.business_type,
+                'phone_number': business.phone_e164,
+                'is_active': business.is_active,
+                'created_at': business.created_at.isoformat() if business.created_at else None
+            })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error fetching businesses: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@admin_bp.put("/api/admin/businesses/<int:business_id>/reset-password")
+@require_api_auth(["superadmin"])
+def reset_business_password(business_id):
+    """Reset business password (superadmin only)"""
+    try:
+        business = Business.query.get(business_id)
+        
+        if not business:
+            return jsonify({"error": "עסק לא נמצא"}), 404
+        
+        data = request.get_json() or {}
+        new_password = data.get('new_password')
+        
+        if not new_password:
+            return jsonify({"error": "נא להזין סיסמה חדשה"}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({"error": "סיסמה חייבת להיות לפחות 6 תווים"}), 400
+        
+        business.password_hash = generate_password_hash(new_password, method='scrypt')
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'business_id': business.id,
+            'business_name': business.name
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error resetting business password: {e}")
+        return jsonify({"error": str(e)}), 500
+
 

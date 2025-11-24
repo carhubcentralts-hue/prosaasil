@@ -9,6 +9,8 @@ class Business(db.Model):
     __tablename__ = "business"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=True)  # Business primary account email
+    password_hash = db.Column(db.String(255), nullable=True)  # Business primary account password
     business_type = db.Column(db.String(255), nullable=False, default="real_estate")
     phone_e164 = db.Column('phone_number', db.String(255))  # ✅ Map to DB column phone_number
     whatsapp_number = db.Column(db.String(255))
