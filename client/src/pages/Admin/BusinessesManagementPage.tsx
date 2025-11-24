@@ -11,7 +11,7 @@ import {
 import { Card, Badge } from '../../shared/components/ui/Card';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
-import http from '../../lib/queryClient';
+import { apiRequest } from '../../lib/queryClient';
 
 interface Business {
   id: number;
@@ -37,7 +37,7 @@ export function BusinessesManagementPage() {
   const fetchBusinesses = async () => {
     try {
       setLoading(true);
-      const response = await http.get('/api/admin/businesses');
+      const response = await apiRequest('/api/admin/businesses');
       setBusinesses(response);
     } catch (error) {
       console.error('Failed to fetch businesses:', error);
@@ -60,14 +60,16 @@ export function BusinessesManagementPage() {
 
     try {
       setResetting(true);
-      await http.put(`/api/admin/businesses/${resetPasswordBusiness.id}/reset-password`, {
-        new_password: newPassword
+      await apiRequest(`/api/admin/businesses/${resetPasswordBusiness.id}/reset-password`, {
+        method: 'PUT',
+        body: JSON.stringify({ new_password: newPassword }),
+        headers: { 'Content-Type': 'application/json' }
       });
       alert(`✅ הסיסמה עודכנה בהצלחה!\n\nעסק: ${resetPasswordBusiness.name}\nמייל: ${resetPasswordBusiness.email}\nסיסמה חדשה: ${newPassword}\n\nשמור את הפרטים במקום בטוח!`);
       setNewPassword('');
       setResetPasswordBusiness(null);
     } catch (error: any) {
-      alert(error.response?.data?.error || 'שגיאה באיפוס סיסמה');
+      alert(error.message || 'שגיאה באיפוס סיסמה');
     } finally {
       setResetting(false);
     }
@@ -162,7 +164,7 @@ export function BusinessesManagementPage() {
                           פעיל
                         </Badge>
                       ) : (
-                        <Badge variant="destructive" className="flex items-center gap-1 w-fit">
+                        <Badge variant="danger" className="flex items-center gap-1 w-fit">
                           <XCircle className="w-3 h-3" />
                           לא פעיל
                         </Badge>

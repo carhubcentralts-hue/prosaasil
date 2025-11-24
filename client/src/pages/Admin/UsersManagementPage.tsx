@@ -12,7 +12,7 @@ import { Card, Badge } from '../../shared/components/ui/Card';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Select, SelectOption } from '../../shared/components/ui/Select';
-import http from '../../lib/queryClient';
+import { apiRequest } from '../../lib/queryClient';
 
 interface User {
   id: number;
@@ -44,7 +44,7 @@ export function UsersManagementPage() {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const response = await http.get('/api/admin/users');
+      const response = await apiRequest('/api/admin/users');
       setUsers(response);
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -62,13 +62,17 @@ export function UsersManagementPage() {
     }
 
     try {
-      await http.post('/api/admin/users', formData);
+      await apiRequest('/api/admin/users', {
+        method: 'POST',
+        body: JSON.stringify(formData),
+        headers: { 'Content-Type': 'application/json' }
+      });
       alert('משתמש נוצר בהצלחה!');
       setFormData({ name: '', email: '', password: '', role: 'business' });
       setIsCreateModalOpen(false);
       fetchUsers();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'שגיאה ביצירת משתמש');
+      alert(error.message || 'שגיאה ביצירת משתמש');
     }
   };
 
@@ -77,17 +81,21 @@ export function UsersManagementPage() {
     if (!editingUser) return;
 
     try {
-      await http.put(`/api/admin/users/${editingUser.id}`, {
-        name: formData.name,
-        password: formData.password || undefined,
-        role: formData.role
+      await apiRequest(`/api/admin/users/${editingUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: formData.name,
+          password: formData.password || undefined,
+          role: formData.role
+        }),
+        headers: { 'Content-Type': 'application/json' }
       });
       alert('משתמש עודכן בהצלחה!');
       setFormData({ name: '', email: '', password: '', role: 'business' });
       setEditingUser(null);
       fetchUsers();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'שגיאה בעדכון משתמש');
+      alert(error.message || 'שגיאה בעדכון משתמש');
     }
   };
 
@@ -95,11 +103,13 @@ export function UsersManagementPage() {
     if (!confirm('האם אתה בטוח שברצונך למחוק את המשתמש הזה?')) return;
 
     try {
-      await http.delete(`/api/admin/users/${userId}`);
+      await apiRequest(`/api/admin/users/${userId}`, {
+        method: 'DELETE'
+      });
       alert('משתמש נמחק בהצלחה!');
       fetchUsers();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'שגיאה במחיקת משתמש');
+      alert(error.message || 'שגיאה במחיקת משתמש');
     }
   };
 

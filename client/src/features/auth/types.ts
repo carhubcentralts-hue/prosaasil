@@ -15,4 +15,4 @@ export interface AuthContextType extends AuthState {
   refetch: () => Promise<void>;
 }
 
-export type UserRole = 'admin' | 'manager' | 'business';
+export type UserRole = 'admin' | 'manager' | 'business' | 'superadmin';
