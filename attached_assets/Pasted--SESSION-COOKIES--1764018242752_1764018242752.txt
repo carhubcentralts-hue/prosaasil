@@ -1,0 +1,132 @@
+הנה הנחיה אחת, מדויקת, נקייה וברורה שאתה שולח לו –
+והיא תפתור סופית את כל עניין ה־SESSION COOKIES ב־Replit Deploy (כולל התחזות, owner 401, משימות, התראות, לידים).
+
+⸻
+
+📌 הנחיה מושלמת לסגירת בעיית ה-Cookies
+
+תתקן את ניהול ה-session cookies כך שיעבוד ב-Replit Deploy מאחורי פרוקסי HTTPS.
+תבצע את כל השלבים הבאים בדיוק ובסדר הבא:
+
+⸻
+
+1️⃣ תיקון הגדרות Session ב־Flask (app_factory.py)
+
+תעדכן את כל ההגדרות לעולם כזה:
+
+app.config.update(
+    SESSION_COOKIE_SECURE=True,         # חובה! Replit שולח HTTPS ללקוח
+    SESSION_COOKIE_SAMESITE='None',     # חובה לקרוס-דומיין (api + frontend)
+    SESSION_COOKIE_HTTPONLY=True,       # תמיד
+    SESSION_COOKIE_PATH="/",
+    SESSION_COOKIE_NAME="session",
+)
+
+ותוודא שאין שום מקום אחר בקוד שכותב משהו אחר ל־SESSION_COOKIE_SECURE או SAMESITE.
+
+⸻
+
+2️⃣ הפעלת ProxyFix בצורה נכונה (בקובץ app_factory.py)
+
+ודא שזה בדיוק כך:
+
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,
+    x_proto=1,
+    x_host=1,
+    x_prefix=1
+)
+
+זה מאפשר ל-Flask להבין שהבקשות אמיתית מגיעות מ-HTTPS למרות שהשרת עצמו רץ על HTTP.
+
+אחרת Flask חושב “אה, אנחנו על HTTP → אז אני לא אשלח Cookie Secure”.
+
+⸻
+
+3️⃣ כל הפניות API מה-Frontend חייבות credentials: ‘include’
+
+ב־client/src/lib/http.ts לוודא שככה:
+
+credentials: 'include',
+
+וב־queryClient.ts גם:
+
+credentials: 'include',
+
+שתי הספריות חייבות לשלוח cookies — אחרת מאבד session.
+
+⸻
+
+4️⃣ אין לגעת, לשנות או לכתוב session.clear() בשום מקום
+
+תחסל כל קוד כזה:
+
+session.clear()
+
+או:
+
+if tenant is None: session.clear()
+
+או כל מחיקה אוטומטית.
+
+⸻
+
+5️⃣ אין יותר session[“impersonating”] בכלל
+
+כל ההתנהגות מבוססת על:
+
+session["impersonated_tenant_id"]
+
+מחק כל מקום שכותב:
+
+session["impersonating"] = True
+
+או בודק את זה.
+
+⸻
+
+6️⃣ ב־require_api_auth() חייב להיות רק זה:
+
+user = session.get("al_user") or session.get("user")
+if not user:
+    return jsonify({"error": "not authenticated"}), 401
+
+# tenant logic
+tenant = session.get("impersonated_tenant_id") or user.get("business_id")
+
+g.user = user
+g.tenant = tenant
+g.impersonating = bool(session.get("impersonated_tenant_id"))
+
+אין שום בדיקה נוספת, אין שום ניקוי session, אין session.clear() ואין בדיקה על impersonating flags שלא קיימים.
+
+⸻
+
+7️⃣ בכל המקרי קצה – לקחת Session חדש וזהו
+
+אחרי פריסה:
+	1.	להיכנס ל־chrome://settings/clearBrowserData
+	2.	למחוק cookies לאתר
+	3.	רענון
+	4.	התחברות מחדש
+
+ואז לבדוק:
+	•	owner → /api/notifications = 200
+	•	admin → impersonate = עובד
+	•	יצירת משימה = עובד
+	•	/api/reminders = 200
+	•	/api/leads = שמות מוצגים
+
+⸻
+
+🎯 סיכום
+
+זו ההנחיה המושלמת.
+לא ארוכה מדי, לא קצרה מדי, מדויקת פיקס למה שיפתור את כל הסאגה של השבוע.
+
+אתה שולח לו אחד לאחד.
+
+אם אתה רוצה – אעשה לך גם גרסה מקוצרת, או גרסת “Copy-Paste” נקייה לקבצים עצמם.

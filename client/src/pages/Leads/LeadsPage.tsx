@@ -457,7 +457,7 @@ export default function LeadsPage() {
                   </TableCell>
                   <TableCell data-testid={`text-name-${lead.id}`} className="min-w-[150px]">
                     <div className="font-medium text-gray-900 dark:text-white hover:text-blue-600 transition-colors">
-                      {safe(lead.name) || safe(lead.full_name) || safe(`${lead.first_name || ''} ${lead.last_name || ''}`.trim()) || safe(lead.phone_e164)}
+                      {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || lead.display_phone || lead.phone_e164 || '—'}
                     </div>
                     {lead.email && (
                       <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
