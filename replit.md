@@ -6,6 +6,12 @@ AgentLocator is a multi-tenant Hebrew CRM system designed for real estate profes
 
 Preferred communication style: Simple, everyday language.
 
+## Navigation Updates (Nov 24, 2025 - BUILD 109)
+- **Removed Features**: "אינטליגנציה לקוחות" and full-page "תזכורות" removed from sidebar and routes
+- **Rebranding**: "CRM" renamed to "משימות" (Tasks) throughout UI
+- **Navigation Structure**: Bell icon notification modal remains functional - only standalone reminders page removed
+- **Route Protection**: Blocked routes (/app/intelligence, /app/notifications) redirect to /app/leads
+
 # System Architecture
 
 ## System Design Choices
