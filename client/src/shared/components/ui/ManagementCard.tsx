@@ -102,7 +102,7 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
         
         // For users - we'll use a simple estimate for now until we create users API
         // TODO: Create a proper users API endpoint
-        setUserCount(user?.role === 'business' ? 5 : (businessData as any).total * 3);
+        setUserCount(user?.role === 'admin' ? 5 : (businessData as any).total * 3);
         
       } catch (error) {
         console.error('Error fetching management stats:', error);
@@ -131,14 +131,14 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
 
   return (
     <div className={cn('space-y-4', className)}>
-      {/* Business Management - Admin/Manager only, hide during impersonation */}
-      {(user.role === 'admin' || user.role === 'manager') && !impersonating && (
+      {/* Business Management - System Admin/Owner only, hide during impersonation */}
+      {(user.role === 'system_admin' || user.role === 'owner') && !impersonating && (
         <ManagementCard
           title="ניהול עסקים"
           description="נהלו את כל העסקים במערכת, הוסיפו עסקים חדשים ועדכנו הגדרות"
           icon={Building2}
           onClick={handleBusinessManagement}
-          requiredRoles={['admin', 'manager']}
+          requiredRoles={['system_admin', 'owner']}
           stats={{
             count: loading ? 0 : (businessCount || 0),
             label: loading ? 'טוען...' : 'עסקים פעילים'
@@ -150,16 +150,16 @@ export function QuickManagementActions({ className }: QuickManagementActionsProp
       <ManagementCard
         title="ניהול משתמשים"
         description={
-          user.role === 'business' 
+          user.role === 'admin' 
             ? 'נהלו את המשתמשים בעסק שלכם והעניקו הרשאות'
             : 'נהלו משתמשים בכל המערכת והעניקו הרשאות מתקדמות'
         }
         icon={UserCog}
         onClick={handleUserManagement}
-        requiredRoles={['admin', 'manager', 'business']}
+        requiredRoles={['system_admin', 'owner', 'admin']}
         stats={{
           count: loading ? 0 : (userCount || 0),
-          label: loading ? 'טוען...' : (user.role === 'business' ? 'משתמשים בעסק' : 'משתמשים במערכת')
+          label: loading ? 'טוען...' : (user.role === 'admin' ? 'משתמשים בעסק' : 'משתמשים במערכת')
         }}
       />
     </div>

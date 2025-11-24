@@ -219,20 +219,32 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
   );
 
   // Apply role-based filtering
-  if (userRole === 'business' && businessId) {
-    // Business users only see their own business data
+  if (userRole === 'admin' && businessId) {
+    // Business admins only see their own business data
     filteredResults = filteredResults.filter(result => 
       result.type === 'function' || // Functions are available to all
       result.metadata?.businessId === businessId
     );
-    // Remove business management for business users
+    // Remove business management for business admins
     filteredResults = filteredResults.filter(result => result.type !== 'business');
-  } else if (userRole === 'manager') {
-    // Managers see all data but limited business management
-    // Already includes everything
-  } else if (userRole === 'admin') {
-    // Admins see everything
-    // Already includes everything
+  } else if (userRole === 'agent' && businessId) {
+    // Agents only see their own business data
+    filteredResults = filteredResults.filter(result => 
+      result.type === 'function' || // Functions are available to all
+      result.metadata?.businessId === businessId
+    );
+    // Remove business management for agents
+    filteredResults = filteredResults.filter(result => result.type !== 'business');
+  } else if (userRole === 'owner' && businessId) {
+    // Owners see all their business data plus management of their own business only
+    filteredResults = filteredResults.filter(result => 
+      result.type === 'function' || 
+      (result.type === 'business' && result.metadata?.businessId === businessId) || // Only own business
+      result.metadata?.businessId === businessId
+    );
+  } else if (userRole === 'system_admin') {
+    // System admins see everything across all businesses
+    // No filtering needed
   }
 
   return filteredResults.slice(0, 8); // Limit results
@@ -472,7 +484,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
               <p className="text-sm">
                 חפש לקוחות, חשבוניות, שיחות, פגישות ופונקציות מערכת
               </p>
-              {user?.role !== 'business' && (
+              {(user?.role === 'system_admin' || user?.role === 'owner') && (
                 <p className="text-xs text-slate-400 mt-2">
                   כמנהל, אתה יכול לחפש בכל העסקים במערכת
                 </p>
@@ -497,7 +509,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
                 <p className="text-sm text-slate-600">
                   נמצאו {results.length} תוצאות עבור "{query}"
                 </p>
-                {user?.role !== 'business' && (
+                {(user?.role === 'system_admin' || user?.role === 'owner') && (
                   <span className="text-xs text-slate-400">
                     חיפוש גלובלי
                   </span>
