@@ -177,8 +177,12 @@ export function MainLayout() {
   // Filter menu items based on user role and impersonation state
   const filteredMenuItems = menuItems.filter(item => {
     // Check role permissions first
-    if (item.roles && (!user || !item.roles.includes(user.role))) {
-      return false;
+    if (item.roles && user) {
+      // Superadmin has access to everything (treat as admin)
+      const userRole = user.role === 'superadmin' ? 'admin' : user.role;
+      if (!item.roles.includes(userRole)) {
+        return false;
+      }
     }
     
     // Hide "Business Management" during impersonation - only show business-specific items
@@ -323,11 +327,12 @@ export function MainLayout() {
               <div className="mt-1">
                 <span className={cn(
                   'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                  user?.role === 'admin' ? 'bg-violet-100 text-violet-800' :
+                  user?.role === 'admin' || user?.role === 'superadmin' ? 'bg-violet-100 text-violet-800' :
                   user?.role === 'manager' ? 'bg-blue-100 text-blue-800' :
                   'bg-slate-100 text-slate-800'
                 )}>
-                  {user?.role === 'admin' ? 'מנהל מערכת' : 
+                  {user?.role === 'superadmin' ? 'מנהל על' :
+                   user?.role === 'admin' ? 'מנהל מערכת' : 
                    user?.role === 'manager' ? 'מנהל' : 'עסק'}
                 </span>
               </div>
