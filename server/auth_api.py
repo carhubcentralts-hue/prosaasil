@@ -297,9 +297,21 @@ def get_current_user_legacy():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Auth decorator for API routes - simplified per instructions
-def require_api_auth(roles=None):
-    """Simple guard that doesn't do CSRF at all"""
+# Auth decorator for API routes - BUILD 124: Enhanced with role-based access control
+def require_api_auth(allowed_roles=None):
+    """
+    Auth decorator with role-based access control
+    
+    Args:
+        allowed_roles: List of allowed roles for this route (e.g., ['system_admin', 'owner'])
+                      If None, allows all authenticated users
+                      
+    Role hierarchy (BUILD 124):
+        - system_admin: Global administrator (full access)
+        - owner: Business owner (full business access)
+        - admin: Business administrator (limited business access)
+        - agent: Business agent (limited CRM/calls access)
+    """
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -316,47 +328,63 @@ def require_api_auth(roles=None):
                     'message': 'Authentication required'
                 }), 401
             
-            # Compute context once - per exact instructions
-            role = session['user']['role']  # 'system_admin'|'owner'|'admin'|'agent'|'business'
-            tenant = session.get('impersonated_tenant_id') or session['user'].get('business_id')  # Fixed: use business_id not tenant_id
+            # Compute context once
+            user_role = session['user']['role']
+            tenant = session.get('impersonated_tenant_id') or session['user'].get('business_id')
             impersonating = bool(session.get('impersonating'))
             
-            # Store context in g for route use (properly typed)
-            g.business_id = tenant
+            # Legacy role mapping for backward compatibility during migration
+            legacy_role_map = {
+                'manager': 'owner',        # Old manager → new owner
+                'business': 'admin',       # Old business → new admin  
+                'admin': 'system_admin',   # Old admin → new system_admin
+                'superadmin': 'system_admin'  # Old superadmin → new system_admin
+            }
             
-            # Route-based permissions logic
-            is_admin_route = request.path.startswith('/api/admin/')
+            # Reverse mapping for bidirectional support
+            reverse_role_map = {v: k for k, v in legacy_role_map.items()}
             
-            if is_admin_route:
-                # כל /api/admin/** ⇒ דורש role in {'system_admin','owner','admin','manager'}
-                # BUILD 124: Updated to support new role structure
-                if role not in {'system_admin', 'owner', 'admin', 'manager'}:
+            # Map legacy role if needed
+            effective_role = legacy_role_map.get(user_role, user_role)
+            
+            # Check role-based access if roles are specified
+            if allowed_roles:
+                # Build comprehensive allowed set (supports BOTH old and new role names)
+                allowed_set = set(allowed_roles)  # Start with requested roles
+                
+                # For each requested role, add all its equivalents
+                roles_to_add = set()
+                for r in allowed_roles:
+                    # If it's a legacy role, add the new role
+                    if r in legacy_role_map:
+                        roles_to_add.add(legacy_role_map[r])
+                    
+                    # If it's a new role, add all legacy equivalents
+                    if r in reverse_role_map:
+                        roles_to_add.add(reverse_role_map[r])
+                    
+                    # Also add the other direction from the full map
+                    for legacy, new in legacy_role_map.items():
+                        if r == new:
+                            roles_to_add.add(legacy)
+                        elif r == legacy:
+                            roles_to_add.add(new)
+                
+                allowed_set.update(roles_to_add)
+                
+                # Check if user's effective role or original role is allowed
+                if effective_role not in allowed_set and user_role not in allowed_set:
                     return jsonify({
                         'error': 'forbidden',
-                        'reason': 'admin_required',
-                        'message': f'Admin route requires system_admin/owner/admin role, got {role}'
-                    }), 403
-            else:
-                # ראוטים של עסק ⇒ role in {'owner','admin','agent','business'} או system_admin (עם או בלי התחזות)
-                if role in {'owner', 'admin', 'agent', 'business'}:
-                    # Business users - allow if same tenant
-                    pass
-                elif role == 'system_admin':
-                    # System admin - always allow business routes (with or without impersonation)
-                    pass
-                elif role in {'admin', 'manager'}:
-                    # Legacy roles - still allow for backward compatibility
-                    pass
-                else:
-                    return jsonify({
-                        'error': 'forbidden', 
-                        'reason': 'business_access_denied',
-                        'message': f'Business route access denied for role {role}'
+                        'reason': 'insufficient_permissions',
+                        'message': f'This route requires one of {allowed_roles}, got {user_role} (checked against: {allowed_set})'
                     }), 403
             
             # Store context in g for route use
+            g.business_id = tenant
             g.user = session['user']
-            g.role = role
+            g.role = effective_role  # Use mapped role
+            g.original_role = user_role  # Keep original for reference
             g.tenant = tenant
             g.impersonating = impersonating
             
