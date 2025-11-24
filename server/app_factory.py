@@ -172,13 +172,15 @@ def create_app():
             REMEMBER_COOKIE_HTTPONLY=True,   # ✅ גם remember cookie מאובטח
         )
     else:
+        # BUILD 142 FINAL FIX: Replit production uses HTTPS termination, forwards HTTP to Flask
+        # So SESSION_COOKIE_SECURE=True breaks cookies! Set to False for Replit deployment
         app.config.update(
-            SESSION_COOKIE_SAMESITE='Lax',   # Lax לProduction לפי ההנחיות
-            SESSION_COOKIE_SECURE=True,      # True לProduction לפי ההנחיות
-            SESSION_COOKIE_HTTPONLY=True,    # ✅ Secure in production (לפי architect)
-            REMEMBER_COOKIE_SAMESITE='Lax',
-            REMEMBER_COOKIE_SECURE=True,
-            REMEMBER_COOKIE_HTTPONLY=True,   # ✅ גם remember cookie מאובטח
+            SESSION_COOKIE_SAMESITE='None',  # None for Replit production (architect recommendation)
+            SESSION_COOKIE_SECURE=False,     # FALSE for Replit (HTTPS→HTTP forwarding)
+            SESSION_COOKIE_HTTPONLY=True,    # ✅ Keep HttpOnly for security
+            REMEMBER_COOKIE_SAMESITE='None',
+            REMEMBER_COOKIE_SECURE=False,    # Match session cookie setting
+            REMEMBER_COOKIE_HTTPONLY=True,   # ✅ Keep HttpOnly for security
         )
 
     # SeaSurf – מקור יחיד

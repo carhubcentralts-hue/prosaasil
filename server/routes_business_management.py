@@ -609,7 +609,8 @@ def impersonate_business(business_id):
         if not business.is_active:
             return jsonify({"error": "העסק אינו פעיל"}), 400
         
-        # BUILD 142 FINAL: Store ONLY impersonated_tenant_id (no other keys needed!)
+        # BUILD 142 ROLLBACK: Restore impersonating flag for production stability
+        session["impersonating"] = True  # RESTORED
         session["impersonated_tenant_id"] = business.id
         
         logger.info(f"✅ System admin {current_admin.get('email')} impersonating business {business.id}")
@@ -640,7 +641,8 @@ def exit_impersonation():
     try:
         logger.info("🔄 Exiting impersonation")
         
-        # BUILD 142 FINAL: Clear ONLY impersonated_tenant_id (no other keys!)
+        # BUILD 142 ROLLBACK: Clear ALL impersonation keys (flag + tenant_id)
+        session.pop("impersonating", None)  # RESTORED
         session.pop("impersonated_tenant_id", None)
         
         logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user') or session.get('al_user')}")

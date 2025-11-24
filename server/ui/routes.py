@@ -1153,10 +1153,10 @@ def admin_impersonate_business(business_id):
             g.audit_logger.log_action('IMPERSONATE_START', 'business', business_id, 
                                     {'business_name': business.name})
         
-        # BUILD 142 FINAL: Set impersonation session (impersonated_tenant_id ONLY)
+        # BUILD 142 ROLLBACK: Restore impersonating flag for production stability
         session['impersonator'] = session.get('user')  # Store original user
+        session['impersonating'] = True  # RESTORED for compatibility
         session['impersonated_tenant_id'] = business_id
-        # Note: No 'impersonating' flag - use presence of impersonated_tenant_id to detect
         
         # Return JSON success for API consistency
         return jsonify({'success': True, 'redirect': '/app/biz'})
@@ -1169,9 +1169,10 @@ def admin_impersonate_business(business_id):
 def admin_stop_impersonation():
     """סיום השתלטות"""
     try:
-        # BUILD 142 FINAL: Clear impersonation state (DON'T modify session['user'] or session['al_user'])
+        # BUILD 142 ROLLBACK: Clear all impersonation state including flag
         if session.get('impersonated_tenant_id'):
-            # Clear the 2 impersonation keys only (no 'impersonating' flag anymore)
+            # Clear ALL 3 impersonation keys (RESTORED for compatibility)
+            session.pop('impersonating', None)  # RESTORED
             session.pop('impersonated_tenant_id', None) 
             session.pop('impersonator', None)
             

@@ -30,26 +30,38 @@ def get_current_user():
 
 def get_current_tenant():
     """
-    BUILD 142 FINAL: Get current tenant from g.tenant (populated by @require_api_auth)
+    BUILD 142 ROLLBACK: Restore session['impersonating'] check for production stability
     
     IMPORTANT: This relies on @require_api_auth decorator populating g.tenant
     """
-    # Priority 1: Use g.tenant if available (set by @require_api_auth)
+    # Priority 1: Check if impersonating (RESTORED)
+    if session.get('impersonating') and session.get('impersonated_tenant_id'):
+        tenant = session['impersonated_tenant_id']
+        print(f"✅ get_current_tenant(): Impersonating tenant_id={tenant}")
+        return tenant
+    
+    # Priority 2: Use g.tenant if available (set by @require_api_auth)
     if hasattr(g, 'tenant') and g.tenant:
         print(f"✅ get_current_tenant(): Using g.tenant={g.tenant}")
         return g.tenant
     
-    # Priority 2: Fallback to impersonated session (system_admin only)
+    # Priority 3: Fallback to impersonated session WITHOUT flag (backward compat)
     impersonated_id = session.get('impersonated_tenant_id')
     if impersonated_id:
         print(f"✅ get_current_tenant(): Using impersonated_tenant_id={impersonated_id}")
         return impersonated_id
     
-    # Priority 3: Get from user session - try both session keys
+    # Priority 4: Get from user session - try both session keys
     user = session.get('user') or session.get('al_user')
     if user and user.get('business_id'):
         print(f"✅ get_current_tenant(): Using user.business_id={user.get('business_id')}")
         return user.get('business_id')
+    
+    # No tenant found - OK for system_admin, error for others
+    user_role = user.get('role') if user else None
+    if user_role == 'system_admin':
+        print(f"✅ get_current_tenant(): system_admin with no tenant (OK)")
+        return None
     
     print(f"❌ get_current_tenant(): No tenant found! g.tenant={getattr(g, 'tenant', None)}, impersonated={impersonated_id}, user={user}")
     return None
