@@ -268,12 +268,14 @@ export function MainLayout() {
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="w-12 h-12 gradient-brand rounded-xl flex items-center justify-center">
-                <span className="text-white font-bold text-xl">ש</span>
+                <span className="text-white font-bold text-xl">P</span>
               </div>
             </div>
             <div className="mr-4">
-              <h1 className="text-lg font-semibold text-slate-900">שי דירות</h1>
-              <p className="text-sm text-slate-500">{tenant?.name || 'ומשרדים בע״מ'}</p>
+              <h1 className="text-xl font-bold text-slate-900">
+                <span className="text-black">Pro</span><span className="text-blue-600">SaaS</span>
+              </h1>
+              <p className="text-xs text-slate-500">{tenant?.name || 'Multi-Tenant CRM'}</p>
             </div>
           </div>
           <button
@@ -337,19 +339,22 @@ export function MainLayout() {
               />
             );
           })}
+          
+          {/* Logout in navigation - more visible */}
+          <div className="px-2 mt-4">
+            <button
+              className="w-full flex items-center px-4 py-3 text-red-600 rounded-xl hover:bg-red-50 transition-all duration-200 font-medium border border-red-200"
+              onClick={() => {
+                handleLogout();
+                setSidebarOpen(false);
+              }}
+              data-testid="button-logout-sidebar"
+            >
+              <LogOut className="h-5 w-5 ml-3" />
+              יציאה מהמערכת
+            </button>
+          </div>
         </nav>
-
-        {/* Logout button */}
-        <div className="p-6 border-t border-slate-200 flex-shrink-0">
-          <button
-            className="w-full flex items-center px-4 py-3 text-slate-700 rounded-xl hover:bg-slate-100 transition-colors btn-ghost"
-            onClick={handleLogout}
-            data-testid="button-logout"
-          >
-            <LogOut className="h-5 w-5 ml-3" />
-            יציאה מהמערכת
-          </button>
-        </div>
       </aside>
 
       {/* Main content */}
@@ -374,7 +379,7 @@ export function MainLayout() {
                 <h1 className="mr-3 md:mr-0 text-lg font-semibold text-slate-900">
                   {user?.role === 'system_admin' || user?.role === 'owner' || user?.role === 'admin'
                     ? 'מנהל המערכת' 
-                    : tenant?.name || 'שי דירות'}
+                    : tenant?.name || 'ProSaaS'}
                 </h1>
               </div>
 

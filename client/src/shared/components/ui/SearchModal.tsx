@@ -50,7 +50,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
       description: 'מעוניינת בדירה 3 חדרים בתל אביב',
       metadata: {
         businessId: 1,
-        businessName: 'שי דירות',
+        businessName: 'ProSaaS',
         phone: '054-123-4567',
         email: 'leah@email.com',
         lastActivity: 'לפני 2 שעות',
@@ -65,7 +65,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
       description: 'מחפש משרד להשכרה במרכז',
       metadata: {
         businessId: 1,
-        businessName: 'שי דירות',
+        businessName: 'ProSaaS',
         phone: '053-999-8888',
         email: 'moshe@email.com',
         lastActivity: 'לפני יום',
@@ -96,7 +96,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
       description: 'עמלת תיווך דירה',
       metadata: {
         businessId: 1,
-        businessName: 'שי דירות',
+        businessName: 'ProSaaS',
         amount: 25000,
         date: '15/12/2024',
         status: 'שולם'
@@ -110,7 +110,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
       description: 'שכירות משרד',
       metadata: {
         businessId: 1,
-        businessName: 'שי דירות',
+        businessName: 'ProSaaS',
         amount: 15000,
         date: '20/12/2024',
         status: 'ממתין'
@@ -125,7 +125,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
       description: 'שיחה של 3:45 דקות על דירה בתל אביב',
       metadata: {
         businessId: 1,
-        businessName: 'שי דירות',
+        businessName: 'ProSaaS',
         date: '25/12/2024',
         lastActivity: 'לפני שעתיים',
         status: 'הושלמה'
@@ -140,7 +140,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
       description: 'שאילתה על משרדים זמינים',
       metadata: {
         businessId: 1,
-        businessName: 'שי דירות',
+        businessName: 'ProSaaS',
         date: '25/12/2024',
         lastActivity: 'לפני שעה',
         status: 'נענה'
@@ -155,7 +155,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
       description: 'צפייה בדירה ברמת גן',
       metadata: {
         businessId: 1,
-        businessName: 'שי דירות',
+        businessName: 'ProSaaS',
         date: '29/12/2024',
         status: 'מתוכננת'
       }
@@ -187,7 +187,7 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
     {
       id: 'business-1',
       type: 'business',
-      title: 'שי דירות ומשרדים',
+      title: 'ProSaaS CRM',
       subtitle: 'עסק פעיל',
       description: '8 משתמשים, 45 לקוחות פעילים',
       metadata: {

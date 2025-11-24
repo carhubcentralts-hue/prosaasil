@@ -117,10 +117,10 @@ export function SettingsPage() {
   
   // Settings state
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>({
-    business_name: 'שי דירות ומשרדים בע״מ',
+    business_name: 'ProSaaS - Multi-Tenant CRM',
     phone_number: '+972-58-7654321',
-    email: 'office@shai-realestate.co.il',
-    address: 'רחוב דיזנגוף 100, תל אביב',
+    email: 'support@prosaas.com',
+    address: 'Tel Aviv, Israel',
     working_hours: '09:00-18:00',
     timezone: 'Asia/Jerusalem'
   });

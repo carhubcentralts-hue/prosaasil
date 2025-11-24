@@ -338,8 +338,8 @@ export function BusinessHomePage() {
       <div className="max-w-7xl mx-auto">
         {/* Page Header */}
         <div className="mb-6">
-          <h1 className="text-2xl md:text-3xl font-semibold text-slate-900">
-            שי דירות ומשרדים 🏢
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
+            <span className="text-black">Pro</span><span className="text-blue-600">SaaS</span> 🚀
           </h1>
           <div className="flex items-center gap-4 mt-2">
             <p className="text-slate-600">

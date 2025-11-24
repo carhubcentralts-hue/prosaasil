@@ -79,7 +79,9 @@ export function LoginPage() {
         <div className="flex items-center">
           <Building2 className="h-8 w-8 text-blue-600 mr-3" />
           <div className="text-slate-900">
-            <div className="font-semibold text-lg">שי דירות ומשרדים</div>
+            <div className="font-bold text-xl">
+              <span className="text-black">Pro</span><span className="text-blue-600">SaaS</span>
+            </div>
             <div className="text-xs text-slate-500">מערכת ניהול לקוחות</div>
           </div>
         </div>
@@ -221,7 +223,7 @@ export function LoginPage() {
           {/* Footer */}
           <div className="mt-8 text-center">
             <p className="text-xs text-slate-500">
-              © 2025 שי דירות ומשרדים בע״מ • כל הזכויות שמורות
+              © 2025 <span className="font-bold"><span className="text-black">Pro</span><span className="text-blue-600">SaaS</span></span> • All Rights Reserved
             </p>
           </div>
         </div>
