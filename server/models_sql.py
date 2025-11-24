@@ -504,6 +504,7 @@ class CRMTask(db.Model):
     completed_at = db.Column(db.DateTime)
 
 class User(db.Model):
+    """✅ BUILD 124: Fixed to match production DB schema (only 'name' column, not first_name/last_name)"""
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
@@ -511,9 +512,8 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     
-    first_name = db.Column(db.String(100))
-    last_name = db.Column(db.String(100))
-    name = db.Column(db.String(255))  # Keep for backward compatibility
+    # ✅ Production DB has only 'name' column (not first_name/last_name)
+    name = db.Column(db.String(255))
     
     role = db.Column(db.String(50), default="owner")
     # roles: system_admin (global access), owner (full business control), admin (limited business access), agent (calls/CRM only)
@@ -523,6 +523,23 @@ class User(db.Model):
     last_login = db.Column(db.DateTime)
     
     business = db.relationship("Business", backref="users")
+    
+    # ✅ Optional properties for first_name/last_name split (if needed by downstream code)
+    @property
+    def first_name(self):
+        """Parse first name from full name"""
+        if not self.name:
+            return None
+        parts = self.name.split(' ', 1)
+        return parts[0] if parts else None
+    
+    @property
+    def last_name(self):
+        """Parse last name from full name"""
+        if not self.name:
+            return None
+        parts = self.name.split(' ', 1)
+        return parts[1] if len(parts) > 1 else None
 
 class CallSession(db.Model):
     """✨ Call session state - for appointment deduplication and tracking"""
