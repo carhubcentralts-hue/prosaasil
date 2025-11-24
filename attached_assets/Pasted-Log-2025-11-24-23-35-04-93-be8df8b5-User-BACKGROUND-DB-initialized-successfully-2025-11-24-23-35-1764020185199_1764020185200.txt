@@ -1,0 +1,170 @@
+Log
+2025-11-24 23:35:04.93
+be8df8b5
+User
+✅ [BACKGROUND] DB initialized successfully
+2025-11-24 23:35:44.74
+be8df8b5
+User
+🔔 Querying reminders for tenant_id=None, is_system_admin=True
+2025-11-24 23:35:44.74
+be8df8b5
+User
+✅ system_admin viewing ALL notifications (no tenant filter)
+2025-11-24 23:35:44.74
+be8df8b5
+User
+✅ get_current_tenant(): system_admin with no tenant (OK)
+2025-11-24 23:35:44.74
+be8df8b5
+User
+🔔 /api/notifications - tenant_id=None, g.tenant=None
+2025-11-24 23:35:44.90
+be8df8b5
+User
+🔔 Found 0 reminders
+2025-11-24 23:35:44.92
+be8df8b5
+User
+INFO: 104.196.21.106:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-24 23:35:45.12
+be8df8b5
+User
+🔔 /api/notifications - tenant_id=None, g.tenant=None
+2025-11-24 23:35:45.12
+be8df8b5
+User
+🔔 Querying reminders for tenant_id=None, is_system_admin=True
+2025-11-24 23:35:45.12
+be8df8b5
+User
+🔍 AUTH DEBUG: user_id=2, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+2025-11-24 23:35:45.12
+be8df8b5
+User
+✅ get_current_tenant(): system_admin with no tenant (OK)
+2025-11-24 23:35:45.12
+be8df8b5
+User
+✅ system_admin viewing ALL notifications (no tenant filter)
+2025-11-24 23:35:45.29
+be8df8b5
+User
+🔔 Found 0 reminders
+2025-11-24 23:35:45.31
+be8df8b5
+User
+INFO: 104.196.221.213:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-24 23:35:45.50
+be8df8b5
+User
+🔔 /api/notifications - tenant_id=None, g.tenant=None
+2025-11-24 23:35:45.50
+be8df8b5
+User
+✅ get_current_tenant(): system_admin with no tenant (OK)
+2025-11-24 23:35:45.50
+be8df8b5
+User
+✅ system_admin viewing ALL notifications (no tenant filter)
+2025-11-24 23:35:45.50
+be8df8b5
+User
+🔔 Querying reminders for tenant_id=None, is_system_admin=True
+2025-11-24 23:35:45.50
+be8df8b5
+User
+🔍 AUTH DEBUG: user_id=2, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+2025-11-24 23:35:45.67
+be8df8b5
+User
+🔔 Found 0 reminders
+
+2025-11-24 23:35:45.69
+be8df8b5
+User
+INFO: 104.196.21.106:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-24 23:35:49.82
+be8df8b5
+User
+CSRF-DBG cookie= None header= 85d386a0ade71db00231e1e1de70eaaa5ba5e540fae749f055d97196bf75203f ct= application/json
+2025-11-24 23:35:49.82
+be8df8b5
+User
+🔍 AUTH DEBUG: user_id=2, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+2025-11-24 23:35:50.00
+be8df8b5
+User
+INFO: 35.237.195.234:0 - "POST /api/admin/businesses/14/impersonate HTTP/1.1" 200 OK
+2025-11-24 23:35:50.00
+be8df8b5
+User
+✅ system_admin viewing ALL notifications (no tenant filter)
+2025-11-24 23:35:50.00
+be8df8b5
+User
+✅ get_current_tenant(): system_admin with no tenant (OK)
+2025-11-24 23:35:50.00
+be8df8b5
+User
+🔍 AUTH DEBUG: user_id=2, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+2025-11-24 23:35:50.00
+be8df8b5
+User
+🔔 Querying reminders for tenant_id=None, is_system_admin=True
+2025-11-24 23:35:50.00
+be8df8b5
+User
+🔔 /api/notifications - tenant_id=None, g.tenant=None
+2025-11-24 23:35:50.18
+be8df8b5
+User
+🔔 Found 0 reminders
+2025-11-24 23:35:50.20
+be8df8b5
+User
+INFO: 104.196.221.213:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-24 23:35:50.41
+be8df8b5
+User
+✅ system_admin viewing ALL notifications (no tenant filter)
+2025-11-24 23:35:50.41
+be8df8b5
+User
+🔍 AUTH DEBUG: user_id=2, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+2025-11-24 23:35:50.41
+be8df8b5
+User
+✅ get_current_tenant(): system_admin with no tenant (OK)
+2025-11-24 23:35:50.41
+be8df8b5
+User
+🔔 /api/notifications - tenant_id=None, g.tenant=None
+2025-11-24 23:35:50.41
+be8df8b5
+User
+🔔 Querying reminders for tenant_id=None, is_system_admin=True
+2025-11-24 23:35:50.59
+be8df8b5
+User
+🔔 Found 0 reminders
+2025-11-24 23:35:50.61
+be8df8b5
+User
+INFO: 35.237.195.234:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-24 23:35:50.73
+be8df8b5
+User
+INFO: 104.196.221.213:0 - "GET /api/auth/me HTTP/1.1" 200 OK
+2025-11-24 23:35:50.80
+be8df8b5
+User
+✅ system_admin viewing ALL notifications (no tenant filter)
+2025-11-24 23:35:50.80
+be8df8b5
+User
+✅ get_current_tenant(): system_admin with no tenant (OK)
+2025-11-24 23:35:50.80
+be8df8b5
+User
+🔔 /api/notifications - tenant_id=None, g.tenant=None

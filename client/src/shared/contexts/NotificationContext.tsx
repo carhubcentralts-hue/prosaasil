@@ -95,7 +95,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     } finally {
       setIsRefreshing(false);
     }
-  }, [countCallback, isRefreshing]);
+  }, [countCallback]);
 
   const setNotificationCountCallback = useCallback((callback: (count: number) => void) => {
     setCountCallback(() => callback);

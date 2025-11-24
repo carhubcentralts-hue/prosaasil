@@ -612,8 +612,10 @@ def impersonate_business(business_id):
         # BUILD 142 ROLLBACK: Restore impersonating flag for production stability
         session["impersonating"] = True  # RESTORED
         session["impersonated_tenant_id"] = business.id
+        session.modified = True  # CRITICAL: Force Flask to save session
         
         logger.info(f"✅ System admin {current_admin.get('email')} impersonating business {business.id}")
+        logger.info(f"🔍 Session state: impersonating={session.get('impersonating')}, tenant_id={session.get('impersonated_tenant_id')}")
         
         # BUILD 142: Return both formats for compatibility
         return jsonify({
