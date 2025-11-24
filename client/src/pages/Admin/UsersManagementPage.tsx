@@ -310,7 +310,7 @@ export function UsersManagementPage() {
                   >
                     <SelectOption value="business">משתמש עסק</SelectOption>
                     <SelectOption value="manager">מנהל</SelectOption>
-                    {currentUser && ['admin', 'superadmin'].includes(currentUser.role) && (
+                    {currentUser && ['superadmin'].includes(currentUser.role) && (
                       <SelectOption value="admin">ממנהל</SelectOption>
                     )}
                   </Select>

@@ -995,8 +995,9 @@ def create_user():
             if role != 'manager':
                 return jsonify({"error": "משתמשי עסק יכולים רק ליצור מנהלים"}), 403
         elif user_role == 'admin':
-            # Admin can create business/manager/admin roles
-            pass
+            # Admin can create business/manager roles (NOT admin)
+            if role == 'admin':
+                return jsonify({"error": "רק מנהל מערכת יכול ליצור משתמשי admin"}), 403
         elif user_role == 'superadmin':
             # Superadmin can create all roles
             pass
@@ -1057,8 +1058,13 @@ def update_user(user_id):
             if g.role == 'business':
                 # Business cannot change roles at all
                 return jsonify({"error": "משתמשי עסק לא יכולים לשנות תפקידים"}), 403
-            elif g.role == 'admin' or g.role == 'superadmin':
-                # Admin and superadmin can set any role
+            elif g.role == 'admin':
+                # Admin can change roles but NOT to admin
+                if data['role'] == 'admin':
+                    return jsonify({"error": "רק מנהל מערכת יכול להציב תפקיד admin"}), 403
+                user.role = data['role']
+            elif g.role == 'superadmin':
+                # Superadmin can set any role
                 user.role = data['role']
         
         db.session.commit()

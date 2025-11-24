@@ -94,21 +94,23 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
     - **business** - Regular user per business - can create/manage manager users only
   - **User Creation Permissions**:
     - superadmin: creates admin/manager/business users
-    - admin: creates admin/manager/business users (same as superadmin)
+    - admin: creates manager/business users only (NOT admin)
     - business: creates ONLY manager users
     - manager: CANNOT create any users (read-only)
   - **Role Change Permissions**:
     - superadmin: can change any user to any role
-    - admin: can change any user to any role
+    - admin: can change users to business/manager only (NOT admin)
     - business: cannot change roles at all
     - manager: cannot change anything (read-only)
   - `POST /api/admin/users` - Create users (admin/business/superadmin only)
     - business can only create managers
-    - admin/superadmin can create all roles
+    - admin can create manager/business (NOT admin)
+    - superadmin can create all roles
   - `GET /api/admin/users` - List all users (admin/business/superadmin only)
   - `PUT /api/admin/users/<id>` - Update user (admin/business/superadmin only)
     - business can only edit details, not change roles
-    - admin/superadmin can change roles
+    - admin can change to manager/business (NOT admin)
+    - superadmin can change roles to any
   - `DELETE /api/admin/users/<id>` - Soft delete user (admin/business/superadmin only)
   - UsersManagementPage component shows based on user's role:
     - business users: can create/edit managers
