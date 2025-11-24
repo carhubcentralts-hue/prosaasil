@@ -22,7 +22,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts.
 - **Agent Cache**: Thread-safe singleton cache for Agent SDK instances with auto-expiration and warmup.
 - **Multi-Tenant Resolution**: `resolve_business_with_fallback()` for secure business identification.
-- **RBAC**: Role-based access control with admin/manager/business roles.
+- **RBAC**: Role-based access control with admin/manager/business/superadmin roles.
 - **DTMF Menu**: Interactive voice response system for phone calls.
 - **Data Protection**: Strictly additive database migrations.
 - **OpenAI Realtime API**: Integrates **gpt-4o-realtime-preview** for phone calls with dedicated asyncio threads and thread-safe queues.
@@ -99,6 +99,14 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - Secure password change with current password verification
   - Copy-to-clipboard for email address
   - Logout functionality
+- **Business Management (Nov 25, 2025)**:
+  - `GET /api/admin/businesses` - List all businesses with login credentials (superadmin only)
+  - `PUT /api/admin/businesses/<id>/reset-password` - Reset business password (superadmin only)
+  - BusinessesManagementPage component at `/app/admin/businesses-management`
+  - View all businesses: ID, name, email, business type, phone number, active status
+  - Password reset functionality with new password generation
+  - Business model includes `email` and `password_hash` fields for primary account access
+  - Complete RBAC protection with 'superadmin' role type added to UserRole
 
 # External Dependencies
 
