@@ -34,12 +34,6 @@ const menuItems = [
     roles: ['system_admin', 'owner', 'admin'] 
   },
   { 
-    icon: LayoutDashboard, 
-    label: 'סקירה כללית', 
-    to: '/app/business/overview', 
-    roles: ['owner', 'admin'] 
-  },
-  { 
     icon: Users, 
     label: 'לידים',
     to: '/app/leads',
