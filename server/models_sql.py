@@ -506,14 +506,23 @@ class CRMTask(db.Model):
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(255))
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)  # Hashed - matches existing schema
-    role = db.Column(db.String(64), default="business")  # admin/business
-    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=True, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    
+    first_name = db.Column(db.String(100))
+    last_name = db.Column(db.String(100))
+    name = db.Column(db.String(255))  # Keep for backward compatibility
+    
+    role = db.Column(db.String(50), default="owner")
+    # roles: system_admin (global access), owner (full business control), admin (limited business access), agent (calls/CRM only)
+    
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
+    
+    business = db.relationship("Business", backref="users")
 
 class CallSession(db.Model):
     """✨ Call session state - for appointment deduplication and tracking"""

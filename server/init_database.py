@@ -60,38 +60,49 @@ def initialize_production_database():
             print(f"✅ Business exists: {business.name} (ID: {business.id})")
             logger.info(f"✅ Business exists: {business.name} (ID: {business.id})")
         
-        # 2. Ensure admin user exists
+        # 2. Ensure system admin user exists (BUILD 124: Updated to system_admin role)
         admin = User.query.filter_by(email='admin@admin.com').first()
         if not admin:
-            print("👤 No admin user found, creating admin...")
-            logger.info("👤 No admin user found, creating admin...")
+            print("👤 No system admin user found, creating system_admin...")
+            logger.info("👤 No system admin user found, creating system_admin...")
             # Password: admin123
             password_hash = generate_password_hash('admin123', method='scrypt')
             admin = User(
                 email='admin@admin.com',
                 password_hash=password_hash,
-                name='Admin User',
-                role='admin',
+                name='System Administrator',
+                role='system_admin',  # ✅ Updated from 'admin' to 'system_admin'
                 business_id=business.id,
                 is_active=True,
                 created_at=datetime.utcnow()
             )
             db.session.add(admin)
             db.session.commit()
-            print(f"✅ Created admin user: admin@admin.com (ID: {admin.id})")
-            logger.info(f"✅ Created admin user: admin@admin.com (ID: {admin.id})")
+            print(f"✅ Created system admin user: admin@admin.com (ID: {admin.id})")
+            logger.info(f"✅ Created system admin user: admin@admin.com (ID: {admin.id})")
         else:
-            print(f"✅ Admin user exists: {admin.email} (ID: {admin.id})")
-            logger.info(f"✅ Admin user exists: {admin.email} (ID: {admin.id})")
+            print(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role})")
+            logger.info(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role})")
             
-            # 3. Ensure admin has business_id
+            # 3. Ensure admin has business_id and correct role
+            updates_needed = False
             if not admin.business_id:
                 print("🔗 Linking admin to business...")
                 logger.info("🔗 Linking admin to business...")
                 admin.business_id = business.id
+                updates_needed = True
+            
+            # Update role from 'admin' to 'system_admin' for backward compatibility (BUILD 124)
+            if admin.role in ['admin', 'manager']:
+                print(f"📝 Upgrading admin role from '{admin.role}' to 'system_admin'...")
+                logger.info(f"📝 Upgrading admin role from '{admin.role}' to 'system_admin'...")
+                admin.role = 'system_admin'
+                updates_needed = True
+            
+            if updates_needed:
                 db.session.commit()
-                print(f"✅ Admin linked to business ID: {business.id}")
-                logger.info(f"✅ Admin linked to business ID: {business.id}")
+                print(f"✅ Admin updated successfully")
+                logger.info(f"✅ Admin updated successfully")
         
         # 4. Ensure default lead statuses exist for this business
         existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()
@@ -172,6 +183,26 @@ def initialize_production_database():
         else:
             print(f"✅ Business settings exist (slot_size: {existing_settings.slot_size_min}min, 24/7: {existing_settings.allow_24_7})")
             logger.info(f"✅ Business settings exist (slot_size: {existing_settings.slot_size_min}min)")
+        
+        # 7. Ensure every business has at least one owner user (BUILD 124)
+        print("👥 Checking user ownership...")
+        logger.info("👥 Checking user ownership...")
+        
+        # Run user-to-owner migration to ensure every business has an owner
+        try:
+            from server.scripts.migrate_users_to_owners import migrate_users_to_owners
+            with db.session.no_autoflush:  # Prevent auto-flush during migration
+                migrate_users_to_owners()
+            print("✅ User ownership check completed")
+            logger.info("✅ User ownership check completed")
+        except ImportError:
+            # Migration script not available (dev environment)
+            print("⚠️ User migration script not available - skipping")
+            logger.warning("User migration script not available")
+        except Exception as migration_error:
+            print(f"⚠️ User migration warning: {migration_error}")
+            logger.warning(f"User migration warning: {migration_error}")
+            # Don't fail initialization on migration errors
         
         print("✅ Database initialization completed successfully!")
         print(f"📧 Admin login: admin@admin.com / admin123")

@@ -1,5 +1,4 @@
-import React from 'react';
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Building2, 
@@ -24,6 +23,7 @@ import {
   Bot
 } from 'lucide-react';
 import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
+import { BusinessUsersModal } from '../../features/businesses/components/BusinessUsersModal';
 import { useBusinessActions } from '../../features/businesses/useBusinessActions';
 import { Business } from '../../features/businesses/types';
 import { businessAPI } from '../../features/businesses/api';
@@ -104,10 +104,18 @@ function BusinessTable({ businesses, onBusinessClick, onActionClick }: BusinessT
                   </div>
                 </td>
                 <td className="py-4 px-4">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-slate-400" />
-                    <span className="text-sm font-medium text-slate-700">{business.users}</span>
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onActionClick('users', business);
+                    }}
+                    className="flex items-center gap-2 hover:bg-slate-100 px-2 py-1 rounded-lg transition-colors"
+                    title="ניהול משתמשים"
+                    data-testid={`button-users-${business.id}`}
+                  >
+                    <Users className="h-4 w-4 text-slate-600" />
+                    <span className="text-sm font-medium text-slate-700">{business.users || 0}</span>
+                  </button>
                 </td>
                 <td className="py-4 px-4">
                   <span className={cn(
@@ -363,6 +371,7 @@ export function BusinessManagerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [usersModalOpen, setUsersModalOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -471,6 +480,10 @@ export function BusinessManagerPage() {
       case 'edit':
         setSelectedBusiness(business);
         setEditModalOpen(true);
+        break;
+      case 'users':
+        setSelectedBusiness(business);
+        setUsersModalOpen(true);
         break;
       case 'impersonate':
         businessActions.impersonate(business);
@@ -694,6 +707,23 @@ export function BusinessManagerPage() {
         onSave={selectedBusiness ? handleSaveBusiness : handleCreateBusiness}
         isLoading={businessActions.isLoading('edit', selectedBusiness?.id)}
       />
+
+      {/* Users Management Modal */}
+      {selectedBusiness && (
+        <BusinessUsersModal
+          open={usersModalOpen}
+          onOpenChange={(open) => {
+            setUsersModalOpen(open);
+            if (!open) {
+              setSelectedBusiness(null);
+              // Refresh businesses to update user count
+              fetchBusinesses();
+            }
+          }}
+          businessId={selectedBusiness.id}
+          businessName={selectedBusiness.name}
+        />
+      )}
     </div>
   );
 }

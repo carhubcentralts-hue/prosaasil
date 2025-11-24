@@ -317,7 +317,7 @@ def require_api_auth(roles=None):
                 }), 401
             
             # Compute context once - per exact instructions
-            role = session['user']['role']  # 'admin'|'manager'|'business'
+            role = session['user']['role']  # 'system_admin'|'owner'|'admin'|'agent'|'business'
             tenant = session.get('impersonated_tenant_id') or session['user'].get('business_id')  # Fixed: use business_id not tenant_id
             impersonating = bool(session.get('impersonating'))
             
@@ -328,20 +328,24 @@ def require_api_auth(roles=None):
             is_admin_route = request.path.startswith('/api/admin/')
             
             if is_admin_route:
-                # כל /api/admin/** ⇒ דורש role in {'admin','manager'}
-                if role not in {'admin', 'manager'}:
+                # כל /api/admin/** ⇒ דורש role in {'system_admin','owner','admin','manager'}
+                # BUILD 124: Updated to support new role structure
+                if role not in {'system_admin', 'owner', 'admin', 'manager'}:
                     return jsonify({
                         'error': 'forbidden',
                         'reason': 'admin_required',
-                        'message': f'Admin route requires admin/manager role, got {role}'
+                        'message': f'Admin route requires system_admin/owner/admin role, got {role}'
                     }), 403
             else:
-                # ראוטים של עסק ⇒ role=='business' או Admin/Manager (עם או בלי התחזות)
-                if role == 'business':
-                    # Business user - allow if same tenant
+                # ראוטים של עסק ⇒ role in {'owner','admin','agent','business'} או system_admin (עם או בלי התחזות)
+                if role in {'owner', 'admin', 'agent', 'business'}:
+                    # Business users - allow if same tenant
+                    pass
+                elif role == 'system_admin':
+                    # System admin - always allow business routes (with or without impersonation)
                     pass
                 elif role in {'admin', 'manager'}:
-                    # Admin/Manager - always allow business routes (with or without impersonation)
+                    # Legacy roles - still allow for backward compatibility
                     pass
                 else:
                     return jsonify({
@@ -372,15 +376,16 @@ def create_default_admin():
             admin.password_hash = generate_password_hash('admin123', method='scrypt')
             db.session.commit()
             print(f"✅ Admin password reset: admin@admin.com / admin123")
-        elif not User.query.filter_by(role='admin').first():
-            # Create new admin
-            admin = User()
-            admin.email = 'admin@admin.com'
-            admin.password_hash = generate_password_hash('admin123', method='scrypt')
-            admin.username = 'admin'
-            admin.role = 'admin'
-            admin.business_id = 1
-            admin.is_active = True
+        elif not User.query.filter_by(role='system_admin').first():
+            # Create new system admin
+            admin = User(
+                email='admin@admin.com',
+                password_hash=generate_password_hash('admin123', method='scrypt'),
+                name='System Administrator',
+                role='system_admin',
+                business_id=1,
+                is_active=True
+            )
             db.session.add(admin)
             db.session.commit()
             print("✅ Created default admin user: admin@admin.com / admin123")
