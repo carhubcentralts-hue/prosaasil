@@ -1007,14 +1007,24 @@ def get_notifications():
         tenant_id = get_current_tenant()
         print(f"🔔 /api/notifications - tenant_id={tenant_id}, g.tenant={getattr(g, 'tenant', None)}")
         
-        # system_admin (no tenant) gets empty notifications
-        if not tenant_id:
+        # BUILD 142 FINAL: system_admin (no tenant) should see ALL notifications
+        user = get_current_user()
+        is_system_admin = user.get('role') == 'system_admin' if user else False
+        
+        # If no tenant and NOT system_admin, return empty
+        if not tenant_id and not is_system_admin:
+            print(f"⚠️ Non-admin user with no tenant - returning empty notifications")
             return jsonify({
                 "notifications": [],
                 "overdue": [],
                 "today": [],
                 "soon": []
             })
+        
+        # system_admin with no tenant sees ALL reminders across all businesses
+        if is_system_admin and not tenant_id:
+            print(f"✅ system_admin viewing ALL notifications (no tenant filter)")
+            # Continue without tenant filter
         
         from datetime import timedelta
         from sqlalchemy import and_, cast, Date
@@ -1024,14 +1034,20 @@ def get_notifications():
         soon_threshold = now + timedelta(hours=3)
         
         # BUILD 142 FINAL: Use tenant_id consistently (no business_id!)
-        # Get all incomplete reminders for this business
-        print(f"🔔 Querying reminders for tenant_id={tenant_id}")
-        reminders = db.session.query(LeadReminder, Lead).outerjoin(
+        # Get all incomplete reminders for this business (or ALL for system_admin)
+        print(f"🔔 Querying reminders for tenant_id={tenant_id}, is_system_admin={is_system_admin}")
+        
+        query = db.session.query(LeadReminder, Lead).outerjoin(
             Lead, LeadReminder.lead_id == Lead.id
         ).filter(
-            LeadReminder.tenant_id == tenant_id,  # BUILD 142: Use tenant_id directly!
             LeadReminder.completed_at.is_(None)
-        ).all()
+        )
+        
+        # Add tenant filter ONLY if not system_admin
+        if tenant_id:
+            query = query.filter(LeadReminder.tenant_id == tenant_id)
+        
+        reminders = query.all()
         
         print(f"🔔 Found {len(reminders)} reminders")
     
