@@ -1154,14 +1154,26 @@ def admin_impersonate_business(business_id):
                                     {'business_name': business.name})
         
         # BUILD 142 ROLLBACK: Restore impersonating flag for production stability
-        session['impersonator'] = session.get('user')  # Store original user
+        current_admin = session.get('user') or session.get('al_user')
+        session['impersonator'] = current_admin  # Store original user
         session['impersonating'] = True  # RESTORED for compatibility
         session['impersonated_tenant_id'] = business_id
         
-        # Return JSON success for API consistency
-        return jsonify({'success': True, 'redirect': '/app/biz'})
+        logger.info(f"✅ Admin {current_admin.get('email')} impersonating business {business.id} via UI route")
+        
+        # BUILD 142 FIX: Return full payload that frontend expects (match routes_business_management.py)
+        return jsonify({
+            'success': True,
+            'ok': True,
+            'impersonating': True,
+            'impersonated_tenant_id': business.id,
+            'business_id': business.id,
+            'business_name': business.name,
+            'redirect': '/app/biz'
+        })
         
     except Exception as e:
+        logger.error(f"Error in UI impersonation: {e}")
         return jsonify({'error': f'שגיאה בהשתלטות: {str(e)}'}), 500
 
 @ui_bp.route('/admin/stop-impersonate', methods=['POST'])
@@ -1180,9 +1192,17 @@ def admin_stop_impersonation():
             if hasattr(g, 'audit_logger') and g.audit_logger:
                 g.audit_logger.log_action('IMPERSONATE_END', 'business')
         
-        return jsonify({'success': True})
+        logger.info("✅ Successfully exited impersonation via UI route")
+        
+        # BUILD 142 FIX: Return full payload (match routes_business_management.py)
+        return jsonify({
+            'success': True,
+            'ok': True,
+            'impersonating': False
+        })
         
     except Exception as e:
+        logger.error(f"Error exiting impersonation: {e}")
         return jsonify({'error': f'שגיאה בסיום השתלטות: {str(e)}'}), 500
 
 # === FINANCIAL SYSTEM ===
