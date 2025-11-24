@@ -7,12 +7,15 @@ whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 
-# === B1) QR/סטטוס דרך Flask - tenant אחיד business_1 ===
-# בדיוק כמו ב-Node: storage/whatsapp/business_1/auth
-AUTH_DIR = os.path.join(os.getcwd(), "storage", "whatsapp", "business_1", "auth")  
-QR_TXT   = os.path.join(AUTH_DIR, "qr_code.txt")
-CREDS    = os.path.join(AUTH_DIR, "creds.json")
-os.makedirs(AUTH_DIR, exist_ok=True)  # וודא שהתיקייה קיימת
+# BUILD 136: REMOVED hardcoded business_1 - now uses tenant_id_from_ctx() dynamically
+# Helper function to get tenant-specific auth directory
+def get_auth_dir(tenant_id: str) -> tuple:
+    """Get auth directory paths for specific tenant"""
+    auth_dir = os.path.join(os.getcwd(), "storage", "whatsapp", tenant_id, "auth")
+    qr_txt = os.path.join(auth_dir, "qr_code.txt")
+    creds = os.path.join(auth_dir, "creds.json")
+    os.makedirs(auth_dir, exist_ok=True)  # Ensure directory exists
+    return auth_dir, qr_txt, creds
 
 def tenant_id_from_ctx():
     """Get tenant_id from request context (business selection or auth)"""
@@ -48,16 +51,19 @@ def _headers():
 @whatsapp_bp.route('/status', methods=['GET'])
 @csrf.exempt  # GET requests don't need CSRF
 def status():
-    """B4) תמיד JSON - Status route לפי ההוראות"""
-    # קריאה מקבצים (tenant אחיד business_1)
-    has_qr = os.path.exists(QR_TXT)
-    connected = os.path.exists(CREDS) and not has_qr
-    if has_qr or connected:
-        return jsonify({"connected": connected, "hasQR": has_qr}), 200
-    
-    # אם אין קבצים, ננסה את המערכת הנוכחית
+    """BUILD 136: Multi-tenant status - each business has its own QR/creds"""
     try:
+        # BUILD 136: Get tenant-specific paths
         t = tenant_id_from_ctx()
+        _, qr_txt, creds = get_auth_dir(t)
+        
+        # Check files for this specific tenant
+        has_qr = os.path.exists(qr_txt)
+        connected = os.path.exists(creds) and not has_qr
+        if has_qr or connected:
+            return jsonify({"connected": connected, "hasQR": has_qr}), 200
+        
+        # If no files, try Baileys API
         r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/status", headers=_headers(), timeout=15)
         return jsonify(r.json()), r.status_code
     except:
@@ -66,17 +72,20 @@ def status():
 @whatsapp_bp.route('/qr', methods=['GET'])
 @csrf.exempt  # GET requests don't need CSRF
 def qr():
-    """B4) תמיד JSON - QR route לפי ההוראות"""
-    # קודם נבדוק קובץ (כי Baileys מוחק מזיכרון אחרי התחברות)
-    if os.path.exists(QR_TXT):
-        with open(QR_TXT, "r", encoding="utf-8") as f:
-            qr_text = f.read().strip()
-        if qr_text:  # יש QR בקובץ
-            return jsonify({"dataUrl": None, "qrText": qr_text}), 200
-    
-    # אם אין בקובץ, ננסה לקבל מBaileys
-    t = tenant_id_from_ctx()
+    """BUILD 136: Multi-tenant QR - each business gets its own QR code"""
     try:
+        # BUILD 136: Get tenant-specific paths
+        t = tenant_id_from_ctx()
+        _, qr_txt, _ = get_auth_dir(t)
+        
+        # Check file for this specific tenant
+        if os.path.exists(qr_txt):
+            with open(qr_txt, "r", encoding="utf-8") as f:
+                qr_text = f.read().strip()
+            if qr_text:
+                return jsonify({"dataUrl": None, "qrText": qr_text}), 200
+        
+        # If no file, try Baileys API
         r = requests.get(f"{BAILEYS_BASE}/whatsapp/{t}/qr", headers=_headers(), timeout=10)
         if r.status_code == 404:
             return jsonify({"dataUrl": None, "qrText": None}), 200
