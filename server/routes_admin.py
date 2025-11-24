@@ -1076,30 +1076,6 @@ def delete_user(user_id):
         logger.error(f"Error deleting user: {e}")
         return jsonify({"error": str(e)}), 500
 
-@admin_bp.get("/api/admin/businesses")
-@require_api_auth(["admin", "manager", "superadmin"])
-def get_all_businesses():
-    """Get all businesses with their login credentials (admin/manager/superadmin)"""
-    try:
-        businesses = Business.query.all()
-        
-        result = []
-        for business in businesses:
-            result.append({
-                'id': business.id,
-                'name': business.name,
-                'email': business.email,
-                'business_type': business.business_type,
-                'phone_number': business.phone_e164,
-                'is_active': business.is_active,
-                'created_at': business.created_at.isoformat() if business.created_at else None
-            })
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error fetching businesses: {e}")
-        return jsonify({"error": str(e)}), 500
 
 @admin_bp.put("/api/admin/businesses/<int:business_id>/reset-password")
 @require_api_auth(["admin", "manager", "superadmin"])
