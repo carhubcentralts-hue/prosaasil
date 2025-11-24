@@ -374,30 +374,43 @@ def delete_business(business_id):
         return jsonify({"error": "שגיאה במחיקת העסק"}), 500
 
 @biz_mgmt_bp.route('/api/admin/business/<int:business_id>/change-password', methods=['POST'])
-@require_api_auth(['admin'])
+@require_api_auth(['admin', 'system_admin', 'owner'])
 def change_business_password(business_id):
-    """Change password for business admin"""
+    """Change password for business owner (tenant-scoped)"""
     try:
+        current_user = session.get('user')
+        current_role = current_user.get('role') if current_user else None
+        
+        # ✅ SECURITY: Only system_admin can reset any business, owner only their own
+        if current_role == 'system_admin' or current_role == 'admin':
+            pass  # System admin can reset any business
+        elif current_role == 'owner':
+            # Owner can only reset password for their own business
+            if current_user.get('business_id') != business_id:
+                return jsonify({"error": "Forbidden: Can only reset password for your own business"}), 403
+        else:
+            return jsonify({"error": "Forbidden: Insufficient permissions"}), 403
+        
         data = request.get_json()
         new_password = data.get('password')
         
         if not new_password or len(new_password) < 6:
             return jsonify({"error": "הסיסמה חייבת להכיל לפחות 6 תווים"}), 400
         
-        # Find business admin user
-        admin_user = User.query.filter_by(
+        # Find business owner user
+        owner_user = User.query.filter_by(
             business_id=business_id,
-            role='business'
+            role='owner'
         ).first()
         
-        if not admin_user:
-            return jsonify({"error": "לא נמצא מנהל לעסק זה"}), 404
+        if not owner_user:
+            return jsonify({"error": "לא נמצא בעלים לעסק זה"}), 404
         
         # Update password
-        admin_user.password_hash = generate_password_hash(new_password)
+        owner_user.password_hash = generate_password_hash(new_password)
         db.session.commit()
         
-        logger.info(f"Changed password for business {business_id} admin")
+        logger.info(f"Changed password for business {business_id} owner by {current_user.get('email') if current_user else 'unknown'}")
         
         return jsonify({"success": True, "message": "סיסמה שונתה בהצלחה"})
         
@@ -521,9 +534,9 @@ def update_user(user_id):
         return jsonify({"error": "שגיאה בעדכון המשתמש"}), 500
 
 @biz_mgmt_bp.route('/api/admin/user/<int:user_id>/change-password', methods=['POST'])
-@require_api_auth(['admin'])
+@require_api_auth(['admin', 'system_admin'])
 def change_user_password(user_id):
-    """Change user password"""
+    """Change user password - system admin only (no tenant scoping for security)"""
     try:
         user = User.query.filter_by(id=user_id).first()
         if not user:

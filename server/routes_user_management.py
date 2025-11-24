@@ -304,6 +304,64 @@ def delete_business_user(business_id, user_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@user_mgmt_api.route('/<int:business_id>/users/<int:user_id>/change-password', methods=['POST'])
+@require_api_auth()
+def change_business_user_password(business_id, user_id):
+    """
+    POST /api/admin/businesses/<id>/users/<user_id>/change-password
+    Change password for a specific user (tenant-scoped for security)
+    
+    Body:
+    {
+        "password": "newpassword123"
+    }
+    """
+    try:
+        from werkzeug.security import generate_password_hash
+        
+        current_user = session.get('user')
+        current_role = current_user.get('role')
+        
+        # Permission check
+        if current_role == 'system_admin':
+            pass  # System admin can change any password
+        elif current_role == 'owner':
+            # Owner can only change passwords in their own business
+            if current_user.get('business_id') != business_id:
+                return jsonify({'error': 'Forbidden: Can only change passwords in your own business'}), 403
+        else:
+            return jsonify({'error': 'Forbidden: Insufficient permissions (only system_admin and owner)'}), 403
+        
+        # Parse request
+        data = request.get_json()
+        if not data or 'password' not in data:
+            return jsonify({'error': 'password is required'}), 400
+        
+        new_password = data['password']
+        
+        if not new_password or len(new_password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        
+        # Get user and verify they belong to this business
+        user = User.query.filter_by(id=user_id, business_id=business_id).first()
+        if not user:
+            return jsonify({'error': 'User not found in this business'}), 404
+        
+        # Update password
+        user.password_hash = generate_password_hash(new_password)
+        db.session.commit()
+        
+        print(f"✅ Password changed for user {user.email} (business {business_id}) by {current_user.get('email')}")
+        
+        return jsonify({'success': True, 'message': 'Password changed successfully'})
+        
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ Error changing password: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @user_mgmt_api.route('/<int:business_id>/owner', methods=['POST'])
 @require_api_auth()
 def set_business_owner(business_id):

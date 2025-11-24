@@ -185,8 +185,8 @@ export function BusinessUsersModal({
       // Generate temporary password
       const tempPassword = Math.random().toString(36).slice(-8) + '123!';
       
-      // ✅ Use correct endpoint: /api/admin/user/<user_id>/change-password
-      await http.post(`/api/admin/user/${user.id}/change-password`, {
+      // ✅ Use tenant-scoped endpoint: /api/admin/businesses/<business_id>/users/<user_id>/change-password
+      await http.post(`/api/admin/businesses/${businessId}/users/${user.id}/change-password`, {
         password: tempPassword
       });
 
