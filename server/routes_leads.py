@@ -30,21 +30,29 @@ def get_current_user():
 
 def get_current_tenant():
     """
-    BUILD 141 FIX: Get current tenant from g.tenant (populated by @require_api_auth)
+    BUILD 142 FINAL: Get current tenant from g.tenant (populated by @require_api_auth)
     
     IMPORTANT: This relies on @require_api_auth decorator populating g.tenant
     """
     # Priority 1: Use g.tenant if available (set by @require_api_auth)
     if hasattr(g, 'tenant') and g.tenant:
+        print(f"✅ get_current_tenant(): Using g.tenant={g.tenant}")
         return g.tenant
     
-    # Priority 2: Fallback to session for compatibility
-    if session.get('impersonating') and session.get('impersonated_tenant_id'):
-        return session.get('impersonated_tenant_id')
+    # Priority 2: Fallback to impersonated session (system_admin only)
+    impersonated_id = session.get('impersonated_tenant_id')
+    if impersonated_id:
+        print(f"✅ get_current_tenant(): Using impersonated_tenant_id={impersonated_id}")
+        return impersonated_id
     
     # Priority 3: Get from user session - try both session keys
     user = session.get('user') or session.get('al_user')
-    return user.get('business_id') if user else None
+    if user and user.get('business_id'):
+        print(f"✅ get_current_tenant(): Using user.business_id={user.get('business_id')}")
+        return user.get('business_id')
+    
+    print(f"❌ get_current_tenant(): No tenant found! g.tenant={getattr(g, 'tenant', None)}, impersonated={impersonated_id}, user={user}")
+    return None
 
 def require_auth():
     """
