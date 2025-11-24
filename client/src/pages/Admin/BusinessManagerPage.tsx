@@ -502,19 +502,23 @@ export function BusinessManagerPage() {
         break;
       case 'more':
         // Show action menu for mobile
-        const actionChoice = prompt(`בחר פעולה עבור "${business.name}":\n\n1. התחזות לעסק\n2. ${business.status === 'active' ? 'השעה' : 'הפעל'} עסק\n3. מחק עסק\n4. איפוס סיסמאות משתמשים\n\nהכנס מספר (1-4):`);
+        const actionChoice = prompt(`בחר פעולה עבור "${business.name}":\n\n1. צפייה במשתמשים\n2. התחזות לעסק\n3. ${business.status === 'active' ? 'השעה' : 'הפעל'} עסק\n4. מחק עסק\n5. איפוס סיסמאות משתמשים\n\nהכנס מספר (1-5):`);
         
         switch (actionChoice) {
           case '1':
-            businessActions.impersonate(business);
+            setSelectedBusiness(business);
+            setUsersModalOpen(true);
             break;
           case '2':
-            business.status === 'active' ? businessActions.suspend(business) : businessActions.resume(business);
+            businessActions.impersonate(business);
             break;
           case '3':
-            businessActions.softDelete(business);
+            business.status === 'active' ? businessActions.suspend(business) : businessActions.resume(business);
             break;
           case '4':
+            businessActions.softDelete(business);
+            break;
+          case '5':
             businessActions.resetPassword(business);
             break;
           default:

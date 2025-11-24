@@ -135,19 +135,21 @@ export async function deleteBusinessAction(id: number): Promise<BusinessActionRe
 }
 
 export function getBusinessCapabilities(userRole: string): BusinessCapabilities {
+  // ✅ Updated to support new 4-tier role hierarchy
+  const isSystemAdmin = userRole === 'system_admin';
+  const isOwner = userRole === 'owner';
   const isAdmin = userRole === 'admin';
-  const isManager = userRole === 'manager';
-  const isBusiness = userRole === 'business';
+  const isAgent = userRole === 'agent';
   
   return {
-    canEdit: isAdmin || isManager,
-    canImpersonate: isAdmin || isManager,
-    canSuspend: isAdmin || isManager,
-    canResume: isAdmin || isManager,
-    canDelete: isAdmin, // Only admin can delete
-    canResetPassword: isAdmin || isManager,
-    canViewUsers: isAdmin || isManager || isBusiness,
-    canManageUsers: isAdmin || isManager
+    canEdit: isSystemAdmin || isOwner || isAdmin,
+    canImpersonate: isSystemAdmin, // Only system_admin can impersonate
+    canSuspend: isSystemAdmin, // Only system_admin can suspend businesses
+    canResume: isSystemAdmin, // Only system_admin can resume businesses
+    canDelete: isSystemAdmin, // Only system_admin can delete businesses
+    canResetPassword: isSystemAdmin || isOwner || isAdmin,
+    canViewUsers: isSystemAdmin || isOwner || isAdmin || isAgent,
+    canManageUsers: isSystemAdmin || isOwner || isAdmin
   };
 }
 
