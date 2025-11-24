@@ -14,24 +14,18 @@ from server.models_sql import User
 def migrate_admin_roles():
     """
     Update legacy role names to new 4-tier structure:
-    - 'admin' or 'superadmin' -> 'system_admin' (global admin)
-    - 'manager' -> 'owner' (business owner)
+    - 'admin'/'manager' with business_id=NULL -> 'system_admin' (global admin)
+    - 'manager' with business_id!=NULL -> 'owner' (business owner)
+    - 'admin' with business_id!=NULL -> 'admin' (business admin - no change)
+    - 'superadmin' -> 'system_admin' (always global)
     - 'business' -> 'admin' (business admin)
     
     This ensures backward compatibility with production databases
     """
     print("🔄 Starting admin roles migration...")
     
-    # Role mapping: old_role -> new_role
-    role_mapping = {
-        'admin': 'system_admin',      # Global admins
-        'superadmin': 'system_admin',  # Global admins
-        'manager': 'owner',            # Business owners
-        'business': 'admin',           # Business admins
-    }
-    
     # Find all users with legacy roles
-    legacy_roles = list(role_mapping.keys())
+    legacy_roles = ['admin', 'superadmin', 'manager', 'business']
     users_to_update = User.query.filter(User.role.in_(legacy_roles)).all()
     
     if not users_to_update:
@@ -42,9 +36,35 @@ def migrate_admin_roles():
     
     for user in users_to_update:
         old_role = user.role
-        new_role = role_mapping.get(old_role, old_role)  # Default to old role if not in mapping
+        new_role = old_role  # Default to current role
+        
+        # Determine new role based on legacy role AND business_id
+        if old_role in ['admin', 'superadmin']:
+            if user.business_id is None:
+                # Global admin without business -> system_admin
+                new_role = 'system_admin'
+                print(f"📝 Global admin: '{user.email}' (ID={user.id}): {old_role} -> {new_role} (no business)")
+            else:
+                # Admin tied to specific business -> keep as admin
+                new_role = 'admin'
+                print(f"📝 Business admin: '{user.email}' (ID={user.id}): {old_role} -> {new_role} (business_id={user.business_id})")
+        
+        elif old_role == 'manager':
+            if user.business_id is None:
+                # Global manager without business -> system_admin
+                new_role = 'system_admin'
+                print(f"📝 Global manager: '{user.email}' (ID={user.id}): {old_role} -> {new_role} (no business)")
+            else:
+                # Manager tied to specific business -> owner
+                new_role = 'owner'
+                print(f"📝 Business owner: '{user.email}' (ID={user.id}): {old_role} -> {new_role} (business_id={user.business_id})")
+        
+        elif old_role == 'business':
+            # Business role -> admin
+            new_role = 'admin'
+            print(f"📝 Business user: '{user.email}' (ID={user.id}): {old_role} -> {new_role}")
+        
         user.role = new_role
-        print(f"📝 Updating user '{user.email}' (ID={user.id}): {old_role} -> {new_role}")
     
     db.session.commit()
     print(f"\n✅ Successfully migrated {len(users_to_update)} users to new role structure!")
