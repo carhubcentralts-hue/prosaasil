@@ -100,17 +100,21 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - Secure password change with current password verification
   - Copy-to-clipboard for email address
   - Logout functionality
-- **Business Management (Nov 25, 2025)**:
-  - **Sidebar Label**: "ניהול נתוני עסקים" (avoids duplication with existing "ניהול עסקים")
-  - **Admin/Manager/Superadmin Dashboard**: `/app/admin/businesses-management` - View all businesses with login credentials and password reset (admin/manager/superadmin only)
-  - `GET /api/admin/businesses` - List all businesses (admin/manager/superadmin only) - Unified endpoint supporting pagination
-  - `PUT /api/admin/businesses/<id>/reset-password` - Reset business password (admin/manager/superadmin only)
-  - BusinessesManagementPage component at `/app/admin/businesses-management`
-  - View all businesses: ID, name, email, business type, phone number, active status
-  - Password reset functionality with new password generation
-  - Business model includes `email` and `password_hash` fields for primary account access
-  - Complete RBAC protection
-  - **Backend Cleanup (Nov 24, 2025)**: Removed duplicate `/api/admin/businesses` endpoint that conflicted with main endpoint
+- **Business Management (Nov 24, 2025 - FINAL STRUCTURE)**:
+  - **TWO SEPARATE PAGES** (no duplication):
+    - **"ניהול עסקים"** (`/app/admin/businesses`) - BusinessManagerPage
+      - Roles: admin, manager
+      - Full business management: view details, edit, manage users, settings, prompts
+      - Advanced business operations and configurations
+    - **"ניהול נתוני עסקים"** (`/app/admin/businesses-management`) - BusinessesManagementPage  
+      - Roles: admin, manager, superadmin
+      - Simplified view: business ID, name, **email (primary login)**, business type, phone, status
+      - Password reset functionality for primary business accounts
+  - **Backend Endpoints**:
+    - `GET /api/admin/businesses` - List all businesses with pagination (email field included)
+    - `PUT /api/admin/businesses/<id>/reset-password` - Reset business password (admin/manager/superadmin only)
+  - **Business Model**: Includes `email` and `password_hash` fields for primary account access
+  - Complete RBAC protection for both pages
 
 # External Dependencies
 

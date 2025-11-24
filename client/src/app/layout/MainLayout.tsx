@@ -76,6 +76,12 @@ const menuItems = [
     roles: ['business', 'admin', 'manager']
   },
   { 
+    icon: Building2, 
+    label: 'ניהול עסקים', 
+    to: '/app/admin/businesses',
+    roles: ['admin', 'manager']
+  },
+  { 
     icon: UserCog, 
     label: 'ניהול נתוני עסקים', 
     to: '/app/admin/businesses-management',
