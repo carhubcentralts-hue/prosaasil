@@ -55,7 +55,7 @@ export function AppRoutes() {
         <Route
           path="admin/overview"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <AdminHomePage />
             </RoleGuard>
           }
@@ -63,7 +63,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <BusinessManagerPage />
             </RoleGuard>
           }
@@ -71,7 +71,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses/:businessId/view"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <BusinessViewPage />
             </RoleGuard>
           }
@@ -79,7 +79,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses/:businessId/agent"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <AgentPromptsPage />
             </RoleGuard>
           }
@@ -87,7 +87,7 @@ export function AppRoutes() {
         <Route
           path="admin/prompts"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <AdminPromptsOverviewPage />
             </RoleGuard>
           }
@@ -95,7 +95,7 @@ export function AppRoutes() {
         <Route
           path="admin/agent-prompts"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <BusinessPromptsSelector />
             </RoleGuard>
           }
@@ -103,7 +103,7 @@ export function AppRoutes() {
         <Route
           path="admin/support"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <Suspense fallback={<div className="flex items-center justify-center py-12"><div>טוען דף תמיכה...</div></div>}>
                 <AdminSupportPage />
               </Suspense>
@@ -115,7 +115,7 @@ export function AppRoutes() {
         <Route
           path="business/agent-prompts"
           element={
-            <RoleGuard roles={['business', 'admin']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <AgentPromptsPage />
             </RoleGuard>
           }
@@ -123,7 +123,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses/:id"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <BusinessDetailsPage />
             </RoleGuard>
           }
@@ -133,7 +133,7 @@ export function AppRoutes() {
         <Route
           path="business/overview"
           element={
-            <RoleGuard roles={['business', 'admin']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <BusinessHomePage />
             </RoleGuard>
           }
@@ -149,7 +149,7 @@ export function AppRoutes() {
         <Route
           path="leads"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <LeadsPage />
             </RoleGuard>
           }
@@ -157,7 +157,7 @@ export function AppRoutes() {
         <Route
           path="leads/:id"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <LeadDetailPage />
             </RoleGuard>
           }
@@ -167,7 +167,7 @@ export function AppRoutes() {
         <Route
           path="whatsapp"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <WhatsAppPage />
             </RoleGuard>
           }
@@ -177,7 +177,7 @@ export function AppRoutes() {
         <Route
           path="calls"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <CallsPage />
             </RoleGuard>
           }
@@ -187,7 +187,7 @@ export function AppRoutes() {
         <Route
           path="crm"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <CrmPage />
             </RoleGuard>
           }
@@ -197,7 +197,7 @@ export function AppRoutes() {
         <Route
           path="billing"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <BillingPage />
             </RoleGuard>
           }
@@ -207,7 +207,7 @@ export function AppRoutes() {
         <Route
           path="users"
           element={
-            <RoleGuard roles={['admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
               <UsersPage />
             </RoleGuard>
           }
@@ -217,7 +217,7 @@ export function AppRoutes() {
         <Route
           path="settings"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <SettingsPage />
             </RoleGuard>
           }
@@ -227,7 +227,7 @@ export function AppRoutes() {
         <Route
           path="notifications"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <NotificationsPage />
             </RoleGuard>
           }
@@ -237,7 +237,7 @@ export function AppRoutes() {
         <Route
           path="intelligence"
           element={
-            <RoleGuard roles={['business', 'admin', 'manager']}>
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <CustomerIntelligencePage />
             </RoleGuard>
           }

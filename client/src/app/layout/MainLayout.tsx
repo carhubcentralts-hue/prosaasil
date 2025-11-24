@@ -31,73 +31,73 @@ const menuItems = [
     icon: LayoutDashboard, 
     label: 'סקירה כללית', 
     to: '/app/admin/overview', 
-    roles: ['admin', 'manager'] 
+    roles: ['system_admin', 'owner', 'admin'] 
   },
   { 
     icon: LayoutDashboard, 
     label: 'סקירה כללית', 
     to: '/app/business/overview', 
-    roles: ['business'] 
+    roles: ['owner', 'admin'] 
   },
   { 
     icon: Users, 
     label: 'לידים',
     to: '/app/leads',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
     icon: MessageCircle, 
     label: 'WhatsApp',
     to: '/app/whatsapp',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
     icon: Phone, 
     label: 'שיחות',
     to: '/app/calls',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
     icon: Building2, 
     label: 'CRM',
     to: '/app/crm',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
     icon: Brain, 
     label: 'אינטליגנציה לקוחות',
     to: '/app/intelligence',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
     icon: CreditCard, 
     label: 'תשלומים וחוזים',
     to: '/app/billing',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
     icon: UserCog, 
     label: 'ניהול עסקים', 
     to: '/app/admin/businesses',
-    roles: ['admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin']
   },
   { 
     icon: Bot, 
     label: 'AI Prompts', 
     to: '/app/admin/prompts',
-    roles: ['admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin']
   },
   { 
     icon: UserCog, 
     label: 'ניהול משתמשים', 
     to: '/app/users',
-    roles: ['admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin']
   },
   { 
     icon: Settings, 
     label: 'הגדרות מערכת',
     to: '/app/settings',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
     icon: Calendar, 
@@ -108,7 +108,7 @@ const menuItems = [
     icon: Bell, 
     label: 'תזכורות',
     to: '/app/notifications',
-    roles: ['business', 'admin', 'manager']
+    roles: ['system_admin', 'owner', 'admin', 'agent']
   },
 ];
 
@@ -323,12 +323,15 @@ export function MainLayout() {
               <div className="mt-1">
                 <span className={cn(
                   'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                  user?.role === 'system_admin' ? 'bg-purple-100 text-purple-800' :
+                  user?.role === 'owner' ? 'bg-blue-100 text-blue-800' :
                   user?.role === 'admin' ? 'bg-violet-100 text-violet-800' :
-                  user?.role === 'manager' ? 'bg-blue-100 text-blue-800' :
                   'bg-slate-100 text-slate-800'
                 )}>
-                  {user?.role === 'admin' ? 'מנהל מערכת' : 
-                   user?.role === 'manager' ? 'מנהל' : 'עסק'}
+                  {user?.role === 'system_admin' ? 'מנהל מערכת' : 
+                   user?.role === 'owner' ? 'בעלים' : 
+                   user?.role === 'admin' ? 'מנהל' : 
+                   user?.role === 'agent' ? 'סוכן' : 'משתמש'}
                 </span>
               </div>
             </div>
@@ -392,7 +395,7 @@ export function MainLayout() {
                   <Menu className="h-6 w-6" />
                 </button>
                 <h1 className="mr-3 md:mr-0 text-lg font-semibold text-slate-900">
-                  {user?.role === 'admin' || user?.role === 'manager' 
+                  {user?.role === 'system_admin' || user?.role === 'owner' || user?.role === 'admin'
                     ? 'מנהל המערכת' 
                     : tenant?.name || 'שי דירות'}
                 </h1>
@@ -461,12 +464,15 @@ export function MainLayout() {
                             <div className="mt-1">
                               <span className={cn(
                                 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                                user?.role === 'system_admin' ? 'bg-purple-100 text-purple-800' :
+                                user?.role === 'owner' ? 'bg-blue-100 text-blue-800' :
                                 user?.role === 'admin' ? 'bg-violet-100 text-violet-800' :
-                                user?.role === 'manager' ? 'bg-blue-100 text-blue-800' :
                                 'bg-slate-100 text-slate-800'
                               )}>
-                                {user?.role === 'admin' ? 'מנהל מערכת' : 
-                                 user?.role === 'manager' ? 'מנהל' : 'עסק'}
+                                {user?.role === 'system_admin' ? 'מנהל מערכת' : 
+                                 user?.role === 'owner' ? 'בעלים' : 
+                                 user?.role === 'admin' ? 'מנהל' : 
+                                 user?.role === 'agent' ? 'סוכן' : 'משתמש'}
                               </span>
                             </div>
                           </div>

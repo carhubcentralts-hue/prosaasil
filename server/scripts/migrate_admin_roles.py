@@ -13,17 +13,25 @@ from server.models_sql import User
 
 def migrate_admin_roles():
     """
-    Update legacy role names to new structure:
-    - 'admin' -> 'system_admin'
-    - 'manager' -> 'system_admin'
-    - 'superadmin' -> 'system_admin'
+    Update legacy role names to new 4-tier structure:
+    - 'admin' or 'superadmin' -> 'system_admin' (global admin)
+    - 'manager' -> 'owner' (business owner)
+    - 'business' -> 'admin' (business admin)
     
     This ensures backward compatibility with production databases
     """
     print("🔄 Starting admin roles migration...")
     
+    # Role mapping: old_role -> new_role
+    role_mapping = {
+        'admin': 'system_admin',      # Global admins
+        'superadmin': 'system_admin',  # Global admins
+        'manager': 'owner',            # Business owners
+        'business': 'admin',           # Business admins
+    }
+    
     # Find all users with legacy roles
-    legacy_roles = ['admin', 'manager', 'superadmin']
+    legacy_roles = list(role_mapping.keys())
     users_to_update = User.query.filter(User.role.in_(legacy_roles)).all()
     
     if not users_to_update:
@@ -34,11 +42,12 @@ def migrate_admin_roles():
     
     for user in users_to_update:
         old_role = user.role
-        user.role = 'system_admin'
-        print(f"📝 Updating user '{user.email}' (ID={user.id}): {old_role} -> system_admin")
+        new_role = role_mapping.get(old_role, old_role)  # Default to old role if not in mapping
+        user.role = new_role
+        print(f"📝 Updating user '{user.email}' (ID={user.id}): {old_role} -> {new_role}")
     
     db.session.commit()
-    print(f"\n✅ Successfully updated {len(users_to_update)} users to system_admin role!")
+    print(f"\n✅ Successfully migrated {len(users_to_update)} users to new role structure!")
 
 if __name__ == "__main__":
     app = create_app()

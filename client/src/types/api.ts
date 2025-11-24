@@ -2,7 +2,7 @@
 export interface User {
   id: number;
   email: string;
-  role: 'admin' | 'manager' | 'business';
+  role: 'system_admin' | 'owner' | 'admin' | 'agent';
   name?: string;
   business_id?: number;
 }

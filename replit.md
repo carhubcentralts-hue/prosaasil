@@ -71,6 +71,7 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
 - **Routing**: React Router v7 with AuthGuard/RoleGuard.
 - **State Management**: Context API for authentication.
 - **Security**: CSRF protection, secure redirects, and role-based access control.
+- **Role System Update (Nov 24, 2025 - BUILD 124)**: Updated all frontend routes, navigation, and UI to support new 4-tier role hierarchy (system_admin → owner → admin → agent). Replaced legacy roles (admin/manager/business) with new structure throughout TypeScript types, route guards, and navigation menus.
 
 ### Feature Specifications
 - **Call Logging**: Comprehensive tracking with transcription, status, duration, and direction.
