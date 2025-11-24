@@ -72,7 +72,7 @@ def initialize_production_database():
                 password_hash=password_hash,
                 name='System Administrator',
                 role='system_admin',  # ✅ Updated from 'admin' to 'system_admin'
-                business_id=business.id,
+                business_id=None,  # ✅ BUILD 139: system_admin is GLOBAL, not tied to any business
                 is_active=True,
                 created_at=datetime.utcnow()
             )
@@ -84,12 +84,14 @@ def initialize_production_database():
             print(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role})")
             logger.info(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role})")
             
-            # 3. Ensure admin has business_id and correct role
+            # 3. Ensure correct role and REMOVE business_id for system_admin (BUILD 139)
             updates_needed = False
-            if not admin.business_id:
-                print("🔗 Linking admin to business...")
-                logger.info("🔗 Linking admin to business...")
-                admin.business_id = business.id
+            
+            # BUILD 139: REMOVE business_id from system_admin (they should be global)
+            if admin.role == 'system_admin' and admin.business_id is not None:
+                print("🔓 Unlinking system_admin from business (making global)...")
+                logger.info("🔓 Unlinking system_admin from business (making global)...")
+                admin.business_id = None
                 updates_needed = True
             
             # Update role from 'admin' to 'system_admin' for backward compatibility (BUILD 124)
@@ -97,12 +99,13 @@ def initialize_production_database():
                 print(f"📝 Upgrading admin role from '{admin.role}' to 'system_admin'...")
                 logger.info(f"📝 Upgrading admin role from '{admin.role}' to 'system_admin'...")
                 admin.role = 'system_admin'
+                admin.business_id = None  # ✅ BUILD 139: Also remove business_id when upgrading
                 updates_needed = True
             
             if updates_needed:
                 db.session.commit()
-                print(f"✅ Admin updated successfully")
-                logger.info(f"✅ Admin updated successfully")
+                print(f"✅ Admin updated successfully (now global)")
+                logger.info(f"✅ Admin updated successfully (now global)")
         
         # 4. Ensure default lead statuses exist for this business
         existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()

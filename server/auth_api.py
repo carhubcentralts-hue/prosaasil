@@ -112,9 +112,10 @@ def login():
         }
         
         # Prepare tenant response (required by frontend)
+        # ✅ BUILD 139: Don't fallback to 1 for system_admin - let it be None
         tenant_data = {
-            'id': business.id if business else user.business_id or 1,
-            'name': business.name if business else 'Default Tenant'
+            'id': business.id if business else user.business_id,  # None for system_admin
+            'name': business.name if business else ('System Admin' if user.role == 'system_admin' else 'No Business')
         }
         
         # Store in session - both keys for compatibility
