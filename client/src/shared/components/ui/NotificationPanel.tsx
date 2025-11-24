@@ -19,7 +19,7 @@ import { useAuth } from '../../../features/auth/hooks';
 
 export interface Notification {
   id: string;
-  type: 'call' | 'whatsapp' | 'lead' | 'meeting' | 'payment' | 'system' | 'urgent';
+  type: 'call' | 'whatsapp' | 'lead' | 'task' | 'meeting' | 'payment' | 'system' | 'urgent';
   title: string;
   message: string;
   timestamp: Date;
@@ -35,6 +35,7 @@ export interface Notification {
     priority?: 'low' | 'medium' | 'high' | 'urgent';
     actionRequired?: boolean;
     relatedId?: string;
+    dueAt?: string;
   };
 }
 
@@ -56,6 +57,7 @@ function NotificationItem({ notification, onClick }: NotificationItemProps) {
       case 'call': return <Phone className="h-4 w-4" />;
       case 'whatsapp': return <MessageCircle className="h-4 w-4" />;
       case 'lead': return <User className="h-4 w-4" />;
+      case 'task': return <Clock className="h-4 w-4" />;
       case 'meeting': return <Calendar className="h-4 w-4" />;
       case 'payment': return <DollarSign className="h-4 w-4" />;
       case 'system': return <Info className="h-4 w-4" />;
@@ -69,6 +71,7 @@ function NotificationItem({ notification, onClick }: NotificationItemProps) {
       case 'call': return 'text-blue-600';
       case 'whatsapp': return 'text-green-600';
       case 'lead': return 'text-purple-600';
+      case 'task': return 'text-amber-600';
       case 'meeting': return 'text-orange-600';
       case 'payment': return 'text-emerald-600';
       case 'system': return 'text-gray-600';
@@ -207,6 +210,7 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }
                     {notification.type === 'call' ? 'שיחה' :
                      notification.type === 'whatsapp' ? 'WhatsApp' :
                      notification.type === 'lead' ? 'ליד' :
+                     notification.type === 'task' ? 'משימה' :
                      notification.type === 'meeting' ? 'פגישה' :
                      notification.type === 'payment' ? 'תשלום' :
                      notification.type === 'system' ? 'מערכת' : 'דחוף'}
@@ -254,6 +258,14 @@ function NotificationDetailModal({ notification, isOpen, onClose, onMarkAsRead }
                       {notification.metadata.priority === 'urgent' ? 'דחוף' :
                        notification.metadata.priority === 'high' ? 'גבוה' :
                        notification.metadata.priority === 'medium' ? 'בינוני' : 'נמוך'}
+                    </span>
+                  </div>
+                )}
+                {notification.metadata?.dueAt && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">תאריך יעד:</span>
+                    <span className="font-medium">
+                      {new Date(notification.metadata.dueAt).toLocaleString('he-IL')}
                     </span>
                   </div>
                 )}

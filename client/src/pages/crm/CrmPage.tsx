@@ -42,8 +42,8 @@ const Badge = ({ children, className = "", variant = "default" }: any) => {
   );
 };
 
-// Reminder and Contact interfaces
-interface CRMReminder {
+// Task interface (previously Reminder)
+interface CRMTask {
   id: string | number;
   note: string;
   description?: string;
@@ -56,16 +56,6 @@ interface CRMReminder {
   created_at?: string;
 }
 
-interface CRMContact {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  company?: string;
-  tags: string[];
-  lastContact?: string;
-}
-
 interface Lead {
   id: number;
   full_name?: string;
@@ -75,15 +65,12 @@ interface Lead {
 }
 
 export function CrmPage() {
-  const [reminders, setReminders] = useState<CRMReminder[]>([]);
-  const [contacts, setContacts] = useState<CRMContact[]>([]);
+  const [tasks, setTasks] = useState<CRMTask[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'reminders' | 'contacts'>('reminders');
-  const [showReminderModal, setShowReminderModal] = useState(false);
-  const [showContactModal, setShowContactModal] = useState(false);
-  const [editingReminder, setEditingReminder] = useState<CRMReminder | null>(null);
-  const [reminderForm, setReminderForm] = useState({
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [editingTask, setEditingTask] = useState<CRMTask | null>(null);
+  const [taskForm, setTaskForm] = useState({
     note: '',
     description: '',
     due_date: '',
@@ -101,25 +88,22 @@ export function CrmPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Fetch reminders from API
+      // Fetch tasks from API
       const response = await fetch('/api/reminders', {
         credentials: 'include'
       });
       
       if (response.ok) {
         const data = await response.json();
-        setReminders(data.reminders || []);
+        setTasks(data.reminders || []);
       } else {
-        console.error('Failed to load reminders');
-        setReminders([]);
+        console.error('Failed to load tasks');
+        setTasks([]);
       }
-      
-      setContacts([]);
       
     } catch (error) {
       console.error('Error loading tasks data:', error);
-      setReminders([]);
-      setContacts([]);
+      setTasks([]);
     } finally {
       setLoading(false);
     }
@@ -137,29 +121,29 @@ export function CrmPage() {
     }
   };
 
-  const handleCreateOrUpdateReminder = async () => {
+  const handleCreateOrUpdateTask = async () => {
     try {
-      if (!reminderForm.note.trim() || !reminderForm.due_date) {
+      if (!taskForm.note.trim() || !taskForm.due_date) {
         alert('נא למלא את כל השדות הנדרשים');
         return;
       }
 
       const payload = {
-        note: reminderForm.note,
-        description: reminderForm.description,
-        due_at: `${reminderForm.due_date}T${reminderForm.due_time || '09:00'}:00Z`,
-        priority: reminderForm.priority,
-        reminder_type: reminderForm.reminder_type,
-        lead_id: reminderForm.lead_id ? parseInt(reminderForm.lead_id) : undefined,
+        note: taskForm.note,
+        description: taskForm.description,
+        due_at: `${taskForm.due_date}T${taskForm.due_time || '09:00'}:00Z`,
+        priority: taskForm.priority,
+        reminder_type: taskForm.reminder_type,
+        lead_id: taskForm.lead_id ? parseInt(taskForm.lead_id) : undefined,
         channel: 'ui'
       };
 
-      // Use new general reminders endpoints
-      const url = editingReminder 
-        ? `/api/reminders/${editingReminder.id}` 
+      // Use reminders API endpoint (backend naming)
+      const url = editingTask 
+        ? `/api/reminders/${editingTask.id}` 
         : `/api/reminders`;
       
-      const method = editingReminder ? 'PATCH' : 'POST';
+      const method = editingTask ? 'PATCH' : 'POST';
 
       const response = await fetch(url, {
         method,
@@ -169,38 +153,38 @@ export function CrmPage() {
       });
 
       if (response.ok) {
-        alert(editingReminder ? 'תזכורת עודכנה בהצלחה!' : 'תזכורת נוצרה בהצלחה!');
-        closeReminderModal();
+        alert(editingTask ? 'משימה עודכנה בהצלחה!' : 'משימה נוצרה בהצלחה!');
+        closeTaskModal();
         loadData();
       } else {
         const error = await response.json();
-        alert(`שגיאה בשמירת תזכורת: ${error.error || 'שגיאה לא ידועה'}`);
+        alert(`שגיאה בשמירת משימה: ${error.error || 'שגיאה לא ידועה'}`);
       }
     } catch (error) {
-      console.error('Error saving reminder:', error);
-      alert('שגיאה בשמירת תזכורת');
+      console.error('Error saving task:', error);
+      alert('שגיאה בשמירת משימה');
     }
   };
 
-  const handleEditReminder = (reminder: CRMReminder) => {
-    setEditingReminder(reminder);
-    const dueDate = new Date(reminder.due_at);
-    setReminderForm({
-      note: reminder.note,
-      description: reminder.description || '',
+  const handleEditTask = (task: CRMTask) => {
+    setEditingTask(task);
+    const dueDate = new Date(task.due_at);
+    setTaskForm({
+      note: task.note,
+      description: task.description || '',
       due_date: dueDate.toISOString().split('T')[0],
       due_time: dueDate.toTimeString().slice(0, 5),
-      priority: reminder.priority || 'medium',
-      reminder_type: reminder.reminder_type || 'general',
-      lead_id: reminder.lead_id?.toString() || ''
+      priority: task.priority || 'medium',
+      reminder_type: task.reminder_type || 'general',
+      lead_id: task.lead_id?.toString() || ''
     });
-    setShowReminderModal(true);
+    setShowTaskModal(true);
   };
 
-  const closeReminderModal = () => {
-    setShowReminderModal(false);
-    setEditingReminder(null);
-    setReminderForm({
+  const closeTaskModal = () => {
+    setShowTaskModal(false);
+    setEditingTask(null);
+    setTaskForm({
       note: '',
       description: '',
       due_date: '',
@@ -211,16 +195,16 @@ export function CrmPage() {
     });
   };
 
-  const getPendingReminders = () => {
-    return reminders.filter(r => !r.completed_at && new Date(r.due_at) > new Date());
+  const getPendingTasks = () => {
+    return tasks.filter(r => !r.completed_at && new Date(r.due_at) > new Date());
   };
 
-  const getOverdueReminders = () => {
-    return reminders.filter(r => !r.completed_at && new Date(r.due_at) <= new Date());
+  const getOverdueTasks = () => {
+    return tasks.filter(r => !r.completed_at && new Date(r.due_at) <= new Date());
   };
 
-  const getCompletedReminders = () => {
-    return reminders.filter(r => !!r.completed_at);
+  const getCompletedTasks = () => {
+    return tasks.filter(r => !!r.completed_at);
   };
 
   const getPriorityColor = (priority?: string) => {
@@ -264,47 +248,18 @@ export function CrmPage() {
           
           <div className="flex items-center gap-3">
             <Button 
-              onClick={() => activeTab === 'reminders' ? setShowReminderModal(true) : setShowContactModal(true)}
+              onClick={() => setShowTaskModal(true)}
             >
               <Plus className="w-4 h-4 mr-2" />
-              {activeTab === 'reminders' ? 'תזכורת חדשה' : 'איש קשר חדש'}
+              משימה חדשה
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white border-b border-gray-200 px-6">
-        <nav className="flex space-x-8" dir="ltr">
-          <button
-            onClick={() => setActiveTab('reminders')}
-            className={`${
-              activeTab === 'reminders'
-                ? 'border-purple-500 text-purple-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-          >
-            <Bell className="w-4 h-4 mr-2" />
-            תזכורות ({reminders.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('contacts')}
-            className={`${
-              activeTab === 'contacts'
-                ? 'border-purple-500 text-purple-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-          >
-            <Users className="w-4 h-4 mr-2" />
-            אנשי קשר ({contacts.length})
-          </button>
-        </nav>
-      </div>
-
       {/* Content */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'reminders' ? (
-          // Reminders Board
+          {/* Tasks Board */}
           <div className="h-full p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full">
               {/* Pending Column */}
@@ -312,30 +267,30 @@ export function CrmPage() {
                 <div className="flex items-center gap-2 mb-4">
                   <Clock className="w-5 h-5 text-blue-500" />
                   <h3 className="font-semibold text-gray-900">ממתין</h3>
-                  <Badge>{getPendingReminders().length}</Badge>
+                  <Badge>{getPendingTasks().length}</Badge>
                 </div>
                 
                 <div className="flex-1 space-y-3 overflow-y-auto">
-                  {getPendingReminders().map((reminder) => (
-                    <Card key={reminder.id} className="p-4">
+                  {getPendingTasks().map((task) => (
+                    <Card key={task.id} className="p-4">
                       <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-medium text-gray-900 flex-1">{reminder.note}</h4>
-                        {reminder.priority && (
-                          <Badge variant={getPriorityColor(reminder.priority)}>
-                            {getPriorityLabel(reminder.priority)}
+                        <h4 className="font-medium text-gray-900 flex-1">{task.note}</h4>
+                        {task.priority && (
+                          <Badge variant={getPriorityColor(task.priority)}>
+                            {getPriorityLabel(task.priority)}
                           </Badge>
                         )}
                       </div>
                       
-                      {reminder.description && (
-                        <p className="text-sm text-gray-600 mb-3">{reminder.description}</p>
+                      {task.description && (
+                        <p className="text-sm text-gray-600 mb-3">{task.description}</p>
                       )}
                       
                       <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                        <span>{reminder.lead_name || 'כללי'}</span>
+                        <span>{task.lead_name || 'כללי'}</span>
                         <div className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          {new Date(reminder.due_at).toLocaleString('he-IL')}
+                          {new Date(task.due_at).toLocaleString('he-IL')}
                         </div>
                       </div>
 
@@ -343,7 +298,7 @@ export function CrmPage() {
                         <Button 
                           variant="ghost" 
                           size="sm"
-                          onClick={() => handleEditReminder(reminder)}
+                          onClick={() => handleEditTask(task)}
                           className="flex-1"
                         >
                           <Edit2 className="w-3 h-3 ml-1" />
@@ -353,10 +308,10 @@ export function CrmPage() {
                     </Card>
                   ))}
                   
-                  {getPendingReminders().length === 0 && (
+                  {getPendingTasks().length === 0 && (
                     <div className="text-center py-8 text-gray-500">
                       <Clock className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                      <p className="text-sm">אין תזכורות ממתינות</p>
+                      <p className="text-sm">אין משימות ממתינות</p>
                     </div>
                   )}
                 </div>
@@ -367,30 +322,30 @@ export function CrmPage() {
                 <div className="flex items-center gap-2 mb-4">
                   <AlertCircle className="w-5 h-5 text-red-500" />
                   <h3 className="font-semibold text-gray-900">באיחור</h3>
-                  <Badge variant="high">{getOverdueReminders().length}</Badge>
+                  <Badge variant="high">{getOverdueTasks().length}</Badge>
                 </div>
                 
                 <div className="flex-1 space-y-3 overflow-y-auto">
-                  {getOverdueReminders().map((reminder) => (
-                    <Card key={reminder.id} className="p-4 border-red-200 bg-red-50">
+                  {getOverdueTasks().map((task) => (
+                    <Card key={task.id} className="p-4 border-red-200 bg-red-50">
                       <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-medium text-gray-900 flex-1">{reminder.note}</h4>
-                        {reminder.priority && (
-                          <Badge variant={getPriorityColor(reminder.priority)}>
-                            {getPriorityLabel(reminder.priority)}
+                        <h4 className="font-medium text-gray-900 flex-1">{task.note}</h4>
+                        {task.priority && (
+                          <Badge variant={getPriorityColor(task.priority)}>
+                            {getPriorityLabel(task.priority)}
                           </Badge>
                         )}
                       </div>
                       
-                      {reminder.description && (
-                        <p className="text-sm text-gray-600 mb-3">{reminder.description}</p>
+                      {task.description && (
+                        <p className="text-sm text-gray-600 mb-3">{task.description}</p>
                       )}
                       
                       <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                        <span>{reminder.lead_name || 'כללי'}</span>
+                        <span>{task.lead_name || 'כללי'}</span>
                         <div className="flex items-center gap-1 text-red-600">
                           <AlertCircle className="w-3 h-3" />
-                          {new Date(reminder.due_at).toLocaleString('he-IL')}
+                          {new Date(task.due_at).toLocaleString('he-IL')}
                         </div>
                       </div>
 
@@ -398,7 +353,7 @@ export function CrmPage() {
                         <Button 
                           variant="ghost" 
                           size="sm"
-                          onClick={() => handleEditReminder(reminder)}
+                          onClick={() => handleEditTask(task)}
                           className="flex-1"
                         >
                           <Edit2 className="w-3 h-3 ml-1" />
@@ -408,10 +363,10 @@ export function CrmPage() {
                     </Card>
                   ))}
                   
-                  {getOverdueReminders().length === 0 && (
+                  {getOverdueTasks().length === 0 && (
                     <div className="text-center py-8 text-gray-500">
                       <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                      <p className="text-sm">אין תזכורות באיחור</p>
+                      <p className="text-sm">אין משימות באיחור</p>
                     </div>
                   )}
                 </div>
@@ -422,22 +377,22 @@ export function CrmPage() {
                 <div className="flex items-center gap-2 mb-4">
                   <CheckCircle className="w-5 h-5 text-green-500" />
                   <h3 className="font-semibold text-gray-900">הושלם</h3>
-                  <Badge>{getCompletedReminders().length}</Badge>
+                  <Badge>{getCompletedTasks().length}</Badge>
                 </div>
                 
                 <div className="flex-1 space-y-3 overflow-y-auto">
-                  {getCompletedReminders().map((reminder) => (
-                    <Card key={reminder.id} className="p-4 border-green-200 bg-green-50">
+                  {getCompletedTasks().map((task) => (
+                    <Card key={task.id} className="p-4 border-green-200 bg-green-50">
                       <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-medium text-gray-900 flex-1 line-through opacity-75">{reminder.note}</h4>
+                        <h4 className="font-medium text-gray-900 flex-1 line-through opacity-75">{task.note}</h4>
                       </div>
                       
-                      {reminder.description && (
-                        <p className="text-sm text-gray-600 mb-3 opacity-75">{reminder.description}</p>
+                      {task.description && (
+                        <p className="text-sm text-gray-600 mb-3 opacity-75">{task.description}</p>
                       )}
                       
                       <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>{reminder.lead_name || 'כללי'}</span>
+                        <span>{task.lead_name || 'כללי'}</span>
                         <div className="flex items-center gap-1 text-green-600">
                           <CheckCircle className="w-3 h-3" />
                           הושלם
@@ -446,82 +401,29 @@ export function CrmPage() {
                     </Card>
                   ))}
                   
-                  {getCompletedReminders().length === 0 && (
+                  {getCompletedTasks().length === 0 && (
                     <div className="text-center py-8 text-gray-500">
                       <CheckCircle className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                      <p className="text-sm">אין תזכורות שהושלמו</p>
+                      <p className="text-sm">אין משימות שהושלמו</p>
                     </div>
                   )}
                 </div>
               </div>
             </div>
           </div>
-        ) : (
-          // Contacts List
-          <div className="h-full p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {contacts.map((contact) => (
-                <Card key={contact.id} className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900 mb-1">{contact.name}</h3>
-                      {contact.company && (
-                        <p className="text-sm text-gray-600">{contact.company}</p>
-                      )}
-                    </div>
-                    <Users className="w-5 h-5 text-gray-400" />
-                  </div>
-                  
-                  <div className="space-y-2 mb-4">
-                    {contact.email && (
-                      <p className="text-sm text-gray-600" dir="ltr">{contact.email}</p>
-                    )}
-                    {contact.phone && (
-                      <p className="text-sm text-gray-600" dir="ltr">{contact.phone}</p>
-                    )}
-                  </div>
-                  
-                  {contact.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-4">
-                      {contact.tags.map((tag, index) => (
-                        <Badge key={index} variant="default">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {contact.lastContact && (
-                    <p className="text-xs text-gray-500">
-                      קשר אחרון: {new Date(contact.lastContact).toLocaleDateString('he-IL')}
-                    </p>
-                  )}
-                </Card>
-              ))}
-              
-              {contacts.length === 0 && (
-                <div className="col-span-full text-center py-12">
-                  <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">אין אנשי קשר</h3>
-                  <p className="text-gray-500">התחל בהוספת אנשי הקשר שלך</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Reminder Modal */}
-      {showReminderModal && (
+      {showTaskModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
           <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-semibold text-gray-900">
-                  {editingReminder ? 'ערוך תזכורת' : 'תזכורת חדשה'}
+                  {editingTask ? 'ערוך משימה' : 'משימה חדשה'}
                 </h3>
                 <button
-                  onClick={closeReminderModal}
+                  onClick={closeTaskModal}
                   className="p-2 hover:bg-gray-100 rounded-full"
                 >
                   <X className="w-5 h-5" />
@@ -532,12 +434,12 @@ export function CrmPage() {
                 {/* Note */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    תוכן התזכורת <span className="text-red-500">*</span>
+                    תוכן המשימה <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
-                    value={reminderForm.note}
-                    onChange={(e) => setReminderForm({...reminderForm, note: e.target.value})}
+                    value={taskForm.note}
+                    onChange={(e) => setReminderForm({...taskForm, note: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                     placeholder="לדוגמה: להתקשר לדוד כהן..."
                   />
@@ -549,8 +451,8 @@ export function CrmPage() {
                     פרטים נוספים
                   </label>
                   <textarea
-                    value={reminderForm.description}
-                    onChange={(e) => setReminderForm({...reminderForm, description: e.target.value})}
+                    value={taskForm.description}
+                    onChange={(e) => setReminderForm({...taskForm, description: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
                     rows={3}
                     placeholder="הוסף פרטים נוספים..."
@@ -565,8 +467,8 @@ export function CrmPage() {
                     </label>
                     <input
                       type="date"
-                      value={reminderForm.due_date}
-                      onChange={(e) => setReminderForm({...reminderForm, due_date: e.target.value})}
+                      value={taskForm.due_date}
+                      onChange={(e) => setReminderForm({...taskForm, due_date: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                   </div>
@@ -576,8 +478,8 @@ export function CrmPage() {
                     </label>
                     <input
                       type="time"
-                      value={reminderForm.due_time}
-                      onChange={(e) => setReminderForm({...reminderForm, due_time: e.target.value})}
+                      value={taskForm.due_time}
+                      onChange={(e) => setReminderForm({...taskForm, due_time: e.target.value})}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
                   </div>
@@ -589,8 +491,8 @@ export function CrmPage() {
                     עדיפות
                   </label>
                   <select
-                    value={reminderForm.priority}
-                    onChange={(e) => setReminderForm({...reminderForm, priority: e.target.value as any})}
+                    value={taskForm.priority}
+                    onChange={(e) => setReminderForm({...taskForm, priority: e.target.value as any})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="low">נמוך</option>
@@ -605,8 +507,8 @@ export function CrmPage() {
                     סוג תזכורת
                   </label>
                   <select
-                    value={reminderForm.reminder_type}
-                    onChange={(e) => setReminderForm({...reminderForm, reminder_type: e.target.value})}
+                    value={taskForm.reminder_type}
+                    onChange={(e) => setReminderForm({...taskForm, reminder_type: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="general">כללי</option>
@@ -623,8 +525,8 @@ export function CrmPage() {
                     קשור לליד
                   </label>
                   <select
-                    value={reminderForm.lead_id}
-                    onChange={(e) => setReminderForm({...reminderForm, lead_id: e.target.value})}
+                    value={taskForm.lead_id}
+                    onChange={(e) => setReminderForm({...taskForm, lead_id: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   >
                     <option value="">-- לא משויך לליד --</option>
@@ -640,14 +542,14 @@ export function CrmPage() {
                 <div className="flex justify-end gap-3 pt-4 border-t">
                   <Button
                     variant="outline"
-                    onClick={closeReminderModal}
+                    onClick={closeTaskModal}
                   >
                     ביטול
                   </Button>
                   <Button
                     onClick={handleCreateOrUpdateReminder}
                   >
-                    {editingReminder ? 'עדכן תזכורת' : 'צור תזכורת'}
+                    {editingTask ? 'עדכן משימה' : 'צור משימה'}
                   </Button>
                 </div>
               </div>
