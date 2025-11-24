@@ -101,16 +101,14 @@ AgentLocator employs a multi-tenant architecture with complete business isolatio
   - Copy-to-clipboard for email address
   - Logout functionality
 - **Business Management (Nov 25, 2025)**:
-  - **Admin/Manager Dashboard**: `/app/admin/businesses` - View their own business details (business/admin/manager accessible)
-  - **Superadmin Dashboard**: `/app/admin/businesses-management` - View all businesses with login credentials and password reset
-  - `GET /api/admin/businesses` - List all businesses (superadmin only for viewing all)
-  - `PUT /api/admin/businesses/<id>/reset-password` - Reset business password (superadmin only)
+  - **Admin/Manager/Superadmin Dashboard**: `/app/admin/businesses-management` - View all businesses with login credentials and password reset (admin/manager/superadmin only)
+  - `GET /api/admin/businesses` - List all businesses (admin/manager/superadmin only)
+  - `PUT /api/admin/businesses/<id>/reset-password` - Reset business password (admin/manager/superadmin only)
   - BusinessesManagementPage component at `/app/admin/businesses-management`
   - View all businesses: ID, name, email, business type, phone number, active status
   - Password reset functionality with new password generation
   - Business model includes `email` and `password_hash` fields for primary account access
-  - Complete RBAC protection with 'superadmin' role type added to UserRole
-  - Business users can view and manage their own business info
+  - Complete RBAC protection
 
 # External Dependencies
 

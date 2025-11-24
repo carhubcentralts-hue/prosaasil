@@ -1077,9 +1077,9 @@ def delete_user(user_id):
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.get("/api/admin/businesses")
-@require_api_auth(["superadmin"])
+@require_api_auth(["admin", "manager", "superadmin"])
 def get_all_businesses():
-    """Get all businesses with their login credentials (superadmin only)"""
+    """Get all businesses with their login credentials (admin/manager/superadmin)"""
     try:
         businesses = Business.query.all()
         
@@ -1102,9 +1102,9 @@ def get_all_businesses():
         return jsonify({"error": str(e)}), 500
 
 @admin_bp.put("/api/admin/businesses/<int:business_id>/reset-password")
-@require_api_auth(["superadmin"])
+@require_api_auth(["admin", "manager", "superadmin"])
 def reset_business_password(business_id):
-    """Reset business password (superadmin only)"""
+    """Reset business password (admin/manager/superadmin)"""
     try:
         business = Business.query.get(business_id)
         
