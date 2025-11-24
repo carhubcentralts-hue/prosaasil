@@ -379,8 +379,8 @@ def create_default_admin():
             admin.email = 'admin@admin.com'
             admin.name = 'Admin'
             admin.password_hash = generate_password_hash('admin123', method='scrypt')
-            admin.role = 'admin'
-            admin.business_id = 1
+            admin.role = 'superadmin'
+            admin.business_id = None
             admin.is_active = True
             db.session.add(admin)
             db.session.commit()
