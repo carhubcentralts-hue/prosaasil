@@ -108,6 +108,9 @@ export function SettingsPage() {
   // ✅ BUILD 130: AI tab restricted to system_admin, owner, admin (not agent)
   const canEditAIPrompts = user?.role && ['system_admin', 'owner', 'admin'].includes(user.role);
   
+  // ✅ BUILD 140: system_admin without business should not access settings
+  const isSystemAdminWithoutBusiness = user?.role === 'system_admin' && !user?.business_id;
+  
   // ✅ Security: Prevent unauthorized access to AI tab
   React.useEffect(() => {
     if (activeTab === 'ai' && !canEditAIPrompts) {
@@ -301,6 +304,28 @@ export function SettingsPage() {
   // Compute loading and saving states from mutations/queries
   const loading = businessLoading;
   const saving = saveBusinessMutation.isPending || saveAppointmentMutation.isPending;
+
+  // ✅ BUILD 140: Show message if system_admin has no business context
+  if (isSystemAdminWithoutBusiness) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-4rem)] bg-gray-50">
+        <Card className="p-8 max-w-md text-center">
+          <Settings className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 mb-2">מנהל מערכת גלובלי</h2>
+          <p className="text-gray-600 mb-4">
+            כמנהל מערכת גלובלי, אין לך עסק ספציפי. 
+            כדי לערוך הגדרות עסק, עבור ל"ניהול עסקים" ובחר עסק מהרשימה.
+          </p>
+          <Button 
+            onClick={() => window.location.href = '/app/admin/businesses'}
+            variant="default"
+          >
+            עבור לניהול עסקים
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) {
     return (

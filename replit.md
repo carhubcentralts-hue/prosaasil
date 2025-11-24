@@ -12,6 +12,21 @@ Preferred communication style: Simple, everyday language.
 
 ProSaaS features a multi-tenant architecture with complete business isolation, integrating Twilio Media Streams for real-time communication. It includes Hebrew-optimized Voice Activity Detection (VAD) and smart Text-to-Speech (TTS) truncation. The AI assistant uses an Agent SDK for appointment scheduling and lead creation, maintaining conversation memory and utilizing an Agent Cache System. Name and phone number confirmation occur via dual input (verbal name, DTMF phone number), with channel-aware responses and a DTMF Menu System. Agent Validation Guards prevent AI hallucinations. Security features encompass business identification, rejection of unknown numbers, isolated data per business, universal warmup, and comprehensive Role-Based Access Control (RBAC) with a 4-tier hierarchy (system_admin, owner, admin, agent). Performance is optimized through explicit OpenAI timeouts, increased Speech-to-Text (STT) streaming timeouts, and warnings for long prompts. Audio streaming uses a `tx_q` queue with backpressure. A FAQ Hybrid Fast-Path employs a two-step matching approach with channel filtering. STT reliability is enhanced with relaxed validation, Hebrew number context, and a 3-attempt retry. Voice consistency is maintained with a male Hebrew voice and masculine phrasing, while agent behavioral constraints prevent verbalization of internal processes. Appointment scheduling uses server-side text parsing with GPT-4o-mini for intelligent Hebrew NLP, business hours validation, and DB-based deduplication.
 
+## Recent Changes
+
+### BUILD 140 (Latest) - System Admin Global Entity Fix
+**Critical Bug Fixed**: system_admin incorrectly bound to business_id=1, causing setting changes to modify business #1 instead of being global.
+
+**Changes Made**:
+- **init_database.py**: system_admin now created with `business_id=NULL` (global entity)
+- **auth_api.py**: Removed fallback to `business_id=1` for system_admin login
+- **SettingsPage.tsx**: Added guard for system_admin without business - shows message to select business from Business Management
+- **Database Migration**: Existing system_admin users will be auto-migrated to `business_id=NULL` on server restart
+
+**Impact**: system_admin is now truly global - not tied to any specific business. To edit business settings, system_admin must use Business Management page to select a business.
+
+**User Action Required**: **Restart server** to apply database migrations that unlink system_admin from business_id.
+
 ## Technical Implementations
 
 ### Backend
