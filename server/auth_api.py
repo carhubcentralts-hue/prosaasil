@@ -227,7 +227,8 @@ def get_current_user():
     Returns current user data from session - single source of truth
     """
     try:
-        u = session.get('al_user')  # Use al_user key for consistency
+        # BUILD 142: Check BOTH session keys for compatibility
+        u = session.get('user') or session.get('al_user')
         if not u:
             return jsonify({"error":"Not authenticated"}), 401
         
@@ -267,7 +268,8 @@ def get_current_user():
 def get_current_user_legacy():
     """Get current logged in user data"""
     try:
-        user = session.get('al_user')  # Use al_user key for consistency
+        # BUILD 142: Check BOTH session keys for compatibility
+        user = session.get('user') or session.get('al_user')
         if not user:
             return jsonify({'error': 'Not authenticated'}), 401
         
@@ -324,8 +326,9 @@ def require_api_auth(allowed_roles=None):
             if request.method == "OPTIONS":
                 return '', 204
             
-            # Check session['user'] exists
-            if 'user' not in session:
+            # BUILD 142: Check BOTH session keys for compatibility
+            user_data = session.get('user') or session.get('al_user')
+            if not user_data:
                 return jsonify({
                     'error': 'forbidden',
                     'reason': 'no_session',
@@ -333,12 +336,12 @@ def require_api_auth(allowed_roles=None):
                 }), 401
             
             # Compute context once
-            user_role = session['user']['role']
-            tenant = session.get('impersonated_tenant_id') or session['user'].get('business_id')
+            user_role = user_data['role']
+            tenant = session.get('impersonated_tenant_id') or user_data.get('business_id')
             impersonating = bool(session.get('impersonating'))
             
-            # 🔍 BUILD 138 DEBUG: Log auth context
-            print(f"🔍 AUTH DEBUG: user_id={session['user'].get('id')}, role={user_role}, business_id={session['user'].get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
+            # 🔍 BUILD 142 DEBUG: Log auth context
+            print(f"🔍 AUTH DEBUG: user_id={user_data.get('id')}, role={user_role}, business_id={user_data.get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
             
             # BUILD 138: FIXED legacy role mapping - only map ACTUAL legacy roles, not new ones!
             # Legacy roles (old): manager, business, superadmin
@@ -373,10 +376,10 @@ def require_api_auth(allowed_roles=None):
                         'message': f'This route requires one of {allowed_roles}, got {user_role} (mapped to {effective_user_role})'
                     }), 403
             
-            # Store context in g for route use
+            # BUILD 142: Store context in g for route use
             g.business_id = tenant
-            g.user = session['user']
-            g.role = effective_user_role  # BUILD 138: Use mapped role
+            g.user = user_data  # Use the found user data
+            g.role = effective_user_role  # Use mapped role
             g.tenant = tenant
             g.impersonating = impersonating
             

@@ -18,18 +18,19 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **Framework**: Flask with SQLAlchemy ORM.
 - **Real-time**: Starlette-based native WebSocket handling, Uvicorn ASGI server.
 - **Database**: PostgreSQL (production), SQLite (development).
-- **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection.
+- **Authentication**: JWT-based with role-based access control and SeaSurf CSRF protection. **BUILD 142**: Dual session key compatibility (`session['user']` OR `session['al_user']`) across all authentication endpoints and decorators for seamless legacy/modern session handling.
 - **AI Prompt System**: Real-time prompt management with versioning and channel-specific prompts.
 - **Agent Cache**: Thread-safe singleton cache for Agent SDK instances with auto-expiration and warmup.
 - **Multi-Tenant Resolution**: `resolve_business_with_fallback()` for secure business identification.
-- **RBAC**: 4-tier role hierarchy.
+- **RBAC**: 4-tier role hierarchy (system_admin → owner → admin → agent).
 - **Multi-Tenant Business Creation**: Atomic transaction for business and owner user creation.
 - **DTMF Menu**: Interactive voice response system.
 - **Data Protection**: Strictly additive database migrations.
 - **User Management API**: `/api/admin/users` endpoint with automatic RBAC filtering.
 - **Cross-Tenant Security**: Enforced tenant_id filtering across all dashboard and lead endpoints; `get_business_id()` restricts query parameter override to system_admin only. Baileys Multi-Tenant QR Security uses dynamic tenant-specific paths.
-- **Authentication Context**: Uses `@require_api_auth()` decorator for consistent Flask `g` context population.
+- **Authentication Context**: Uses `@require_api_auth()` decorator for consistent Flask `g` context population. **BUILD 142**: Fixed decorator to check both session keys and properly populate `g.user`/`g.tenant` for all user roles.
 - **Critical Tenant Isolation**: Restricted business_id override via query parameters to system_admin only.
+- **Impersonation System**: **BUILD 142**: system_admin-only business impersonation with dual response format compatibility (`ok`/`success`, `impersonated_tenant_id`/`business_id`) for frontend/backend sync.
 - **OpenAI Realtime API**: Integrates `gpt-4o-realtime-preview` for phone calls with asyncio threads.
 - **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` with behavioral rules and server-side GPT-4o-mini NLP for appointment parsing.
 - **Hebrew-Optimized VAD**: Dynamic thresholding.
@@ -37,6 +38,7 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **Cost Tracking**: Real-time chunk-based audio tracking with cost summaries.
 - **Error Resilience**: DB query failures fall back to minimal prompt.
 - **Greeting System**: System prompt instructs AI to include a business-specific greeting.
+- **Lead Name Display**: **BUILD 142**: All lead endpoints (`/api/leads`, `/api/leads/<id>`) return `full_name` computed property for consistent UI display.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

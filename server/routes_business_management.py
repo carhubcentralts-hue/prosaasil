@@ -616,9 +616,12 @@ def impersonate_business(business_id):
         
         logger.info(f"✅ System admin {current_admin.get('email')} impersonating business {business.id}")
         
+        # BUILD 142: Return both formats for compatibility
         return jsonify({
             "success": True,
+            "ok": True,  # Frontend expects this
             "impersonating": True,
+            "impersonated_tenant_id": business.id,  # Frontend expects this
             "business_id": business.id,
             "business_name": business.name
         }), 200
@@ -646,7 +649,12 @@ def exit_impersonation():
         
         logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user')}")
         
-        return jsonify({"success": True, "impersonating": False}), 200
+        # BUILD 142: Return both formats for compatibility
+        return jsonify({
+            "success": True,
+            "ok": True,  # Frontend expects this
+            "impersonating": False
+        }), 200
         
     except Exception as e:
         logger.error(f"Error exiting impersonation: {e}")
