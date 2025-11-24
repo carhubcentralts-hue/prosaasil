@@ -6,9 +6,15 @@ AgentLocator is a multi-tenant Hebrew CRM system designed for real estate profes
 
 Preferred communication style: Simple, everyday language.
 
-## Navigation Updates (Nov 24, 2025 - BUILD 109)
+## Navigation Updates (Nov 24, 2025 - BUILD 110)
 - **Removed Features**: "אינטליגנציה לקוחות" and full-page "תזכורות" removed from sidebar and routes
 - **Rebranding**: "CRM" renamed to "משימות" (Tasks) throughout UI
+  - CrmPage fully refactored: all "reminder" terminology → "task", Hebrew UI text updated
+  - Removed "Contacts" tab - now shows only task board with 3 columns (Pending, Overdue, Completed)
+- **Task Notifications**: NotificationPanel enhanced to support task-type notifications
+  - Added 'task' type with Clock icon and amber color
+  - Task notifications display Hebrew label "משימה" in detail modal
+  - Due dates (metadata.dueAt) shown in notification details with Hebrew locale formatting
 - **Navigation Structure**: Bell icon notification modal remains functional - only standalone reminders page removed
 - **Route Protection**: Blocked routes (/app/intelligence, /app/notifications) redirect to /app/leads
 
