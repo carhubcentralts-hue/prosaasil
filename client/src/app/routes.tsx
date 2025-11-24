@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthGuard } from './layout/AuthGuard';
 import { RoleGuard } from './layout/RoleGuard';
 import { MainLayout } from './layout/MainLayout';
+import { useAuth } from '../features/auth/hooks';
 
 // Auth Pages
 import { LoginPage } from '../pages/Auth/LoginPage';
@@ -32,6 +33,23 @@ import { BillingPage } from '../pages/billing/BillingPage';
 import { UsersPage } from '../pages/users/UsersPage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
 
+// BUILD 135: Smart redirect based on role
+function DefaultRedirect() {
+  const { user } = useAuth();
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  // System admin goes to admin dashboard
+  if (user.role === 'system_admin') {
+    return <Navigate to="/app/admin/overview" replace />;
+  }
+  
+  // All other roles (owner, admin, agent) go to business dashboard
+  return <Navigate to="/app/business/overview" replace />;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -49,11 +67,11 @@ export function AppRoutes() {
           </AuthGuard>
         }
       >
-        {/* Admin Routes */}
+        {/* BUILD 135: Admin Routes - SYSTEM_ADMIN ONLY */}
         <Route
           path="admin/overview"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin']}>
               <AdminHomePage />
             </RoleGuard>
           }
@@ -61,7 +79,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin']}>
               <BusinessManagerPage />
             </RoleGuard>
           }
@@ -69,7 +87,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses/:businessId/view"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin']}>
               <BusinessViewPage />
             </RoleGuard>
           }
@@ -77,7 +95,7 @@ export function AppRoutes() {
         <Route
           path="admin/businesses/:businessId/agent"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin']}>
               <AgentPromptsPage />
             </RoleGuard>
           }
@@ -85,7 +103,7 @@ export function AppRoutes() {
         <Route
           path="admin/prompts"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin']}>
               <AdminPromptsOverviewPage />
             </RoleGuard>
           }
@@ -93,7 +111,7 @@ export function AppRoutes() {
         <Route
           path="admin/agent-prompts"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin']}>
               <BusinessPromptsSelector />
             </RoleGuard>
           }
@@ -101,7 +119,7 @@ export function AppRoutes() {
         <Route
           path="admin/support"
           element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
+            <RoleGuard roles={['system_admin']}>
               <Suspense fallback={<div className="flex items-center justify-center py-12"><div>טוען דף תמיכה...</div></div>}>
                 <AdminSupportPage />
               </Suspense>
@@ -227,8 +245,8 @@ export function AppRoutes() {
         {/* DISABLED: Customer Intelligence - removed from product */}
         <Route path="intelligence" element={<Navigate to="/app/leads" replace />} />
 
-        {/* Default redirect based on role handled by AuthGuard */}
-        <Route path="" element={<Navigate to="/app/admin/overview" replace />} />
+        {/* BUILD 135: Smart default redirect based on role */}
+        <Route path="" element={<DefaultRedirect />} />
       </Route>
 
       {/* Default redirect */}

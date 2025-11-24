@@ -78,7 +78,7 @@ def get_all_users():
         return jsonify({'error': str(e)}), 500
 
 @admin_bp.get("/api/admin/overview")
-@require_api_auth(["admin", "system_admin", "manager"])
+@require_api_auth(["system_admin"])  # BUILD 135: ONLY system_admin can access global overview
 def api_overview():
     """System overview KPIs for admin dashboard with date filtering"""
     try:
