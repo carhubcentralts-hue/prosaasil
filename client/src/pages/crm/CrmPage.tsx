@@ -601,7 +601,7 @@ export function CrmPage() {
                     ביטול
                   </Button>
                   <Button
-                    onClick={handleCreateOrUpdateReminder}
+                    onClick={handleCreateOrUpdateTask}
                   >
                     {editingTask ? 'עדכן משימה' : 'צור משימה'}
                   </Button>
