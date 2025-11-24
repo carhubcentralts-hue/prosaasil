@@ -352,8 +352,11 @@ def require_api_auth(allowed_roles=None):
             # Map user's role only if it's legacy
             effective_user_role = legacy_to_new.get(user_role, user_role)
             
-            # Check role-based access if roles are specified
-            if allowed_roles:
+            # ✅ BUILD 140: system_admin bypasses role checks (global access)
+            is_system_admin = effective_user_role == 'system_admin'
+            
+            # Check role-based access if roles are specified (unless system_admin)
+            if allowed_roles and not is_system_admin:
                 # Build allowed set: support BOTH legacy names in decorator AND user roles
                 allowed_set = set()
                 for role in allowed_roles:

@@ -89,7 +89,9 @@ const LeadCard = forwardRef<HTMLDivElement, LeadCardProps>(
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1 min-w-0">
               <h4 className="font-bold text-base text-gray-900 mb-1.5" data-testid={`text-lead-name-${lead.id}`}>
-                {lead.full_name || lead.name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'ללא שם'}
+                {lead.full_name || 
+                 (lead.first_name && lead.last_name ? `${lead.first_name} ${lead.last_name}` : lead.first_name || lead.last_name) || 
+                 (lead.phone_e164 ? lead.display_phone || lead.phone_e164 : 'ללא שם')}
               </h4>
               <div className="flex items-center gap-2">
                 <Badge className={`${getSourceColor(lead.source)} text-xs`}>
