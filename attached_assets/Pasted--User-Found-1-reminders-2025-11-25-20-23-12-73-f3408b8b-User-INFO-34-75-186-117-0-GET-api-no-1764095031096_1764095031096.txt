@@ -1,0 +1,104 @@
+
+User
+🔔 Found 1 reminders
+2025-11-25 20:23:12.73
+f3408b8b
+User
+INFO: 34.75.186.117:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-25 20:23:13.12
+f3408b8b
+User
+🔌 get_whatsapp_service: tenant_id=business_1 → using fresh BaileysProvider
+2025-11-25 20:23:13.12
+f3408b8b
+User
+🔌 get_whatsapp_service: tenant_id=business_1 → using fresh BaileysProvider
+2025-11-25 20:23:13.12
+f3408b8b
+User
+🔌 get_whatsapp_service: tenant_id=business_1 → using fresh BaileysProvider
+2025-11-25 20:23:13.12
+f3408b8b
+User
+🔌 get_whatsapp_service: tenant_id=business_1 → using fresh BaileysProvider
+2025-11-25 20:23:13.12
+f3408b8b
+User
+🔌 get_whatsapp_service: tenant_id=business_1 → using fresh BaileysProvider
+2025-11-25 20:23:27.22
+f3408b8b
+User
+🎯 AGENTS_ENABLED = True
+2025-11-25 20:23:27.63
+f3408b8b
+User
+🎯 INTENT_DETECTED: other (message: הי...)
+2025-11-25 20:23:27.63
+f3408b8b
+User
+🎯 INTENT_DETECTED: other (message: הי...)
+2025-11-25 20:23:27.63
+f3408b8b
+User
+🎯 INTENT_DETECTED: other (message: הי...)
+2025-11-25 20:23:29.32
+f3408b8b
+User
+📝 User message: 'הי...'
+2025-11-25 20:23:29.32
+f3408b8b
+User
+🤖 Running agent for business 1, channel=whatsapp
+2025-11-25 20:23:29.32
+f3408b8b
+User
+✅ Agent created successfully: booking_agent_שי דירות
+2025-11-25 20:23:29.32
+f3408b8b
+User
+📋 Context: business_id=1, phone=972549750505, name=WhatsApp 0505
+2025-11-25 20:23:29.32
+f3408b8b
+User
+⏱️ DB query time: 1699ms
+2025-11-25 20:23:29.32
+f3408b8b
+User
+♻️ CACHE HIT: Agent already warmed! (0ms)
+2025-11-25 20:23:29.32
+f3408b8b
+User
+✅ Stored agent_context in Flask g: phone=972549750505, name=WhatsApp 0505
+2025-11-25 20:23:29.42
+f3408b8b
+User
+⚡ PERFORMANCE: Limited to last 8 messages (4 exchanges) to reduce latency
+2025-11-25 20:23:29.42
+f3408b8b
+User
+✅ Converted to 8 messages for Agent (0ms)
+2025-11-25 20:23:29.42
+f3408b8b
+User
+🔄 Starting Runner.run() with 8 history messages...
+2025-11-25 20:23:29.42
+f3408b8b
+User
+📚 Found 10 previous messages in context
+2025-11-25 20:23:29.42
+f3408b8b
+User
+🔄 Starting Runner.run() with 8 history messages...
+2025-11-25 20:23:29.42
+f3408b8b
+User
+📚 Found 10 previous messages in context
+
+2025-11-25 20:23:29.42
+f3408b8b
+User
+⚡ PERFORMANCE: Limited to last 8 messages (4 exchanges) to reduce latency
+2025-11-25 20:23:29.42
+f3408b8b
+User
+✅ Converted to 8 messages for Agent (0ms)

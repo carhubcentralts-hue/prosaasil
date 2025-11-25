@@ -1,0 +1,106 @@
+📋 Context: business_id=1, phone=972549750505, name=WhatsApp 0505
+2025-11-25 20:29:52.92
+f3408b8b
+User
+⏱️ DB query time: 100ms
+2025-11-25 20:29:52.92
+f3408b8b
+User
+📝 User message: 'נראה שיש בלבול. אני כאן כדי לעזור לך עם תיאום פגישות. אם אתה מעוניין לקבוע תור או יש לך שאלות על השי...'
+2025-11-25 20:29:52.93
+f3408b8b
+User
+🔄 Starting Runner.run() with 8 history messages...
+2025-11-25 20:29:52.93
+f3408b8b
+User
+✅ Converted to 8 messages for Agent (0ms)
+2025-11-25 20:29:58.00
+f3408b8b
+User
+🔍 Has new_items: True
+2025-11-25 20:29:58.00
+f3408b8b
+User
+✅ Runner.run() completed in 5277ms
+2025-11-25 20:29:58.00
+f3408b8b
+User
+📝 Agent final response: 'נשמע שיש בלבול. אני כאן כדי לעזור לך עם תיאום פגישות. אם אתה מעוניין לקבוע תור או יש לך שאלות על השי...'
+2025-11-25 20:29:58.00
+f3408b8b
+User
+🔍 Result type: RunResult
+2025-11-25 20:29:58.00
+f3408b8b
+User
+claimed_availability=False
+2025-11-25 20:29:58.00
+f3408b8b
+User
+- Item #0: MessageOutputItem
+2025-11-25 20:29:58.00
+f3408b8b
+User
+check_availability_called=False
+2025-11-25 20:29:58.00
+f3408b8b
+User
+⚠️ Agent DID NOT call any tools! (message: 'נראה שיש בלבול. אני כאן כדי לעזור לך עם תיאום פגיש...')
+2025-11-25 20:29:58.00
+f3408b8b
+User
+claimed_action=False
+2025-11-25 20:29:58.00
+f3408b8b
+User
+claims_whatsapp=False
+2025-11-25 20:29:58.00
+f3408b8b
+User
+booking_successful=False
+2025-11-25 20:29:58.00
+f3408b8b
+User
+🔍 VALIDATION CHECK:
+2025-11-25 20:29:58.00
+f3408b8b
+User
+booking_tool_called=False
+2025-11-25 20:31:01.39
+f3408b8b
+User
+🎯 INTENT_DETECTED: book (message: נראה שיש בלבול. אני כאן כדי לעזור לך עם תיאום פגיש...)
+2025-11-25 20:31:01.39
+f3408b8b
+User
+🎯 AGENTS_ENABLED = True
+
+2025-11-25 20:31:01.39
+f3408b8b
+User
+🎯 BOOKING_PRE_CHECK: Detected booking verb + time/availability
+2025-11-25 20:31:01.41
+f3408b8b
+User
+⏱️ DB query time: 23ms
+2025-11-25 20:31:01.41
+f3408b8b
+User
+✅ Stored agent_context in Flask g: phone=972549750505, name=WhatsApp 0505
+2025-11-25 20:31:01.41
+f3408b8b
+User
+🤖 Running agent for business 1, channel=whatsapp
+2025-11-25 20:31:01.41
+f3408b8b
+User
+📝 User message: 'נראה שיש בלבול. אני כאן כדי לעזור לך עם תיאום פגישות. אם אתה מעוניין לקבוע תור או יש לך שאלות על השי...'
+2025-11-25 20:31:01.41
+f3408b8b
+User
+📋 Context: business_id=1, phone=972549750505, name=WhatsApp 0505
+2025-11-25 20:31:01.41
+f3408b8b
+User
+♻️ CACHE HIT: Agent already warmed! (0ms)
