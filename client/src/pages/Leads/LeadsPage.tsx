@@ -9,7 +9,6 @@ import { Checkbox } from '../../shared/components/ui/Checkbox';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../shared/components/ui/Table';
 import { Select, SelectOption } from '../../shared/components/ui/Select';
 import LeadCreateModal from './components/LeadCreateModal';
-import LeadDetailModal from './components/LeadDetailModal';
 import StatusManagementModal from './components/StatusManagementModal';
 import { useLeads } from './hooks/useLeads';
 import { Lead, LeadStatus } from './types';
@@ -29,7 +28,6 @@ export default function LeadsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [editingStatus, setEditingStatus] = useState<number | null>(null);
@@ -211,17 +209,6 @@ export default function LeadsPage() {
       alert('שגיאה במחיקת הליד');
       // במקרה של שגיאה - רענן לסנכרן עם השרת
       await refreshLeads();
-    }
-  };
-
-  const handleLeadUpdate = async (updatedLead: Lead) => {
-    try {
-      await updateLead(updatedLead.id, updatedLead);
-      // ✅ FIX: updateLead already updates state with response
-      setSelectedLead(null);
-    } catch (error) {
-      console.error('Failed to update lead:', error);
-      alert('שגיאה בעדכון הליד');
     }
   };
 
@@ -577,7 +564,7 @@ export default function LeadsPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedLead(lead);
+                          navigate(`/app/leads/${lead.id}`);
                         }}
                         className="h-8 w-8 p-0 bg-gray-500 text-white hover:bg-gray-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
                         data-testid={`button-edit-${lead.id}`}
@@ -662,7 +649,7 @@ export default function LeadsPage() {
                           variant="secondary"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedLead(lead);
+                            navigate(`/app/leads/${lead.id}`);
                           }}
                           className="flex-1 h-7 px-2 text-xs text-gray-600 border-gray-200 hover:bg-gray-50"
                           data-testid={`button-edit-mobile-${lead.id}`}
@@ -723,7 +710,7 @@ export default function LeadsPage() {
                 onClick={(e) => {
                   // Only navigate if we're not clicking on status badge or action buttons
                   if (!e.defaultPrevented && editingStatus !== lead.id) {
-                    setSelectedLead(lead);
+                    navigate(`/app/leads/${lead.id}`);
                   }
                 }}
                 data-testid={`card-lead-mobile-${lead.id}`}
@@ -861,7 +848,7 @@ export default function LeadsPage() {
                     variant="secondary"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedLead(lead);
+                      navigate(`/app/leads/${lead.id}`);
                     }}
                     className="flex-1 h-9 text-gray-600 border-gray-200 hover:bg-gray-50"
                     data-testid={`button-edit-mobile-${lead.id}`}
@@ -883,15 +870,6 @@ export default function LeadsPage() {
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={handleLeadCreate}
       />
-
-      {selectedLead && (
-        <LeadDetailModal
-          lead={selectedLead}
-          isOpen={!!selectedLead}
-          onClose={() => setSelectedLead(null)}
-          onUpdate={handleLeadUpdate}
-        />
-      )}
       
       <StatusManagementModal
         isOpen={isStatusModalOpen}

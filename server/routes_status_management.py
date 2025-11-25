@@ -17,16 +17,21 @@ def get_business_statuses():
     """Get all active statuses for the current business with auto-seeding"""
     try:
         auth_result = get_current_user()
+        logging.info(f"[StatusAPI GET] auth_result type: {type(auth_result)}")
         if isinstance(auth_result, tuple):
+            logging.warning(f"[StatusAPI GET] Auth returned tuple (error): {auth_result}")
             return auth_result  # Return error response
         user = auth_result
+        logging.info(f"[StatusAPI GET] user: {user}")
         
         # ✅ Security fix: get business_id from current session context
         business_id = user.get('business_id') if user else None
+        logging.info(f"[StatusAPI GET] Initial business_id from user: {business_id}")
         
         # For impersonation support - use impersonated tenant if available
         if session.get('impersonating') and session.get('impersonated_tenant_id'):
             business_id = session.get('impersonated_tenant_id')
+            logging.info(f"[StatusAPI GET] Using impersonated business_id: {business_id}")
         
         # BUILD 138: ONLY system_admin can override business_id via query param
         is_system_admin = user.get('role') == 'system_admin'
@@ -106,15 +111,20 @@ def get_business_statuses():
 def create_status():
     """Create a new custom status for the business"""
     try:
+        logging.info("[StatusAPI POST] Creating new status...")
         auth_result = get_current_user()
         if isinstance(auth_result, tuple):
+            logging.warning(f"[StatusAPI POST] Auth error: {auth_result}")
             return auth_result  # Return error response
         user = auth_result
+        logging.info(f"[StatusAPI POST] user: {user}")
         
         # ✅ Security fix: get business_id from current session context with impersonation support
         business_id = user.get('business_id') if user else None
+        logging.info(f"[StatusAPI POST] Initial business_id: {business_id}")
         if session.get('impersonating') and session.get('impersonated_tenant_id'):
             business_id = session.get('impersonated_tenant_id')
+            logging.info(f"[StatusAPI POST] Using impersonated business_id: {business_id}")
         
         # ✅ FIX: Admin can create statuses with business_id from request body
         is_admin = user.get('role') in ['admin', 'superadmin']
@@ -199,10 +209,12 @@ def create_status():
             # If no current default exists and this isn't set as default, make this the default
             status.is_default = True
         
+        logging.info(f"[StatusAPI POST] Adding status to session: business_id={business_id}, label={status.label}, name={status.name}")
         db.session.add(status)
         db.session.commit()
+        logging.info(f"[StatusAPI POST] SUCCESS! Created status ID={status.id}, label={status.label}")
         
-        return jsonify({
+        response_data = {
             'message': 'Status created successfully',
             'status': {
                 'id': status.id,
@@ -212,9 +224,12 @@ def create_status():
                 'description': status.description,
                 'order_index': status.order_index,
                 'is_default': status.is_default,
-                'is_system': status.is_system
+                'is_system': status.is_system,
+                'created_at': status.created_at.isoformat() if status.created_at else None
             }
-        }), 201
+        }
+        logging.info(f"[StatusAPI POST] Response: {response_data}")
+        return jsonify(response_data), 201
         
     except Exception as e:
         db.session.rollback()
