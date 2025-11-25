@@ -32,7 +32,7 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **Critical Tenant Isolation**: Restricted business_id override via query parameters to system_admin only.
 - **Impersonation System**: **BUILD 142**: system_admin-only business impersonation with dual response format compatibility (`ok`/`success`, `impersonated_tenant_id`/`business_id`) for frontend/backend sync.
 - **OpenAI Realtime API**: Integrates `gpt-4o-realtime-preview` for phone calls with asyncio threads.
-- **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` with behavioral rules and server-side GPT-4o-mini NLP for appointment parsing. **BUILD 149**: Fixed AI loop after appointments - guard set early before any awaits to prevent barge-in re-entry; NLP skips entirely when guard active.
+- **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` with behavioral rules and server-side GPT-4o-mini NLP for appointment parsing. **BUILD 149**: Fixed AI loop after appointments - guard set early before any awaits to prevent barge-in re-entry; NLP skips entirely when guard active. Added English hallucination filter to block Whisper fabrications.
 - **Hebrew-Optimized VAD**: Dynamic thresholding.
 - **Simplified Barge-In**: 350ms grace period and instant trigger.
 - **Cost Tracking**: Real-time chunk-based audio tracking with cost summaries.
@@ -61,6 +61,7 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: **BUILD 148**: 7-day retention policy with scheduled cleanup every 6 hours. Deletes from Twilio API, local files, and DB. Only clears DB reference after successful external deletion to allow retry on failure.
+- **Recording URL Fix**: **BUILD 149**: Fixed recording_url not being saved when updating existing call_logs - now properly persisted for display in UI.
 - **Enhanced Reminders System**: Comprehensive management.
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses.
 - **Multi-Tenant Isolation**: Complete business data separation.

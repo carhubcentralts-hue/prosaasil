@@ -3970,25 +3970,29 @@ class MediaStreamHandler:
                 print("✅ WHISPER_VALIDATED: Empty/minimal result - good!")
                 return ""
             
-            # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER
-            # Whisper loves to fabricate English when there's noise/silence
+            # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER (refined)
+            # Only block when text is PURELY English (hallucination) - allow mixed Hebrew/English
             import re
-            english_ratio = len(re.findall(r'[a-zA-Z]', result)) / max(len(result), 1)
-            if english_ratio > 0.3:  # More than 30% English letters = hallucination
-                print(f"🚫 WHISPER_ENGLISH_HALLUCINATION: '{result}' has {english_ratio:.0%} English - blocking")
+            hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', result))
+            english_chars = len(re.findall(r'[a-zA-Z]', result))
+            total_chars = max(hebrew_chars + english_chars, 1)
+            
+            # If no Hebrew at all and has English - likely hallucination
+            if hebrew_chars == 0 and english_chars > 3:
+                print(f"🚫 WHISPER_PURE_ENGLISH: '{result}' has no Hebrew - blocking fabrication")
                 return ""
             
-            # 🛡️ Block common Whisper English fabrications
-            english_hallucinations = [
-                "thank you", "bye", "hello", "okay", "yes", "no", "please", 
-                "sorry", "good", "nice", "right", "here", "there", "pistol",
-                "gun", "take", "little", "just", "well", "you", "I'll", "i'll"
+            # 🛡️ Block PURE English fabrication phrases (only when no Hebrew present)
+            pure_english_hallucinations = [
+                "thank you", "i'll take", "pistol", "gun", "little pistol",
+                "right here", "just a moment"
             ]
             result_lower = result.lower()
-            for hallucination in english_hallucinations:
-                if hallucination in result_lower:
-                    print(f"🚫 WHISPER_ENGLISH_PHRASE: Found '{hallucination}' in '{result}' - blocking")
-                    return ""
+            if hebrew_chars == 0:
+                for hallucination in pure_english_hallucinations:
+                    if hallucination in result_lower:
+                        print(f"🚫 WHISPER_ENGLISH_PHRASE: Found '{hallucination}' in '{result}' - blocking")
+                        return ""
             
             # ✅ בדיקת מילים חשודות ש-Whisper אוהב להמציא
             suspicious_words = ["תודה", "נהדר", "נהדרת", "מעולה", "בראבו"] 
@@ -4048,11 +4052,14 @@ class MediaStreamHandler:
                 
                 hebrew_text = str(transcription).strip() if transcription else ""
                 
-                # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER (also in fallback)
+                # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER (refined - same as validated)
                 import re
-                english_ratio = len(re.findall(r'[a-zA-Z]', hebrew_text)) / max(len(hebrew_text), 1)
-                if english_ratio > 0.3:  # More than 30% English = hallucination
-                    print(f"🚫 WHISPER_FALLBACK_ENGLISH: '{hebrew_text}' has {english_ratio:.0%} English - blocking")
+                hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', hebrew_text))
+                english_chars = len(re.findall(r'[a-zA-Z]', hebrew_text))
+                
+                # Only block PURE English fabrications (no Hebrew at all)
+                if hebrew_chars == 0 and english_chars > 3:
+                    print(f"🚫 WHISPER_FALLBACK_PURE_ENGLISH: '{hebrew_text}' has no Hebrew - blocking")
                     os.unlink(temp_wav.name)
                     return ""
                 
