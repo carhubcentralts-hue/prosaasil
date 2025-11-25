@@ -310,7 +310,10 @@ def auto_cleanup_old_recordings():
     1. Find recordings older than 7 days (per business isolation)
     2. Delete from Twilio servers (if URL is from Twilio)
     3. Delete local files if exist
-    4. Clear recording_url from DB (keep transcription for reference)
+    4. Clear recording_url from DB ONLY if external deletions succeed
+    
+    CRITICAL: Only clear recording_url after successful external deletions
+    to allow retry on next cleanup pass if deletion fails.
     """
     try:
         from server.app_factory import get_process_app
@@ -334,30 +337,49 @@ def auto_cleanup_old_recordings():
             deleted_count = 0
             files_deleted = 0
             twilio_deleted = 0
+            skipped_count = 0
             
-            # Twilio credentials for API deletion
+            # Twilio credentials for API deletion - reuse client
             account_sid = os.getenv("TWILIO_ACCOUNT_SID")
             auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+            twilio_client = None
+            if account_sid and auth_token:
+                try:
+                    from twilio.rest import Client
+                    twilio_client = Client(account_sid, auth_token)
+                except Exception as e:
+                    log.warning(f"⚠️ Could not create Twilio client: {e}")
             
             for call in old_calls:
+                can_clear_url = True  # Track if we can safely clear the URL
+                
                 # 1. Delete from Twilio if URL matches Twilio pattern
                 if call.recording_url and "api.twilio.com" in call.recording_url:
                     try:
                         # Extract recording SID from URL
                         # Pattern: .../Recordings/RExxxxxx
                         match = re.search(r'/Recordings/(RE[a-zA-Z0-9]+)', call.recording_url)
-                        if match and account_sid and auth_token:
+                        if match and twilio_client:
                             recording_sid = match.group(1)
-                            from twilio.rest import Client
-                            client = Client(account_sid, auth_token)
                             try:
-                                client.recordings(recording_sid).delete()
+                                twilio_client.recordings(recording_sid).delete()
                                 twilio_deleted += 1
                                 log.info(f"🗑️ Deleted Twilio recording: {recording_sid} (business_id={call.business_id})")
                             except Exception as twilio_err:
-                                # Recording might already be deleted - not critical
-                                log.warning(f"⚠️ Twilio deletion failed for {recording_sid}: {twilio_err}")
+                                err_str = str(twilio_err)
+                                if "404" in err_str or "not found" in err_str.lower():
+                                    # Recording already deleted - OK to clear
+                                    log.info(f"ℹ️ Twilio recording already deleted: {recording_sid}")
+                                else:
+                                    # Actual error - don't clear URL, retry next time
+                                    can_clear_url = False
+                                    log.warning(f"⚠️ Twilio deletion failed for {recording_sid}, will retry: {twilio_err}")
+                        elif match and not twilio_client:
+                            # No credentials - don't clear URL
+                            can_clear_url = False
+                            log.warning(f"⚠️ No Twilio credentials, cannot delete recording for call {call.call_sid}")
                     except Exception as e:
+                        can_clear_url = False
                         log.warning(f"⚠️ Could not extract recording SID from URL: {e}")
                 
                 # 2. מחק קובץ מהדיסק אם קיים
@@ -371,15 +393,19 @@ def auto_cleanup_old_recordings():
                             files_deleted += 1
                             log.info(f"🗑️ Deleted local file: {file_path} (business_id={call.business_id})")
                         except Exception as e:
-                            log.error(f"Failed to delete file {file_path}: {e}")
+                            can_clear_url = False
+                            log.error(f"Failed to delete file {file_path}, will retry: {e}")
                 
-                # 3. נקה URL מהDB (שמור transcription - זה טקסט קטן)
-                call.recording_url = None
-                deleted_count += 1
+                # 3. נקה URL מהDB ONLY if external deletions succeeded
+                if can_clear_url:
+                    call.recording_url = None
+                    deleted_count += 1
+                else:
+                    skipped_count += 1
             
             db.session.commit()
             
-            log.info(f"✅ Auto cleanup completed: {deleted_count} DB entries, {twilio_deleted} Twilio, {files_deleted} local files")
+            log.info(f"✅ Auto cleanup completed: {deleted_count} DB entries cleared, {twilio_deleted} Twilio deleted, {files_deleted} local files, {skipped_count} skipped for retry")
             return deleted_count, files_deleted
             
     except Exception as e:

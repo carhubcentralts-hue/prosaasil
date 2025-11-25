@@ -60,7 +60,7 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **Greeting Management UI**: Dedicated fields for initial greetings.
 - **Customizable Status Management**: Per-business custom lead statuses.
 - **Billing and Contracts**: Integrated payment processing and contract generation.
-- **Automatic Recording Cleanup**: 2-day retention policy.
+- **Automatic Recording Cleanup**: **BUILD 148**: 7-day retention policy with scheduled cleanup every 6 hours. Deletes from Twilio API, local files, and DB. Only clears DB reference after successful external deletion to allow retry on failure.
 - **Enhanced Reminders System**: Comprehensive management.
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses.
 - **Multi-Tenant Isolation**: Complete business data separation.
