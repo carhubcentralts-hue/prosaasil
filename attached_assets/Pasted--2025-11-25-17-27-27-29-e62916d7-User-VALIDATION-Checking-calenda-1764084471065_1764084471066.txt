@@ -1,0 +1,86 @@
+==============================
+2025-11-25 17:27:27.29
+e62916d7
+User
+🔍 [VALIDATION] Checking calendar: 2025-11-27 15:00 - 16:00 (slot_size=60min)
+2025-11-25 17:27:27.29
+e62916d7
+User
+📝 [FLOW STEP 8] Validating slot availability...
+2025-11-25 17:27:29.13
+e62916d7
+User
+📝 [FLOW STEP 9] Checking for duplicate appointments...
+
+2025-11-25 17:27:30.21
+e62916d7
+User
+🔧 [CREATE_APPT] ========== create_appointment_from_realtime called ==========
+2025-11-25 17:27:30.21
+e62916d7
+User
+🔧 [CREATE_APPT] - treatment_type: פגישה
+2025-11-25 17:27:30.21
+e62916d7
+User
+🚀 [FLOW STEP 10] - start_iso: 2025-11-27T15:00:00+02:00
+2025-11-25 17:27:31.79
+e62916d7
+User
+🔧 [CREATE_APPT] Got dict result: {'ok': False, 'error': 'validation_error', 'message': 'יש חפיפה עם פגישה קיימת בשעה 15:00'}
+2025-11-25 17:27:31.79
+e62916d7
+User
+🔧 [CREATE_APPT] _calendar_create_appointment_impl returned: <class 'dict'>
+2025-11-25 17:27:31.79
+e62916d7
+User
+❌ [CREATE_APPT] FAILED (dict): יש חפיפה עם פגישה קיימת בשעה 15:00
+2025-11-25 17:27:31.99
+e62916d7
+User
+❌ [FLOW STEP 10] FAILED - validation_error: יש חפיפה עם פגישה קיימת בשעה 15:00
+2025-11-25 17:27:31.99
+e62916d7
+User
+🔇 [SERVER_EVENT] Sent SILENTLY to AI: ❌ שגיאה: יש חפיפה עם פגישה קיימת בשעה 15:00
+2025-11-25 17:27:31.99
+e62916d7
+User
+🚀 [FLOW STEP 10] create_appointment_from_realtime returned: {'ok': False, 'error': 'validation_error', 'message': 'יש חפיפה עם פגישה קיימת בשעה 15:00'}
+2025-11-25 17:27:32.19
+e62916d7
+User
+🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)
+2025-11-25 17:27:32.19
+e62916d7
+User
+❌ [REALTIME] Error event: Invalid value: 'text'. Value must be 'input_text'.
+2025-11-25 17:27:32.19
+e62916d7
+User
+[REALTIME] event: error
+2025-11-25 17:27:32.19
+e62916d7
+User
+[REALTIME] event: response.created
+2025-11-25 17:27:32.19
+e62916d7
+User
+🎯 [REALTIME] Response started: resp_CfpEySKTDqkSz220KJAci
+2025-11-25 17:27:32.29
+e62916d7
+User
+✅ [NLP] Async NLP parser completed successfully
+2025-11-25 17:27:32.29
+e62916d7
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-25 17:27:32.80
+e62916d7
+User
+[REALTIME] event: conversation.item.created
+2025-11-25 17:27:32.80
+e62916d7
+User
+[REALTIME] event: response.output_item.added
