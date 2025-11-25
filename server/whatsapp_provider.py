@@ -83,8 +83,8 @@ class BaileysProvider(Provider):
             self._last_health_check = now
             return False
     
-    def _start_baileys(self, tenant_id: str = "business_1") -> bool:
-        """🔥 Start Baileys session if not running"""
+    def _start_baileys(self, tenant_id: str) -> bool:
+        """🔥 Start Baileys session if not running - REQUIRES explicit tenant_id"""
         try:
             logger.info(f"🚀 Starting Baileys session for {tenant_id}...")
             headers = {"X-Internal-Secret": self.internal_secret}
@@ -103,8 +103,8 @@ class BaileysProvider(Provider):
             logger.error(f"❌ Failed to start Baileys: {e}")
             return False
     
-    def _wait_for_ready(self, tenant_id: str = "business_1", timeout: float = 10.0) -> bool:
-        """🔥 Wait for Baileys to become ready"""
+    def _wait_for_ready(self, tenant_id: str, timeout: float = 10.0) -> bool:
+        """🔥 Wait for Baileys to become ready - REQUIRES explicit tenant_id"""
         start = time.time()
         headers = {"X-Internal-Secret": self.internal_secret}
         while time.time() - start < timeout:
@@ -131,10 +131,15 @@ class BaileysProvider(Provider):
     def send_typing(self, jid: str, is_typing: bool = True, tenant_id: str = None) -> Dict[str, Any]:
         """⚡ Send typing indicator - instant user feedback (MULTI-TENANT)"""
         try:
+            # 🔥 HARDENING: Require explicit tenant_id - no fallback!
+            if not tenant_id:
+                logger.warning(f"[BAILEYS-WARN] send_typing: tenant_id required but not provided")
+                return {"status": "error", "error": "tenant_id required"}
+            
             payload = {
                 "jid": jid,
                 "typing": is_typing,
-                "tenantId": tenant_id or "business_1"  # Multi-tenant support
+                "tenantId": tenant_id
             }
             
             response = self._session.post(
@@ -150,9 +155,18 @@ class BaileysProvider(Provider):
     
     def send_text(self, to: str, text: str, tenant_id: str = None) -> Dict[str, Any]:
         """⚡ Send text message via Baileys HTTP API with AUTO-RESTART (MULTI-TENANT)"""
+        # 🔥 HARDENING: Require explicit tenant_id - no fallback to "business_1"!
+        if not tenant_id:
+            logger.error(f"[BAILEYS-ERR] send_text: tenant_id required but not provided")
+            return {
+                "provider": "baileys",
+                "status": "error",
+                "error": "tenant_id required for multi-tenant isolation"
+            }
+        
         max_attempts = 1  # 🔥 Single attempt to prevent loops
         last_error = None
-        effective_tenant = tenant_id or "business_1"  # MULTI-TENANT support
+        effective_tenant = tenant_id  # MULTI-TENANT: explicit tenant only
         
         for attempt in range(max_attempts):
             try:
@@ -234,6 +248,15 @@ class BaileysProvider(Provider):
     
     def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
         """Send media message via Baileys HTTP API (MULTI-TENANT)"""
+        # 🔥 HARDENING: Require explicit tenant_id - no fallback!
+        if not tenant_id:
+            logger.error(f"[BAILEYS-ERR] send_media: tenant_id required but not provided")
+            return {
+                "provider": "baileys",
+                "status": "error",
+                "error": "tenant_id required for multi-tenant isolation"
+            }
+        
         try:
             if not self._check_health():
                 return {
@@ -244,7 +267,7 @@ class BaileysProvider(Provider):
             
             # Generate idempotency key
             idempotency_key = str(uuid.uuid4())
-            effective_tenant = tenant_id or "business_1"  # MULTI-TENANT support
+            effective_tenant = tenant_id  # MULTI-TENANT: explicit tenant only
             
             payload = {
                 "to": to.replace("whatsapp:", "").replace("+", ""),
@@ -511,19 +534,31 @@ class WhatsAppService:
     
     def send_typing(self, jid: str, is_typing: bool = True, tenant_id: str = None) -> Dict[str, Any]:
         """⚡ Send typing indicator - creates instant UX feel (MULTI-TENANT)"""
-        effective_tenant = tenant_id or self.tenant_id or "business_1"
+        # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
+        effective_tenant = tenant_id or self.tenant_id
+        if not effective_tenant:
+            logger.warning(f"[WA-SERVICE-WARN] send_typing: no tenant_id available")
+            return {"status": "error", "error": "tenant_id required"}
         if hasattr(self.provider, 'send_typing'):
             return self.provider.send_typing(jid, is_typing, tenant_id=effective_tenant)
         return {"status": "unsupported"}
         
     def send_message(self, to: str, message: str, tenant_id: str = None) -> Dict[str, Any]:
         """Send text message via provider (MULTI-TENANT)"""
-        effective_tenant = tenant_id or self.tenant_id or "business_1"
+        # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
+        effective_tenant = tenant_id or self.tenant_id
+        if not effective_tenant:
+            logger.error(f"[WA-SERVICE-ERR] send_message: no tenant_id available")
+            return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
         return self.provider.send_text(to, message, tenant_id=effective_tenant)
         
     def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
         """Send media message via provider (MULTI-TENANT)"""
-        effective_tenant = tenant_id or self.tenant_id or "business_1"
+        # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
+        effective_tenant = tenant_id or self.tenant_id
+        if not effective_tenant:
+            logger.error(f"[WA-SERVICE-ERR] send_media: no tenant_id available")
+            return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
         return self.provider.send_media(to, media_url, caption, tenant_id=effective_tenant)
         
     def get_status(self) -> Dict[str, Any]:
@@ -554,7 +589,11 @@ class WhatsAppService:
     
     def send_with_failover(self, to: str, message: str, thread_data: Dict[str, Any] | None = None, tenant_id: str = None) -> Dict[str, Any]:
         """Send message with automatic failover (MULTI-TENANT)"""
-        effective_tenant = tenant_id or self.tenant_id or "business_1"
+        # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
+        effective_tenant = tenant_id or self.tenant_id
+        if not effective_tenant:
+            logger.error(f"[WA-SERVICE-ERR] send_with_failover: no tenant_id available")
+            return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
         
         # Try primary provider
         result = self.send_message(to, message, tenant_id=effective_tenant)

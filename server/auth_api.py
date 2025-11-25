@@ -264,9 +264,10 @@ def get_current_user():
             business = Business.query.get(tenant_id)
         
         # Prepare tenant response (required by frontend)
+        # 🔥 HARDENING: No fallback to 1 - tenant_id can be None for system_admin
         tenant_data = {
-            'id': business.id if business else tenant_id or 1,
-            'name': business.name if business else 'Default Tenant'
+            'id': business.id if business else tenant_id,
+            'name': business.name if business else ('System Admin' if u.get('role') == 'system_admin' else 'No Tenant')
         }
         
         # Include original user data during impersonation for frontend banner

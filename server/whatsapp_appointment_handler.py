@@ -340,9 +340,10 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
         
         result: Dict = {'processed': False, 'appointment_created': False}
         
-        # ✅ FIX: Use provided business_id or fallback
+        # 🔥 HARDENING: Require explicit business_id - no fallback to 1!
         if not business_id:
-            business_id = 1
+            print(f"❌ [WA-APPT-ERROR] process_incoming_whatsapp_message: business_id required but not provided")
+            return {'processed': False, 'error': 'business_id required for multi-tenant isolation'}
         
         # אם יש בקשה לפגישה אבל לא מספיק מידע
         if appointment_info['has_request'] and not appointment_info['meeting_ready']:
