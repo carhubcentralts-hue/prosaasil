@@ -1,359 +1,13 @@
 """
-Summary Service - AI-powered DYNAMIC conversation summarization
-שירות סיכום חכם ודינמי - מותאם לכל סוג עסק!
-BUILD 143 - Dynamic Business-Aware Summaries
+Summary Service - AI-powered FULLY DYNAMIC conversation summarization
+שירות סיכום חכם ודינמי לחלוטין - מזהה כל סוג עסק ושיחה אוטומטית!
+BUILD 144 - Universal Dynamic Summaries
 """
 import os
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 
 log = logging.getLogger(__name__)
-
-BUSINESS_SUMMARY_TEMPLATES = {
-    "real_estate": {
-        "system_prompt": "אתה מומחה סיכום שיחות נדל\"ן בעברית. תכתוב סיכומים מקצועיים, מפורטים ומובנים שמכילים את כל המידע החשוב מהשיחה.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: מה הלקוח מחפש? (מכירה/השכרה/ייעוץ)
-
-2. **פרטי הנכס המבוקש**:
-   - סוג נכס: (דירה/בית/משרד/קרקע)
-   - אזור/עיר: (מה האזור המועדף?)
-   - תקציב: (כולל טווח מחירים)
-   - מספר חדרים: (אם צוין)
-   - דרישות מיוחדות: (חניה, ממ"ד, מעלית וכו')
-
-3. **פרטי קשר**: שם הלקוח ואיך ליצור קשר
-
-4. **סטטוס ומעקב**:
-   - האם נקבעה פגישה? (מתי?)
-   - דחיפות: (גבוהה/בינונית/נמוכה)
-   - פעולות נדרשות
-
-5. **הערות נוספות**: מידע חשוב שצוין בשיחה"""
-    },
-    
-    "medical": {
-        "system_prompt": "אתה מומחה סיכום שיחות רפואיות בעברית. תכתוב סיכומים מקצועיים ודיסקרטיים שמכילים את המידע הרלוונטי לטיפול.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סיבת הפנייה**: מה הבעיה או התלונה העיקרית?
-
-2. **פרטים קליניים**:
-   - תסמינים: (תיאור הבעיה)
-   - משך הזמן: (מתי התחיל?)
-   - היסטוריה רלוונטית: (אם צוין)
-   - תרופות נוכחיות: (אם צוין)
-
-3. **פרטי המטופל**: שם ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם נקבע תור? (מתי ולאיזה רופא?)
-   - דחיפות: (גבוהה/בינונית/נמוכה)
-   - פעולות נדרשות
-
-5. **הערות מיוחדות**: אלרגיות, מגבלות או דגשים חשובים"""
-    },
-    
-    "legal": {
-        "system_prompt": "אתה מומחה סיכום שיחות משפטיות בעברית. תכתוב סיכומים מקצועיים ומדויקים שמכילים את כל הפרטים הרלוונטיים לייעוץ משפטי.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: תחום משפטי (נזיקין/משפחה/עבודה/פלילי/מסחרי)
-
-2. **פרטי התיק/העניין**:
-   - תיאור הבעיה: (מה קרה?)
-   - מועדים רלוונטיים: (תאריכים חשובים)
-   - צדדים מעורבים: (מי הצד השני?)
-   - מסמכים קיימים: (אם צוין)
-
-3. **פרטי הלקוח**: שם ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם נקבעה פגישת ייעוץ? (מתי?)
-   - דחיפות: (גבוהה/בינונית/נמוכה - התיישנות?)
-   - מסמכים שנדרשים
-
-5. **הערות משפטיות**: סוגיות מיוחדות או סיכונים"""
-    },
-    
-    "insurance": {
-        "system_prompt": "אתה מומחה סיכום שיחות ביטוח בעברית. תכתוב סיכומים מקצועיים שמכילים את כל הפרטים הרלוונטיים לפוליסה או תביעה.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (ביטוח חדש/תביעה/שינוי פוליסה/חידוש)
-
-2. **פרטי הביטוח**:
-   - סוג ביטוח: (רכב/דירה/בריאות/חיים)
-   - פרטי הנכס/המבוטח: (מה מבוטח?)
-   - כיסויים נדרשים: (מה חשוב ללקוח?)
-   - תקציב/פרמיה: (אם צוין)
-
-3. **פרטי הלקוח**: שם, גיל ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם נשלחה הצעה? (מתי?)
-   - מסמכים נדרשים
-   - פעולות המשך
-
-5. **הערות**: פוליסות קיימות, היסטוריית תביעות"""
-    },
-    
-    "automotive": {
-        "system_prompt": "אתה מומחה סיכום שיחות רכב בעברית. תכתוב סיכומים מקצועיים שמכילים את כל הפרטים הרלוונטיים לקנייה/מכירה/שירות רכב.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (קנייה/מכירה/ליסינג/שירות/תיקון)
-
-2. **פרטי הרכב**:
-   - יצרן ודגם: (מה מחפש/מציע?)
-   - שנה וקילומטרז': (אם צוין)
-   - תקציב: (טווח מחירים)
-   - דרישות מיוחדות: (צבע, תוספות, מצב)
-
-3. **פרטי הלקוח**: שם ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם נקבעה נסיעת מבחן/פגישה? (מתי?)
-   - רכב מוצע: (אם נמצא התאמה)
-   - פעולות נדרשות
-
-5. **הערות**: מקורות מימון, רכב קודם להחלפה"""
-    },
-    
-    "fitness": {
-        "system_prompt": "אתה מומחה סיכום שיחות כושר ובריאות בעברית. תכתוב סיכומים מקצועיים שמכילים את כל הפרטים הרלוונטיים למנוי או אימון.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (מנוי חדש/אימון אישי/שיעורים/מידע)
-
-2. **פרטי הלקוח ומטרות**:
-   - מטרת האימון: (ירידה במשקל/בניית שריר/כושר כללי)
-   - ניסיון קודם: (אם צוין)
-   - מגבלות/פציעות: (אם יש)
-   - זמינות: (ימים ושעות מועדפים)
-
-3. **פרטי התקשרות**: שם וטלפון
-
-4. **סטטוס ומעקב**:
-   - האם נקבע אימון ניסיון? (מתי?)
-   - סוג מנוי שמעניין
-   - פעולות נדרשות
-
-5. **הערות**: תקציב, העדפות מיוחדות"""
-    },
-    
-    "education": {
-        "system_prompt": "אתה מומחה סיכום שיחות חינוך והשכלה בעברית. תכתוב סיכומים מקצועיים שמכילים את כל הפרטים הרלוונטיים ללימודים.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (קורס/תואר/הכשרה/מידע)
-
-2. **פרטי הלימודים**:
-   - תחום עניין: (מה רוצים ללמוד?)
-   - רמה נוכחית: (רקע קיים)
-   - מטרה: (קריירה/העשרה/הסמכה)
-   - זמינות: (לימודי יום/ערב/אונליין)
-
-3. **פרטי המתעניין**: שם, גיל ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם נקבעה פגישת ייעוץ? (מתי?)
-   - קורסים/מסלולים מתאימים
-   - פעולות נדרשות
-
-5. **הערות**: תקציב, מועדי פתיחה, מלגות"""
-    },
-    
-    "restaurant": {
-        "system_prompt": "אתה מומחה סיכום שיחות מסעדות והזמנות בעברית. תכתוב סיכומים מקצועיים שמכילים את כל פרטי ההזמנה.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (הזמנת שולחן/אירוע/קייטרינג/מידע)
-
-2. **פרטי ההזמנה**:
-   - תאריך ושעה: (מתי?)
-   - מספר סועדים: (כמה אנשים?)
-   - אופי האירוע: (יום הולדת/עסקי/משפחתי)
-   - דרישות מיוחדות: (צמחוני/ללא גלוטן/כשר)
-
-3. **פרטי המזמין**: שם וטלפון
-
-4. **סטטוס ומעקב**:
-   - האם ההזמנה אושרה? (מספר הזמנה?)
-   - תקציב/מנות מוזמנות מראש
-   - בקשות מיוחדות
-
-5. **הערות**: מקום ישיבה מועדף, חגיגה מיוחדת"""
-    },
-    
-    "beauty": {
-        "system_prompt": "אתה מומחה סיכום שיחות יופי וטיפוח בעברית. תכתוב סיכומים מקצועיים שמכילים את כל פרטי הטיפול המבוקש.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (תספורת/צביעה/טיפול פנים/מניקור/אחר)
-
-2. **פרטי הטיפול**:
-   - סוג הטיפול המבוקש: (מה רוצים?)
-   - העדפות: (סגנון/צבע/אורך)
-   - מטפל/ת מועדף/ת: (אם יש)
-   - זמינות: (ימים ושעות מועדפים)
-
-3. **פרטי הלקוח/ה**: שם וטלפון
-
-4. **סטטוס ומעקב**:
-   - האם נקבע תור? (מתי ולמי?)
-   - משך הטיפול המשוער
-   - פעולות נדרשות
-
-5. **הערות**: אלרגיות, טיפולים קודמים, תקציב"""
-    },
-    
-    "consulting": {
-        "system_prompt": "אתה מומחה סיכום שיחות ייעוץ עסקי בעברית. תכתוב סיכומים מקצועיים שמכילים את כל הפרטים הרלוונטיים לייעוץ.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (ייעוץ עסקי/שיווק/פיננסי/ארגוני)
-
-2. **פרטי העסק**:
-   - תחום פעילות: (מה העסק עושה?)
-   - אתגר/בעיה: (מה צריך לפתור?)
-   - גודל העסק: (עובדים/מחזור)
-   - מטרות: (לאן רוצים להגיע?)
-
-3. **פרטי הלקוח**: שם, תפקיד ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם נקבעה פגישת ייעוץ? (מתי?)
-   - דחיפות: (גבוהה/בינונית/נמוכה)
-   - פעולות נדרשות
-
-5. **הערות**: תקציב לייעוץ, ציפיות, מסמכים נדרשים"""
-    },
-    
-    "tech_support": {
-        "system_prompt": "אתה מומחה סיכום שיחות תמיכה טכנית בעברית. תכתוב סיכומים מקצועיים שמכילים את כל הפרטים הרלוונטיים לטיפול בבעיה.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (תקלה/שאלה/הדרכה/התקנה)
-
-2. **פרטי הבעיה**:
-   - תיאור התקלה: (מה לא עובד?)
-   - מוצר/שירות: (באיזה מוצר מדובר?)
-   - מתי התחיל: (תזמון הבעיה)
-   - מה נוסה: (פתרונות שנוסו)
-
-3. **פרטי הלקוח**: שם, מספר לקוח ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם הבעיה נפתרה? (כן/לא/בטיפול)
-   - מספר קריאה/טיקט
-   - פעולות נדרשות
-
-5. **הערות**: דחיפות, SLA, טכנאי שטיפל"""
-    },
-    
-    "travel": {
-        "system_prompt": "אתה מומחה סיכום שיחות תיירות ונסיעות בעברית. תכתוב סיכומים מקצועיים שמכילים את כל פרטי הנסיעה.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **סוג הפנייה**: (חופשה/טיסות/מלון/חבילה)
-
-2. **פרטי הנסיעה**:
-   - יעד: (לאן?)
-   - תאריכים: (מתי ולכמה זמן?)
-   - מספר נוסעים: (מבוגרים/ילדים)
-   - תקציב: (טווח מחירים)
-   - העדפות: (סוג מלון, פעילויות)
-
-3. **פרטי המזמין**: שם וטלפון
-
-4. **סטטוס ומעקב**:
-   - האם נשלחה הצעה? (מתי?)
-   - טיסות/מלונות שהוצעו
-   - פעולות נדרשות
-
-5. **הערות**: דרישות מיוחדות, ויזות, ביטוח"""
-    },
-    
-    "general": {
-        "system_prompt": "אתה מומחה סיכום שיחות עסקיות בעברית. תכתוב סיכומים מקצועיים, ברורים ומועילים.",
-        "structure": """📋 מבנה הסיכום הנדרש:
-
-1. **מטרת השיחה**: מה הלקוח חיפש או ביקש?
-
-2. **פרטים עיקריים**:
-   - תיאור הבקשה/צורך
-   - פרטים ספציפיים שצוינו
-   - העדפות מיוחדות
-   - תקציב או מגבלות
-
-3. **פרטי הלקוח**: שם ופרטי התקשרות
-
-4. **סטטוס ומעקב**:
-   - האם נקבעה פגישה/פעולה? (מתי?)
-   - דחיפות: (גבוהה/בינונית/נמוכה)
-   - פעולות נדרשות מהעסק
-
-5. **הערות נוספות**: כל מידע חשוב אחר מהשיחה"""
-    }
-}
-
-BUSINESS_TYPE_ALIASES = {
-    "realestate": "real_estate",
-    "property": "real_estate",
-    "נדלן": "real_estate",
-    "clinic": "medical",
-    "doctor": "medical",
-    "רפואי": "medical",
-    "קליניקה": "medical",
-    "lawyer": "legal",
-    "attorney": "legal",
-    "עורך דין": "legal",
-    "משפטי": "legal",
-    "ביטוח": "insurance",
-    "car": "automotive",
-    "garage": "automotive",
-    "רכב": "automotive",
-    "מוסך": "automotive",
-    "gym": "fitness",
-    "sport": "fitness",
-    "חדר כושר": "fitness",
-    "school": "education",
-    "course": "education",
-    "לימודים": "education",
-    "food": "restaurant",
-    "מסעדה": "restaurant",
-    "קייטרינג": "restaurant",
-    "salon": "beauty",
-    "spa": "beauty",
-    "מספרה": "beauty",
-    "יופי": "beauty",
-    "business": "consulting",
-    "עסקי": "consulting",
-    "support": "tech_support",
-    "it": "tech_support",
-    "תמיכה": "tech_support",
-    "tourism": "travel",
-    "vacation": "travel",
-    "תיירות": "travel",
-    "נסיעות": "travel",
-}
-
-def _normalize_business_type(business_type: str) -> str:
-    """Normalize business type to match template keys"""
-    if not business_type:
-        return "general"
-    
-    bt_lower = business_type.lower().strip()
-    
-    if bt_lower in BUSINESS_SUMMARY_TEMPLATES:
-        return bt_lower
-    
-    if bt_lower in BUSINESS_TYPE_ALIASES:
-        return BUSINESS_TYPE_ALIASES[bt_lower]
-    
-    return "general"
 
 
 def summarize_conversation(
@@ -363,50 +17,99 @@ def summarize_conversation(
     business_name: Optional[str] = None
 ) -> str:
     """
-    סיכום דינמי ומקצועי של שיחה - מותאם לסוג העסק!
-    BUILD 143 - Dynamic Business-Aware Summaries
+    סיכום דינמי לחלוטין של שיחה - מזהה אוטומטית את סוג השיחה והעסק!
+    BUILD 144 - Universal Dynamic Summaries
+    
+    GPT מזהה בעצמו:
+    - סוג העסק (נדל"ן, רפואי, דינוזאורים, כל דבר!)
+    - מטרת השיחה
+    - פרטים רלוונטיים
+    - פעולות נדרשות
     
     Args:
         transcription: התמלול המלא של השיחה
         call_sid: מזהה שיחה ללוגים
-        business_type: סוג העסק (real_estate, medical, legal, etc.)
+        business_type: רמז על סוג העסק (אופציונלי - GPT יזהה בעצמו)
         business_name: שם העסק (אופציונלי)
         
     Returns:
-        סיכום מקצועי בעברית (80-150 מילים) מותאם לסוג העסק
+        סיכום מקצועי דינמי בעברית (80-150 מילים)
     """
     if not transcription or len(transcription.strip()) < 10:
         return "שיחה קצרה ללא תוכן"
     
-    normalized_type = _normalize_business_type(business_type)
-    template = BUSINESS_SUMMARY_TEMPLATES.get(normalized_type, BUSINESS_SUMMARY_TEMPLATES["general"])
-    
-    log.info(f"📊 Summarizing call {call_sid} for business type: {normalized_type}")
+    log.info(f"📊 Generating universal dynamic summary for call {call_sid}")
     
     try:
         from openai import OpenAI
         
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        business_context = f" עבור {business_name}" if business_name else ""
+        business_context = ""
+        if business_name:
+            business_context = f"\n\nשם העסק: {business_name}"
+        if business_type:
+            business_context += f"\nתחום העסק (רמז): {business_type}"
         
-        prompt = f"""סכם את השיחה הבאה בעברית בצורה **מקצועית ומפורטת** (80-150 מילים){business_context}.
+        prompt = f"""אתה מומחה סיכום שיחות עסקיות בעברית. סכם את השיחה הבאה בצורה **מקצועית, מפורטת ודינמית**.
 
-{template['structure']}
+🎯 **הוראות חשובות:**
+1. **זהה אוטומטית** את סוג העסק/השירות מתוכן השיחה עצמה
+2. **התאם את מבנה הסיכום** לסוג השיחה שזיהית
+3. **חלץ את כל הפרטים הרלוונטיים** לתחום הספציפי
+4. **כתוב סיכום שימושי לאיש המכירות/השירות**
 
-תמלול השיחה:
+📋 **מבנה הסיכום הנדרש (80-150 מילים):**
+
+1. **סוג הפנייה והתחום**: (זהה אוטומטית - מה סוג העסק ומה הלקוח מחפש?)
+
+2. **פרטים ספציפיים**: (התאם לתחום שזיהית!)
+   - אם נדל"ן: נכס, אזור, תקציב, חדרים
+   - אם רפואי: תסמינים, דחיפות, סוג טיפול
+   - אם משפטי: סוג תיק, מועדים, צדדים
+   - אם מסעדה: תאריך, מספר סועדים, אירוע
+   - אם טכנולוגיה: בעיה, מוצר, פתרון
+   - אם חינוך: קורס, רמה, מטרה
+   - אם כל תחום אחר: פרטים רלוונטיים לשירות/מוצר
+   
+3. **פרטי הלקוח**: שם ואמצעי התקשרות (אם נמסרו)
+
+4. **סטטוס ומעקב**:
+   - האם נקבעה פגישה/תור/פעולה? (מתי?)
+   - דחיפות: גבוהה/בינונית/נמוכה
+   - פעולות נדרשות מהעסק
+
+5. **הערות חשובות**: מידע נוסף רלוונטי לתחום
+{business_context}
+
+📝 **תמלול השיחה:**
 {transcription}
 
-📝 **סיכום מקצועי**:"""
+📝 **סיכום מקצועי דינמי:**"""
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": template['system_prompt']},
+                {
+                    "role": "system", 
+                    "content": """אתה מומחה סיכום שיחות עסקיות בעברית. 
+                    
+היכולות שלך:
+- מזהה אוטומטית כל סוג עסק ושירות - מנדל"ן ועד דינוזאורים!
+- מתאים את מבנה הסיכום לתחום הספציפי
+- חולץ מידע רלוונטי בצורה חכמה
+- כותב סיכומים שימושיים ומקצועיים
+
+כללים:
+- סיכום 80-150 מילים בעברית
+- מבנה ברור עם כותרות
+- התמקד במידע שימושי לאיש המכירות/השירות
+- אל תמציא מידע שלא נאמר בשיחה"""
+                },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=350,
-            temperature=0.2
+            max_tokens=400,
+            temperature=0.3
         )
         
         summary = response.choices[0].message.content
@@ -414,62 +117,33 @@ def summarize_conversation(
             summary = summary.strip()
             word_count = len(summary.split())
             
-            if word_count < 70:
+            if word_count < 50:
                 log.warning(f"⚠️ Summary too short ({word_count} words) for {call_sid} - using fallback")
-                return _fallback_summary(transcription, normalized_type)
-            elif word_count < 80:
-                log.warning(f"⚠️ Summary slightly short ({word_count} words) for {call_sid} - acceptable")
-            elif word_count > 180:
+                return _fallback_summary(transcription)
+            elif word_count > 200:
                 log.warning(f"⚠️ Summary too long ({word_count} words) for {call_sid} - truncating")
                 words = summary.split()
-                summary = " ".join(words[:150]) + "..."
-            elif word_count > 150:
-                log.warning(f"⚠️ Summary slightly long ({word_count} words) for {call_sid} - acceptable")
+                summary = " ".join(words[:180]) + "..."
             
-            log.info(f"✅ Dynamic summary generated for {call_sid} ({normalized_type}): {word_count} words")
+            log.info(f"✅ Universal dynamic summary generated for {call_sid}: {word_count} words")
             return summary
         else:
             log.warning(f"⚠️ Empty summary for {call_sid}")
-            return _fallback_summary(transcription, normalized_type)
+            return _fallback_summary(transcription)
             
     except Exception as e:
         log.error(f"❌ Summary generation failed for {call_sid}: {e}")
-        return _fallback_summary(transcription, normalized_type)
+        return _fallback_summary(transcription)
 
 
-def _fallback_summary(transcription: str, business_type: str = "general") -> str:
+def _fallback_summary(transcription: str) -> str:
     """
     סיכום fallback דינמי (במקרה של כשל ב-AI)
     """
     words = transcription.strip().split()
-    text_lower = transcription.lower()
     
     summary_parts = []
-    
-    intent_keywords = {
-        "real_estate": {"buy": ['לקנות', 'קונה', 'לרכוש'], "rent": ['לשכור', 'שוכר', 'להשכיר']},
-        "medical": {"appointment": ['תור', 'ביקור', 'בדיקה'], "urgent": ['דחוף', 'כאב', 'חירום']},
-        "legal": {"consult": ['ייעוץ', 'התייעצות'], "case": ['תיק', 'תביעה', 'משפט']},
-    }
-    
-    type_labels = {
-        "real_estate": "נדל\"ן",
-        "medical": "רפואי",
-        "legal": "משפטי",
-        "insurance": "ביטוח",
-        "automotive": "רכב",
-        "fitness": "כושר",
-        "education": "לימודים",
-        "restaurant": "מסעדה",
-        "beauty": "יופי וטיפוח",
-        "consulting": "ייעוץ עסקי",
-        "tech_support": "תמיכה טכנית",
-        "travel": "תיירות",
-        "general": "כללי"
-    }
-    
-    type_label = type_labels.get(business_type, "עסקי")
-    summary_parts.append(f"**סוג הפנייה**: פנייה {type_label}")
+    summary_parts.append("**סוג הפנייה**: פנייה עסקית")
     
     if len(words) >= 80:
         content = " ".join(words[:70])
@@ -487,69 +161,63 @@ def _fallback_summary(transcription: str, business_type: str = "general") -> str
     
     fallback = "\n".join(summary_parts)
     word_count = len(fallback.split())
-    log.info(f"📋 Fallback summary created ({business_type}): {word_count} words")
+    log.info(f"📋 Fallback summary created: {word_count} words")
     return fallback
 
 
 def extract_lead_info(transcription: str, business_type: Optional[str] = None) -> dict:
     """
-    חילוץ מידע חשוב מהשיחה - דינמי לפי סוג העסק
+    חילוץ מידע חשוב מהשיחה - דינמי לחלוטין
     
     Args:
         transcription: התמלול המלא
-        business_type: סוג העסק
+        business_type: רמז על סוג העסק (אופציונלי)
         
     Returns:
-        dict עם מידע רלוונטי לסוג העסק
+        dict עם מידע רלוונטי
     """
     if not transcription or len(transcription.strip()) < 10:
         return {}
-    
-    normalized_type = _normalize_business_type(business_type)
     
     try:
         from openai import OpenAI
         
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        extraction_templates = {
-            "real_estate": '{"area": "אזור מבוקש או null", "property_type": "דירה/בית/משרד או null", "budget": "תקציב או null", "intent": "מכירה/השכרה או null", "meeting_scheduled": true/false}',
-            "medical": '{"symptoms": "תסמינים או null", "urgency": "גבוהה/בינונית/נמוכה", "appointment_type": "סוג תור או null", "appointment_scheduled": true/false}',
-            "legal": '{"legal_area": "תחום משפטי או null", "case_type": "סוג תיק או null", "urgency": "גבוהה/בינונית/נמוכה", "consultation_scheduled": true/false}',
-            "general": '{"request_type": "סוג בקשה או null", "details": "פרטים עיקריים או null", "urgency": "גבוהה/בינונית/נמוכה", "meeting_scheduled": true/false}'
-        }
-        
-        json_template = extraction_templates.get(normalized_type, extraction_templates["general"])
-        
-        prompt = f"""חלץ מידע מהשיחה הבאה:
+        prompt = f"""חלץ מידע מהשיחה הבאה.
 
 תמלול:
 {transcription}
 
+זהה אוטומטית את סוג העסק/השירות והחזר JSON עם מידע רלוונטי.
+
 החזר JSON בפורמט:
-{json_template}
+{{
+  "detected_business_type": "סוג העסק שזיהית",
+  "request_type": "סוג הבקשה/פנייה",
+  "key_details": "פרטים עיקריים רלוונטיים לתחום",
+  "customer_name": "שם הלקוח או null",
+  "urgency": "גבוהה/בינונית/נמוכה",
+  "meeting_scheduled": true/false,
+  "next_action": "פעולה מומלצת"
+}}
 """
         
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": f"אתה מומחה לחילוץ מידע מתחום {normalized_type}. החזר רק JSON תקין."},
+                {"role": "system", "content": "אתה מומחה לחילוץ מידע משיחות עסקיות. זהה אוטומטית את סוג העסק והחזר רק JSON תקין."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=150,
+            max_tokens=200,
             temperature=0.1
         )
         
         import json
         result = json.loads(response.choices[0].message.content)
-        log.info(f"✅ Lead info extracted ({normalized_type}): {result}")
+        log.info(f"✅ Lead info extracted dynamically: {result}")
         return result
         
     except Exception as e:
         log.error(f"❌ Lead info extraction failed: {e}")
         return {}
-
-
-def get_available_business_types() -> list:
-    """Return list of available business types for UI"""
-    return list(BUSINESS_SUMMARY_TEMPLATES.keys())
