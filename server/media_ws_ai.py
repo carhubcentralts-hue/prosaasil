@@ -1025,7 +1025,18 @@ class MediaStreamHandler:
             
             app = _get_flask_app()
             with app.app_context():
-                business_id_safe = self.business_id or 1
+                # 🔒 HARDENING: Verify business_id exists, no silent fallback to 1
+                if not self.business_id:
+                    logger.error(f"[CALL-ERROR] No business_id set before Realtime API init!")
+                    from server.services.business_resolver import resolve_business_with_fallback
+                    to_num = getattr(self, 'to_number', None) or ''
+                    self.business_id, status = resolve_business_with_fallback('twilio_voice', to_num)
+                    logger.warning(f"[CALL-ERROR] Resolved via fallback: biz={self.business_id} ({status})")
+                
+                business_id_safe = self.business_id
+                if not business_id_safe:
+                    raise RuntimeError("[CALL-ERROR] Cannot start call without valid business_id")
+                
                 system_prompt = build_realtime_system_prompt(business_id_safe)
             
             # 🚨 CRITICAL VALIDATION: Ensure prompt is not empty
@@ -2417,10 +2428,13 @@ class MediaStreamHandler:
                             business_id, greet = self._identify_business_and_get_greeting()
                         print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
                     except Exception as e:
-                        print(f"❌ CRITICAL ERROR in business identification: {e}")
                         import traceback
-                        traceback.print_exc()
-                        self.business_id = 1
+                        logger.error(f"[CALL-ERROR] Business identification failed: {e}")
+                        logger.error(f"[CALL-ERROR] Traceback: {traceback.format_exc()}")
+                        # 🔒 HARDENING: NO hardcoded fallback - use resolver
+                        from server.services.business_resolver import resolve_business_with_fallback
+                        self.business_id, status = resolve_business_with_fallback('twilio_voice', self.to_number)
+                        logger.warning(f"[CALL-ERROR] Using resolver fallback: biz={self.business_id} ({status})")
                         greet = "שלום! איך אפשר לעזור?"
                     
                     # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
@@ -4202,12 +4216,14 @@ class MediaStreamHandler:
                     if business:
                         print(f"✅ מצא עסק: {business.name} (id={business.id})")
                 
-                # Fallback אם לא נמצא
+                # 🔒 HARDENING: No silent fallback to first business - use resolver
                 if not business:
-                    business = Business.query.filter_by(is_active=True).first()
-                    if not business:
-                        business = Business.query.first()
-                    print(f"⚠️ שימוש בעסק fallback: {business.name if business else 'None'}")
+                    from server.services.business_resolver import resolve_business_with_fallback
+                    to_num_safe = to_number or ''
+                    resolved_id, status = resolve_business_with_fallback('twilio_voice', to_num_safe)
+                    logger.warning(f"[CALL-WARN] No business for {to_number}, using resolver: biz={resolved_id} ({status})")
+                    if resolved_id:
+                        business = Business.query.get(resolved_id)
                 
                 # עדכן business_id + חזור ברכה
                 if business:
@@ -4220,22 +4236,22 @@ class MediaStreamHandler:
                         # החלפת placeholder
                         greeting = greeting.replace("{{business_name}}", business_name)
                         greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
-                        # 🔍 DEBUG: Log FULL greeting to detect truncation
-                        print(f"⚡ FAST COMPLETE: business_id={self.business_id}, greeting (FULL)='{greeting}' (len={len(greeting)})")
+                        logger.info(f"[CALL-START] biz={self.business_id}, greeting='{greeting[:50]}...' (len={len(greeting)})")
                     else:
-                        print(f"⚡ FAST COMPLETE: business_id={self.business_id}, NO GREETING (AI will speak first!)")
+                        logger.info(f"[CALL-START] biz={self.business_id}, NO GREETING (AI speaks first)")
                     
                     return (self.business_id, greeting)
                 else:
-                    self.business_id = 1
-                    return (1, None)  # ✅ No hardcoded greeting - AI speaks first!
+                    logger.error(f"[CALL-ERROR] No business found for call to {to_number}")
+                    self.business_id = None
+                    return (None, None)
         
         except Exception as e:
-            print(f"❌ Fast identification failed: {e}")
             import traceback
-            traceback.print_exc()
-            self.business_id = 1
-            return (1, None)  # ✅ NO fallback greeting - AI speaks first!
+            logger.error(f"[CALL-ERROR] Business identification failed: {e}")
+            logger.error(f"[CALL-ERROR] Traceback: {traceback.format_exc()}")
+            self.business_id = None
+            return (None, None)
     
     def _identify_business_from_phone(self):
         """זיהוי business_id לפי to_number (wrapper for backwards compat)"""
