@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
@@ -10,6 +10,13 @@ import { Input } from '../../shared/components/ui/Input';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadConversation, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
+
+interface LeadStatus {
+  id: number;
+  name: string;
+  color: string;
+  is_default: boolean;
+}
 
 interface LeadDetailPageProps {}
 
@@ -35,6 +42,22 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [whatsappChatOpen, setWhatsappChatOpen] = useState(false);
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
   const [editingReminder, setEditingReminder] = useState<LeadReminder | null>(null);
+  
+  // Edit mode state
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [editForm, setEditForm] = useState({
+    first_name: '',
+    last_name: '',
+    phone_e164: '',
+    email: '',
+    notes: ''
+  });
+  
+  // Status management
+  const [statuses, setStatuses] = useState<LeadStatus[]>([]);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
   
   // Data for each tab
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -114,6 +137,77 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     }
   };
 
+  const fetchStatuses = useCallback(async () => {
+    try {
+      const response = await http.get<{ statuses: LeadStatus[] }>('/api/statuses');
+      if (response.statuses) {
+        setStatuses(response.statuses);
+      }
+    } catch (err) {
+      console.error('Failed to fetch statuses:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatuses();
+  }, [fetchStatuses]);
+
+  const startEditing = () => {
+    if (lead) {
+      setEditForm({
+        first_name: lead.first_name || '',
+        last_name: lead.last_name || '',
+        phone_e164: lead.phone_e164 || '',
+        email: lead.email || '',
+        notes: lead.notes || ''
+      });
+      setIsEditing(true);
+    }
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditForm({
+      first_name: '',
+      last_name: '',
+      phone_e164: '',
+      email: '',
+      notes: ''
+    });
+  };
+
+  const saveLead = async () => {
+    if (!lead) return;
+    
+    setIsSaving(true);
+    try {
+      const response = await http.patch<{ lead: Lead }>(`/api/leads/${lead.id}`, editForm);
+      if (response.lead) {
+        setLead({ ...lead, ...response.lead });
+      }
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Failed to save lead:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateLeadStatus = async (newStatus: string) => {
+    if (!lead) return;
+    
+    setStatusSaving(true);
+    try {
+      await http.post(`/api/leads/${lead.id}/status`, { status: newStatus });
+      setLead({ ...lead, status: newStatus });
+      setStatusDropdownOpen(false);
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    } finally {
+      setStatusSaving(false);
+    }
+  };
+
   const conversations = useMemo<LeadConversation[]>(() => {
     return activities
       .filter(activity => 
@@ -155,17 +249,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     );
   }
 
-  const StatusBadge = ({ status }: { status: string }) => {
-    const statusColors: Record<string, string> = {
-      'new': 'bg-blue-100 text-blue-800',
-      'attempting': 'bg-yellow-100 text-yellow-800',
-      'contacted': 'bg-green-100 text-green-800',
-      'qualified': 'bg-purple-100 text-purple-800',
-      'won': 'bg-emerald-100 text-emerald-800',
-      'lost': 'bg-red-100 text-red-800',
-      'unqualified': 'bg-gray-100 text-gray-800',
-    };
-    
+  const getStatusLabel = (status: string): string => {
     const statusLabels: Record<string, string> = {
       'new': 'חדש',
       'attempting': 'בניסיון קשר',
@@ -175,17 +259,82 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       'lost': 'אובדן',
       'unqualified': 'לא מוכשר',
     };
-    
-    const normalizedStatus = status.toLowerCase();
-    const color = statusColors[normalizedStatus] || 'bg-gray-100 text-gray-800';
-    const label = statusLabels[normalizedStatus] || status;
-    
-    return (
-      <Badge className={color}>
-        {label}
-      </Badge>
-    );
+    const normalized = status.toLowerCase();
+    return statusLabels[normalized] || status;
   };
+
+  const getStatusColor = (status: string): string => {
+    const statusColors: Record<string, string> = {
+      'new': 'bg-blue-100 text-blue-800',
+      'attempting': 'bg-yellow-100 text-yellow-800',
+      'contacted': 'bg-green-100 text-green-800',
+      'qualified': 'bg-purple-100 text-purple-800',
+      'won': 'bg-emerald-100 text-emerald-800',
+      'lost': 'bg-red-100 text-red-800',
+      'unqualified': 'bg-gray-100 text-gray-800',
+    };
+    const normalized = status.toLowerCase();
+    return statusColors[normalized] || 'bg-gray-100 text-gray-800';
+  };
+
+  const StatusDropdown = () => (
+    <div className="relative">
+      <button
+        onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+        disabled={statusSaving}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${getStatusColor(lead.status)} hover:opacity-80 transition-opacity`}
+        data-testid="status-dropdown-trigger"
+      >
+        {statusSaving ? (
+          <Loader2 className="w-3 h-3 animate-spin" />
+        ) : null}
+        {getStatusLabel(lead.status)}
+        <ChevronDown className="w-3 h-3" />
+      </button>
+      
+      {statusDropdownOpen && (
+        <>
+          <div 
+            className="fixed inset-0 z-10" 
+            onClick={() => setStatusDropdownOpen(false)}
+          />
+          <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20" data-testid="status-dropdown-menu">
+            {statuses.length > 0 ? (
+              statuses.map((status) => (
+                <button
+                  key={status.id}
+                  onClick={() => updateLeadStatus(status.name)}
+                  className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 flex items-center gap-2 ${
+                    status.name.toLowerCase() === lead.status.toLowerCase() ? 'bg-gray-50' : ''
+                  }`}
+                  data-testid={`status-option-${status.name}`}
+                >
+                  <span 
+                    className="w-3 h-3 rounded-full" 
+                    style={{ backgroundColor: status.color || '#gray' }}
+                  />
+                  {status.name}
+                </button>
+              ))
+            ) : (
+              ['new', 'attempting', 'contacted', 'qualified', 'won', 'lost'].map((statusKey) => (
+                <button
+                  key={statusKey}
+                  onClick={() => updateLeadStatus(statusKey)}
+                  className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 ${
+                    statusKey === lead.status.toLowerCase() ? 'bg-gray-50' : ''
+                  }`}
+                  data-testid={`status-option-${statusKey}`}
+                >
+                  {getStatusLabel(statusKey)}
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -215,7 +364,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <StatusBadge status={lead.status} />
+              <StatusDropdown />
               <Button 
                 size="sm" 
                 onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
@@ -255,7 +404,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 חזור
               </Button>
-              <StatusBadge status={lead.status} />
+              <StatusDropdown />
             </div>
             <div className="text-center mb-4">
               <h1 className="text-lg font-semibold text-gray-900" data-testid="text-lead-name-mobile">
@@ -352,7 +501,20 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
-        {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} />}
+        {activeTab === 'overview' && (
+          <OverviewTab 
+            lead={lead} 
+            reminders={reminders} 
+            onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }}
+            isEditing={isEditing}
+            isSaving={isSaving}
+            editForm={editForm}
+            setEditForm={setEditForm}
+            startEditing={startEditing}
+            cancelEditing={cancelEditing}
+            saveLead={saveLead}
+          />
+        )}
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} />}
@@ -387,46 +549,171 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 }
 
 // Tab Components
-function OverviewTab({ lead, reminders, onOpenReminder }: { lead: Lead; reminders: LeadReminder[]; onOpenReminder: () => void }) {
+interface OverviewTabProps {
+  lead: Lead;
+  reminders: LeadReminder[];
+  onOpenReminder: () => void;
+  isEditing: boolean;
+  isSaving: boolean;
+  editForm: {
+    first_name: string;
+    last_name: string;
+    phone_e164: string;
+    email: string;
+    notes: string;
+  };
+  setEditForm: React.Dispatch<React.SetStateAction<{
+    first_name: string;
+    last_name: string;
+    phone_e164: string;
+    email: string;
+    notes: string;
+  }>>;
+  startEditing: () => void;
+  cancelEditing: () => void;
+  saveLead: () => void;
+}
+
+function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, editForm, setEditForm, startEditing, cancelEditing, saveLead }: OverviewTabProps) {
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6">
       {/* Lead Info */}
       <div className="lg:col-span-2">
         <Card className="p-4 sm:p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">פרטי קשר</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">שם פרטי</label>
-              <p className="text-sm text-gray-900">{lead.first_name}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">שם משפחה</label>
-              <p className="text-sm text-gray-900">{lead.last_name}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
-              <p className="text-sm text-gray-900">{lead.phone_e164}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
-              <p className="text-sm text-gray-900">{lead.email || 'לא צוין'}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">מקור</label>
-              <p className="text-sm text-gray-900">{lead.source}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">תאריך יצירה</label>
-              <p className="text-sm text-gray-900">{formatDate(lead.created_at)}</p>
-            </div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-900">פרטי קשר</h3>
+            {!isEditing ? (
+              <Button
+                onClick={startEditing}
+                size="sm"
+                variant="secondary"
+                data-testid="button-edit-lead"
+              >
+                <Pencil className="w-4 h-4 mr-2" />
+                ערוך
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  onClick={cancelEditing}
+                  size="sm"
+                  variant="ghost"
+                  disabled={isSaving}
+                  data-testid="button-cancel-edit"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  ביטול
+                </Button>
+                <Button
+                  onClick={saveLead}
+                  size="sm"
+                  disabled={isSaving}
+                  data-testid="button-save-lead"
+                >
+                  {isSaving ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-2" />
+                  )}
+                  שמור
+                </Button>
+              </div>
+            )}
           </div>
+          
+          {isEditing ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם פרטי</label>
+                <Input
+                  value={editForm.first_name}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, first_name: e.target.value }))}
+                  className="w-full"
+                  data-testid="input-first-name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">שם משפחה</label>
+                <Input
+                  value={editForm.last_name}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, last_name: e.target.value }))}
+                  className="w-full"
+                  data-testid="input-last-name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                <Input
+                  value={editForm.phone_e164}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, phone_e164: e.target.value }))}
+                  className="w-full"
+                  data-testid="input-phone"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                <Input
+                  value={editForm.email}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
+                  type="email"
+                  className="w-full"
+                  data-testid="input-email"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
+                <textarea
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full p-2 border rounded-lg text-sm min-h-[80px] resize-y"
+                  data-testid="input-notes"
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם פרטי</label>
+                  <p className="text-sm text-gray-900">{lead.first_name}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם משפחה</label>
+                  <p className="text-sm text-gray-900">{lead.last_name}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                  <p className="text-sm text-gray-900">{lead.phone_e164}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">אימייל</label>
+                  <p className="text-sm text-gray-900">{lead.email || 'לא צוין'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">מקור</label>
+                  <p className="text-sm text-gray-900">{lead.source}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תאריך יצירה</label>
+                  <p className="text-sm text-gray-900">{formatDate(lead.created_at)}</p>
+                </div>
+              </div>
+              
+              {lead.notes && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
+                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{lead.notes}</p>
+                </div>
+              )}
+            </>
+          )}
           
           {lead.tags && lead.tags.length > 0 && (
             <div className="mt-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">תגיות</label>
               <div className="flex flex-wrap gap-2">
                 {lead.tags.map((tag, index) => (
-              <Badge key={index} variant="info">
+                  <Badge key={index} variant="info">
                     <Tag className="w-3 h-3 mr-1" />
                     {tag}
                   </Badge>
