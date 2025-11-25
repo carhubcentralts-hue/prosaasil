@@ -188,8 +188,8 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4" dir="rtl">
-      <Card className="w-full max-w-4xl max-h-[95vh] bg-white flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4 overflow-hidden" dir="rtl">
+      <Card className="w-full max-w-4xl h-[95vh] md:h-auto md:max-h-[90vh] bg-white flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
@@ -261,8 +261,8 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
           </nav>
         </div>
 
-        {/* Tab Content */}
-        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-hidden">
+        {/* Tab Content - Scrollable on mobile */}
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-hidden min-h-0 -webkit-overflow-scrolling-touch">
           {activeTab === 'overview' && (
             <div className="space-y-4 md:space-y-6">
               {/* Contact Info */}
