@@ -9,18 +9,16 @@ import { useStatuses, LeadStatus } from '../../../features/statuses/hooks';
 interface StatusManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onStatusChange?: () => void; // ✅ Callback to refresh parent statuses cache
+  onStatusChange?: () => void;
 }
 
 interface StatusFormData {
-  name: string;
   label: string;
   color: string;
   description: string;
   is_default: boolean;
 }
 
-// Hebrew text constants
 const TEXTS = {
   title: 'ניהול סטטוסי לידים',
   existing: 'סטטוסים קיימים',
@@ -28,11 +26,8 @@ const TEXTS = {
   loading: 'טוען סטטוסים...',
   edit: 'ערוך סטטוס',
   create: 'צור סטטוס חדש',
-  nameLabel: 'שם פנימי (באנגלית)',
-  namePlaceholder: 'new, contacted, qualified',
-  nameNote: 'שם פנימי לא ניתן לשינוי אחרי היצירה',
-  displayLabel: 'שם להצגה (עברית)',
-  displayPlaceholder: 'חדש, נוצר קשר, מוכשר',
+  displayLabel: 'שם הסטטוס',
+  displayPlaceholder: 'לדוגמה: מחכה לתשובה, בטיפול...',
   colorLabel: 'צבע',
   descLabel: 'תיאור (אופציונלי)',
   descPlaceholder: 'תיאור נוסף על הסטטוס',
@@ -46,6 +41,7 @@ const TEXTS = {
   confirmDelete: 'האם אתה בטוח שברצונך למחוק את הסטטוס',
   deleteError: 'שגיאה במחיקת הסטטוס',
   saveError: 'שגיאה בשמירת הסטטוס',
+  emptyLabel: 'נא להזין שם לסטטוס',
 };
 
 const COLOR_OPTIONS = [
@@ -60,15 +56,31 @@ const COLOR_OPTIONS = [
   { value: 'bg-pink-100 text-pink-800', label: 'ורוד' },
 ];
 
+function generateInternalName(label: string): string {
+  const timestamp = Date.now().toString(36);
+  const sanitized = label
+    .toLowerCase()
+    .replace(/[^\u0590-\u05FFa-z0-9\s]/g, '')
+    .trim()
+    .replace(/\s+/g, '_');
+  
+  if (!sanitized) {
+    return `status_${timestamp}`;
+  }
+  
+  return `custom_${timestamp}`;
+}
+
 export default function StatusManagementModal({ isOpen, onClose, onStatusChange }: StatusManagementModalProps) {
   const { statuses, loading, error, refreshStatuses, createStatus, updateStatus, deleteStatus } = useStatuses();
 
   const [editingStatus, setEditingStatus] = useState<LeadStatus | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState<StatusFormData>({
-    name: '',
     label: '',
-    color: 'bg-gray-100 text-gray-800',
+    color: 'bg-blue-100 text-blue-800',
     description: '',
     is_default: false,
   });
@@ -81,19 +93,18 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
 
   const resetForm = () => {
     setFormData({
-      name: '',
       label: '',
-      color: 'bg-gray-100 text-gray-800',
+      color: 'bg-blue-100 text-blue-800',
       description: '',
       is_default: false,
     });
     setEditingStatus(null);
     setIsCreating(false);
+    setFormError(null);
   };
 
   const handleEdit = (status: LeadStatus) => {
     setFormData({
-      name: status.name,
       label: status.label,
       color: status.color,
       description: status.description || '',
@@ -101,38 +112,49 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
     });
     setEditingStatus(status);
     setIsCreating(false);
+    setFormError(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     
+    if (!formData.label.trim()) {
+      setFormError(TEXTS.emptyLabel);
+      return;
+    }
+    
+    setSaving(true);
     try {
       if (editingStatus) {
         await updateStatus(editingStatus.id, {
-          label: formData.label,
+          label: formData.label.trim(),
           color: formData.color,
-          description: formData.description,
+          description: formData.description.trim(),
           is_default: formData.is_default,
         });
       } else {
+        const internalName = generateInternalName(formData.label);
         await createStatus({
-          name: formData.name,
-          label: formData.label,
+          name: internalName,
+          label: formData.label.trim(),
           color: formData.color,
-          description: formData.description,
+          description: formData.description.trim(),
           is_default: formData.is_default,
         });
       }
       
       resetForm();
       await refreshStatuses();
-      // ✅ Notify parent to refresh its statuses cache
       if (onStatusChange) {
         onStatusChange();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save status:', error);
-      alert(TEXTS.saveError);
+      const errorMsg = error?.message || error?.error || TEXTS.saveError;
+      setFormError(typeof errorMsg === 'string' ? errorMsg : TEXTS.saveError);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -148,7 +170,6 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
     try {
       await deleteStatus(status.id);
       await refreshStatuses();
-      // ✅ Notify parent to refresh its statuses cache
       if (onStatusChange) {
         onStatusChange();
       }
@@ -220,6 +241,21 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                   <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                   <p className="text-gray-600 dark:text-gray-400 mt-2">{TEXTS.loading}</p>
                 </div>
+              ) : statuses.length === 0 ? (
+                <div className="text-center py-8 bg-gray-50 rounded-lg">
+                  <p className="text-gray-500 mb-4">אין סטטוסים עדיין</p>
+                  <Button
+                    onClick={() => {
+                      resetForm();
+                      setIsCreating(true);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                    size="sm"
+                  >
+                    <Plus className="w-4 h-4 ml-2" />
+                    צור סטטוס ראשון
+                  </Button>
+                </div>
               ) : (
                 <div className="space-y-3">
                   {statuses.map((status) => (
@@ -230,7 +266,7 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <Badge className={status.color}>
                                 {status.label}
                               </Badge>
@@ -291,29 +327,16 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                   {editingStatus ? TEXTS.edit : TEXTS.create}
                 </h3>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  {!editingStatus && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {TEXTS.nameLabel}
-                      </label>
-                      <Input
-                        value={formData.name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder={TEXTS.namePlaceholder}
-                        required
-                        className="text-right"
-                        data-testid="input-status-name"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        {TEXTS.nameNote}
-                      </p>
-                    </div>
-                  )}
+                {formError && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                    <p className="text-red-600 text-sm">{formError}</p>
+                  </div>
+                )}
 
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      {TEXTS.displayLabel}
+                      {TEXTS.displayLabel} *
                     </label>
                     <Input
                       value={formData.label}
@@ -329,7 +352,7 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       {TEXTS.colorLabel}
                     </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {COLOR_OPTIONS.map((option) => (
                         <button
                           key={option.value}
@@ -358,7 +381,7 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                       value={formData.description}
                       onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                       placeholder={TEXTS.descPlaceholder}
-                      rows={3}
+                      rows={2}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-right"
                       data-testid="textarea-status-description"
                     />
@@ -384,14 +407,16 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                     <Button
                       type="submit"
                       className="bg-blue-600 hover:bg-blue-700 text-white"
+                      disabled={saving}
                       data-testid="button-save-status"
                     >
-                      {editingStatus ? TEXTS.update : TEXTS.save}
+                      {saving ? 'שומר...' : (editingStatus ? TEXTS.update : TEXTS.save)}
                     </Button>
                     <Button
                       type="button"
                       variant="secondary"
                       onClick={resetForm}
+                      disabled={saving}
                       data-testid="button-cancel-status"
                     >
                       {TEXTS.cancel}

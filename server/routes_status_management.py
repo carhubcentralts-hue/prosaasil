@@ -134,19 +134,25 @@ def create_status():
         if not data:
             return jsonify({'error': 'JSON data required'}), 400
             
-        # Validation
-        required_fields = ['name', 'label']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({'error': f'{field} is required'}), 400
+        # Validation - only label is required now
+        if not data.get('label'):
+            return jsonify({'error': 'label is required'}), 400
         
-        # ✅ Name format validation: only lowercase alphanumeric + underscore
+        # Auto-generate internal name if not provided
         import re
-        raw_name = data['name'].strip()
-        if not re.match(r'^[a-z0-9_]+$', raw_name):
-            return jsonify({'error': 'Status name must contain only lowercase letters, numbers, and underscores'}), 400
+        import time
         
-        normalized_name = raw_name  # Already validated as lowercase
+        if data.get('name'):
+            raw_name = data['name'].strip().lower()
+            # Replace non-alphanumeric with underscore
+            raw_name = re.sub(r'[^a-z0-9]+', '_', raw_name).strip('_')
+            if not raw_name:
+                raw_name = f"custom_{int(time.time())}"
+        else:
+            # Generate unique name from timestamp
+            raw_name = f"custom_{int(time.time())}"
+        
+        normalized_name = raw_name
         
         # Check for duplicate name within business
         existing = LeadStatus.query.filter_by(
