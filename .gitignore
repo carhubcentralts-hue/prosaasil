@@ -104,7 +104,8 @@ replit.nix
 pgdata/
 postgres-data/
 
-# Certificates
+# Certificates and SSL
+certs/
 *.pem
 *.key
 *.crt

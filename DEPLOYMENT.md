@@ -109,6 +109,28 @@ If using an external managed database (Railway, Neon, Supabase, etc.):
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
+### SSL/TLS Setup (Production)
+
+For HTTPS in production, you need SSL certificates:
+
+```bash
+# Create certs directory
+mkdir -p certs
+
+# Option 1: Let's Encrypt (recommended for production)
+sudo certbot certonly --standalone -d your-domain.com
+cp /etc/letsencrypt/live/your-domain.com/fullchain.pem ./certs/
+cp /etc/letsencrypt/live/your-domain.com/privkey.pem ./certs/
+
+# Option 2: Self-signed (for testing only)
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout ./certs/privkey.pem \
+  -out ./certs/fullchain.pem \
+  -subj "/CN=localhost"
+```
+
+The production compose file will use these certificates automatically.
+
 ### Useful Commands
 
 ```bash
