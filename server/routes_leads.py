@@ -1276,10 +1276,10 @@ def get_all_reminders():
                 "lead_name": lead_names.get(r.lead_id) if r.lead_id else None,
                 "due_at": r.due_at.isoformat() if r.due_at else None,
                 "note": r.note,
-                "description": r.note,  # Duplicate for compatibility
+                "description": r.description or r.note,  # BUILD 143: Use actual description
                 "channel": r.channel,
-                "priority": "medium",  # Default priority (field not in model yet)
-                "reminder_type": "general",  # Default type (field not in model yet)
+                "priority": r.priority or "medium",  # BUILD 143: Use actual priority
+                "reminder_type": r.reminder_type or "general",  # BUILD 143: Use actual type
                 "completed_at": r.completed_at.isoformat() if r.completed_at else None,
                 "created_by": r.created_by,
                 "created_at": r.created_at.isoformat() if r.created_at else None
@@ -1325,7 +1325,10 @@ def create_general_reminder():
     reminder.lead_id = lead_id if lead_id else None  # Optional lead association
     reminder.due_at = due_at
     reminder.note = data.get('note')
+    reminder.description = data.get('description')  # BUILD 143: Additional details
     reminder.channel = data.get('channel', 'ui')
+    reminder.priority = data.get('priority', 'medium')  # BUILD 143: low|medium|high
+    reminder.reminder_type = data.get('reminder_type', 'general')  # BUILD 143: general|lead_related
     reminder.created_by = user.get('id') if user else None
     
     db.session.add(reminder)
