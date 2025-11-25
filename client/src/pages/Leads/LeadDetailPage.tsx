@@ -10,13 +10,7 @@ import { Input } from '../../shared/components/ui/Input';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadConversation, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
-
-interface LeadStatus {
-  id: number;
-  name: string;
-  color: string;
-  is_default: boolean;
-}
+import { useStatuses, LeadStatus } from '../../features/statuses/hooks';
 
 interface LeadDetailPageProps {}
 
@@ -54,8 +48,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     notes: ''
   });
   
-  // Status management
-  const [statuses, setStatuses] = useState<LeadStatus[]>([]);
+  // Status management - use shared hook for consistent statuses
+  const { statuses, refreshStatuses } = useStatuses();
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   
@@ -137,20 +131,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     }
   };
 
-  const fetchStatuses = useCallback(async () => {
-    try {
-      const response = await http.get<{ statuses: LeadStatus[] }>('/api/statuses');
-      if (response.statuses) {
-        setStatuses(response.statuses);
-      }
-    } catch (err) {
-      console.error('Failed to fetch statuses:', err);
-    }
-  }, []);
-
+  // Refresh statuses when component mounts
   useEffect(() => {
-    fetchStatuses();
-  }, [fetchStatuses]);
+    refreshStatuses();
+  }, [refreshStatuses]);
 
   const startEditing = () => {
     if (lead) {
@@ -249,32 +233,15 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     );
   }
 
+  // Use dynamic statuses from the shared hook - no more hardcoded labels!
   const getStatusLabel = (status: string): string => {
-    const statusLabels: Record<string, string> = {
-      'new': 'חדש',
-      'attempting': 'בניסיון קשר',
-      'contacted': 'נוצר קשר',
-      'qualified': 'מוכשר',
-      'won': 'זכיה',
-      'lost': 'אובדן',
-      'unqualified': 'לא מוכשר',
-    };
-    const normalized = status.toLowerCase();
-    return statusLabels[normalized] || status;
+    const found = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
+    return found?.label || status;
   };
 
   const getStatusColor = (status: string): string => {
-    const statusColors: Record<string, string> = {
-      'new': 'bg-blue-100 text-blue-800',
-      'attempting': 'bg-yellow-100 text-yellow-800',
-      'contacted': 'bg-green-100 text-green-800',
-      'qualified': 'bg-purple-100 text-purple-800',
-      'won': 'bg-emerald-100 text-emerald-800',
-      'lost': 'bg-red-100 text-red-800',
-      'unqualified': 'bg-gray-100 text-gray-800',
-    };
-    const normalized = status.toLowerCase();
-    return statusColors[normalized] || 'bg-gray-100 text-gray-800';
+    const found = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
+    return found?.color || 'bg-gray-100 text-gray-800';
   };
 
   const StatusDropdown = () => (
@@ -313,22 +280,11 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                     className="w-3 h-3 rounded-full" 
                     style={{ backgroundColor: status.color || '#gray' }}
                   />
-                  {status.name}
+                  {status.label}
                 </button>
               ))
             ) : (
-              ['new', 'attempting', 'contacted', 'qualified', 'won', 'lost'].map((statusKey) => (
-                <button
-                  key={statusKey}
-                  onClick={() => updateLeadStatus(statusKey)}
-                  className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 ${
-                    statusKey === lead.status.toLowerCase() ? 'bg-gray-50' : ''
-                  }`}
-                  data-testid={`status-option-${statusKey}`}
-                >
-                  {getStatusLabel(statusKey)}
-                </button>
-              ))
+              <div className="px-4 py-2 text-sm text-gray-500">טוען סטטוסים...</div>
             )}
           </div>
         </>

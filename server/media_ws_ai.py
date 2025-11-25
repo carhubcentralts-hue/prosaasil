@@ -1817,6 +1817,12 @@ class MediaStreamHandler:
             print(f"✅ [FLOW STEP 6]   - date: {date_iso}")
             print(f"✅ [FLOW STEP 6]   - time: {time_str}")
             
+            # 🛡️ BUILD 149 FIX: Set guard IMMEDIATELY when confirm action starts processing
+            # This prevents barge-in from allowing re-entry into the confirm flow
+            # The guard must be set BEFORE any awaits, as barge-in can happen at any time
+            self.appointment_confirmed_in_session = True
+            print(f"🛡️ [GUARD] Set appointment_confirmed_in_session=True EARLY to prevent re-entry")
+            
             # Calculate datetime
             from datetime import datetime, timedelta
             import pytz
@@ -1982,12 +1988,24 @@ class MediaStreamHandler:
         Launches async parser in separate thread to avoid event loop conflicts
         
         🔥 DEDUPLICATION: Only runs NLP once per unique conversation state
+        🛡️ BUILD 149: Added guard to prevent re-entry after appointment confirmed
         """
         import threading
         import hashlib
         
         print(f"🔍 [DEBUG] _check_appointment_confirmation called with transcript: '{ai_transcript[:50] if ai_transcript else 'EMPTY'}...'")
         print(f"🔍 [DEBUG] Conversation history length: {len(self.conversation_history)}")
+        
+        # 🛡️ BUILD 149 FIX: Check guard FIRST - if appointment already confirmed, skip NLP entirely
+        if getattr(self, 'appointment_confirmed_in_session', False):
+            print(f"🛡️ [NLP] GUARD ACTIVE - appointment_confirmed_in_session=True, skipping NLP")
+            return
+        
+        # 🛡️ Also check CRM context guard
+        crm_context = getattr(self, 'crm_context', None)
+        if crm_context and crm_context.has_appointment_created:
+            print(f"🛡️ [NLP] GUARD ACTIVE - crm_context.has_appointment_created=True, skipping NLP")
+            return
         
         # 🔥 CRITICAL: Create hash of conversation to prevent duplicate NLP runs
         # ⚠️ FIX #1: Remove timestamps from hash - only text matters!
