@@ -15,7 +15,7 @@ interface LeadDetailPageProps {}
 
 const TABS = [
   { key: 'overview', label: 'סקירה', icon: User },
-  { key: 'conversation', label: 'שיחות', icon: MessageSquare },
+  { key: 'conversation', label: 'וואטסאפ', icon: MessageSquare },
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
   { key: 'appointments', label: 'פגישות', icon: Calendar },
   { key: 'reminders', label: 'משימות', icon: CheckCircle2 },

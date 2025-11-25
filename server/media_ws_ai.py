@@ -4948,6 +4948,20 @@ class MediaStreamHandler:
                             )
                             print(f"✅ [CRM] Lead #{self.crm_context.lead_id} updated with call summary")
                         
+                        # 📅 UPDATE APPOINTMENT with call summary (if appointment was created during call)
+                        if hasattr(self, 'crm_context') and self.crm_context and hasattr(self.crm_context, 'last_appointment_id') and self.crm_context.last_appointment_id:
+                            from server.models_sql import Appointment
+                            appt_id = self.crm_context.last_appointment_id
+                            appointment = Appointment.query.get(appt_id)
+                            if appointment:
+                                # Update appointment with call summary and link to call log
+                                appointment.call_summary = summary_data.get('summary', '')
+                                appointment.call_log_id = call_log.id
+                                db.session.commit()
+                                print(f"✅ [CALENDAR] Appointment #{appt_id} updated with call summary")
+                            else:
+                                print(f"⚠️ [CALENDAR] Appointment #{appt_id} not found for summary update")
+                        
                         # 🤖 BUILD 119: Agent handles appointments during conversation!
                         # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
                         print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
