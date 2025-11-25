@@ -1,6 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
+
+const POLLING_INTERVAL = 30000; // Check for new notifications every 30 seconds
 
 export interface Notification {
   id: string;
@@ -61,6 +63,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [countCallback, setCountCallback] = useState<((count: number) => void) | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const lastCountRef = useRef<number>(0);
   
   // BUILD 144: Get auth state to only fetch when logged in
   const { user, isAuthenticated } = useAuth();
@@ -107,14 +111,40 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     setCountCallback(() => callback);
   }, []);
 
-  // Auto-fetch notifications when authenticated
+  // BUILD 144: Auto-fetch notifications + POLLING for real-time updates
   useEffect(() => {
     if (isAuthenticated && user) {
+      // Initial fetch
       refreshNotifications();
+      
+      // Start polling for new notifications every 30 seconds
+      pollingRef.current = setInterval(() => {
+        refreshNotifications();
+      }, POLLING_INTERVAL);
+      
+      console.log('🔔 Notification polling started (every 30s)');
     }
-  }, [refreshNotifications, isAuthenticated, user]);
+    
+    // Cleanup on unmount or when user logs out
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+        console.log('🔔 Notification polling stopped');
+      }
+    };
+  }, [isAuthenticated, user]); // Don't include refreshNotifications to avoid re-creating interval
 
   const unreadCount = notifications.filter(n => !n.read).length;
+  
+  // BUILD 144: Notify when new notifications arrive
+  useEffect(() => {
+    if (unreadCount > lastCountRef.current && lastCountRef.current > 0) {
+      // New notifications arrived - could add browser notification here
+      console.log(`🔔 ${unreadCount - lastCountRef.current} new notifications!`);
+    }
+    lastCountRef.current = unreadCount;
+  }, [unreadCount]);
 
   return (
     <NotificationContext.Provider value={{ 
