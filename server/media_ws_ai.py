@@ -1390,17 +1390,18 @@ class MediaStreamHandler:
             return
         
         try:
-            # Create server message event with role="system" (SILENT - won't be spoken!)
-            # 🔥 BUILD 147 FIX: Use "text" type for system messages (not "input_text" which is for user only!)
+            # 🔥 BUILD 148 FIX: OpenAI Realtime API only accepts "input_text" type for conversation.item.create
+            # System/assistant messages need special handling - use "user" role with special marker
+            # The AI will understand this is server feedback and respond appropriately
             event = {
                 "type": "conversation.item.create",
                 "item": {
                     "type": "message",
-                    "role": "system",  # 🔇 CRITICAL: system messages are SILENT (not spoken aloud)
+                    "role": "user",  # 🔥 Must be "user" for conversation.item.create
                     "content": [
                         {
-                            "type": "text",  # ✅ FIX: system/assistant = "text", user = "input_text"
-                            "text": message_text
+                            "type": "input_text",  # 🔥 Must be "input_text" (not "text"!)
+                            "text": f"[SERVER] {message_text}"  # Prefix to distinguish from real user
                         }
                     ]
                 }
@@ -1689,11 +1690,24 @@ class MediaStreamHandler:
             print(f"=" * 80)
             print(f"🎯 [APPOINTMENT FLOW] ========== CONFIRM ACTION TRIGGERED ==========")
             print(f"=" * 80)
+            
+            # 🛡️ CRITICAL GUARD: Check if appointment was already created in this session
+            # This prevents the loop where NLP keeps detecting "confirm" from AI's confirmation message
+            if getattr(self, 'appointment_confirmed_in_session', False):
+                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - Appointment already created in this session!")
+                print(f"⚠️ [APPOINTMENT FLOW] Ignoring duplicate confirm action to prevent loop")
+                return
+            
+            # 🛡️ Also check CRM context flag
+            crm_context = getattr(self, 'crm_context', None)
+            if crm_context and crm_context.has_appointment_created:
+                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - CRM context shows appointment already created!")
+                print(f"⚠️ [APPOINTMENT FLOW] Ignoring duplicate confirm action to prevent loop")
+                return
+            
             print(f"📝 [FLOW STEP 1] NLP returned: action={action}, date={date_iso}, time={time_str}, name={customer_name}")
             print(f"📝 [FLOW STEP 1] confidence={confidence}")
             
-            # Get CRM context
-            crm_context = getattr(self, 'crm_context', None)
             print(f"📝 [FLOW STEP 2] CRM context exists: {crm_context is not None}")
             
             # ✅ BUILD 145: FALLBACK - Use pending_slot if NLP didn't return date/time

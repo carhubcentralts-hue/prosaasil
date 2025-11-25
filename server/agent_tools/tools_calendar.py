@@ -490,7 +490,26 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         print(f"   Added to session")
         
         db.session.commit()
-        print(f"   ✅✅✅ COMMITTED TO DATABASE! Appointment ID: {appointment.id}")
+        appt_id = appointment.id  # Cache ID immediately after commit
+        print(f"   ✅✅✅ COMMITTED TO DATABASE! Appointment ID: {appt_id}")
+        
+        # 🔥 CRITICAL: Verify the appointment was actually saved
+        import os
+        db_url = os.getenv('DATABASE_URL', 'NOT_SET')
+        db_driver = db_url.split(':')[0] if db_url else 'none'
+        print(f"   🔍 VERIFICATION: Checking DB (driver={db_driver})...")
+        
+        # Query back to verify
+        verify_appt = Appointment.query.get(appt_id)
+        if verify_appt:
+            print(f"   ✅ VERIFIED: Appointment #{appt_id} exists in DB!")
+            print(f"   ✅ VERIFIED: title={verify_appt.title}, status={verify_appt.status}")
+        else:
+            print(f"   ❌ CRITICAL ERROR: Appointment #{appt_id} NOT FOUND after commit!")
+            
+        # Also count total appointments
+        total_appts = Appointment.query.filter_by(business_id=input.business_id).count()
+        print(f"   📊 Total appointments for business {input.business_id}: {total_appts}")
         
         # Generate confirmation message
         day_name = start.strftime("%A")
@@ -629,8 +648,16 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             "message": str(e)
         }
     except Exception as e:
+        print(f"")
+        print(f"❌❌❌ EXCEPTION IN _calendar_create_appointment_impl ❌❌❌")
+        print(f"❌ Exception type: {type(e).__name__}")
+        print(f"❌ Exception message: {e}")
+        print(f"❌ ROLLING BACK SESSION...")
         db.session.rollback()
+        print(f"❌ ROLLBACK COMPLETE")
         logger.error(f"Error creating appointment: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "ok": False,
             "error": "appointment_error",
