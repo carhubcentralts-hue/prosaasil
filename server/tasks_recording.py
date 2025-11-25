@@ -31,12 +31,23 @@ def process_recording_async(form_data):
         # 2. תמלול עברית (Google STT v2 + Whisper fallback)
         transcription = transcribe_hebrew(audio_file)
         
-        # 3. ✨ סיכום חכם GPT (10-30 מילים)
+        # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
         summary = ""
         if transcription and len(transcription) > 10:
             from server.services.summary_service import summarize_conversation
-            summary = summarize_conversation(transcription, call_sid)
-            log.info(f"✅ Summary generated: {summary[:50]}...")
+            
+            # Get business context for dynamic summarization
+            business_type = None
+            business_name = None
+            to_number = form_data.get('To', '')
+            business = _identify_business_for_call(to_number, from_number)
+            if business:
+                business_type = business.business_type
+                business_name = business.name
+                log.info(f"📊 Using business context: {business_name} ({business_type})")
+            
+            summary = summarize_conversation(transcription, call_sid, business_type, business_name)
+            log.info(f"✅ Dynamic summary generated: {summary[:50]}...")
         
         # 4. שמור לDB עם תמלול + סיכום
         to_number = form_data.get('To', '')
