@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Phone, MoreVertical, Paperclip, Smile } from 'lucide-react';
+import { Send, Phone, MoreVertical, Paperclip, Smile, X, ArrowRight, Bot, BotOff } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Button } from '../../../shared/components/ui/Button';
 import { Input } from '../../../shared/components/ui/Input';
@@ -53,6 +53,8 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
   const [qrCode, setQRCode] = useState<string>('');
   const [qrImageUrl, setQrImageUrl] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [aiEnabled, setAiEnabled] = useState(true);
+  const [togglingAi, setTogglingAi] = useState(false);
   const [providers, setProviders] = useState<WhatsAppProvider[]>([
     { id: 'twilio', name: 'Twilio WhatsApp', type: 'twilio', status: 'active', description: 'ספק רשמי דרך Twilio Business API' },
     { id: 'baileys', name: 'WhatsApp Web', type: 'baileys', status: 'active', description: 'חיבור ישיר דרך WhatsApp Web' }
@@ -162,9 +164,25 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
     }
   }, []);
 
+  // Fetch AI state for this conversation
+  const fetchAiState = useCallback(async () => {
+    try {
+      const phoneNumber = lead.phone_e164?.replace('+', '') || '';
+      const response = await http.get<{ success: boolean; ai_enabled: boolean }>(`/api/whatsapp/ai-state/${phoneNumber}`);
+      if (response.success) {
+        setAiEnabled(response.ai_enabled);
+      }
+    } catch (err) {
+      console.error('Failed to fetch AI state:', err);
+      // Default to enabled if can't fetch
+      setAiEnabled(true);
+    }
+  }, [lead.phone_e164]);
+
   useEffect(() => {
     if (isOpen && lead.phone_e164) {
       fetchConversation();
+      fetchAiState();  // Load AI state when opening chat
       // Start polling for new messages every 5 seconds
       startPolling();
     } else {
@@ -175,7 +193,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
     return () => {
       stopPolling();
     };
-  }, [isOpen, lead.phone_e164, fetchConversation, startPolling, stopPolling]);
+  }, [isOpen, lead.phone_e164, fetchConversation, fetchAiState, startPolling, stopPolling]);
 
   useEffect(() => {
     scrollToBottom();
@@ -258,6 +276,40 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
     }
   };
 
+  // Toggle AI for this conversation
+  const toggleAi = async () => {
+    try {
+      setTogglingAi(true);
+      const phoneNumber = lead.phone_e164?.replace('+', '') || '';
+      const newState = !aiEnabled;
+      
+      const response = await http.post<{ success: boolean; ai_enabled: boolean }>('/api/whatsapp/toggle-ai', {
+        phone_number: phoneNumber,
+        ai_enabled: newState,
+        business_id: getBusinessId()
+      });
+      
+      if (response.success) {
+        setAiEnabled(response.ai_enabled);
+        // Simple status update - no alert needed, UI will show the state
+      }
+    } catch (err) {
+      console.error('Failed to toggle AI:', err);
+      alert('שגיאה: לא ניתן לשנות מצב AI');
+    } finally {
+      setTogglingAi(false);
+    }
+  };
+
+  // Placeholder handlers for emoji and attachment
+  const handleEmojiClick = () => {
+    alert('בחירת אימוג\'י תהיה זמינה בקרוב');
+  };
+
+  const handleAttachClick = () => {
+    alert('צירוף קבצים יהיה זמין בקרוב');
+  };
+
   const getMessageStatusIcon = (status?: string) => {
     switch (status) {
       case 'sending':
@@ -282,7 +334,18 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
       <Card className="w-full max-w-md h-[600px] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-green-50">
-          <div className="flex items-center space-x-3">
+          {/* Back button - prominent */}
+          <Button 
+            size="sm" 
+            variant="ghost" 
+            onClick={onClose} 
+            className="ml-2 hover:bg-green-100"
+            data-testid="button-whatsapp-back"
+          >
+            <ArrowRight className="w-5 h-5" />
+          </Button>
+          
+          <div className="flex items-center space-x-3 flex-1 mr-3">
             <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white font-semibold">
               {lead.first_name?.charAt(0) || lead.full_name?.charAt(0) || '?'}
             </div>
@@ -320,15 +383,40 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               </div>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-1">
+            {/* AI Toggle Button */}
+            <Button 
+              size="sm" 
+              variant={aiEnabled ? "default" : "destructive"}
+              onClick={toggleAi}
+              disabled={togglingAi}
+              className={`${aiEnabled ? 'bg-blue-500 hover:bg-blue-600' : 'bg-red-500 hover:bg-red-600'} text-white`}
+              data-testid="button-toggle-ai"
+              title={aiEnabled ? 'AI פעיל - לחץ לכיבוי' : 'AI מושבת - לחץ להפעלה'}
+            >
+              {togglingAi ? (
+                <div className="w-4 h-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : aiEnabled ? (
+                <Bot className="w-4 h-4" />
+              ) : (
+                <BotOff className="w-4 h-4" />
+              )}
+            </Button>
             <Button size="sm" variant="ghost" data-testid="button-whatsapp-call">
               <Phone className="w-4 h-4" />
             </Button>
             <Button size="sm" variant="ghost" data-testid="button-whatsapp-more">
               <MoreVertical className="w-4 h-4" />
             </Button>
-            <Button size="sm" variant="ghost" onClick={onClose} data-testid="button-whatsapp-close">
-              ×
+            {/* Close X button */}
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              onClick={onClose} 
+              className="hover:bg-red-100 hover:text-red-600"
+              data-testid="button-whatsapp-close"
+            >
+              <X className="w-5 h-5" />
             </Button>
           </div>
         </div>
@@ -445,8 +533,20 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               {error}
             </div>
           )}
+          {/* AI Status Banner */}
+          {!aiEnabled && (
+            <div className="mb-2 p-2 bg-orange-50 border border-orange-200 rounded text-orange-700 text-sm flex items-center gap-2">
+              <BotOff className="w-4 h-4" />
+              <span>AI מושבת - הודעות לא ייענו אוטומטית</span>
+            </div>
+          )}
           <div className="flex items-center space-x-2">
-            <Button size="sm" variant="ghost" data-testid="button-whatsapp-attach">
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              onClick={handleAttachClick}
+              data-testid="button-whatsapp-attach"
+            >
               <Paperclip className="w-4 h-4" />
             </Button>
             <div className="flex-1">
@@ -460,7 +560,12 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
                 data-testid="input-whatsapp-message"
               />
             </div>
-            <Button size="sm" variant="ghost" data-testid="button-whatsapp-emoji">
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              onClick={handleEmojiClick}
+              data-testid="button-whatsapp-emoji"
+            >
               <Smile className="w-4 h-4" />
             </Button>
             <Button

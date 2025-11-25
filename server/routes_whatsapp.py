@@ -557,6 +557,27 @@ def baileys_webhook():
                 except Exception as e:
                     log.warning(f"⚠️ Appointment check failed: {e}")
                 
+                # ✅ BUILD 152: Check if AI is enabled for this conversation
+                ai_enabled = True  # Default to enabled
+                try:
+                    from server.models_sql import WhatsAppConversationState
+                    conv_state = WhatsAppConversationState.query.filter_by(
+                        business_id=business_id,
+                        phone=from_number
+                    ).first()
+                    if conv_state:
+                        ai_enabled = conv_state.ai_active
+                        log.info(f"[WA-INCOMING] AI state for {from_number}: {'enabled' if ai_enabled else 'DISABLED'}")
+                except Exception as e:
+                    log.warning(f"[WA-WARN] Could not check AI state: {e}")
+                
+                # If AI is disabled, skip AI response generation
+                if not ai_enabled:
+                    log.info(f"[WA-INCOMING] AI disabled for {from_number} - skipping AI response")
+                    msg_duration = time.time() - msg_start
+                    log.info(f"[WA-INCOMING] Message saved (no AI response) in {msg_duration:.2f}s")
+                    continue
+                
                 # ✅ BUILD 122: Load conversation history for AI context (10 messages)
                 previous_messages = []
                 try:
@@ -729,6 +750,107 @@ def send_manual_message():
             
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
+
+
+# ============================================================================
+# 🤖 BUILD 152: Toggle AI per WhatsApp conversation
+# ============================================================================
+
+@whatsapp_bp.route('/toggle-ai', methods=['POST'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@api_handler
+def toggle_ai_for_conversation():
+    """Toggle AI on/off for a specific WhatsApp conversation"""
+    import logging
+    log = logging.getLogger(__name__)
+    
+    data = request.get_json(force=True)
+    phone_number = data.get('phone_number')
+    ai_enabled = data.get('ai_enabled')
+    
+    if phone_number is None or ai_enabled is None:
+        return {"success": False, "error": "missing_required_fields"}, 400
+    
+    # Get business_id from authenticated session
+    from server.routes_crm import get_business_id
+    business_id = get_business_id()
+    
+    if not business_id:
+        return {"success": False, "error": "no_business_id"}, 400
+    
+    try:
+        from server.models_sql import WhatsAppConversationState
+        
+        # Normalize phone number (remove + if present)
+        phone = phone_number.replace('+', '').strip()
+        
+        # Find or create state record
+        state = WhatsAppConversationState.query.filter_by(
+            business_id=business_id,
+            phone=phone
+        ).first()
+        
+        if not state:
+            state = WhatsAppConversationState()
+            state.business_id = business_id
+            state.phone = phone
+            db.session.add(state)
+        
+        # Update AI state
+        state.ai_active = bool(ai_enabled)
+        state.updated_by = g.user.id if hasattr(g, 'user') and g.user else None
+        
+        db.session.commit()
+        
+        log.info(f"[WA-AI-TOGGLE] biz={business_id}, phone={phone}, ai_active={state.ai_active}")
+        
+        return {
+            "success": True,
+            "ai_enabled": state.ai_active,
+            "phone_number": phone
+        }
+        
+    except Exception as e:
+        log.error(f"[WA-ERROR] Failed to toggle AI: {e}")
+        db.session.rollback()
+        return {"success": False, "error": str(e)}, 500
+
+
+@whatsapp_bp.route('/ai-state/<phone_number>', methods=['GET'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+@api_handler
+def get_ai_state_for_conversation(phone_number):
+    """Get AI state for a specific WhatsApp conversation"""
+    from server.routes_crm import get_business_id
+    business_id = get_business_id()
+    
+    if not business_id:
+        return {"success": False, "error": "no_business_id"}, 400
+    
+    try:
+        from server.models_sql import WhatsAppConversationState
+        
+        # Normalize phone number
+        phone = phone_number.replace('+', '').strip()
+        
+        state = WhatsAppConversationState.query.filter_by(
+            business_id=business_id,
+            phone=phone
+        ).first()
+        
+        # Default to AI enabled if no state record exists
+        ai_enabled = state.ai_active if state else True
+        
+        return {
+            "success": True,
+            "ai_enabled": ai_enabled,
+            "phone_number": phone
+        }
+        
+    except Exception as e:
+        import logging
+        logging.error(f"[WA-ERROR] Failed to get AI state: {e}")
+        return {"success": False, "error": str(e)}, 500
 
 
 # ============================================================================
