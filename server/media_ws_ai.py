@@ -1656,9 +1656,29 @@ class MediaStreamHandler:
             crm_context = getattr(self, 'crm_context', None)
             print(f"🔍 [CONFIRM] CRM context exists: {crm_context is not None}")
             
+            # ✅ BUILD 145: FALLBACK - Use pending_slot if NLP didn't return date/time
+            # This handles cases where user confirmed but NLP missed the time from earlier messages
+            if crm_context and hasattr(crm_context, 'pending_slot') and crm_context.pending_slot:
+                pending = crm_context.pending_slot
+                print(f"🔍 [CONFIRM] pending_slot found: {pending}")
+                
+                # Use pending_slot values if NLP values are missing
+                if not date_iso and pending.get('date'):
+                    date_iso = pending['date']
+                    print(f"🔄 [CONFIRM] Using date from pending_slot: {date_iso}")
+                if not time_str and pending.get('time'):
+                    time_str = pending['time']
+                    print(f"🔄 [CONFIRM] Using time from pending_slot: {time_str}")
+            
             # ✅ STEP 1: Validate we have date and time
             if not date_iso or not time_str:
-                print(f"⚠️ [NLP] ❌ Incomplete confirmation (date={date_iso}, time={time_str}) - SKIPPING")
+                print(f"⚠️ [NLP] ❌ Incomplete confirmation (date={date_iso}, time={time_str}) - asking AI to clarify")
+                # Clear stale pending_slot to avoid loops
+                if crm_context and hasattr(crm_context, 'pending_slot'):
+                    crm_context.pending_slot = None
+                    print(f"🧹 [CONFIRM] Cleared stale pending_slot")
+                # Ask AI to clarify the time
+                await self._send_server_event_to_ai("need_datetime - חסרים פרטים לקביעת התור. שאל את הלקוח: לאיזה יום ושעה תרצה לקבוע?")
                 return
             
             print(f"✅ [CONFIRM] Date/time OK: {date_iso} {time_str}")

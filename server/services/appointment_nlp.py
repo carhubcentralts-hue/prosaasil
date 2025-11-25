@@ -95,9 +95,12 @@ async def extract_appointment_request(conversation_history: list, business_id: i
 5. רק אחרי שיש שם AND טלפון → action="confirm"
 
 ⚠️ CRITICAL: action="confirm" רק אם:
-- יש תאריך/שעה בשיחה
+- יש תאריך/שעה בשיחה (חפש בכל ההיסטוריה - לא רק בהודעה האחרונה!)
 - יש שם לקוח (לא כללי!)
 - נציג ביקש טלפון / ראית DTMF במשפט
+
+🔥 IMPORTANT: חפש תאריך ושעה בכל השיחה, לא רק בהודעה האחרונה!
+אם הלקוח אמר "מחר בשש" בהודעה קודמת ועכשיו מאשר - עדיין החזר את התאריך והשעה!
 
 החזר JSON בלבד עם השדות:
 - action: 
