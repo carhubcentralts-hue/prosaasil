@@ -19,10 +19,10 @@ _whatsapp_service = None
 
 class Provider:
     """Abstract WhatsApp provider interface"""
-    def send_text(self, to: str, text: str) -> Dict[str, Any]:
+    def send_text(self, to: str, text: str, tenant_id: str = None) -> Dict[str, Any]:
         raise NotImplementedError
         
-    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
+    def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
         raise NotImplementedError
 
 class BaileysProvider(Provider):
@@ -318,8 +318,8 @@ class TwilioProvider(Provider):
             return number_str
         return f"whatsapp:{number_str}"
 
-    def send_text(self, to: str, text: str) -> Dict[str, Any]:
-        """Send text message via Twilio WhatsApp API"""
+    def send_text(self, to: str, text: str, tenant_id: str = None) -> Dict[str, Any]:
+        """Send text message via Twilio WhatsApp API (tenant_id unused - Twilio is single-tenant)"""
         try:
             # Add status callback URL if PUBLIC_BASE_URL is available
             public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
@@ -351,8 +351,8 @@ class TwilioProvider(Provider):
                 "error": str(e)
             }
     
-    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
-        """Send media message via Twilio WhatsApp API"""
+    def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
+        """Send media message via Twilio WhatsApp API (tenant_id unused - Twilio is single-tenant)"""
         try:
             # Add status callback
             public_base = os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')
