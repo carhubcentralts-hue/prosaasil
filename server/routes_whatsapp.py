@@ -416,18 +416,18 @@ def baileys_webhook():
     try:
         # Verify internal secret
         if request.headers.get('X-Internal-Secret') != INT_SECRET:
-            log.warning("Baileys webhook: Unauthorized request")
+            log.warning("[WA-ERROR] Unauthorized webhook request")
             return jsonify({"error": "unauthorized"}), 401
         
         data = request.get_json()
         tenant_id = data.get('tenantId')
         if not tenant_id:
-            log.error("❌ CRITICAL: No tenantId in webhook payload - cannot process!")
+            log.error("[WA-ERROR] No tenantId in webhook payload - cannot process!")
             return jsonify({"error": "missing_tenant_id"}), 400
         payload = data.get('payload', {})
         messages = payload.get('messages', [])
         
-        log.info(f"📨 Baileys webhook: {len(messages)} message(s) from tenant {tenant_id}")
+        log.info(f"[WA-INCOMING] biz={tenant_id}, msg_count={len(messages)}")
         
         if not messages:
             return jsonify({"ok": True, "processed": 0}), 200
@@ -449,13 +449,13 @@ def baileys_webhook():
         print(f"🏢 BUSINESS: {business_name} (ID={business_id})", flush=True)
         
         if status == 'found':
-            log.info(f"✅ Resolved business_id={business_id} from tenantId={tenant_id}")
+            log.info(f"[WA-INCOMING] Resolved biz={business_id} from tenant={tenant_id}")
         else:
-            log.warning(f"⚠️ Using fallback business_id={business_id} ({status}) for tenantId={tenant_id}")
+            log.warning(f"[WA-INCOMING] Fallback biz={business_id} ({status}) for tenant={tenant_id}")
         
         # ✅ Ensure business_id is valid
         if not business_id:
-            log.error(f"❌ No valid business_id found for tenantId={tenant_id}")
+            log.error(f"[WA-ERROR] No valid business_id found for tenant={tenant_id}")
             return jsonify({"ok": False, "error": "no_business"}), 400
         
         # ✅ BUILD 92: Process messages IMMEDIATELY (no threading) - זריזות מקסימלית!
@@ -501,7 +501,7 @@ def baileys_webhook():
                             log.warning(f"🚫 Skipping AI-like message (possible echo)")
                             continue
                 
-                log.info(f"📱 Processing message from {from_number}: {message_text[:50]}...")
+                log.info(f"[WA-INCOMING] biz={business_id}, from={from_number}, text={message_text[:50]}...")
                 
                 # ✅ FIX: Use correct CustomerIntelligence class with validated business_id
                 ci_service = CustomerIntelligence(business_id=business_id)
@@ -618,17 +618,16 @@ def baileys_webhook():
                 
                 # Send response via Baileys
                 send_start = time.time()
-                log.info(f"📨 Attempting to send to {from_number} (tenant={tenant_id}): {str(response_text)[:50]}...")
+                log.info(f"[WA-OUTGOING] biz={business_id}, to={from_number}, text={str(response_text)[:50]}...")
                 
                 send_result = wa_service.send_message(
                     to=f"{from_number}@s.whatsapp.net",
                     message=response_text,
                     tenant_id=tenant_id  # MULTI-TENANT: Route to correct WhatsApp session
                 )
-                log.info(f"📨 send_result: {send_result}")
                 
                 send_duration = time.time() - send_start
-                log.info(f"📤 Send duration: {send_duration:.2f}s")
+                log.info(f"[WA-OUTGOING] send_result={send_result.get('status')}, duration={send_duration:.2f}s")
                 
                 if send_result.get('status') == 'sent':
                     # Save outgoing message
@@ -642,29 +641,28 @@ def baileys_webhook():
                     out_msg.status = 'sent'
                     db.session.add(out_msg)
                     db.session.commit()
-                    log.info(f"✅ Sent auto-response to {from_number}")
+                    log.info(f"[WA-OUTGOING] Sent to {from_number} successfully")
                     processed_count += 1
                 
                 msg_duration = time.time() - msg_start
-                log.info(f"⏱️ Message processed in {msg_duration:.2f}s")
+                log.info(f"[WA-INCOMING] Message processed in {msg_duration:.2f}s")
                 
             except Exception as e:
-                print(f"❌ ERROR processing message: {e}", flush=True)
                 import traceback
-                traceback.print_exc()
-                log.error(f"❌ Error processing message: {e}")
+                log.error(f"[WA-ERROR] Processing message failed: {e}")
+                log.error(f"[WA-ERROR] Traceback: {traceback.format_exc()}")
         
         overall_duration = time.time() - overall_start
-        log.info(f"🏁 Total processing: {overall_duration:.2f}s for {len(messages)} message(s)")
+        log.info(f"[WA-INCOMING] Total processing: {overall_duration:.2f}s for {len(messages)} message(s)")
         
         processed = processed_count
         
         return jsonify({"ok": True, "processed": processed}), 200
         
     except Exception as e:
-        log.error(f"❌ Baileys webhook error: {e}")
         import traceback
-        traceback.print_exc()
+        log.error(f"[WA-ERROR] Baileys webhook error: {e}")
+        log.error(f"[WA-ERROR] Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 @whatsapp_bp.route('/send', methods=['POST'])

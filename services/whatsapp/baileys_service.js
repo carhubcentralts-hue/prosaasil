@@ -60,14 +60,31 @@ app.get('/healthz', (req, res) => res.status(200).send('ok'));
 app.get('/health', (req, res) => res.status(200).send('ok'));  // Add /health alias for Python compatibility
 app.get('/', (req, res) => res.status(200).send('ok'));
 
-const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName }
+const sessions = new Map(); // tenantId -> { sock, saveCreds, qrDataUrl, connected, starting, pushName, reconnectAttempts }
+
+// 🔧 HARDENING 1.1: Exponential backoff configuration for reconnection
+const RECONNECT_CONFIG = {
+  baseDelay: 5000,    // 5 seconds
+  maxDelay: 60000,    // 60 seconds max
+  multiplier: 2,      // Double each time
+  maxAttempts: 10     // Give up after 10 failed attempts
+};
+
+function getReconnectDelay(attempts) {
+  const delay = Math.min(
+    RECONNECT_CONFIG.baseDelay * Math.pow(RECONNECT_CONFIG.multiplier, attempts),
+    RECONNECT_CONFIG.maxDelay
+  );
+  return delay;
+}
 
 function authDir(tenantId) {
-  // CRITICAL FIX: Unified tenant path (always business_1)
-  const normalizedTenant = tenantId === '1' ? 'business_1' : String(tenantId);
+  // 🔧 HARDENING 1.2: Multi-tenant support - NO hardcoded business_1
+  // tenantId should already be in format "business_X" from Python
+  const normalizedTenant = tenantId.startsWith('business_') ? tenantId : `business_${tenantId}`;
   const p = path.join(process.cwd(), 'storage', 'whatsapp', normalizedTenant, 'auth');
   fs.mkdirSync(p, { recursive: true });
-  console.log(`[authDir] tenant=${tenantId} -> normalized=${normalizedTenant} -> path=${p}`);
+  console.log(`[WA] authDir: tenant=${tenantId} -> path=${p}`);
   return p;
 }
 function requireSecret(req, res, next) {
@@ -136,9 +153,13 @@ app.post('/sendTyping', async (req, res) => {
       return res.status(400).json({ error: 'Missing jid' });
     }
     
-    // Multi-tenant: use provided tenantId or default to business_1
-    const effectiveTenantId = tenantId || 'business_1';
-    const s = sessions.get(effectiveTenantId);
+    // 🔧 HARDENING 1.2: tenantId is REQUIRED - no fallback
+    if (!tenantId) {
+      console.error('[WA-ERROR] sendTyping: Missing tenantId');
+      return res.status(400).json({ error: 'Missing tenantId' });
+    }
+    
+    const s = sessions.get(tenantId);
     
     if (!s || !s.sock || !s.connected) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
@@ -162,12 +183,16 @@ app.post('/send', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: to, text' });
     }
     
-    // MULTI-TENANT: Use provided tenantId or default to business_1
-    const effectiveTenantId = tenantId || 'business_1';
-    const s = sessions.get(effectiveTenantId);
+    // 🔧 HARDENING 1.2: tenantId is REQUIRED - no fallback
+    if (!tenantId) {
+      console.error('[WA-ERROR] /send: Missing tenantId');
+      return res.status(400).json({ error: 'Missing tenantId' });
+    }
+    
+    const s = sessions.get(tenantId);
     
     if (!s || !s.sock || !s.connected) {
-      console.error(`[send] ❌ WhatsApp not connected for ${effectiveTenantId}`);
+      console.error(`[WA-ERROR] WhatsApp not connected for ${tenantId}`);
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
     
@@ -238,25 +263,22 @@ async function startSession(tenantId) {
   });
   sock.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
     try {
-      // DETAILED LOGGING for debugging
-      console.log(`[update] ${tenantId}:`, { 
-        connection, 
-        hasQr: !!qr, 
-        reason: lastDisconnect?.error?.output?.statusCode 
-      });
+      const reason = lastDisconnect?.error?.output?.statusCode;
+      const reasonMessage = lastDisconnect?.error?.message || String(reason || '');
+      
+      // 🔧 HARDENING 1.1: Clear structured logging with states
+      console.log(`[WA] connection update: tenant=${tenantId}, state=${connection || 'none'}, reason=${reason || 'none'}, hasQR=${!!qr}`);
       
       // B2) לוגיקת QR יציבה בNode עם qr_code.txt
       const qrFile = path.join(authPath, 'qr_code.txt');
       
       if (qr) {
         s.qrDataUrl = await QRCode.toDataURL(qr);
-        console.log(`[${tenantId}] 📱 QR generated successfully`);
-        // כתיבת QR לקובץ לפי ההוראות
+        console.log(`[WA] ${tenantId}: QR generated successfully`);
         try { 
           fs.writeFileSync(qrFile, qr); 
-          console.log(`[${tenantId}] 💾 QR saved to ${qrFile}`);
         } catch(e) { 
-          console.error(`[${tenantId}] QR file write error:`, e); 
+          console.error(`[WA-ERROR] ${tenantId}: QR file write error:`, e); 
         }
       }
       
@@ -264,76 +286,96 @@ async function startSession(tenantId) {
         s.connected = true; 
         s.qrDataUrl = '';
         s.pushName = sock?.user?.name || sock?.user?.id || '';
-        console.log(`[${tenantId}] ✅ Connected! pushName: ${s.pushName}`);
-        // מחיקת QR כשמתחברים לפי ההוראות
+        s.reconnectAttempts = 0;  // 🔧 HARDENING 1.1: Reset reconnect counter on success
+        console.log(`[WA] ${tenantId}: ✅ Connected! pushName=${s.pushName}`);
+        
+        // מחיקת QR כשמתחברים
         try { 
           if (fs.existsSync(qrFile)) {
             fs.unlinkSync(qrFile); 
-            console.log(`[${tenantId}] 🗑️ QR file deleted after connection`);
           }
         } catch(e) { 
-          console.error(`[${tenantId}] QR file delete error:`, e); 
+          console.error(`[WA-ERROR] ${tenantId}: QR file delete error:`, e); 
         }
         
-        // 🔔 BUILD 151: Notify backend that WhatsApp is connected - clears disconnect notifications
+        // 🔔 BUILD 151: Notify backend that WhatsApp is connected
         notifyBackendWhatsappStatus(tenantId, 'connected', null);
       }
       
       if (connection === 'close') {
         s.connected = false;
-        const reason = lastDisconnect?.error?.output?.statusCode;
-        const reasonMessage = lastDisconnect?.error?.message || String(reason);
-        console.log(`[${tenantId}] ❌ Disconnected. Reason: ${reason}`);
+        console.log(`[WA] ${tenantId}: ❌ Disconnected. reason=${reason}, message=${reasonMessage}`);
         
-        // 🔔 BUILD 151: Notify backend that WhatsApp is disconnected - creates notification
-        // Only notify for permanent disconnects (loggedOut) or significant issues
-        if (reason === DisconnectReason.loggedOut) {
-          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'logged_out');
-        }
-        
-        // 🔥 CRITICAL FIX: Always clean up socket before reconnect!
+        // 🔥 CRITICAL: Always clean up socket before reconnect
         try {
           if (s.sock) {
             s.sock.removeAllListeners();
             s.sock.end();
           }
         } catch (e) {
-          console.log(`[${tenantId}] Socket cleanup warning:`, e.message);
+          console.log(`[WA] ${tenantId}: Socket cleanup warning: ${e.message}`);
         }
         
-        // ✅ FIX: אם קיבלנו loggedOut - קבצי האימות פגומים, צריך לנקות אותם
+        // CASE 1: Logged out - clear everything and notify backend
         if (reason === DisconnectReason.loggedOut) {
-          console.log(`[${tenantId}] 🗑️ ${reason} loggedOut - clearing auth files`);
+          console.log(`[WA] ${tenantId}: loggedOut - clearing auth files and notifying backend`);
+          
+          // 🔔 BUILD 151: Notify backend about permanent disconnect
+          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'logged_out');
+          
           try {
             const authPath = authDir(tenantId);
             fs.rmSync(authPath, { recursive: true, force: true });
-            console.log(`[${tenantId}] ✅ Auth files cleared, will restart with fresh QR`);
+            console.log(`[WA] ${tenantId}: Auth files cleared, will restart with fresh QR`);
             fs.mkdirSync(authPath, { recursive: true });
           } catch (e) {
-            console.error(`[${tenantId}] Failed to clear auth files:`, e);
+            console.error(`[WA-ERROR] ${tenantId}: Failed to clear auth files:`, e);
           }
           sessions.delete(tenantId);
-          setTimeout(() => startSession(tenantId), 3000);
-          return;
-        }
-        
-        // ✅ FIX: שגיאה restartRequired (515) = Stream Error אחרי pairing מוצלח
-        // צריך לנסות מחדש אבל NOT לנקות credentials!
-        if (reason === DisconnectReason.restartRequired) {
-          console.log(`[${tenantId}] 🔄 515 restartRequired after pairing - will retry with saved credentials`);
-          sessions.delete(tenantId);
-          // המתן יותר זמן כדי ש-WhatsApp ייצב
           setTimeout(() => startSession(tenantId), 5000);
           return;
         }
         
-        // 🔥 CRITICAL FIX: אוטומטי reconnect - delete session ו-startSession מחדש!
-        console.log(`[${tenantId}] 🔄 Auto-reconnecting in 2 seconds (reason: ${reason || 'unknown'})...`);
+        // CASE 2: restartRequired (515) - keep credentials, just restart
+        if (reason === DisconnectReason.restartRequired) {
+          console.log(`[WA] ${tenantId}: restartRequired (515) - will retry with saved credentials`);
+          sessions.delete(tenantId);
+          setTimeout(() => startSession(tenantId), 5000);
+          return;
+        }
+        
+        // CASE 3: Other disconnects - use exponential backoff
+        // 🔧 HARDENING 1.1: Exponential backoff reconnection
+        const attempts = (s.reconnectAttempts || 0) + 1;
+        
+        if (attempts > RECONNECT_CONFIG.maxAttempts) {
+          console.error(`[WA-ERROR] ${tenantId}: Max reconnect attempts (${RECONNECT_CONFIG.maxAttempts}) reached. Giving up.`);
+          // 🔔 Notify backend about repeated failure
+          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'max_attempts_exceeded');
+          sessions.delete(tenantId);
+          return;
+        }
+        
+        const delay = getReconnectDelay(attempts - 1);
+        console.log(`[WA] ${tenantId}: 🔄 Auto-reconnecting in ${delay/1000}s (attempt ${attempts}/${RECONNECT_CONFIG.maxAttempts}, reason=${reason || 'unknown'})`);
+        
+        // Store attempts count before deleting session
+        const reconnectAttempts = attempts;
         sessions.delete(tenantId);
-        setTimeout(() => startSession(tenantId), 2000);
+        
+        setTimeout(async () => {
+          try {
+            const newSession = await startSession(tenantId);
+            if (newSession) {
+              newSession.reconnectAttempts = reconnectAttempts;
+            }
+          } catch (e) {
+            console.error(`[WA-ERROR] ${tenantId}: Reconnect failed:`, e.message);
+          }
+        }, delay);
       }
     } catch (e) { 
-      console.error(`[${tenantId}] [connection.update] error:`, e); 
+      console.error(`[WA-ERROR] ${tenantId}: connection.update error:`, e); 
     }
   });
 
