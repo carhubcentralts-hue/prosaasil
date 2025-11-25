@@ -481,7 +481,8 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             contact_name=customer_name,
             contact_phone=phone,  # Can be None! Phone is in call log
             auto_generated=True,
-            notes=f"נקבע ע״י AI Agent\nמקור: {input.source}\nסוג טיפול: {input.treatment_type}"
+            source=input.source or "phone_call",  # 🔥 FIX: Set source properly!
+            notes=f"נקבע ע״י AI Agent\nסוג טיפול: {input.treatment_type}"
         )
         
         print(f"   Appointment object created: {appointment}")
