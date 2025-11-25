@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle } from 'lucide-react';
 import { useNotifications } from '../../shared/contexts/NotificationContext';
+import { http } from '../../services/http';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -90,19 +91,9 @@ export function CrmPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Fetch tasks from API
-      const response = await fetch('/api/reminders', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setTasks(data.reminders || []);
-      } else {
-        console.error('Failed to load tasks');
-        setTasks([]);
-      }
-      
+      // Fetch tasks from API using http service (includes CSRF)
+      const data = await http.get<{reminders: CRMTask[]}>('/api/reminders');
+      setTasks(data.reminders || []);
     } catch (error) {
       console.error('Error loading tasks data:', error);
       setTasks([]);
@@ -113,11 +104,8 @@ export function CrmPage() {
 
   const loadLeads = async () => {
     try {
-      const response = await fetch('/api/leads', { credentials: 'include' });
-      if (response.ok) {
-        const data = await response.json();
-        setLeads(data.items || data.leads || []);
-      }
+      const data = await http.get<{items?: Lead[], leads?: Lead[]}>('/api/leads');
+      setLeads(data.items || data.leads || []);
     } catch (error) {
       console.error('Error loading leads:', error);
     }
@@ -140,33 +128,21 @@ export function CrmPage() {
         channel: 'ui'
       };
 
-      // Use reminders API endpoint (backend naming)
-      const url = editingTask 
-        ? `/api/reminders/${editingTask.id}` 
-        : `/api/reminders`;
-      
-      const method = editingTask ? 'PATCH' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload)
-      });
-
-      if (response.ok) {
-        alert(editingTask ? 'משימה עודכנה בהצלחה!' : 'משימה נוצרה בהצלחה!');
-        closeTaskModal();
-        loadData();
-        // Refresh notifications when task is created/updated
-        refreshNotifications();
+      // Use http service with CSRF token
+      if (editingTask) {
+        await http.patch(`/api/reminders/${editingTask.id}`, payload);
       } else {
-        const error = await response.json();
-        alert(`שגיאה בשמירת משימה: ${error.error || 'שגיאה לא ידועה'}`);
+        await http.post('/api/reminders', payload);
       }
-    } catch (error) {
+      
+      alert(editingTask ? 'משימה עודכנה בהצלחה!' : 'משימה נוצרה בהצלחה!');
+      closeTaskModal();
+      loadData();
+      // Refresh notifications when task is created/updated
+      refreshNotifications();
+    } catch (error: any) {
       console.error('Error saving task:', error);
-      alert('שגיאה בשמירת משימה');
+      alert(`שגיאה בשמירת משימה: ${error.message || 'שגיאה לא ידועה'}`);
     }
   };
 
@@ -192,24 +168,14 @@ export function CrmPage() {
     }
     
     try {
-      const response = await fetch(`/api/leads/${task.lead_id}/reminders/${task.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ completed: true })
-      });
-
-      if (response.ok) {
-        loadData();
-        // Refresh notifications when task is completed
-        refreshNotifications();
-      } else {
-        const error = await response.json();
-        alert(`שגיאה בסימון משימה: ${error.error || 'שגיאה לא ידועה'}`);
-      }
-    } catch (error) {
+      // Use http.patch with CSRF token
+      await http.patch(`/api/leads/${task.lead_id}/reminders/${task.id}`, { completed: true });
+      loadData();
+      // Refresh notifications when task is completed
+      refreshNotifications();
+    } catch (error: any) {
       console.error('Error completing task:', error);
-      alert('שגיאה בסימון משימה');
+      alert(`שגיאה בסימון משימה: ${error.message || 'שגיאה לא ידועה'}`);
     }
   };
 
