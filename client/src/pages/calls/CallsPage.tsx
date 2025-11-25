@@ -100,29 +100,33 @@ export function CallsPage() {
   const openInCRM = async (call: Call) => {
     // If call already has a lead_id, navigate directly
     if (call.lead_id) {
-      navigate(`/leads/${call.lead_id}`);
+      navigate(`/app/leads/${call.lead_id}`);
       return;
     }
     
     // Otherwise, try to find lead by phone number
+    // Extract last 8 digits for flexible matching (handles +972, 0, etc)
     const phoneNumber = call.from_e164 || '';
-    if (phoneNumber) {
+    const phoneDigits = phoneNumber.replace(/\D/g, '');
+    const searchTerm = phoneDigits.length >= 8 ? phoneDigits.slice(-8) : phoneDigits;
+    
+    if (searchTerm) {
       try {
-        // Search for lead with this phone number
-        const response = await http.get(`/api/leads?search=${encodeURIComponent(phoneNumber)}`);
+        // Search for lead with this phone number (last 8 digits match)
+        const response = await http.get(`/api/leads?search=${encodeURIComponent(searchTerm)}`);
         if (response && (response as any).leads && (response as any).leads.length > 0) {
           const lead = (response as any).leads[0];
-          navigate(`/leads/${lead.id}`);
+          navigate(`/app/leads/${lead.id}`);
           return;
         }
       } catch (error) {
         console.error('Error searching for lead:', error);
       }
       // No lead found - navigate to leads page with search
-      navigate(`/leads?search=${encodeURIComponent(phoneNumber)}`);
+      navigate(`/app/leads?search=${encodeURIComponent(searchTerm)}`);
     } else {
       // No phone number - just go to leads page
-      navigate('/leads');
+      navigate('/app/leads');
     }
   };
 
