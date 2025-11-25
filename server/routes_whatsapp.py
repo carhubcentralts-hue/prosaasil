@@ -525,9 +525,10 @@ def baileys_webhook():
                 log.info(f"⏱️ Message processed in {msg_duration:.2f}s")
                 
             except Exception as e:
-                log.error(f"❌ Error processing message: {e}")
+                print(f"❌ ERROR processing message: {e}", flush=True)
                 import traceback
                 traceback.print_exc()
+                log.error(f"❌ Error processing message: {e}")
         
         overall_duration = time.time() - overall_start
         log.info(f"🏁 Total processing: {overall_duration:.2f}s for {len(messages)} message(s)")

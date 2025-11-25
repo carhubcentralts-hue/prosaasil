@@ -412,12 +412,23 @@ def get_provider() -> Provider:
         return TwilioProvider()
 
 def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any] | None = None, tenant_id: str = None):
-    """Get WhatsApp service with smart routing and failover (MULTI-TENANT)"""
+    """Get WhatsApp service with smart routing and failover (MULTI-TENANT)
+    
+    IMPORTANT: When tenant_id is provided, we ALWAYS create a fresh BaileysProvider 
+    to ensure multi-tenant routing works correctly. The singleton is only used for 
+    non-tenant-specific calls (like health checks).
+    """
     global _whatsapp_service
+    
+    # 🔥 MULTI-TENANT: If tenant_id is provided, ALWAYS use fresh Baileys (no singleton)
+    if tenant_id:
+        print(f"🔌 get_whatsapp_service: tenant_id={tenant_id} → using fresh BaileysProvider", flush=True)
+        return WhatsAppService(BaileysProvider(), tenant_id=tenant_id)
     
     # Provider override for specific request
     if provider:
         p = provider.lower()
+        print(f"🔌 get_whatsapp_service: explicit provider={p}", flush=True)
         if p == "twilio":
             return WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         if p == "baileys":
@@ -426,14 +437,16 @@ def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any
     # Smart routing logic
     if thread_data:
         resolved_provider = _resolve_smart_provider(thread_data)
+        print(f"🔌 get_whatsapp_service: smart routing → {resolved_provider}", flush=True)
         if resolved_provider == "twilio":
             return WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         elif resolved_provider == "baileys":
             return WhatsAppService(BaileysProvider(), tenant_id=tenant_id)
     
-    # Default service with auto-routing
+    # Default service with auto-routing (singleton for non-tenant calls)
     if _whatsapp_service is None:
         provider_type = os.getenv("WHATSAPP_PROVIDER", "auto").lower()
+        print(f"🔌 get_whatsapp_service: creating singleton (provider_type={provider_type})", flush=True)
         
         if provider_type == "auto":
             # Auto-routing: prefer Baileys if available, fallback to Twilio
