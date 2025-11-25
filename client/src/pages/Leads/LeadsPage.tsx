@@ -159,8 +159,13 @@ export default function LeadsPage() {
   };
 
   const getStatusColor = (status: LeadStatus): string => {
-    // Simple synchronous color mapping
-    const colorMap: Record<string, string> = {
+    const normalizedStatus = status.toLowerCase();
+    const foundStatus = statuses.find(s => s.name.toLowerCase() === normalizedStatus);
+    if (foundStatus) {
+      return foundStatus.color;
+    }
+    
+    const fallbackColors: Record<string, string> = {
       'new': 'bg-blue-100 text-blue-800',
       'attempting': 'bg-yellow-100 text-yellow-800',
       'contacted': 'bg-purple-100 text-purple-800',
@@ -168,22 +173,19 @@ export default function LeadsPage() {
       'won': 'bg-emerald-100 text-emerald-800',
       'lost': 'bg-red-100 text-red-800',
       'unqualified': 'bg-gray-100 text-gray-800',
-      // Legacy capitalized mappings
-      'New': 'bg-blue-100 text-blue-800',
-      'Attempting': 'bg-yellow-100 text-yellow-800',
-      'Contacted': 'bg-purple-100 text-purple-800',
-      'Qualified': 'bg-green-100 text-green-800',
-      'Won': 'bg-emerald-100 text-emerald-800',
-      'Lost': 'bg-red-100 text-red-800',
-      'Unqualified': 'bg-gray-100 text-gray-800'
     };
     
-    return colorMap[status] || 'bg-gray-100 text-gray-800';
+    return fallbackColors[normalizedStatus] || 'bg-gray-100 text-gray-800';
   };
 
   const getStatusLabel = (status: LeadStatus): string => {
-    // Simple synchronous label mapping
-    const labelMap: Record<string, string> = {
+    const normalizedStatus = status.toLowerCase();
+    const foundStatus = statuses.find(s => s.name.toLowerCase() === normalizedStatus);
+    if (foundStatus) {
+      return foundStatus.label;
+    }
+    
+    const fallbackLabels: Record<string, string> = {
       'new': 'חדש',
       'attempting': 'מנסה ליצור קשר',
       'contacted': 'יצרנו קשר',
@@ -191,17 +193,9 @@ export default function LeadsPage() {
       'won': 'נצחנו',
       'lost': 'איבדנו',
       'unqualified': 'לא מתאים',
-      // Legacy capitalized mappings
-      'New': 'חדש',
-      'Attempting': 'מנסה ליצור קשר',
-      'Contacted': 'יצרנו קשר',
-      'Qualified': 'מתאים',
-      'Won': 'נצחנו',
-      'Lost': 'איבדנו',
-      'Unqualified': 'לא מתאים'
     };
     
-    return labelMap[status] || status;
+    return fallbackLabels[normalizedStatus] || status;
   };
 
   const handleDeleteLead = async (leadId: number, leadName: string) => {
@@ -903,7 +897,10 @@ export default function LeadsPage() {
         isOpen={isStatusModalOpen}
         onClose={() => {
           setIsStatusModalOpen(false);
-          refreshStatuses(); // Refresh statuses when modal closes
+          refreshStatuses();
+        }}
+        onStatusChange={() => {
+          refreshStatuses();
         }}
       />
     </main>

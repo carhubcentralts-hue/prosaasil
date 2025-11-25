@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Phone, Mail, User, Tag } from 'lucide-react';
 import { Button } from '../../../shared/components/ui/Button';
 import { Input } from '../../../shared/components/ui/Input';
 import { Card } from '../../../shared/components/ui/Card';
 import { CreateLeadRequest, LeadSource, LeadStatus } from '../types';
+import { useStatuses, LeadStatus as StatusType } from '../../../features/statuses/hooks';
 
 interface LeadCreateModalProps {
   isOpen: boolean;
@@ -18,27 +19,37 @@ const SOURCES: { key: LeadSource; label: string }[] = [
   { key: 'manual', label: 'הוספה ידנית' },
 ];
 
-const STATUSES: { key: LeadStatus; label: string }[] = [
-  { key: 'New', label: 'חדש' },
-  { key: 'Attempting', label: 'בניסיון קשר' },
-  { key: 'Contacted', label: 'נוצר קשר' },
-  { key: 'Qualified', label: 'מוכשר' },
-];
-
 export default function LeadCreateModal({ isOpen, onClose, onSubmit }: LeadCreateModalProps) {
+  const { statuses, refreshStatuses } = useStatuses();
+  
   const [formData, setFormData] = useState<Partial<CreateLeadRequest>>({
     first_name: '',
     last_name: '',
     phone_e164: '',
     email: '',
     source: 'manual',
-    status: 'New',
+    status: 'new',
     notes: '',
     tags: [],
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newTag, setNewTag] = useState('');
+  
+  useEffect(() => {
+    if (isOpen) {
+      refreshStatuses();
+    }
+  }, [isOpen, refreshStatuses]);
+  
+  useEffect(() => {
+    if (statuses.length > 0 && !formData.status) {
+      const defaultStatus = statuses.find(s => s.is_default);
+      if (defaultStatus) {
+        setFormData(prev => ({ ...prev, status: defaultStatus.name }));
+      }
+    }
+  }, [statuses]);
 
   const handleInputChange = (field: keyof CreateLeadRequest, value: string) => {
     setFormData(prev => ({
@@ -104,13 +115,14 @@ export default function LeadCreateModal({ isOpen, onClose, onSubmit }: LeadCreat
       await onSubmit(leadData);
       
       // Reset form
+      const defaultStatus = statuses.find(s => s.is_default);
       setFormData({
         first_name: '',
         last_name: '',
         phone_e164: '',
         email: '',
         source: 'manual',
-        status: 'New',
+        status: defaultStatus?.name || 'new',
         notes: '',
         tags: [],
       });
@@ -233,16 +245,20 @@ export default function LeadCreateModal({ isOpen, onClose, onSubmit }: LeadCreat
                   סטטוס ראשוני
                 </label>
                 <select
-                  value={formData.status || 'New'}
+                  value={formData.status || 'new'}
                   onChange={(e) => handleInputChange('status', e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   data-testid="select-status"
                 >
-                  {STATUSES.map(status => (
-                    <option key={status.key} value={status.key}>
-                      {status.label}
-                    </option>
-                  ))}
+                  {statuses.length > 0 ? (
+                    statuses.filter(s => !s.is_system || s.name === 'new').map(status => (
+                      <option key={status.id} value={status.name}>
+                        {status.label}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="new">חדש</option>
+                  )}
                 </select>
               </div>
             </div>
