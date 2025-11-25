@@ -1541,6 +1541,23 @@ class MediaStreamHandler:
         else:
             print(f"🔍 [DEBUG] No CRM context exists yet")
         
+        # 🔥 BUILD 146 FIX: Save date/time to pending_slot from ANY NLP extraction
+        # This ensures we don't lose the time when it "falls off" the 10-message history window
+        if date_iso or time_str:
+            crm_context = getattr(self, 'crm_context', None)
+            if crm_context:
+                # Initialize or update pending_slot
+                if not hasattr(crm_context, 'pending_slot') or not crm_context.pending_slot:
+                    crm_context.pending_slot = {}
+                
+                # Only update if we have new values (don't overwrite with None)
+                if date_iso:
+                    crm_context.pending_slot['date'] = date_iso
+                    print(f"💾 [NLP] Saved date to pending_slot: {date_iso}")
+                if time_str:
+                    crm_context.pending_slot['time'] = time_str
+                    print(f"💾 [NLP] Saved time to pending_slot: {time_str}")
+        
         # 🔥 NEW: Handle "hours_info" action (user asking about business hours, NOT appointment!)
         if action == "hours_info":
             print(f"📋 [NLP] User asking for business hours info - responding with policy")
@@ -1828,6 +1845,10 @@ class MediaStreamHandler:
                             self.appointment_confirmed_in_session = True
                             logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
                             print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
+                            
+                            # 🔥 BUILD 146: Clear pending_slot ONLY after successful appointment creation
+                            crm_context.pending_slot = None
+                            print(f"🧹 [CONFIRM] Cleared pending_slot after successful creation")
                         
                         # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
                         await self._send_server_event_to_ai(f"✅ appointment_created: התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
