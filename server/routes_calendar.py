@@ -62,8 +62,8 @@ def get_user_business_filter():
         else:
             return True  # No filter - see all
     
-    # Owner/Admin/Manager/Business/Agent filter by their business
-    if user_role in ['owner', 'admin', 'manager', 'business', 'agent']:
+    # Owner/Admin/Agent filter by their business
+    if user_role in ['owner', 'admin', 'agent']:
         if business_id:
             return Appointment.business_id == business_id
         else:
@@ -75,7 +75,7 @@ def get_user_business_filter():
     return None
 
 @calendar_bp.route('/appointments', methods=['GET'])
-@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def get_appointments():
     """Get all appointments for the current user's business or all businesses (admin/manager)"""
     try:
@@ -227,7 +227,7 @@ def get_appointments():
         return jsonify({'error': 'שגיאה בטעינת הפגישות'}), 500
 
 @calendar_bp.route('/appointments', methods=['POST'])
-@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def create_appointment():
     """Create a new appointment"""
     try:
@@ -333,7 +333,7 @@ def create_appointment():
         return jsonify({'error': 'שגיאה ביצירת הפגישה'}), 500
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['GET'])
-@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def get_appointment(appointment_id):
     """Get a specific appointment by ID"""
     try:
@@ -405,7 +405,7 @@ def get_appointment(appointment_id):
         return jsonify({'error': 'שגיאה בטעינת הפגישה'}), 500
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['PUT'])
-@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def update_appointment(appointment_id):
     """Update an existing appointment"""
     try:
@@ -502,7 +502,7 @@ def update_appointment(appointment_id):
         return jsonify({'error': 'שגיאה בעדכון הפגישה'}), 500
 
 @calendar_bp.route('/appointments/<int:appointment_id>', methods=['DELETE'])
-@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def delete_appointment(appointment_id):
     """Delete an appointment"""
     try:
@@ -544,7 +544,7 @@ def delete_appointment(appointment_id):
         return jsonify({'error': 'שגיאה במחיקת הפגישה'}), 500
 
 @calendar_bp.route('/stats', methods=['GET'])
-@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def get_calendar_stats():
     """Get calendar statistics for dashboard"""
     try:
