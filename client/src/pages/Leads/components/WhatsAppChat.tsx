@@ -387,7 +387,7 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
             {/* AI Toggle Button */}
             <Button 
               size="sm" 
-              variant={aiEnabled ? "default" : "destructive"}
+              variant="secondary"
               onClick={toggleAi}
               disabled={togglingAi}
               className={`${aiEnabled ? 'bg-blue-500 hover:bg-blue-600' : 'bg-red-500 hover:bg-red-600'} text-white`}
