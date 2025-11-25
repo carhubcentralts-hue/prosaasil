@@ -1555,7 +1555,8 @@ class AIService:
                 "actions": serialize_run_items(result.new_items) if hasattr(result, 'new_items') else [],
                 "booking_successful": booking_successful
             }
-            print(f"✅ Returning structured response: {len(reply_text)} chars text, {len(response_payload['actions'])} serialized actions")
+            print(f"✅ Returning structured response: {len(reply_text)} chars text, {len(response_payload['actions'])} serialized actions", flush=True)
+            print(f"🔙 About to return from generate_response_with_agent()", flush=True)
             return response_payload
             
         except Exception as e:

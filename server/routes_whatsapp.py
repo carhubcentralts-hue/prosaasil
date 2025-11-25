@@ -473,20 +473,21 @@ def baileys_webhook():
                         customer_phone=from_number,
                         customer_name=customer.name if customer else None
                     )
-                    log.info(f"🔍 DEBUG: ai_response type={type(ai_response)}, value={str(ai_response)[:100]}...")
+                    print(f"🔍 DEBUG: ai_response type={type(ai_response)}, value={str(ai_response)[:100]}...", flush=True)
                     
                     # ✅ FIX: Handle dict response (text + actions) vs plain string
                     if isinstance(ai_response, dict):
                         response_text = ai_response.get('text', '')
                         actions = ai_response.get('actions', [])
-                        log.info(f"🎯 Agent returned {len(actions)} actions with response")
+                        print(f"🎯 Agent returned {len(actions)} actions with response", flush=True)
                     else:
-                        response_text = ai_response
+                        response_text = str(ai_response)
+                        print(f"🎯 Agent returned string response", flush=True)
                     
                     ai_duration = time.time() - ai_start
-                    log.info(f"✅ Agent response ({ai_duration:.2f}s): {str(response_text)[:50]}...")
+                    print(f"✅ Agent response ({ai_duration:.2f}s): {str(response_text)[:50]}...", flush=True)
                 except Exception as e:
-                    log.error(f"⚠️ Agent response failed, using fallback: {e}")
+                    print(f"⚠️ Agent response failed, using fallback: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
                     response_text = "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
