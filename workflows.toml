@@ -1,2 +1,7 @@
-[workflows]
-"Start application" = { type = "server", command = "bash ./start_dev.sh" }
+[[workflows]]
+name = "Start application"
+author = "agent"
+mode = "parallel"
+
+[workflows.run]
+command = "bash ./start_dev.sh"
