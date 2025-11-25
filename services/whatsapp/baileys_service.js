@@ -27,6 +27,30 @@ if (!INTERNAL_SECRET) {
   process.exit(1);
 }
 
+/**
+ * 🔔 BUILD 151: Notify backend about WhatsApp connection status changes
+ * This creates/clears notifications for business owners when WhatsApp disconnects/reconnects
+ */
+async function notifyBackendWhatsappStatus(tenantId, status, reason = null) {
+  try {
+    console.log(`[${tenantId}] 🔔 Notifying backend: WhatsApp ${status}${reason ? ` (reason: ${reason})` : ''}`);
+    
+    await axios.post(`${FLASK_BASE_URL}/api/internal/whatsapp/status-webhook`,
+      { tenant_id: tenantId, status, reason },
+      { 
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': INTERNAL_SECRET 
+        },
+        timeout: 5000
+      }
+    );
+    console.log(`[${tenantId}] ✅ Backend notified successfully about ${status}`);
+  } catch (err) {
+    console.error(`[${tenantId}] ⚠️ Failed to notify backend about WhatsApp status:`, err?.message || err);
+  }
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -250,12 +274,22 @@ async function startSession(tenantId) {
         } catch(e) { 
           console.error(`[${tenantId}] QR file delete error:`, e); 
         }
+        
+        // 🔔 BUILD 151: Notify backend that WhatsApp is connected - clears disconnect notifications
+        notifyBackendWhatsappStatus(tenantId, 'connected', null);
       }
       
       if (connection === 'close') {
         s.connected = false;
         const reason = lastDisconnect?.error?.output?.statusCode;
+        const reasonMessage = lastDisconnect?.error?.message || String(reason);
         console.log(`[${tenantId}] ❌ Disconnected. Reason: ${reason}`);
+        
+        // 🔔 BUILD 151: Notify backend that WhatsApp is disconnected - creates notification
+        // Only notify for permanent disconnects (loggedOut) or significant issues
+        if (reason === DisconnectReason.loggedOut) {
+          notifyBackendWhatsappStatus(tenantId, 'disconnected', 'logged_out');
+        }
         
         // 🔥 CRITICAL FIX: Always clean up socket before reconnect!
         try {
