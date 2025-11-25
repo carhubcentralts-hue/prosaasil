@@ -70,10 +70,24 @@ def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[
     Returns:
         (business_id, status) where status is:
         - 'found': Successfully resolved via BusinessContactChannel
+        - 'tenant_id': Resolved from business_X format tenant ID
         - 'phone_match': Matched by Business.phone_number or whatsapp_number
         - 'rejected_unknown': Unknown identifier rejected for security
     """
     from sqlalchemy import or_
+    import re
+    
+    # ✅ FIX: Handle business_X format from Baileys (e.g., "business_1" -> 1)
+    if identifier and identifier.startswith('business_'):
+        match = re.match(r'^business_(\d+)$', identifier)
+        if match:
+            extracted_id = int(match.group(1))
+            business = Business.query.filter_by(id=extracted_id, is_active=True).first()
+            if business:
+                log.info(f"✅ Resolved tenant_id format: {identifier} → business_id={extracted_id}")
+                return extracted_id, 'tenant_id'
+            else:
+                log.warning(f"⚠️ Business not found for tenant_id: {identifier}")
     
     # Normalize identifier
     normalized = _normalize_identifier(identifier)

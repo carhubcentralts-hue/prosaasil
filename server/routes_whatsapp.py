@@ -144,7 +144,7 @@ from sqlalchemy import func
 
 @whatsapp_bp.route('/contacts', methods=['GET'])
 @csrf.exempt
-@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_wa_contacts():
     # 🔒 SECURITY: business_id from authenticated session via get_business_id()
     from server.routes_crm import get_business_id
@@ -176,7 +176,7 @@ def api_wa_contacts():
 
 @whatsapp_bp.route('/messages', methods=['GET'])
 @csrf.exempt
-@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_wa_messages():
     contact_id = request.args.get("contact_id")  # This is the phone number
     if not contact_id:
@@ -203,7 +203,7 @@ def api_wa_messages():
 
 @whatsapp_bp.route('/conversation/<phone_number>', methods=['GET'])
 @csrf.exempt
-@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def get_conversation(phone_number):
     """
     Get WhatsApp conversation for a specific phone number
@@ -261,7 +261,7 @@ def get_conversation(phone_number):
 
 @whatsapp_bp.route('/stats', methods=['GET'])
 @csrf.exempt
-@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_wa_stats():
     # 🔒 SECURITY: business_id from authenticated session via get_business_id()
     from server.routes_crm import get_business_id
@@ -527,7 +527,7 @@ def baileys_webhook():
         return jsonify({"error": str(e)}), 500
 
 @whatsapp_bp.route('/send', methods=['POST'])
-@require_api_auth(['admin', 'superadmin', 'business', 'agent'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 @api_handler
 def send_manual_message():
     """שליחת הודעה ידנית מנציג - Agent Takeover"""
