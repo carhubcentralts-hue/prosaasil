@@ -35,16 +35,23 @@ def process_recording_async(form_data):
         summary = ""
         if transcription and len(transcription) > 10:
             from server.services.summary_service import summarize_conversation
+            from server.app_factory import get_process_app
             
-            # Get business context for dynamic summarization
+            # Get business context for dynamic summarization (requires app context!)
             business_type = None
             business_name = None
             to_number = form_data.get('To', '')
-            business = _identify_business_for_call(to_number, from_number)
-            if business:
-                business_type = business.business_type
-                business_name = business.name
-                log.info(f"📊 Using business context: {business_name} ({business_type})")
+            
+            try:
+                app = get_process_app()
+                with app.app_context():
+                    business = _identify_business_for_call(to_number, from_number)
+                    if business:
+                        business_type = business.business_type
+                        business_name = business.name
+                        log.info(f"📊 Using business context: {business_name} ({business_type})")
+            except Exception as e:
+                log.warning(f"⚠️ Could not get business context for summary: {e}")
             
             summary = summarize_conversation(transcription, call_sid, business_type, business_name)
             log.info(f"✅ Dynamic summary generated: {summary[:50]}...")
