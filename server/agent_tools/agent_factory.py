@@ -31,7 +31,7 @@ AGENTS_ENABLED = os.getenv("AGENTS_ENABLED", "1") == "1"
 # 🔥 SINGLETON CACHE: Store agents by (business_id, channel) key
 _AGENT_CACHE: Dict[Tuple[int, str], Tuple[Agent, datetime]] = {}
 _AGENT_LOCK = threading.Lock()
-_CACHE_TTL_MINUTES = 30  # 🔥 BUILD 99: 30 minutes (prevents rebuild on every WhatsApp message)
+_CACHE_TTL_MINUTES = 5  # 🔥 REDUCED to 5 minutes so prompt changes take effect quickly!
 
 def invalidate_agent_cache(business_id: int):
     """

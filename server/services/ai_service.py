@@ -490,7 +490,7 @@ class AIService:
 
 חשוב: אל תמציא מידע! אם לא יודע משהו - הפנה לסוכן אנושי. אם הלקוח עצבני או מתלונן - היה אמפטי והצע דיבור עם מנהל."""
 
-    def generate_response(self, message: str, business_id: int = 1, context: Optional[Dict[str, Any]] = None, channel: str = "calls", is_first_turn: bool = False) -> str:
+    def generate_response(self, message: str, business_id: int = None, context: Optional[Dict[str, Any]] = None, channel: str = "calls", is_first_turn: bool = False) -> str:
         """יצירת תגובה מפרומפט דינמי + הקשר - לפי ערוץ (calls/whatsapp)"""
         try:
             # טעינת פרומפט עסק לפי ערוץ
@@ -990,7 +990,7 @@ class AIService:
             # Return None to signal fallback to AgentKit needed
             return None
     
-    def generate_response_with_agent(self, message: str, business_id: int = 1, 
+    def generate_response_with_agent(self, message: str, business_id: int = None, 
                                      context: Optional[Dict[str, Any]] = None,
                                      channel: str = "calls",
                                      is_first_turn: bool = False,
@@ -1590,7 +1590,7 @@ class AIService:
             # Fallback to regular response
             return self.generate_response(message, business_id, context, channel, is_first_turn)
 
-def generate_ai_response(message: str, business_id: int = 1, 
+def generate_ai_response(message: str, business_id: int = None, 
                         context: Optional[Dict[str, Any]] = None, channel: str = "calls",
                         is_first_turn: bool = False) -> str:
     """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
