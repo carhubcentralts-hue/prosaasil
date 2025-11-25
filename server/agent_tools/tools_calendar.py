@@ -515,7 +515,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
         try:
             if phone:
                 logger.info(f"📋 Creating/updating lead for {input.customer_name} ({phone})")
-                from server.agent_tools.tools_leads import UpsertLeadInput, leads_upsert
+                from server.agent_tools.tools_leads import UpsertLeadInput, _leads_upsert_impl
                 
                 # Split name into first/last
                 name_parts = input.customer_name.strip().split(maxsplit=1)
@@ -532,7 +532,8 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     notes=f"תור נקבע: {input.treatment_type} ב-{start.strftime('%d/%m/%Y %H:%M')}"
                 )
                 
-                lead_result = leads_upsert(lead_input)
+                # BUILD 147: Call the implementation directly, not the FunctionTool wrapper
+                lead_result = _leads_upsert_impl(lead_input)
                 lead_id = lead_result.lead_id
                 logger.info(f"✅ Lead {lead_result.action}: #{lead_id}")
             else:

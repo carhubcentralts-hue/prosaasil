@@ -623,11 +623,34 @@ class CustomerIntelligence:
         return lead
     
     def _generate_text_summary(self, text: str) -> str:
-        """צור סיכום טקסט בסיסי"""
+        """BUILD 147: סיכום טקסט דינמי באמצעות GPT-4o-mini"""
         if not text or len(text) < 20:
             return "שיחה קצרה"
         
-        # סיכום בסיסי לפי מילות מפתח
+        try:
+            # Use the dynamic summary service for AI-powered summaries
+            from server.services.summary_service import summarize_conversation
+            
+            # Get business context for better summaries
+            business = Business.query.get(self.business_id) if self.business_id else None
+            business_name = business.name if business else None
+            business_type = business.business_type if business else None
+            
+            # Generate dynamic AI summary
+            summary = summarize_conversation(
+                transcription=text,
+                call_sid=f"summary_{self.business_id}",
+                business_type=business_type,
+                business_name=business_name
+            )
+            
+            if summary and len(summary) > 10:
+                return summary
+                
+        except Exception as e:
+            log.warning(f"⚠️ Dynamic summary failed, using fallback: {e}")
+        
+        # Fallback: Basic keyword-based summary (only if GPT fails)
         if "פגישה" in text:
             return "בקשה לתיאום פגישה"
         elif "לא מעוניין" in text:

@@ -61,10 +61,10 @@ class SearchLeadOutput(BaseModel):
 # TOOLS
 # ================================================================================
 
-@function_tool
-def leads_upsert(input: UpsertLeadInput) -> UpsertLeadOutput:
+def _leads_upsert_impl(input: UpsertLeadInput) -> UpsertLeadOutput:
     """
-    Create or update a lead
+    Internal implementation of leads_upsert.
+    Can be called directly from other modules without FunctionTool wrapper.
     
     Business logic:
     - Search for existing lead by phone
@@ -181,6 +181,14 @@ def leads_upsert(input: UpsertLeadInput) -> UpsertLeadOutput:
         db.session.rollback()
         logger.error(f"Error upserting lead: {e}")
         raise ValueError(f"Failed to save lead: {str(e)}")
+
+
+@function_tool
+def leads_upsert(input: UpsertLeadInput) -> UpsertLeadOutput:
+    """
+    Create or update a lead (FunctionTool wrapper for Agent SDK)
+    """
+    return _leads_upsert_impl(input)
 
 
 @function_tool
