@@ -184,9 +184,13 @@ def create_app():
         )
 
     # SeaSurf – מקור יחיד
+    # BUILD 143 FIX: CSRF cookie MUST have SameSite=None + Secure for cross-origin to work!
     app.config.update(
         SEASURF_COOKIE_NAME='XSRF-TOKEN',
         SEASURF_HEADER='X-CSRFToken',
+        SEASURF_COOKIE_SAMESITE='None',  # Required for cross-origin Replit requests
+        SEASURF_COOKIE_SECURE=True,       # Required with SameSite=None
+        SEASURF_COOKIE_HTTPONLY=False,    # Frontend needs to read it!
     )
     
     # Initialize SeaSurf
