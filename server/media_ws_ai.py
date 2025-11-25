@@ -1971,13 +1971,16 @@ class MediaStreamHandler:
                         print(f"=" * 80)
                         print(f"")
                         
+                        # 🛡️ BUILD 149 FIX: Set ALL guards BEFORE sending any message to AI
+                        # This prevents race condition where NLP triggers from AI's response
+                        self.appointment_confirmed_in_session = True
+                        print(f"🔒 [GUARD] Set appointment_confirmed_in_session=True BEFORE AI event")
+                        
                         # Update CRM context with appointment ID
                         if crm_context:
                             crm_context.last_appointment_id = appt_id
                             # 🔥 CRITICAL: Set flag - NOW AI is allowed to say "התור נקבע!"
                             crm_context.has_appointment_created = True
-                            # 🛡️ PREVENT NLP LOOP: Mark that appointment was confirmed in this session
-                            self.appointment_confirmed_in_session = True
                             logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
                             print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
                             
@@ -1985,8 +1988,9 @@ class MediaStreamHandler:
                             crm_context.pending_slot = None
                             print(f"🧹 [CONFIRM] Cleared pending_slot after successful creation")
                         
-                        # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
-                        await self._send_server_event_to_ai(f"✅ appointment_created: התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
+                        # 🔥 BUILD 149 FIX: Simplified confirmation message - don't instruct AI to "notify"
+                        # Just state the fact. The system prompt already tells AI what to say.
+                        await self._send_server_event_to_ai(f"✅ appointment_created: {customer_name}, {date_iso}, {time_str}")
                     else:
                         print(f"")
                         print(f"❌❌❌ [FLOW STEP 11] FAILED TO CREATE APPOINTMENT! ❌❌❌")

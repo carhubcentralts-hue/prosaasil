@@ -189,21 +189,42 @@ def download_recording(call_sid):
         if not account_sid or not auth_token:
             return jsonify({"success": False, "error": "Twilio credentials not configured"}), 500
         
-        # Download recording
-        mp3_url = f"{call.recording_url}.mp3"
+        # Download recording - try multiple formats
         auth = (account_sid, auth_token)
+        recording_content = None
         
-        try:
-            response = requests.get(mp3_url, auth=auth, timeout=30)
-            response.raise_for_status()
-        except requests.RequestException as e:
-            log.error(f"Failed to download from Twilio: {e}")
-            return jsonify({"success": False, "error": "Failed to download recording"}), 502
+        # 🔥 BUILD 149 FIX: Try multiple URL formats
+        # Twilio recordings can be .mp3 suffix OR raw URL
+        urls_to_try = [
+            f"{call.recording_url}.mp3",
+            call.recording_url,
+            f"{call.recording_url}?Download=true",
+        ]
+        
+        last_error = None
+        for try_url in urls_to_try:
+            try:
+                log.info(f"Trying recording URL: {try_url[:80]}...")
+                response = requests.get(try_url, auth=auth, timeout=30)
+                if response.status_code == 200 and len(response.content) > 1000:
+                    recording_content = response.content
+                    log.info(f"Successfully downloaded {len(recording_content)} bytes from {try_url[:50]}...")
+                    break
+                else:
+                    log.warning(f"URL {try_url[:50]} returned {response.status_code} or too small ({len(response.content)} bytes)")
+            except requests.RequestException as e:
+                log.warning(f"Failed URL {try_url[:50]}: {e}")
+                last_error = e
+                continue
+        
+        if not recording_content:
+            log.error(f"Failed to download recording from all URLs. Last error: {last_error}")
+            return jsonify({"success": False, "error": "ההקלטה לא נמצאה בשרת Twilio. ייתכן שנמחקה."}), 502
         
         # Create temporary file and serve it
         tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
         try:
-            tmp_file.write(response.content)
+            tmp_file.write(recording_content)
             tmp_file.close()
             
             # Serve file with proper cleanup
