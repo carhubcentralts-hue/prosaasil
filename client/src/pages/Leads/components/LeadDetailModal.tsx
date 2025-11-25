@@ -198,25 +198,21 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
 
   return (
     <div 
-      className="fixed inset-0 z-50" 
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50" 
       dir="rtl"
-      style={{ 
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        overflowY: 'auto',
-        WebkitOverflowScrolling: 'touch'
-      }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div 
-        className="w-full sm:max-w-4xl mx-auto my-0 sm:my-8"
-        style={{ minHeight: '100vh' }}
+        className="w-full sm:max-w-4xl bg-white sm:rounded-lg sm:my-8 shadow-lg border border-gray-200 flex flex-col"
+        style={{ 
+          maxHeight: '100dvh',
+          height: '100dvh',
+          touchAction: 'pan-y'
+        }}
+        onClick={(e) => e.stopPropagation()}
       >
-        <div 
-          className="bg-white sm:rounded-lg rounded-none w-full shadow-lg border border-gray-200"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between p-6 border-b bg-gray-50">
+        {/* Header - Fixed at top */}
+        <div className="flex-shrink-0 flex items-center justify-between p-4 sm:p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
             <div>
               <h2 className="text-xl font-semibold" data-testid={`text-lead-detail-name-${lead.id}`}>
@@ -601,7 +597,6 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
               )}
             </div>
           )}
-        </div>
         </div>
       </div>
     </div>

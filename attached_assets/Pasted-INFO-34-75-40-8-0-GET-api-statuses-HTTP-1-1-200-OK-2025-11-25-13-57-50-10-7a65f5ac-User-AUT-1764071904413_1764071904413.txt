@@ -1,0 +1,82 @@
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK
+2025-11-25 13:57:50.10
+7a65f5ac
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 13:57:50.35
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/leads HTTP/1.1" 200 OK
+2025-11-25 13:57:50.35
+7a65f5ac
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 13:57:50.58
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK
+2025-11-25 13:58:00.15
+7a65f5ac
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 13:58:00.35
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK
+2025-11-25 13:58:00.35
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK
+
+2025-11-25 13:58:05.21
+7a65f5ac
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 13:58:05.21
+7a65f5ac
+User
+🔔 Querying reminders for tenant_id=1, is_system_admin=False
+2025-11-25 13:58:05.21
+7a65f5ac
+User
+🔔 /api/notifications - tenant_id=1, g.tenant=1
+2025-11-25 13:58:05.40
+7a65f5ac
+User
+🔔 Found 0 reminders
+2025-11-25 13:58:05.42
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-25 13:58:05.79
+7a65f5ac
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 13:58:06.00
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "POST /api/statuses HTTP/1.1" 200 OK
+2025-11-25 13:58:06.21
+7a65f5ac
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 13:58:06.40
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK
+2025-11-25 13:58:06.61
+7a65f5ac
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 13:58:06.81
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK
+2025-11-25 13:58:06.81
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK
+2025-11-25 13:58:06.81
+7a65f5ac
+User
+INFO: 34.75.40.8:0 - "GET /api/statuses HTTP/1.1" 200 OK

@@ -79,71 +79,58 @@ export function useStatuses(): UseStatusesResult {
       const response = await http.post<any>('/api/statuses', data);
       console.log(`${LOG_PREFIX} Create response:`, JSON.stringify(response, null, 2));
       
+      // Extract status from response - server returns {message, status: {...}}
       let newStatus: LeadStatus | undefined;
       
       if (response && typeof response === 'object') {
         console.log(`${LOG_PREFIX} Response keys:`, Object.keys(response));
         
+        // Primary: server returns {status: {...}}
         if ('status' in response && response.status && typeof response.status === 'object') {
           console.log(`${LOG_PREFIX} Found status in response.status`);
           newStatus = response.status as LeadStatus;
-        } else if ('id' in response && 'name' in response && 'label' in response) {
+        } 
+        // Fallback: direct status object
+        else if ('id' in response && 'label' in response) {
           console.log(`${LOG_PREFIX} Response is direct status object`);
           newStatus = response as LeadStatus;
-        } else if ('data' in response && response.data) {
-          console.log(`${LOG_PREFIX} Found status in response.data`);
-          newStatus = response.data as LeadStatus;
-        } else if ('item' in response && response.item) {
-          console.log(`${LOG_PREFIX} Found status in response.item`);
-          newStatus = response.item as LeadStatus;
-        } else {
-          console.warn(`${LOG_PREFIX} Could not find status in response. Keys:`, Object.keys(response));
         }
-      } else {
-        console.warn(`${LOG_PREFIX} Response is not an object:`, typeof response);
       }
       
       if (newStatus && newStatus.id) {
-        console.log(`${LOG_PREFIX} SUCCESS - Created status:`, newStatus.label, 'ID:', newStatus.id);
+        // Ensure all required fields have defaults
         if (!newStatus.created_at) {
           newStatus.created_at = new Date().toISOString();
         }
+        if (newStatus.order_index === undefined) {
+          // Set order_index to end of list
+          const maxOrder = statuses.reduce((max, s) => Math.max(max, s.order_index || 0), 0);
+          newStatus.order_index = maxOrder + 1;
+        }
+        
+        console.log(`${LOG_PREFIX} SUCCESS - Created status:`, newStatus.label, 'ID:', newStatus.id, 'order:', newStatus.order_index);
+        
+        // Update local state immediately (no refetch needed)
         setStatuses(prev => {
           const updated = [...prev, newStatus!].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
           console.log(`${LOG_PREFIX} Updated statuses list:`, updated.map(s => s.label));
           return updated;
         });
+        
         return newStatus;
       } else {
-        console.log(`${LOG_PREFIX} No newStatus found, triggering refreshStatuses as fallback...`);
+        console.error(`${LOG_PREFIX} No valid status in response`);
+        // Wait a bit for DB commit, then refresh
+        await new Promise(resolve => setTimeout(resolve, 500));
         await refreshStatuses();
-        
-        console.log(`${LOG_PREFIX} Fetching latest statuses to find created one...`);
-        const latestStatuses = await http.get<{items: LeadStatus[]}>('/api/statuses');
-        console.log(`${LOG_PREFIX} Latest statuses:`, latestStatuses);
-        
-        const items = latestStatuses?.items || [];
-        if (items.length > 0) {
-          const latest = items[items.length - 1];
-          console.log(`${LOG_PREFIX} Returning latest status as fallback:`, latest.label);
-          return latest;
-        }
-        
-        console.error(`${LOG_PREFIX} Could not find created status after refresh`);
-        throw new Error('Could not find created status');
+        throw new Error('הסטטוס נוצר, רענן את הדף לראות אותו');
       }
     } catch (err: any) {
       console.error(`${LOG_PREFIX} Create status FAILED:`, err);
-      console.error(`${LOG_PREFIX} Error details:`, {
-        message: err?.message,
-        error: err?.error,
-        status: err?.status,
-        stack: err?.stack
-      });
       const errorMsg = err?.error || err?.message || 'שגיאה ביצירת הסטטוס';
       throw new Error(errorMsg);
     }
-  }, [refreshStatuses]);
+  }, [refreshStatuses, statuses]);
 
   const updateStatus = useCallback(async (id: number, data: Partial<LeadStatus>): Promise<LeadStatus> => {
     console.log(`${LOG_PREFIX} updateStatus called for ID ${id}:`, data);
