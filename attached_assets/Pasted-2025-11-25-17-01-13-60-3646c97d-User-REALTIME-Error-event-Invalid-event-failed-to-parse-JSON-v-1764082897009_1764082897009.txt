@@ -1,0 +1,120 @@
+2025-11-25 17:01:13.60
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.62
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.62
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.65
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.65
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.66
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.66
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.69
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.69
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.72
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.72
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.73
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.73
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.75
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.75
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.78
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.78
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.78
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.78
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.80
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.80
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.83
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.83
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.84
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.84
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.86
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.86
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.90
+3646c97d
+User
+❌ [REALTIME] Error event: Invalid event: failed to parse JSON value. Please check the value to ensure it is valid JSON. (Common errors include trailing commas, missing closing brackets, missing quotation marks, etc.)
+2025-11-25 17:01:13.90
+3646c97d
+User
+[REALTIME] event: error
+2025-11-25 17:01:13.90
+3646c97d
+User
+[REALTIME] event: error

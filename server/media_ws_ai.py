@@ -1374,6 +1374,7 @@ class MediaStreamHandler:
         
         try:
             # Create server message event with role="system" (SILENT - won't be spoken!)
+            # 🔥 BUILD 147 FIX: Use "text" type for system messages (not "input_text" which is for user only!)
             event = {
                 "type": "conversation.item.create",
                 "item": {
@@ -1381,8 +1382,8 @@ class MediaStreamHandler:
                     "role": "system",  # 🔇 CRITICAL: system messages are SILENT (not spoken aloud)
                     "content": [
                         {
-                            "type": "input_text",
-                            "text": message_text  # No [SERVER] prefix needed - already implicit
+                            "type": "text",  # ✅ FIX: system/assistant = "text", user = "input_text"
+                            "text": message_text
                         }
                     ]
                 }

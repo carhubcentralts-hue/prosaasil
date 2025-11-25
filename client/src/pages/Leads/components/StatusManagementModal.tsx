@@ -177,10 +177,7 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
 
   const handleDeleteClick = (status: LeadStatus, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (status.is_system) {
-      alert(TEXTS.cannotDeleteSystem);
-      return;
-    }
+    // BUILD 147: Removed is_system restriction - users can delete any status
     setDeleteConfirmId(status.id);
     setEditingStatus(null);
     setIsCreating(false);
@@ -411,18 +408,17 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
                                     <Edit2 className="w-4 h-4" />
                                     <span className="hidden sm:inline mr-1.5">{TEXTS.editBtn}</span>
                                   </Button>
-                                  {!status.is_system && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={(e) => handleDeleteClick(status, e)}
-                                      className="min-h-[40px] min-w-[40px] sm:min-w-[auto] sm:px-3 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
-                                      data-testid={`button-delete-status-${status.id}`}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                      <span className="hidden sm:inline mr-1.5">{TEXTS.deleteBtn}</span>
-                                    </Button>
-                                  )}
+                                  {/* BUILD 147: Show delete button for all statuses (removed is_system restriction) */}
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e) => handleDeleteClick(status, e)}
+                                    className="min-h-[40px] min-w-[40px] sm:min-w-[auto] sm:px-3 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-all"
+                                    data-testid={`button-delete-status-${status.id}`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                    <span className="hidden sm:inline mr-1.5">{TEXTS.deleteBtn}</span>
+                                  </Button>
                                 </div>
                               </div>
                             </div>
