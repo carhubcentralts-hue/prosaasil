@@ -799,19 +799,22 @@ def update_current_business_settings():
         
         db.session.commit()
         
-        # 🔄 Invalidate caches when appointment settings change
+        # 🔄 Invalidate ALL caches when appointment settings change
         if appointment_settings_changed:
+            # 1. Policy cache (business hours, slots, etc.)
             from server.policy.business_policy import invalidate_business_policy_cache
             invalidate_business_policy_cache(business_id)
-            logger.info(f"🔄 Policy cache cleared for business {business_id} after settings update")
+            logger.info(f"🔄 Policy cache cleared for business {business_id}")
             
-            # 🔥 ALSO invalidate agent cache (for AgentKit - WhatsApp)
+            # 2. 🔥 CRITICAL: Prompt cache (contains hours in system prompt!)
             try:
-                from server.agent_tools.agent_factory import invalidate_agent_cache
-                invalidate_agent_cache(business_id)
-                logger.info(f"🔄 Agent cache cleared for business {business_id} after settings update")
+                from server.services.ai_service import invalidate_business_cache
+                invalidate_business_cache(business_id)
+                logger.info(f"🔄 Prompt+Agent cache cleared for business {business_id}")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to invalidate agent cache: {e}")
+                logger.warning(f"⚠️ Failed to invalidate prompt cache: {e}")
+            
+            logger.info(f"✅ ALL CACHES INVALIDATED for business {business_id} - new hours will apply immediately!")
         
         return jsonify({
             "success": True,
