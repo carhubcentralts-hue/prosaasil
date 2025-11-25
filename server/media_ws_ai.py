@@ -3970,6 +3970,26 @@ class MediaStreamHandler:
                 print("✅ WHISPER_VALIDATED: Empty/minimal result - good!")
                 return ""
             
+            # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER
+            # Whisper loves to fabricate English when there's noise/silence
+            import re
+            english_ratio = len(re.findall(r'[a-zA-Z]', result)) / max(len(result), 1)
+            if english_ratio > 0.3:  # More than 30% English letters = hallucination
+                print(f"🚫 WHISPER_ENGLISH_HALLUCINATION: '{result}' has {english_ratio:.0%} English - blocking")
+                return ""
+            
+            # 🛡️ Block common Whisper English fabrications
+            english_hallucinations = [
+                "thank you", "bye", "hello", "okay", "yes", "no", "please", 
+                "sorry", "good", "nice", "right", "here", "there", "pistol",
+                "gun", "take", "little", "just", "well", "you", "I'll", "i'll"
+            ]
+            result_lower = result.lower()
+            for hallucination in english_hallucinations:
+                if hallucination in result_lower:
+                    print(f"🚫 WHISPER_ENGLISH_PHRASE: Found '{hallucination}' in '{result}' - blocking")
+                    return ""
+            
             # ✅ בדיקת מילים חשודות ש-Whisper אוהב להמציא
             suspicious_words = ["תודה", "נהדר", "נהדרת", "מעולה", "בראבו"] 
             if len(result.split()) == 1 and any(word in result for word in suspicious_words):
@@ -4027,6 +4047,15 @@ class MediaStreamHandler:
                     )
                 
                 hebrew_text = str(transcription).strip() if transcription else ""
+                
+                # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER (also in fallback)
+                import re
+                english_ratio = len(re.findall(r'[a-zA-Z]', hebrew_text)) / max(len(hebrew_text), 1)
+                if english_ratio > 0.3:  # More than 30% English = hallucination
+                    print(f"🚫 WHISPER_FALLBACK_ENGLISH: '{hebrew_text}' has {english_ratio:.0%} English - blocking")
+                    os.unlink(temp_wav.name)
+                    return ""
+                
                 print(f"✅ WHISPER_FALLBACK_SUCCESS: '{hebrew_text}'")
                 
                 # Clean up
