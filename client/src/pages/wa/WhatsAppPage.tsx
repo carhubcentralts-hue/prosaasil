@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server } from 'lucide-react';
+import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server, ArrowRight, Power } from 'lucide-react';
 import QRCodeReact from 'react-qr-code';
 import { http } from '../../services/http';
 
@@ -124,6 +124,10 @@ export function WhatsAppPage() {
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [editingPrompt, setEditingPrompt] = useState('');
   const [savingPrompt, setSavingPrompt] = useState(false);
+  
+  // AI active/inactive state per conversation
+  const [aiActive, setAiActive] = useState(true);
+  const [togglingAi, setTogglingAi] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -410,6 +414,38 @@ export function WhatsAppPage() {
     }
   };
 
+  // Toggle AI active/inactive for current conversation
+  const toggleAi = async () => {
+    if (!selectedThread) return;
+    
+    try {
+      setTogglingAi(true);
+      const newState = !aiActive;
+      
+      // Call backend to update AI state for this conversation
+      const response = await http.post<{success: boolean}>('/api/whatsapp/ai-state', {
+        phone: selectedThread.phone,
+        active: newState
+      });
+      
+      if (response.success) {
+        setAiActive(newState);
+        console.log(`✅ AI ${newState ? 'מופעל' : 'כבוי'} לשיחה עם ${selectedThread.name}`);
+      }
+    } catch (error: any) {
+      console.error('❌ שגיאה בשינוי מצב AI:', error.message);
+    } finally {
+      setTogglingAi(false);
+    }
+  };
+
+  // Function to close chat and go back to thread list
+  const closeChat = () => {
+    setSelectedThread(null);
+    setMessages([]);
+    setAiActive(true); // Reset AI state when closing chat
+  };
+
   // Function to save prompt - ✅ עכשיו שומר גם calls_prompt כדי לא לדרוס אותו!
   const savePrompt = async () => {
     if (!editingPrompt.trim()) return;
@@ -678,13 +714,43 @@ export function WhatsAppPage() {
           {selectedThread ? (
             <Card className="p-0 h-96">
               {/* Chat Header */}
-              <div className="p-4 border-b border-slate-200">
+              <div className="p-4 border-b border-slate-200 bg-green-50">
                 <div className="flex justify-between items-center">
-                  <div>
-                    <h3 className="font-semibold text-slate-900">{selectedThread.name}</h3>
-                    <p className="text-sm text-slate-500">{selectedThread.phone}</p>
+                  <div className="flex items-center gap-3">
+                    {/* Back Button */}
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={closeChat}
+                      className="p-2 hover:bg-green-100"
+                      data-testid="button-back-chat"
+                    >
+                      <ArrowRight className="h-5 w-5" />
+                    </Button>
+                    <div>
+                      <h3 className="font-semibold text-slate-900">{selectedThread.name}</h3>
+                      <p className="text-sm text-slate-500">{selectedThread.phone}</p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2">
+                    {/* AI Active/Inactive Toggle */}
+                    <button
+                      onClick={toggleAi}
+                      disabled={togglingAi}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                        aiActive 
+                          ? 'bg-green-100 text-green-800 hover:bg-green-200 border border-green-300' 
+                          : 'bg-red-100 text-red-800 hover:bg-red-200 border border-red-300'
+                      } ${togglingAi ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      data-testid="toggle-ai-active"
+                    >
+                      {togglingAi ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Power className={`h-4 w-4 ${aiActive ? 'text-green-600' : 'text-red-600'}`} />
+                      )}
+                      <span>{aiActive ? 'AI פעיל' : 'AI כבוי'}</span>
+                    </button>
                     <Button variant="outline" size="sm" data-testid="button-call">
                       <Phone className="h-4 w-4" />
                     </Button>
