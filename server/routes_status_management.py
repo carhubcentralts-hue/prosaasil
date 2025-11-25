@@ -2,8 +2,8 @@
 Lead Status Management API Routes
 Allows businesses to create, read, update, delete custom lead statuses
 """
-from flask import Blueprint, request, jsonify, session
-from server.auth_api import require_api_auth, get_session_user
+from flask import Blueprint, request, jsonify, session, g
+from server.auth_api import require_api_auth
 from server.models_sql import LeadStatus, Lead, Business
 from server.db import db
 from datetime import datetime
@@ -16,32 +16,14 @@ status_management_bp = Blueprint('status_management', __name__)
 def get_business_statuses():
     """Get all active statuses for the current business with auto-seeding"""
     try:
-        user = get_session_user()
-        logging.info(f"[StatusAPI GET] user from session: {user}")
-        if not user:
-            logging.warning(f"[StatusAPI GET] No user in session")
-            return jsonify({'error': 'Not authenticated'}), 401
+        # ✅ FIX: Use g.tenant set by @require_api_auth - single source of truth
+        business_id = g.tenant
+        logging.info(f"[StatusAPI GET] Using g.tenant={business_id}, g.role={getattr(g, 'role', None)}")
         
-        # ✅ Security fix: get business_id from current session context
-        business_id = user.get('business_id') if user else None
-        logging.info(f"[StatusAPI GET] Initial business_id from user: {business_id}")
-        
-        # For impersonation support - use impersonated tenant if available
-        if session.get('impersonating') and session.get('impersonated_tenant_id'):
-            business_id = session.get('impersonated_tenant_id')
-            logging.info(f"[StatusAPI GET] Using impersonated business_id: {business_id}")
-        
-        # BUILD 138: ONLY system_admin can override business_id via query param
-        is_system_admin = user.get('role') == 'system_admin'
-        if not business_id and is_system_admin:
-            # Try to get business_id from query parameter (system_admin only)
+        # System admin without tenant can specify business_id via query param
+        if not business_id and getattr(g, 'role', None) == 'system_admin':
             business_id = request.args.get('business_id', type=int)
-            
-            # If still no business_id, use first available business
-            if not business_id:
-                first_business = Business.query.first()
-                if first_business:
-                    business_id = first_business.id
+            logging.info(f"[StatusAPI GET] system_admin using query param business_id={business_id}")
         
         if not business_id:
             return jsonify({'error': 'Business context required'}), 400
@@ -110,30 +92,16 @@ def create_status():
     """Create a new custom status for the business"""
     try:
         logging.info("[StatusAPI POST] Creating new status...")
-        user = get_session_user()
-        logging.info(f"[StatusAPI POST] user from session: {user}")
-        if not user:
-            logging.warning(f"[StatusAPI POST] No user in session")
-            return jsonify({'error': 'Not authenticated'}), 401
         
-        # ✅ Security fix: get business_id from current session context with impersonation support
-        business_id = user.get('business_id') if user else None
-        logging.info(f"[StatusAPI POST] Initial business_id: {business_id}")
-        if session.get('impersonating') and session.get('impersonated_tenant_id'):
-            business_id = session.get('impersonated_tenant_id')
-            logging.info(f"[StatusAPI POST] Using impersonated business_id: {business_id}")
+        # ✅ FIX: Use g.tenant set by @require_api_auth - single source of truth
+        business_id = g.tenant
+        logging.info(f"[StatusAPI POST] Using g.tenant={business_id}, g.role={getattr(g, 'role', None)}")
         
-        # ✅ FIX: Admin can create statuses with business_id from request body
-        is_admin = user.get('role') in ['admin', 'superadmin']
-        if not business_id and is_admin:
+        # System admin without tenant can specify business_id in request body
+        if not business_id and getattr(g, 'role', None) == 'system_admin':
             data = request.get_json()
             business_id = data.get('business_id') if data else None
-            
-            # If still no business_id, use first available business
-            if not business_id:
-                first_business = Business.query.first()
-                if first_business:
-                    business_id = first_business.id
+            logging.info(f"[StatusAPI POST] system_admin using request body business_id={business_id}")
         
         if not business_id:
             return jsonify({'error': 'Business context required'}), 400
@@ -238,26 +206,19 @@ def create_status():
 def update_status(status_id):
     """Update an existing status"""
     try:
-        user = get_session_user()
-        if not user:
-            return jsonify({'error': 'Not authenticated'}), 401
+        # ✅ FIX: Use g.tenant set by @require_api_auth - single source of truth
+        business_id = g.tenant
+        is_system_admin = getattr(g, 'role', None) == 'system_admin'
         
-        # ✅ Security fix: get business_id from current session context with impersonation support
-        business_id = user.get('business_id') if user else None
-        if session.get('impersonating') and session.get('impersonated_tenant_id'):
-            business_id = session.get('impersonated_tenant_id')
-        
-        # ✅ FIX: Admin can update statuses - skip business_id check for admin
-        is_admin = user.get('role') in ['admin', 'superadmin']
-        if not business_id and not is_admin:
+        if not business_id and not is_system_admin:
             return jsonify({'error': 'Business context required'}), 400
             
-        # ✅ IDOR Protection: Verify status belongs to current business (or admin bypass)
-        if is_admin and not business_id:
-            # Admin without business_id can update any status
+        # ✅ IDOR Protection: Verify status belongs to current business (or system_admin bypass)
+        if is_system_admin and not business_id:
+            # System admin without business_id can update any status
             status = LeadStatus.query.filter_by(id=status_id).first()
         else:
-            # Regular user or admin with business_id - check ownership
+            # Regular user or system_admin with business_id - check ownership
             status = LeadStatus.query.filter_by(
                 id=status_id,
                 business_id=business_id
@@ -355,22 +316,15 @@ def update_status(status_id):
 def delete_status(status_id):
     """Delete a status (mark as inactive if leads exist)"""
     try:
-        user = get_session_user()
-        if not user:
-            return jsonify({'error': 'Not authenticated'}), 401
+        # ✅ FIX: Use g.tenant set by @require_api_auth - single source of truth
+        business_id = g.tenant
+        is_system_admin = getattr(g, 'role', None) == 'system_admin'
         
-        # ✅ Security fix: get business_id from current session context with impersonation support
-        business_id = user.get('business_id') if user else None
-        if session.get('impersonating') and session.get('impersonated_tenant_id'):
-            business_id = session.get('impersonated_tenant_id')
-        
-        # ✅ FIX: Admin can delete statuses - skip business_id check for admin
-        is_admin = user.get('role') in ['admin', 'superadmin']
-        if not business_id and not is_admin:
+        if not business_id and not is_system_admin:
             return jsonify({'error': 'Business context required'}), 400
             
-        # ✅ IDOR Protection: Verify status belongs to current business (or admin bypass)
-        if is_admin and not business_id:
+        # ✅ IDOR Protection: Verify status belongs to current business (or system_admin bypass)
+        if is_system_admin and not business_id:
             status = LeadStatus.query.filter_by(id=status_id).first()
         else:
             status = LeadStatus.query.filter_by(
@@ -436,14 +390,9 @@ def delete_status(status_id):
 def reorder_statuses():
     """Reorder statuses by updating order_index"""
     try:
-        user = get_session_user()
-        if not user:
-            return jsonify({'error': 'Not authenticated'}), 401
-        
-        # ✅ Security fix: get business_id from current session context with impersonation support
-        business_id = user.get('business_id') if user else None
-        if session.get('impersonating') and session.get('impersonated_tenant_id'):
-            business_id = session.get('impersonated_tenant_id')
+        # ✅ FIX: Use g.tenant set by @require_api_auth - single source of truth
+        business_id = g.tenant
+        logging.info(f"[StatusAPI REORDER] Using g.tenant={business_id}")
         
         if not business_id:
             return jsonify({'error': 'Business context required'}), 400
