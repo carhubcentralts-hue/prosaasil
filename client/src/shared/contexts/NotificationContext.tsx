@@ -43,7 +43,7 @@ function convertApiNotification(apiNotif: any): Notification {
         priority: apiNotif.priority || 'high',
         actionRequired: true,
         reminderType: 'system_whatsapp_disconnect',
-        navigateTo: '/settings',  // Navigation target for settings page
+        navigateTo: '/app/settings',  // Navigation target for settings page (must be under /app)
         dueAt: apiNotif.due_date
       }
     };
