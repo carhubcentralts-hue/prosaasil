@@ -175,12 +175,13 @@ export default function LeadsPage() {
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
     try {
-      // Use the specific status update endpoint
-      await http.put(`/api/leads/${leadId}/status`, { status: newStatus });
+      // 🔥 FIX: Use POST (not PUT) - same as LeadDetailPage - server only accepts POST
+      await http.post(`/api/leads/${leadId}/status`, { status: newStatus });
       await refreshLeads();
       setEditingStatus(null);
     } catch (error) {
       console.error('Failed to update lead status:', error);
+      alert('שגיאה בעדכון הסטטוס');
     }
   };
 
