@@ -3,7 +3,7 @@ Lead Status Management API Routes
 Allows businesses to create, read, update, delete custom lead statuses
 """
 from flask import Blueprint, request, jsonify, session
-from server.auth_api import require_api_auth, get_current_user
+from server.auth_api import require_api_auth, get_session_user
 from server.models_sql import LeadStatus, Lead, Business
 from server.db import db
 from datetime import datetime
@@ -16,13 +16,11 @@ status_management_bp = Blueprint('status_management', __name__)
 def get_business_statuses():
     """Get all active statuses for the current business with auto-seeding"""
     try:
-        auth_result = get_current_user()
-        logging.info(f"[StatusAPI GET] auth_result type: {type(auth_result)}")
-        if isinstance(auth_result, tuple):
-            logging.warning(f"[StatusAPI GET] Auth returned tuple (error): {auth_result}")
-            return auth_result  # Return error response
-        user = auth_result
-        logging.info(f"[StatusAPI GET] user: {user}")
+        user = get_session_user()
+        logging.info(f"[StatusAPI GET] user from session: {user}")
+        if not user:
+            logging.warning(f"[StatusAPI GET] No user in session")
+            return jsonify({'error': 'Not authenticated'}), 401
         
         # ✅ Security fix: get business_id from current session context
         business_id = user.get('business_id') if user else None
@@ -112,12 +110,11 @@ def create_status():
     """Create a new custom status for the business"""
     try:
         logging.info("[StatusAPI POST] Creating new status...")
-        auth_result = get_current_user()
-        if isinstance(auth_result, tuple):
-            logging.warning(f"[StatusAPI POST] Auth error: {auth_result}")
-            return auth_result  # Return error response
-        user = auth_result
-        logging.info(f"[StatusAPI POST] user: {user}")
+        user = get_session_user()
+        logging.info(f"[StatusAPI POST] user from session: {user}")
+        if not user:
+            logging.warning(f"[StatusAPI POST] No user in session")
+            return jsonify({'error': 'Not authenticated'}), 401
         
         # ✅ Security fix: get business_id from current session context with impersonation support
         business_id = user.get('business_id') if user else None
@@ -241,10 +238,9 @@ def create_status():
 def update_status(status_id):
     """Update an existing status"""
     try:
-        auth_result = get_current_user()
-        if isinstance(auth_result, tuple):
-            return auth_result  # Return error response
-        user = auth_result
+        user = get_session_user()
+        if not user:
+            return jsonify({'error': 'Not authenticated'}), 401
         
         # ✅ Security fix: get business_id from current session context with impersonation support
         business_id = user.get('business_id') if user else None
@@ -359,10 +355,9 @@ def update_status(status_id):
 def delete_status(status_id):
     """Delete a status (mark as inactive if leads exist)"""
     try:
-        auth_result = get_current_user()
-        if isinstance(auth_result, tuple):
-            return auth_result  # Return error response
-        user = auth_result
+        user = get_session_user()
+        if not user:
+            return jsonify({'error': 'Not authenticated'}), 401
         
         # ✅ Security fix: get business_id from current session context with impersonation support
         business_id = user.get('business_id') if user else None
@@ -441,10 +436,9 @@ def delete_status(status_id):
 def reorder_statuses():
     """Reorder statuses by updating order_index"""
     try:
-        auth_result = get_current_user()
-        if isinstance(auth_result, tuple):
-            return auth_result  # Return error response
-        user = auth_result
+        user = get_session_user()
+        if not user:
+            return jsonify({'error': 'Not authenticated'}), 401
         
         # ✅ Security fix: get business_id from current session context with impersonation support
         business_id = user.get('business_id') if user else None

@@ -15,6 +15,18 @@ import binascii
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
 
+def get_session_user():
+    """
+    Helper function to get current user from session.
+    Returns dict with user data or None if not authenticated.
+    Unlike get_current_user() route handler, this returns a plain dict.
+    """
+    from flask import session
+    u = session.get('al_user') or session.get('user')
+    if not u:
+        return None
+    return u
+
 def verify_password(stored_hash, password):
     """
     Verify password against stored hash - werkzeug handles all formats
