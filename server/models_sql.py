@@ -480,6 +480,9 @@ class Appointment(db.Model):
     follow_up_needed = db.Column(db.Boolean, default=False)
     follow_up_date = db.Column(db.DateTime)
     
+    # ✅ BUILD 144: Call summary - סיכום השיחה שממנה נוצרה הפגישה
+    call_summary = db.Column(db.Text)  # AI-generated summary from the call that created this appointment
+    
     # Metadata
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

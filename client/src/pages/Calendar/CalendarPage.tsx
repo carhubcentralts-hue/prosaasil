@@ -37,6 +37,7 @@ interface Appointment {
   customer_id?: number;
   source: 'manual' | 'phone_call' | 'whatsapp' | 'ai_suggested';
   auto_generated: boolean;
+  call_summary?: string;  // ✅ BUILD 144: AI-generated summary from source call
 }
 
 interface AppointmentForm {
@@ -650,7 +651,20 @@ export function CalendarPage() {
                       )}
                     </div>
                     
-                    {appointment.description && (
+                    {/* ✅ BUILD 144: Show call summary if exists (from phone call) */}
+                    {appointment.call_summary && (
+                      <div className="mt-2 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <MessageCircle className="h-4 w-4 text-blue-600" />
+                          <span className="text-xs font-semibold text-blue-700">סיכום השיחה</span>
+                        </div>
+                        <p className="text-slate-700 text-sm whitespace-pre-wrap leading-relaxed">
+                          {appointment.call_summary}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {appointment.description && !appointment.call_summary && (
                       <p className="text-slate-600 text-sm line-clamp-2">
                         {appointment.description}
                       </p>

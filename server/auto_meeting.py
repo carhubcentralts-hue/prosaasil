@@ -209,6 +209,38 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         appointment.source = 'phone_call'
         appointment.created_by = None  # נוצר על ידי המערכת
         
+        # ✅ BUILD 144: Generate and save call summary for the appointment
+        try:
+            from server.services.summary_service import summarize_conversation
+            
+            # Build transcription from conversation history
+            transcription_parts = []
+            for turn in conversation_history:
+                if isinstance(turn, dict):
+                    if turn.get('user'):
+                        transcription_parts.append(f"לקוח: {turn['user']}")
+                    if turn.get('bot'):
+                        transcription_parts.append(f"נציג: {turn['bot']}")
+            
+            transcription = "\n".join(transcription_parts)
+            
+            if transcription:
+                # Get business info for context
+                business = Business.query.get(business_id)
+                business_name = business.name if business else None
+                
+                # Generate dynamic AI summary
+                call_summary = summarize_conversation(
+                    transcription=transcription,
+                    call_sid=call_sid,
+                    business_name=business_name
+                )
+                appointment.call_summary = call_summary
+                print(f"✅ AUTO_MEETING: Call summary generated for appointment")
+        except Exception as e:
+            print(f"⚠️ AUTO_MEETING: Failed to generate call summary: {e}")
+            # Continue without summary - not critical
+        
         db.session.add(appointment)
         db.session.commit()
         
