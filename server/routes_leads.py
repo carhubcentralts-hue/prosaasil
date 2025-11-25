@@ -85,12 +85,12 @@ def check_lead_access(lead_id):
     if not user:
         return False
     
-    # ✅ FIX: Admin/Superadmin can access ALL leads
-    if user.get('role') in ['admin', 'superadmin']:
+    # ✅ FIX: system_admin can access ALL leads
+    if user.get('role') == 'system_admin':
         lead = Lead.query.filter_by(id=lead_id).first()
         return lead is not None
     
-    # Regular users: check tenant
+    # Business-level roles (owner, admin, agent): check tenant
     tenant_id = get_current_tenant()
     if not tenant_id:
         return False

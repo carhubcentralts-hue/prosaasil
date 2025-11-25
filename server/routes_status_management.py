@@ -94,6 +94,7 @@ def get_business_statuses():
                 'created_at': status.created_at.isoformat()
             })
         
+        logging.info(f"[StatusAPI] Returning {len(result)} statuses for business_id={business_id}: {[s['label'] for s in result]}")
         return jsonify({'items': result, 'total': len(result)})
         
     except Exception as e:
