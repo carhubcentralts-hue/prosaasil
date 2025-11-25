@@ -1654,6 +1654,14 @@ class MediaStreamHandler:
                 await self._send_server_event_to_ai("need_datetime - שאל את הלקוח: באיזה תאריך ושעה היית רוצה לקבוע?")
                 return
             
+            # 🛡️ BUILD 149 FIX: Check if this slot was already marked as busy (prevent loop)
+            crm_context = getattr(self, 'crm_context', None)
+            if crm_context and hasattr(crm_context, 'busy_slots'):
+                busy_key = f"{date_iso}_{time_str}"
+                if busy_key in crm_context.busy_slots:
+                    print(f"🛡️ [GUARD] Slot {busy_key} already marked busy - skipping re-check to prevent loop")
+                    return
+            
             # Parse requested datetime
             from datetime import datetime, timedelta
             import pytz
@@ -1683,6 +1691,16 @@ class MediaStreamHandler:
                 else:
                     # ❌ SLOT TAKEN - Find alternatives and inform AI
                     print(f"❌ [NLP] Slot {date_iso} {time_str} is TAKEN - finding alternatives...")
+                    
+                    # 🛡️ BUILD 149 FIX: Clear pending_slot and track busy slots to prevent loop
+                    if crm_context:
+                        crm_context.pending_slot = None  # Clear stale pending slot
+                        # Track this slot as busy to prevent re-checking
+                        if not hasattr(crm_context, 'busy_slots'):
+                            crm_context.busy_slots = set()
+                        busy_key = f"{date_iso}_{time_str}"
+                        crm_context.busy_slots.add(busy_key)
+                        print(f"🛡️ [GUARD] Marked slot {busy_key} as busy - will not recheck")
                     
                     # Find next 3 available slots
                     from server.policy.business_policy import get_business_policy
@@ -4054,6 +4072,7 @@ class MediaStreamHandler:
                 
                 # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER (refined - same as validated)
                 import re
+                import os
                 hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', hebrew_text))
                 english_chars = len(re.findall(r'[a-zA-Z]', hebrew_text))
                 
@@ -4066,7 +4085,6 @@ class MediaStreamHandler:
                 print(f"✅ WHISPER_FALLBACK_SUCCESS: '{hebrew_text}'")
                 
                 # Clean up
-                import os
                 os.unlink(temp_wav.name)
                 return hebrew_text
                 
