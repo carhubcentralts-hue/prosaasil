@@ -1,0 +1,105 @@
+2025-11-25 19:08:29.65
+10a8d606
+User
+claims_whatsapp=False
+2025-11-25 19:08:29.65
+10a8d606
+User
+claimed_action=False
+2025-11-25 19:08:29.65
+10a8d606
+User
+booking_tool_called=False
+2025-11-25 19:08:29.65
+10a8d606
+User
+claims_booking=False, booking_tool_called=False
+2025-11-25 19:08:29.65
+10a8d606
+User
+🔍 VALIDATION CHECK:
+2025-11-25 19:08:29.65
+10a8d606
+User
+🔍 HARD VALIDATION:
+2025-11-25 19:08:29.65
+10a8d606
+User
+check_availability_called=False
+2025-11-25 19:08:29.65
+10a8d606
+User
+📊 Agent returned 1 items
+2025-11-25 19:08:29.65
+10a8d606
+User
+claimed_availability=False
+2025-11-25 19:08:29.65
+10a8d606
+User
+⚠️ Agent DID NOT call any tools! (message: 'אני מתארגנת בזריזות...')
+2025-11-25 19:08:29.65
+10a8d606
+User
+🔍 new_items length: 1
+2025-11-25 19:08:29.65
+10a8d606
+User
+- Item #0: MessageOutputItem
+2025-11-25 19:08:29.65
+10a8d606
+User
+booking_successful=False
+2025-11-25 19:08:29.69
+10a8d606
+User
+File "/home/runner/workspace/server/routes_whatsapp.py", line 475, in baileys_webhook
+2025-11-25 19:08:29.69
+10a8d606
+User
+TypeError: unhashable type: 'slice'
+2025-11-25 19:08:29.69
+10a8d606
+User
+log.info(f"✅ Agent response ({ai_duration:.2f}s): {response_text[:50]}...")
+2025-11-25 19:08:29.69
+10a8d606
+User
+Traceback (most recent call last):
+2025-11-25 19:08:29.69
+10a8d606
+User
+✅ Returning structured response: 33 chars text, 1 serialized actions
+2025-11-25 19:08:29.69
+10a8d606
+User
+~~~~~~~~~~~~~^^^^^
+2025-11-25 19:08:29.92
+10a8d606
+User
+🔔 Querying reminders for tenant_id=1, is_system_admin=False
+2025-11-25 19:08:29.92
+10a8d606
+User
+🔔 /api/notifications - tenant_id=1, g.tenant=1
+
+2025-11-25 19:08:29.92
+10a8d606
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-11-25 19:08:30.10
+10a8d606
+User
+🔔 Found 1 reminders
+2025-11-25 19:08:30.12
+10a8d606
+User
+INFO: 34.75.40.8:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-25 19:08:30.12
+10a8d606
+User
+INFO: 34.75.40.8:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-11-25 19:08:38.26
+10a8d606
+User
+🎯 AGE

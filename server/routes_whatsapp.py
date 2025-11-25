@@ -456,7 +456,7 @@ def baileys_webhook():
                     from server.services.ai_service import get_ai_service
                     ai_service = get_ai_service()
                     
-                    response_text = ai_service.generate_response_with_agent(
+                    ai_response = ai_service.generate_response_with_agent(
                         message=message_text,
                         business_id=business_id,
                         context={
@@ -471,8 +471,16 @@ def baileys_webhook():
                         customer_name=customer.name if customer else None
                     )
                     
+                    # ✅ FIX: Handle dict response (text + actions) vs plain string
+                    if isinstance(ai_response, dict):
+                        response_text = ai_response.get('text', '')
+                        actions = ai_response.get('actions', [])
+                        log.info(f"🎯 Agent returned {len(actions)} actions with response")
+                    else:
+                        response_text = ai_response
+                    
                     ai_duration = time.time() - ai_start
-                    log.info(f"✅ Agent response ({ai_duration:.2f}s): {response_text[:50]}...")
+                    log.info(f"✅ Agent response ({ai_duration:.2f}s): {str(response_text)[:50]}...")
                 except Exception as e:
                     log.error(f"⚠️ Agent response failed, using fallback: {e}")
                     import traceback
