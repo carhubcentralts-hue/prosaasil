@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt } from 'lucide-react';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Card } from '../../shared/components/ui/Card';
@@ -34,6 +34,8 @@ export default function LeadsPage() {
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
   
   // Load dynamic statuses
   const { statuses, refreshStatuses } = useStatuses();
@@ -47,7 +49,9 @@ export default function LeadsPage() {
   const filters = useMemo(() => ({
     search: searchQuery,
     status: selectedStatus === 'all' ? undefined : selectedStatus,
-  }), [searchQuery, selectedStatus]);
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  }), [searchQuery, selectedStatus, dateFrom, dateTo]);
 
   const {
     leads,
@@ -63,12 +67,10 @@ export default function LeadsPage() {
   const sortedLeads = useMemo(() => {
     const statusOrder = statuses.reduce((acc, status, index) => {
       acc[status.name] = index;
-      // ✅ Legacy compatibility: Add case-insensitive mappings
       acc[status.name.toLowerCase()] = index;
       return acc;
     }, {} as Record<string, number>);
     
-    // ✅ Legacy fallback mapping for capitalized statuses
     const legacyMapping: Record<string, string> = {
       'New': 'new',
       'Attempting': 'attempting',
@@ -79,7 +81,30 @@ export default function LeadsPage() {
       'Unqualified': 'unqualified'
     };
 
-    const sorted = [...leads].sort((a, b) => {
+    // Filter by date range
+    let filteredLeads = leads;
+    if (dateFrom || dateTo) {
+      filteredLeads = leads.filter(lead => {
+        const leadDate = new Date(lead.created_at);
+        leadDate.setHours(0, 0, 0, 0);
+        
+        if (dateFrom) {
+          const fromDate = new Date(dateFrom);
+          fromDate.setHours(0, 0, 0, 0);
+          if (leadDate < fromDate) return false;
+        }
+        
+        if (dateTo) {
+          const toDate = new Date(dateTo);
+          toDate.setHours(23, 59, 59, 999);
+          if (leadDate > toDate) return false;
+        }
+        
+        return true;
+      });
+    }
+
+    const sorted = [...filteredLeads].sort((a, b) => {
       let aValue: any;
       let bValue: any;
       
@@ -112,7 +137,7 @@ export default function LeadsPage() {
     });
     
     return sorted;
-  }, [leads, sortBy, sortOrder, statuses]);
+  }, [leads, sortBy, sortOrder, statuses, dateFrom, dateTo]);
 
   const handleSort = (column: 'name' | 'created_at' | 'status') => {
     if (sortBy === column) {
@@ -327,7 +352,7 @@ export default function LeadsPage() {
             />
           </div>
           
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
             <Select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value as LeadStatus | 'all')}
@@ -341,6 +366,35 @@ export default function LeadsPage() {
                 </SelectOption>
               ))}
             </Select>
+            
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="border rounded-lg px-3 py-2 text-sm w-32"
+                data-testid="input-date-from"
+              />
+              <span className="text-gray-500">עד</span>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="border rounded-lg px-3 py-2 text-sm w-32"
+                data-testid="input-date-to"
+              />
+              {(dateFrom || dateTo) && (
+                <button
+                  onClick={() => { setDateFrom(''); setDateTo(''); }}
+                  className="p-1 hover:bg-gray-100 rounded"
+                  title="נקה תאריכים"
+                  data-testid="button-clear-dates"
+                >
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              )}
+            </div>
             
             <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 justify-center sm:justify-start">
               <Filter className="w-4 h-4" />
