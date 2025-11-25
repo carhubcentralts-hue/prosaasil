@@ -55,8 +55,20 @@ export interface LeadCall {
   duration: number;
   recording_url?: string;
   notes?: string;
+  summary?: string;
   created_at: string;
   status: 'completed' | 'missed' | 'busy';
+}
+
+export interface LeadAppointment {
+  id: number;
+  title: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+  contact_name?: string;
+  notes?: string;
+  call_summary?: string;
 }
 
 export interface LeadConversation {

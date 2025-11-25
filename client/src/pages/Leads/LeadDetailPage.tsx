@@ -7,7 +7,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
-import { Lead, LeadActivity, LeadReminder, LeadCall, LeadConversation } from './types';
+import { Lead, LeadActivity, LeadReminder, LeadCall, LeadConversation, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
 
@@ -17,6 +17,7 @@ const TABS = [
   { key: 'overview', label: 'סקירה', icon: User },
   { key: 'conversation', label: 'שיחות', icon: MessageSquare },
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
+  { key: 'appointments', label: 'פגישות', icon: Calendar },
   { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
   { key: 'activity', label: 'פעילות', icon: Activity },
 ] as const;
@@ -39,6 +40,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [reminders, setReminders] = useState<LeadReminder[]>([]);
   const [calls, setCalls] = useState<LeadCall[]>([]);
+  const [appointments, setAppointments] = useState<LeadAppointment[]>([]);
 
   useEffect(() => {
     if (id) {
@@ -57,6 +59,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       // Fetch calls for this lead by phone number
       if (response.phone_e164) {
         await fetchCalls(response.phone_e164);
+        await fetchAppointments(response.phone_e164);
       }
     } catch (err) {
       console.error('Failed to fetch lead:', err);
@@ -77,6 +80,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           duration: call.duration || 0,
           recording_url: call.recording_url,
           notes: call.transcription || '',
+          summary: call.summary || '',
           created_at: call.created_at,
           status: call.status
         }));
@@ -85,6 +89,28 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     } catch (err) {
       console.error('Failed to fetch calls:', err);
       setCalls([]);
+    }
+  };
+
+  const fetchAppointments = async (phone: string) => {
+    try {
+      const response = await http.get<{ appointments: any[] }>(`/api/calendar/appointments?search=${encodeURIComponent(phone)}`);
+      if (response.appointments) {
+        const leadAppointments: LeadAppointment[] = response.appointments.map((appt: any) => ({
+          id: appt.id,
+          title: appt.title,
+          start_time: appt.start_time,
+          end_time: appt.end_time,
+          status: appt.status,
+          contact_name: appt.contact_name,
+          notes: appt.notes,
+          call_summary: appt.call_summary
+        }));
+        setAppointments(leadAppointments);
+      }
+    } catch (err) {
+      console.error('Failed to fetch appointments:', err);
+      setAppointments([]);
     }
   };
 
@@ -329,6 +355,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {activeTab === 'overview' && <OverviewTab lead={lead} reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} />}
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
+        {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
       </div>
@@ -517,20 +544,98 @@ function CallsTab({ calls }: { calls: LeadCall[] }) {
       ) : (
         <div className="space-y-4">
           {calls.map((call) => (
-            <div key={call.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 bg-gray-50 rounded-lg gap-3 sm:gap-0">
-              <div className="flex items-center space-x-3">
-                <Phone className={`w-5 h-5 ${call.call_type === 'incoming' ? 'text-green-500' : 'text-blue-500'}`} />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">
-                    {call.call_type === 'incoming' ? 'שיחה נכנסת' : 'שיחה יוצאת'}
-                  </p>
-                  <p className="text-xs text-gray-500">{formatDate(call.created_at)}</p>
+            <div key={call.id} className="p-4 bg-gray-50 rounded-lg" data-testid={`call-${call.id}`}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 mb-3">
+                <div className="flex items-center space-x-3">
+                  <Phone className={`w-5 h-5 ${call.call_type === 'incoming' ? 'text-green-500' : 'text-blue-500'}`} />
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {call.call_type === 'incoming' ? 'שיחה נכנסת' : 'שיחה יוצאת'}
+                    </p>
+                    <p className="text-xs text-gray-500">{formatDate(call.created_at)}</p>
+                  </div>
+                </div>
+                <div className="text-right sm:text-left">
+                  <p className="text-sm text-gray-900">{call.duration} שניות</p>
                 </div>
               </div>
-              <div className="text-right sm:text-left">
-                <p className="text-sm text-gray-900">{call.duration}s</p>
-                {call.notes && <p className="text-xs text-gray-500">{call.notes}</p>}
+              {call.summary && (
+                <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <p className="text-xs font-medium text-blue-800 mb-1">סיכום שיחה:</p>
+                  <p className="text-sm text-blue-900">{call.summary}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function AppointmentsTab({ appointments }: { appointments: LeadAppointment[] }) {
+  const formatDateTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleString('he-IL', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const getStatusBadge = (status: string) => {
+    const statusMap: Record<string, { label: string; className: string }> = {
+      'scheduled': { label: 'מתוכנן', className: 'bg-yellow-100 text-yellow-800' },
+      'confirmed': { label: 'מאושר', className: 'bg-green-100 text-green-800' },
+      'paid': { label: 'שולם', className: 'bg-blue-100 text-blue-800' },
+      'unpaid': { label: 'לא שולם', className: 'bg-red-100 text-red-800' },
+      'cancelled': { label: 'בוטל', className: 'bg-gray-100 text-gray-800' },
+    };
+    const config = statusMap[status] || { label: status, className: 'bg-gray-100 text-gray-800' };
+    return <Badge className={config.className}>{config.label}</Badge>;
+  };
+
+  return (
+    <Card className="p-4 sm:p-6">
+      <h3 className="text-lg font-medium text-gray-900 mb-4">פגישות</h3>
+      {appointments.length === 0 ? (
+        <div className="text-center py-8">
+          <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-sm text-gray-500">אין פגישות</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {appointments.map((appointment) => (
+            <div key={appointment.id} className="p-4 bg-gray-50 rounded-lg" data-testid={`appointment-${appointment.id}`}>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calendar className="w-4 h-4 text-blue-500" />
+                    <p className="text-sm font-medium text-gray-900">{appointment.title}</p>
+                    {getStatusBadge(appointment.status)}
+                  </div>
+                  <p className="text-sm text-gray-600 mb-1">
+                    {formatDateTime(appointment.start_time)} - {formatDateTime(appointment.end_time)}
+                  </p>
+                  {appointment.contact_name && (
+                    <p className="text-xs text-gray-500">איש קשר: {appointment.contact_name}</p>
+                  )}
+                </div>
               </div>
+              {appointment.notes && (
+                <div className="mt-3 p-3 bg-white rounded border">
+                  <p className="text-xs font-medium text-gray-700 mb-1">הערות:</p>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{appointment.notes}</p>
+                </div>
+              )}
+              {appointment.call_summary && (
+                <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <p className="text-xs font-medium text-blue-800 mb-1">סיכום שיחה:</p>
+                  <p className="text-sm text-blue-900">{appointment.call_summary}</p>
+                </div>
+              )}
             </div>
           ))}
         </div>

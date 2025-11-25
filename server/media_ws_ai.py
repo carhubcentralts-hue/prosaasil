@@ -1857,7 +1857,11 @@ class MediaStreamHandler:
                     print(f"🚀 [FLOW STEP 10]   - start_iso: {start_dt.isoformat()}")
                     print(f"🚀 [FLOW STEP 10]   - end_iso: {end_dt.isoformat()}")
                     
-                    # Create appointment
+                    # Create appointment with call summary if available
+                    appt_notes = "נקבע בשיחה טלפונית"
+                    if hasattr(self, 'call_summary') and self.call_summary:
+                        appt_notes = f"סיכום שיחה:\n{self.call_summary}"
+                    
                     result = create_appointment_from_realtime(
                         business_id=self.business_id,
                         customer_phone=customer_phone,
@@ -1865,7 +1869,7 @@ class MediaStreamHandler:
                         treatment_type="פגישה",
                         start_iso=start_dt.isoformat(),
                         end_iso=end_dt.isoformat(),
-                        notes=f"נקבע בשיחה - confidence={confidence}"
+                        notes=appt_notes
                     )
                     
                     print(f"🚀 [FLOW STEP 10] create_appointment_from_realtime returned: {result}")
