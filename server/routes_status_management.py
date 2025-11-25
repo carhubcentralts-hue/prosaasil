@@ -339,9 +339,7 @@ def delete_status(status_id):
         if not business_id:
             business_id = status.business_id
             
-        # ✅ Enhanced system status protection
-        if status.is_system:
-            return jsonify({'error': 'Cannot delete system status'}), 403
+        # BUILD 146: Removed is_system restriction - users can delete any status
         
         # ✅ Default status protection - cannot delete if it's the only default or no other default exists
         if status.is_default:

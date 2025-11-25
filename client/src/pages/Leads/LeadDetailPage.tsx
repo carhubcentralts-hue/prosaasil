@@ -130,19 +130,33 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   }
 
   const StatusBadge = ({ status }: { status: string }) => {
-    const statusColors = {
-      'New': 'bg-blue-100 text-blue-800',
-      'Attempting': 'bg-yellow-100 text-yellow-800',
-      'Contacted': 'bg-green-100 text-green-800',
-      'Qualified': 'bg-purple-100 text-purple-800',
-      'Won': 'bg-emerald-100 text-emerald-800',
-      'Lost': 'bg-red-100 text-red-800',
-      'Unqualified': 'bg-gray-100 text-gray-800',
+    const statusColors: Record<string, string> = {
+      'new': 'bg-blue-100 text-blue-800',
+      'attempting': 'bg-yellow-100 text-yellow-800',
+      'contacted': 'bg-green-100 text-green-800',
+      'qualified': 'bg-purple-100 text-purple-800',
+      'won': 'bg-emerald-100 text-emerald-800',
+      'lost': 'bg-red-100 text-red-800',
+      'unqualified': 'bg-gray-100 text-gray-800',
     };
     
+    const statusLabels: Record<string, string> = {
+      'new': 'חדש',
+      'attempting': 'בניסיון קשר',
+      'contacted': 'נוצר קשר',
+      'qualified': 'מוכשר',
+      'won': 'זכיה',
+      'lost': 'אובדן',
+      'unqualified': 'לא מוכשר',
+    };
+    
+    const normalizedStatus = status.toLowerCase();
+    const color = statusColors[normalizedStatus] || 'bg-gray-100 text-gray-800';
+    const label = statusLabels[normalizedStatus] || status;
+    
     return (
-      <Badge className={statusColors[status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'}>
-        {status}
+      <Badge className={color}>
+        {label}
       </Badge>
     );
   };

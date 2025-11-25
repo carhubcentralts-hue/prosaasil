@@ -139,8 +139,8 @@ def get_call_details(call_sid):
                 "hasTranscript": bool(call.transcription)
             },
             "transcript": call.transcription or "אין תמליל זמין",
-            "summary": getattr(call, 'summary', "הובנה ע״י בינה מלאכותית - פגישה או עניין במוצר"), 
-            "sentiment": getattr(call, 'sentiment', "ניטרלי")
+            "summary": call.summary if call.summary else None,
+            "sentiment": getattr(call, 'sentiment', None)
         }
         
         return jsonify({
