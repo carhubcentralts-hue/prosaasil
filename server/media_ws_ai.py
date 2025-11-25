@@ -2351,6 +2351,8 @@ class MediaStreamHandler:
                         if self.call_sid and not hasattr(self, '_call_log_created'):
                             self._create_call_log_on_start()
                             self._call_log_created = True
+                            # ✅ התחל הקלטה דרך Twilio REST API
+                            self._start_call_recording()
                     except Exception as e:
                         print(f"⚠️ Call log creation failed (non-critical): {e}")
                     
@@ -4984,6 +4986,60 @@ class MediaStreamHandler:
             
         except Exception as e:
             print(f"❌ Call finalization setup failed: {e}")
+    
+    def _start_call_recording(self):
+        """✅ התחל הקלטת שיחה דרך Twilio REST API - מבטיח שכל השיחות מוקלטות"""
+        try:
+            import threading
+            
+            def start_recording_in_background():
+                try:
+                    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+                    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+                    
+                    if not account_sid or not auth_token:
+                        print(f"⚠️ Missing Twilio credentials - cannot start recording")
+                        return
+                    
+                    if not self.call_sid:
+                        print(f"⚠️ No call_sid - cannot start recording")
+                        return
+                    
+                    from twilio.rest import Client
+                    client = Client(account_sid, auth_token)
+                    
+                    # Start recording the call
+                    try:
+                        # Check if recording already exists
+                        existing_recordings = client.recordings.list(call_sid=self.call_sid, limit=1)
+                        if existing_recordings:
+                            print(f"✅ Recording already active for {self.call_sid}")
+                            return
+                        
+                        # Start a new recording via REST API
+                        recording = client.calls(self.call_sid).recordings.create(
+                            recording_channels="dual",  # Record both channels
+                            recording_status_callback=None  # Will use the handle_recording webhook
+                        )
+                        print(f"✅ Recording started for {self.call_sid}: {recording.sid}")
+                        
+                    except Exception as rec_error:
+                        error_msg = str(rec_error).lower()
+                        if 'recording is already in progress' in error_msg or 'already' in error_msg:
+                            print(f"✅ Recording already in progress for {self.call_sid}")
+                        else:
+                            print(f"⚠️ Could not start recording for {self.call_sid}: {rec_error}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Recording start failed: {e}")
+            
+            # Run in background
+            thread = threading.Thread(target=start_recording_in_background, daemon=True)
+            thread.start()
+            self.background_threads.append(thread)
+            
+        except Exception as e:
+            print(f"⚠️ Recording setup failed: {e}")
     
     def _create_call_log_on_start(self):
         """✅ יצירת call_log מיד בהתחלת שיחה - למניעת 'Call SID not found' errors"""
