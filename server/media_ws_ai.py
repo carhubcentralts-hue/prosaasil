@@ -2375,8 +2375,10 @@ class MediaStreamHandler:
                         else:
                             print(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first dynamically!")
                             self.greeting_text = None
-                            if not hasattr(self, 'greeting_sent'):
-                                self.greeting_sent = False
+                            # ✅ FIX: Set greeting_sent=True so GUARD doesn't block AI's first response
+                            # When there's no pre-configured greeting, the AI's first utterance IS the greeting
+                            self.greeting_sent = True
+                            print(f"✅ [REALTIME] greeting_sent=True (AI will generate greeting dynamically)")
                     
                     # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
                     if USE_REALTIME_API and not self.realtime_thread:
