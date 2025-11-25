@@ -173,6 +173,26 @@ def create_business():
             # ✅ SINGLE COMMIT: Both business + owner atomically
             db.session.commit()
             logger.info(f"✅ Created business {business.id}: {business.name} with owner {owner_email}")
+            
+            # 🔥 AUTO-WARMUP: Create agents for new business immediately
+            try:
+                import threading
+                def warmup_new_business(bid, bname):
+                    try:
+                        from server.agent_tools.agent_factory import create_booking_agent
+                        for channel in ['calls', 'whatsapp']:
+                            create_booking_agent(bid, channel)
+                            logger.info(f"✅ [AUTO-WARMUP] Agent created for business {bid} ({bname}) - {channel}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [AUTO-WARMUP] Failed for business {bid}: {e}")
+                
+                # Run warmup in background to not delay response
+                t = threading.Thread(target=warmup_new_business, args=(business.id, business.name), daemon=True)
+                t.start()
+                logger.info(f"🔥 [AUTO-WARMUP] Started background warmup for business {business.id}")
+            except Exception as warmup_error:
+                logger.warning(f"⚠️ Auto-warmup failed to start: {warmup_error}")
+                
         except Exception as error:
             # Rollback BOTH business and owner if anything fails
             db.session.rollback()
