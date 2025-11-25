@@ -305,11 +305,15 @@ def send_appointment_reminder(appointment_id: int) -> Dict:
 האם הזמן עדיין מתאים לכם?
         """.strip()  # ✅ הסרת חתימה hardcoded
         
+        # 🔥 HARDENING: Require explicit business_id - no fallback!
+        if not appointment.business_id:
+            return {'success': False, 'error': 'business_id required for multi-tenant isolation'}
+        
         # שליחה
         response = requests.post("http://localhost:5000/api/whatsapp/send", json={
             'to': appointment.contact_phone,
             'message': reminder_message,
-            'business_id': appointment.business_id or 1
+            'business_id': appointment.business_id
         })
         
         if response.status_code == 200:
