@@ -473,6 +473,7 @@ def baileys_webhook():
                         customer_phone=from_number,
                         customer_name=customer.name if customer else None
                     )
+                    log.info(f"🔍 DEBUG: ai_response type={type(ai_response)}, value={str(ai_response)[:100]}...")
                     
                     # ✅ FIX: Handle dict response (text + actions) vs plain string
                     if isinstance(ai_response, dict):
