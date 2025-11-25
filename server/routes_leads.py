@@ -1088,12 +1088,15 @@ def get_notifications():
         notifications.append({
             "id": str(reminder.id),
             "title": reminder.note or "משימה ללא תיאור",
+            "description": reminder.description,  # BUILD 151: For system notifications
             "due_date": reminder.due_at.isoformat(),
             "category": category,
             "phone": lead.display_phone if lead else None,
             "lead_id": reminder.lead_id,
             "lead_name": lead.full_name if lead else None,
-            "created_at": reminder.created_at.isoformat() if reminder.created_at else None
+            "created_at": reminder.created_at.isoformat() if reminder.created_at else None,
+            "reminder_type": reminder.reminder_type,  # BUILD 151: For system notifications
+            "priority": reminder.priority  # BUILD 151: For urgency indication
         })
     
     return jsonify({
