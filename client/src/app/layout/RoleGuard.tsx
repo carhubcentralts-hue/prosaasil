@@ -23,13 +23,16 @@ export function RoleGuard({ roles, children }: RoleGuardProps) {
     );
   }
 
-  // When impersonating, treat the user as having 'business' role
-  const effectiveRole = impersonating ? 'business' : user?.role;
+  // BUILD 144: When system_admin is impersonating, grant 'owner' effective role
+  // This allows access to all business-scoped pages while impersonating
+  const effectiveRole = (impersonating && user?.role === 'system_admin') 
+    ? 'owner'  // ✅ owner is a valid role that has access to business pages
+    : user?.role;
 
   // Check if user has required role (considering impersonation)
   if (!user || !effectiveRole || !roles.includes(effectiveRole)) {
-    // Redirect to appropriate home page based on effective role
-    const homeRoute = (effectiveRole === 'admin' || effectiveRole === 'manager') && !impersonating
+    // Redirect to appropriate home page based on actual role
+    const homeRoute = user?.role === 'system_admin' && !impersonating
       ? '/app/admin/overview'
       : '/app/business/overview';
     
