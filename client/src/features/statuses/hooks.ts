@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { http } from '../../services/http';
 
 export interface LeadStatus {
@@ -10,7 +10,7 @@ export interface LeadStatus {
   order_index: number;
   is_default: boolean;
   is_system: boolean;
-  created_at: string;
+  created_at?: string;
 }
 
 interface UseStatusesResult {
@@ -34,9 +34,15 @@ export function useStatuses(): UseStatusesResult {
       setLoading(true);
       setError(null);
       
-      const response = await http.get<{items: LeadStatus[], total: number}>('/api/statuses');
-      // Handle backend response format: {items: [...], total: N}
-      const statusList = response.items || [];
+      const response = await http.get<{items: LeadStatus[], total: number} | LeadStatus[]>('/api/statuses');
+      
+      let statusList: LeadStatus[] = [];
+      if (Array.isArray(response)) {
+        statusList = response;
+      } else if (response && typeof response === 'object' && 'items' in response) {
+        statusList = response.items || [];
+      }
+      
       setStatuses(Array.isArray(statusList) ? statusList : []);
     } catch (err) {
       console.error('Failed to fetch statuses:', err);
@@ -46,55 +52,85 @@ export function useStatuses(): UseStatusesResult {
     }
   }, []);
 
+  useEffect(() => {
+    refreshStatuses();
+  }, [refreshStatuses]);
+
   const createStatus = useCallback(async (data: Partial<LeadStatus>): Promise<LeadStatus> => {
     try {
-      const response = await http.post<{status: LeadStatus, message?: string} | LeadStatus>('/api/statuses', data);
+      console.log('Creating status with data:', data);
+      const response = await http.post<any>('/api/statuses', data);
+      console.log('Create status response:', response);
       
-      // Handle both response formats: {status: {...}} or direct status object
       let newStatus: LeadStatus | undefined;
+      
       if (response && typeof response === 'object') {
-        if ('status' in response && response.status) {
-          newStatus = response.status;
-        } else if ('id' in response && 'name' in response) {
-          // Direct status object
+        if ('status' in response && response.status && typeof response.status === 'object') {
+          newStatus = response.status as LeadStatus;
+        } else if ('id' in response && 'name' in response && 'label' in response) {
           newStatus = response as LeadStatus;
+        } else if ('data' in response && response.data) {
+          newStatus = response.data as LeadStatus;
+        } else if ('item' in response && response.item) {
+          newStatus = response.item as LeadStatus;
         }
       }
       
-      if (newStatus) {
-        setStatuses(prev => [...prev, newStatus!].sort((a, b) => a.order_index - b.order_index));
+      if (newStatus && newStatus.id) {
+        if (!newStatus.created_at) {
+          newStatus.created_at = new Date().toISOString();
+        }
+        setStatuses(prev => [...prev, newStatus!].sort((a, b) => (a.order_index || 0) - (b.order_index || 0)));
         return newStatus;
       } else {
-        console.error('Unexpected response format:', response);
-        throw new Error('שגיאה ביצירת הסטטוס');
+        console.log('No newStatus found in response, refreshing...');
+        await refreshStatuses();
+        const latestStatuses = await http.get<{items: LeadStatus[]}>('/api/statuses');
+        const items = latestStatuses?.items || [];
+        if (items.length > 0) {
+          const latest = items[items.length - 1];
+          return latest;
+        }
+        throw new Error('Could not find created status');
       }
     } catch (err: any) {
       console.error('Failed to create status:', err);
-      // Extract error message from response if available
-      const errorMsg = err?.response?.data?.error || err?.message || 'שגיאה ביצירת הסטטוס';
+      const errorMsg = err?.error || err?.message || 'שגיאה ביצירת הסטטוס';
       throw new Error(errorMsg);
     }
-  }, []);
+  }, [refreshStatuses]);
 
   const updateStatus = useCallback(async (id: number, data: Partial<LeadStatus>): Promise<LeadStatus> => {
     try {
-      const response = await http.put<{status: LeadStatus}>(`/api/statuses/${id}`, data);
+      const response = await http.put<any>(`/api/statuses/${id}`, data);
       
-      if (response.status) {
+      let updatedStatus: LeadStatus | undefined;
+      if (response && typeof response === 'object') {
+        if ('status' in response && response.status) {
+          updatedStatus = response.status;
+        } else if ('id' in response) {
+          updatedStatus = response as LeadStatus;
+        }
+      }
+      
+      if (updatedStatus) {
         setStatuses(prev => 
           prev.map(status => 
-            status.id === id ? { ...status, ...response.status } : status
+            status.id === id ? { ...status, ...updatedStatus } : status
           )
         );
-        return response.status;
+        return updatedStatus;
       } else {
-        throw new Error('Invalid response format');
+        await refreshStatuses();
+        const found = statuses.find(s => s.id === id);
+        if (found) return found;
+        throw new Error('Status update failed');
       }
     } catch (err) {
       console.error('Failed to update status:', err);
       throw err;
     }
-  }, []);
+  }, [refreshStatuses, statuses]);
 
   const deleteStatus = useCallback(async (id: number): Promise<void> => {
     try {
@@ -110,7 +146,6 @@ export function useStatuses(): UseStatusesResult {
     try {
       await http.post('/api/statuses/reorder', { status_ids: statusIds });
       
-      // Update local state to match new order
       setStatuses(prev => {
         const statusMap = new Map(prev.map(s => [s.id, s]));
         return statusIds.map((id, index) => {

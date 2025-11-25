@@ -183,36 +183,38 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
 
   return (
     <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-start sm:items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto" 
+      className="fixed inset-0 bg-black/50 z-50 overflow-y-auto overscroll-contain" 
       dir="rtl"
-      style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white dark:bg-gray-800 sm:rounded-lg rounded-none w-full sm:max-w-4xl min-h-screen sm:min-h-0 sm:max-h-[90vh] overflow-hidden shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              {TEXTS.title}
-            </h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              צור, ערוך ונהל את סטטוסי הלידים של העסק
-            </p>
+      <div className="min-h-full flex items-start sm:items-center justify-center p-0 sm:p-4">
+        <div className="bg-white dark:bg-gray-800 sm:rounded-lg rounded-none w-full sm:max-w-4xl sm:my-8 shadow-xl flex flex-col max-h-screen sm:max-h-[90vh]">
+          {/* Header - Fixed */}
+          <div className="flex-shrink-0 flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                {TEXTS.title}
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                צור, ערוך ונהל את סטטוסי הלידים של העסק
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onClose}
+                className="border-gray-300 hover:bg-gray-50"
+                data-testid="button-close-status-modal"
+              >
+                <X className="w-4 h-4 ml-2" />
+                סגור
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onClose}
-              className="border-gray-300 hover:bg-gray-50"
-              data-testid="button-close-status-modal"
-            >
-              <X className="w-4 h-4 ml-2" />
-              סגור
-            </Button>
-          </div>
-        </div>
 
-        <div className="p-4 sm:p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+          {/* Content - Scrollable */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 overscroll-contain">
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
               <p className="text-red-600 text-sm">{error}</p>
@@ -432,19 +434,20 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
           </div>
         </div>
         
-        {/* Footer */}
-        <div className="px-4 sm:px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            💡 טיפ: לחץ על סטטוס ללידים בטבלה כדי לשנות אותו
+          {/* Footer */}
+          <div className="flex-shrink-0 px-4 sm:px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              💡 טיפ: לחץ על סטטוס ללידים בטבלה כדי לשנות אותו
+            </div>
+            <Button
+              variant="secondary"
+              onClick={onClose}
+              data-testid="button-close-status-modal-footer"
+              className="bg-white border border-gray-300 hover:bg-gray-50"
+            >
+              סגור וחזור ללידים
+            </Button>
           </div>
-          <Button
-            variant="secondary"
-            onClick={onClose}
-            data-testid="button-close-status-modal-footer"
-            className="bg-white border border-gray-300 hover:bg-gray-50"
-          >
-            סגור וחזור ללידים
-          </Button>
         </div>
       </div>
     </div>

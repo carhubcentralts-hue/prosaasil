@@ -196,13 +196,14 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
 
   return (
     <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-start sm:items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto" 
+      className="fixed inset-0 bg-black/50 z-50 overflow-y-auto overscroll-contain" 
       dir="rtl"
-      style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-full sm:max-w-4xl min-h-screen sm:min-h-0 sm:max-h-[90vh] bg-white flex flex-col sm:rounded-lg rounded-none shadow-lg border border-gray-200">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b bg-gray-50">
+      <div className="min-h-full flex items-start sm:items-center justify-center p-0 sm:p-4">
+        <div className="w-full sm:max-w-4xl bg-white flex flex-col sm:rounded-lg rounded-none shadow-lg border border-gray-200 sm:my-8 max-h-screen sm:max-h-[90vh]">
+          {/* Header - Fixed */}
+          <div className="flex-shrink-0 flex items-center justify-between p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
             <div>
               <h2 className="text-xl font-semibold" data-testid={`text-lead-detail-name-${lead.id}`}>
@@ -588,6 +589,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
