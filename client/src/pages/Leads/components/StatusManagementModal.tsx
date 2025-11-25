@@ -179,18 +179,31 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
     }
   };
 
+  console.log('[StatusManagementModal] Render - isOpen:', isOpen, 'statuses:', statuses.length, 'loading:', loading, 'error:', error);
+
   if (!isOpen) return null;
 
   return (
     <div 
-      className="fixed inset-0 bg-black/50 z-50 overflow-y-auto overscroll-contain" 
+      className="fixed inset-0 z-50" 
       dir="rtl"
+      style={{ 
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch'
+      }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="min-h-full flex items-start sm:items-center justify-center p-0 sm:p-4">
-        <div className="bg-white dark:bg-gray-800 sm:rounded-lg rounded-none w-full sm:max-w-4xl sm:my-8 shadow-xl flex flex-col max-h-screen sm:max-h-[90vh]">
-          {/* Header - Fixed */}
-          <div className="flex-shrink-0 flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+      <div 
+        className="w-full sm:max-w-4xl mx-auto my-0 sm:my-8"
+        style={{ minHeight: '100vh' }}
+      >
+        <div 
+          className="bg-white dark:bg-gray-800 sm:rounded-lg rounded-none w-full shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="sticky top-0 z-10 flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
             <div>
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
                 {TEXTS.title}
@@ -435,7 +448,7 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
         </div>
         
           {/* Footer */}
-          <div className="flex-shrink-0 px-4 sm:px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
+          <div className="px-4 sm:px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0">
             <div className="text-sm text-gray-600 dark:text-gray-400">
               💡 טיפ: לחץ על סטטוס ללידים בטבלה כדי לשנות אותו
             </div>

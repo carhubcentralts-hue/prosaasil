@@ -192,18 +192,31 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
     }
   };
 
+  console.log('[LeadDetailModal] Render - isOpen:', isOpen, 'lead:', lead?.id, 'dynamicStatuses:', dynamicStatuses.length);
+
   if (!isOpen) return null;
 
   return (
     <div 
-      className="fixed inset-0 bg-black/50 z-50 overflow-y-auto overscroll-contain" 
+      className="fixed inset-0 z-50" 
       dir="rtl"
+      style={{ 
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch'
+      }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="min-h-full flex items-start sm:items-center justify-center p-0 sm:p-4">
-        <div className="w-full sm:max-w-4xl bg-white flex flex-col sm:rounded-lg rounded-none shadow-lg border border-gray-200 sm:my-8 max-h-screen sm:max-h-[90vh]">
-          {/* Header - Fixed */}
-          <div className="flex-shrink-0 flex items-center justify-between p-6 border-b bg-gray-50">
+      <div 
+        className="w-full sm:max-w-4xl mx-auto my-0 sm:my-8"
+        style={{ minHeight: '100vh' }}
+      >
+        <div 
+          className="bg-white sm:rounded-lg rounded-none w-full shadow-lg border border-gray-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="sticky top-0 z-10 flex items-center justify-between p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
             <div>
               <h2 className="text-xl font-semibold" data-testid={`text-lead-detail-name-${lead.id}`}>
@@ -589,7 +602,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
             </div>
           )}
         </div>
-      </div>
+        </div>
       </div>
     </div>
   );
