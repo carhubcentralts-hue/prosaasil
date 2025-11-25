@@ -48,17 +48,31 @@ export function useStatuses(): UseStatusesResult {
 
   const createStatus = useCallback(async (data: Partial<LeadStatus>): Promise<LeadStatus> => {
     try {
-      const response = await http.post<{status: LeadStatus}>('/api/statuses', data);
+      const response = await http.post<{status: LeadStatus, message?: string} | LeadStatus>('/api/statuses', data);
       
-      if (response.status) {
-        setStatuses(prev => [...prev, response.status].sort((a, b) => a.order_index - b.order_index));
-        return response.status;
-      } else {
-        throw new Error('Invalid response format');
+      // Handle both response formats: {status: {...}} or direct status object
+      let newStatus: LeadStatus | undefined;
+      if (response && typeof response === 'object') {
+        if ('status' in response && response.status) {
+          newStatus = response.status;
+        } else if ('id' in response && 'name' in response) {
+          // Direct status object
+          newStatus = response as LeadStatus;
+        }
       }
-    } catch (err) {
+      
+      if (newStatus) {
+        setStatuses(prev => [...prev, newStatus!].sort((a, b) => a.order_index - b.order_index));
+        return newStatus;
+      } else {
+        console.error('Unexpected response format:', response);
+        throw new Error('שגיאה ביצירת הסטטוס');
+      }
+    } catch (err: any) {
       console.error('Failed to create status:', err);
-      throw err;
+      // Extract error message from response if available
+      const errorMsg = err?.response?.data?.error || err?.message || 'שגיאה ביצירת הסטטוס';
+      throw new Error(errorMsg);
     }
   }, []);
 

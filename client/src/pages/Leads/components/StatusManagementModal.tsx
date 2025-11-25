@@ -182,8 +182,12 @@ export default function StatusManagementModal({ isOpen, onClose, onStatusChange 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
-      <div className="bg-white dark:bg-gray-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-xl">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-start sm:items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto" 
+      dir="rtl"
+      style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+    >
+      <div className="bg-white dark:bg-gray-800 sm:rounded-lg rounded-none w-full sm:max-w-4xl min-h-screen sm:min-h-0 sm:max-h-[90vh] overflow-hidden shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
           <div>

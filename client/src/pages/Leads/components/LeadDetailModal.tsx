@@ -7,6 +7,7 @@ import { Badge } from '../../../shared/components/Badge';
 import { Lead, LeadStatus, LeadSource, LeadReminder, LeadActivity, UpdateLeadRequest } from '../types';
 import { http } from '../../../services/http';
 import { formatDate } from '../../../shared/utils/format';
+import { useStatuses, LeadStatus as DynamicStatus } from '../../../features/statuses/hooks';
 
 interface LeadDetailModalProps {
   lead: Lead;
@@ -22,16 +23,6 @@ const SOURCES: { key: LeadSource; label: string }[] = [
   { key: 'manual', label: 'הוספה ידנית' },
 ];
 
-const STATUSES: { key: LeadStatus; label: string }[] = [
-  { key: 'New', label: 'חדש' },
-  { key: 'Attempting', label: 'בניסיון קשר' },
-  { key: 'Contacted', label: 'נוצר קשר' },
-  { key: 'Qualified', label: 'מוכשר' },
-  { key: 'Won', label: 'זכיה' },
-  { key: 'Lost', label: 'אובדן' },
-  { key: 'Unqualified', label: 'לא מוכשר' },
-];
-
 export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: LeadDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'reminders' | 'notes'>('overview');
   const [isEditing, setIsEditing] = useState(false);
@@ -43,6 +34,22 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
   const [newTag, setNewTag] = useState('');
   const [newReminderNote, setNewReminderNote] = useState('');
   const [newReminderDate, setNewReminderDate] = useState('');
+  
+  // Dynamic statuses from API
+  const { statuses: dynamicStatuses, refreshStatuses } = useStatuses();
+  
+  // Load statuses when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      refreshStatuses();
+    }
+  }, [isOpen, refreshStatuses]);
+  
+  // Helper to get status label
+  const getStatusLabel = (statusName: string) => {
+    const found = dynamicStatuses.find(s => s.name === statusName);
+    return found?.label || statusName;
+  };
 
   // Initialize form data when lead changes
   useEffect(() => {
@@ -188,8 +195,12 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 md:p-4 overflow-hidden" dir="rtl">
-      <Card className="w-full max-w-4xl h-[95vh] md:h-auto md:max-h-[90vh] bg-white flex flex-col overflow-hidden">
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-start sm:items-center justify-center z-50 p-0 sm:p-4 overflow-y-auto" 
+      dir="rtl"
+      style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+    >
+      <div className="w-full sm:max-w-4xl min-h-screen sm:min-h-0 sm:max-h-[90vh] bg-white flex flex-col sm:rounded-lg rounded-none shadow-lg border border-gray-200">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b bg-gray-50">
           <div className="flex items-center gap-4">
@@ -199,7 +210,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
               </h2>
               <div className="flex items-center gap-2 mt-1">
                 <Badge className="text-xs">
-                  {STATUSES.find(s => s.key === lead.status)?.label}
+                  {getStatusLabel(lead.status)}
                 </Badge>
                 <Badge variant="neutral" className="text-xs">
                   {SOURCES.find(s => s.key === lead.source)?.label}
@@ -262,7 +273,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
         </div>
 
         {/* Tab Content - Scrollable on mobile */}
-        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-hidden min-h-0 -webkit-overflow-scrolling-touch">
+        <div className="flex-1 p-4 md:p-6 overflow-y-auto overflow-x-hidden min-h-0" style={{ WebkitOverflowScrolling: 'touch' }}>
           {activeTab === 'overview' && (
             <div className="space-y-4 md:space-y-6">
               {/* Contact Info */}
@@ -577,7 +588,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
             </div>
           )}
         </div>
-      </Card>
+      </div>
     </div>
   );
 }
