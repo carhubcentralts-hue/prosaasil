@@ -145,132 +145,162 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         continue
                     
                     jid = f"{phone_number}@s.whatsapp.net"
-                    
-                    # ⚡ STEP 1: Send typing indicator immediately (creates instant feel)
-                    try:
-                        typing_start = time.time()
-                        wa_service.send_typing(jid, True)
-                        logger.info(f"⏱️ typing took: {time.time() - typing_start:.2f}s")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Typing indicator failed: {e}")
-                    
-                    # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
-                    lookup_start = time.time()
-                    customer, lead, _ = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
-                    logger.info(f"⏱️ customer lookup took: {time.time() - lookup_start:.2f}s")
-                    
-                    # ⚡ STEP 3: Extract last 10 messages for better context (FIXED from 4)
-                    previous_messages = []
-                    if lead.notes:
-                        note_lines = lead.notes.split('\n')
-                        # ⚡ FIXED: Get more context - last 10 messages (5 exchanges)
-                        for line in note_lines[-10:]:
-                            match = re.match(r'\[(WhatsApp|AI|עוזרת|עוזר|סוכן)\s+\d+:\d+:\d+\]:\s*(.+)', line)  # ✅ דינמי - תומך בכל סוג עוזר
-                            if match:
-                                sender, content = match.group(1), match.group(2).strip()
-                                # Don't truncate - keep full message
-                                previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'עוזר'}: {content}")  # ✅ עוזר!
-                    
-                    # ⚡ STEP 4: Agent SDK response with FULL automation (appointments, leads, WhatsApp)
-                    ai_start = time.time()
-                    print(f"🤖 [WA_AI_START] Calling generate_response_with_agent for business={business_id}")
-                    logger.info(f"🤖 [WA_AI_START] Calling AgentKit for business={business_id}, message='{message_text[:50]}...'")
-                    
-                    ai_service = get_ai_service()
-                    ai_response = None  # Initialize to catch any issues
+                    typing_started = False
                     
                     try:
-                        ai_response = ai_service.generate_response_with_agent(
-                            message=message_text,
-                            business_id=business_id,
-                            customer_phone=phone_number,
-                            customer_name=customer.name,
-                            context={
-                                'customer_name': customer.name,
-                                'phone_number': phone_number,
-                                'previous_messages': previous_messages,
-                                'channel': 'whatsapp'
-                            },
-                            channel='whatsapp',
-                            is_first_turn=(len(previous_messages) == 0)  # First message = no history
-                        )
-                        ai_time = time.time() - ai_start
+                        # ⚡ STEP 1: Send typing indicator immediately (creates instant feel)
+                        try:
+                            typing_start = time.time()
+                            wa_service.send_typing(jid, True)
+                            typing_started = True
+                            logger.info(f"⏱️ typing took: {time.time() - typing_start:.2f}s")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Typing indicator failed: {e}")
                         
-                        # 🔥 CRITICAL CHECK: Verify response is not None/empty
-                        if not ai_response:
-                            print(f"⚠️ [WA_AI_EMPTY] Agent returned empty response!")
-                            ai_response = "סליחה, לא הבנתי. אפשר לנסח מחדש?"
+                        # 🤖 BUILD 150: Check if AI is active for this conversation
+                        from server.routes_whatsapp import is_ai_active_for_conversation
+                        if not is_ai_active_for_conversation(business_id, phone_number):
+                            logger.info(f"🔕 AI is INACTIVE for conversation with {phone_number} - skipping AI response")
+                            print(f"🔕 AI is INACTIVE for {phone_number} - customer service handling manually")
+                            
+                            # Still save the incoming message but don't generate AI response
+                            incoming_msg = WhatsAppMessage()
+                            incoming_msg.business_id = business_id
+                            incoming_msg.to_number = phone_number
+                            incoming_msg.direction = 'in'
+                            incoming_msg.body = message_text
+                            incoming_msg.message_type = 'text'
+                            incoming_msg.status = 'received'
+                            incoming_msg.provider = 'baileys'
+                            db.session.add(incoming_msg)
+                            db.session.commit()
+                            continue  # Skip AI response generation, finally block will stop typing
                         
-                        print(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s: '{ai_response[:100]}...'")
-                        logger.info(f"⏱️ AI Agent response took: {ai_time:.2f}s")
-                    except Exception as ai_error:
-                        ai_time = time.time() - ai_start
-                        print(f"❌ [WA_AI_ERROR] Agent failed after {ai_time:.2f}s: {ai_error}")
-                        logger.error(f"❌ Agent error after {ai_time:.2f}s: {ai_error}")
-                        import traceback
-                        traceback.print_exc()
-                        # Fallback response
-                        ai_response = "סליחה, אני לא יכול לעזור לך כרגע. בבקשה נסה שוב או התקשר אלינו."
-                    
-                    # ⚡ STEP 5: Send response
-                    print(f"📤 [WA_SEND_START] About to send response to {jid[:20]}... (len={len(ai_response)})")
-                    send_start = time.time()
-                    
-                    try:
-                        send_result = wa_service.send_message(jid, ai_response)
-                        print(f"✅ [WA_SEND_OK] Sent successfully: {send_result}")
-                    except Exception as send_error:
-                        print(f"❌ [WA_SEND_ERROR] Failed to send: {send_error}")
-                        logger.error(f"❌ WhatsApp send failed: {send_error}")
-                        import traceback
-                        traceback.print_exc()
-                        send_result = {"status": "error", "error": str(send_error)}
-                    logger.info(f"⏱️ send_message took: {time.time() - send_start:.2f}s")
-                    logger.info(f"⏱️ TOTAL processing: {time.time() - process_start:.2f}s")
-                    
-                    # ⚡ STEP 6: Save to DB AFTER response sent (async logging)
-                    timestamp = time.strftime('%H:%M:%S')
-                    
-                    # Save incoming
-                    incoming_msg = WhatsAppMessage()
-                    incoming_msg.business_id = business_id
-                    incoming_msg.to_number = phone_number
-                    incoming_msg.direction = 'in'
-                    incoming_msg.body = message_text
-                    incoming_msg.message_type = 'text'
-                    incoming_msg.status = 'received'
-                    incoming_msg.provider = 'baileys'
-                    db.session.add(incoming_msg)
-                    
-                    # Save outgoing if sent
-                    if send_result.get('status') == 'sent':
-                        outgoing_msg = WhatsAppMessage()
-                        outgoing_msg.business_id = business_id
-                        outgoing_msg.to_number = phone_number
-                        outgoing_msg.direction = 'out'
-                        outgoing_msg.body = ai_response
-                        outgoing_msg.message_type = 'text'
-                        outgoing_msg.status = 'sent'
-                        outgoing_msg.provider = send_result.get('provider', 'baileys')
-                        outgoing_msg.provider_message_id = send_result.get('message_id')
-                        db.session.add(outgoing_msg)
-                    
-                    # Update lead notes (FIXED: store full messages, not truncated)
-                    new_note = f"[WhatsApp {timestamp}]: {message_text}\n[עוזר {timestamp}]: {ai_response}"  # ✅ עוזר!
-                    if lead.notes:
-                        # Keep only last 50 messages (25 exchanges) to prevent bloat
-                        note_lines = lead.notes.split('\n')
-                        if len(note_lines) > 50:
-                            lead.notes = '\n'.join(note_lines[-50:]) + f"\n{new_note}"
+                        # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
+                        lookup_start = time.time()
+                        customer, lead, _ = ci.find_or_create_customer_from_whatsapp(phone_number, message_text)
+                        logger.info(f"⏱️ customer lookup took: {time.time() - lookup_start:.2f}s")
+                        
+                        # ⚡ STEP 3: Extract last 10 messages for better context (FIXED from 4)
+                        previous_messages = []
+                        if lead.notes:
+                            note_lines = lead.notes.split('\n')
+                            # ⚡ FIXED: Get more context - last 10 messages (5 exchanges)
+                            for line in note_lines[-10:]:
+                                match = re.match(r'\[(WhatsApp|AI|עוזרת|עוזר|סוכן)\s+\d+:\d+:\d+\]:\s*(.+)', line)  # ✅ דינמי - תומך בכל סוג עוזר
+                                if match:
+                                    sender, content = match.group(1), match.group(2).strip()
+                                    # Don't truncate - keep full message
+                                    previous_messages.append(f"{'לקוח' if sender == 'WhatsApp' else 'עוזר'}: {content}")  # ✅ עוזר!
+                        
+                        # ⚡ STEP 4: Agent SDK response with FULL automation (appointments, leads, WhatsApp)
+                        ai_start = time.time()
+                        print(f"🤖 [WA_AI_START] Calling generate_response_with_agent for business={business_id}")
+                        logger.info(f"🤖 [WA_AI_START] Calling AgentKit for business={business_id}, message='{message_text[:50]}...'")
+                        
+                        ai_service = get_ai_service()
+                        ai_response = None  # Initialize to catch any issues
+                        
+                        try:
+                            ai_response = ai_service.generate_response_with_agent(
+                                message=message_text,
+                                business_id=business_id,
+                                customer_phone=phone_number,
+                                customer_name=customer.name,
+                                context={
+                                    'customer_name': customer.name,
+                                    'phone_number': phone_number,
+                                    'previous_messages': previous_messages,
+                                    'channel': 'whatsapp'
+                                },
+                                channel='whatsapp',
+                                is_first_turn=(len(previous_messages) == 0)  # First message = no history
+                            )
+                            ai_time = time.time() - ai_start
+                            
+                            # 🔥 CRITICAL CHECK: Verify response is not None/empty
+                            if not ai_response:
+                                print(f"⚠️ [WA_AI_EMPTY] Agent returned empty response!")
+                                ai_response = "סליחה, לא הבנתי. אפשר לנסח מחדש?"
+                            
+                            print(f"✅ [WA_AI_DONE] Agent response received in {ai_time:.2f}s: '{ai_response[:100]}...'")
+                            logger.info(f"⏱️ AI Agent response took: {ai_time:.2f}s")
+                        except Exception as ai_error:
+                            ai_time = time.time() - ai_start
+                            print(f"❌ [WA_AI_ERROR] Agent failed after {ai_time:.2f}s: {ai_error}")
+                            logger.error(f"❌ Agent error after {ai_time:.2f}s: {ai_error}")
+                            import traceback
+                            traceback.print_exc()
+                            # Fallback response
+                            ai_response = "סליחה, אני לא יכול לעזור לך כרגע. בבקשה נסה שוב או התקשר אלינו."
+                        
+                        # ⚡ STEP 5: Send response
+                        print(f"📤 [WA_SEND_START] About to send response to {jid[:20]}... (len={len(ai_response)})")
+                        send_start = time.time()
+                        
+                        try:
+                            send_result = wa_service.send_message(jid, ai_response)
+                            print(f"✅ [WA_SEND_OK] Sent successfully: {send_result}")
+                        except Exception as send_error:
+                            print(f"❌ [WA_SEND_ERROR] Failed to send: {send_error}")
+                            logger.error(f"❌ WhatsApp send failed: {send_error}")
+                            import traceback
+                            traceback.print_exc()
+                            send_result = {"status": "error", "error": str(send_error)}
+                        logger.info(f"⏱️ send_message took: {time.time() - send_start:.2f}s")
+                        logger.info(f"⏱️ TOTAL processing: {time.time() - process_start:.2f}s")
+                        
+                        # ⚡ STEP 6: Save to DB AFTER response sent (async logging)
+                        timestamp = time.strftime('%H:%M:%S')
+                        
+                        # Save incoming
+                        incoming_msg = WhatsAppMessage()
+                        incoming_msg.business_id = business_id
+                        incoming_msg.to_number = phone_number
+                        incoming_msg.direction = 'in'
+                        incoming_msg.body = message_text
+                        incoming_msg.message_type = 'text'
+                        incoming_msg.status = 'received'
+                        incoming_msg.provider = 'baileys'
+                        db.session.add(incoming_msg)
+                        
+                        # Save outgoing if sent
+                        if send_result.get('status') == 'sent':
+                            outgoing_msg = WhatsAppMessage()
+                            outgoing_msg.business_id = business_id
+                            outgoing_msg.to_number = phone_number
+                            outgoing_msg.direction = 'out'
+                            outgoing_msg.body = ai_response
+                            outgoing_msg.message_type = 'text'
+                            outgoing_msg.status = 'sent'
+                            outgoing_msg.provider = send_result.get('provider', 'baileys')
+                            outgoing_msg.provider_message_id = send_result.get('message_id')
+                            db.session.add(outgoing_msg)
+                        
+                        # Update lead notes (FIXED: store full messages, not truncated)
+                        new_note = f"[WhatsApp {timestamp}]: {message_text}\n[עוזר {timestamp}]: {ai_response}"  # ✅ עוזר!
+                        if lead.notes:
+                            # Keep only last 50 messages (25 exchanges) to prevent bloat
+                            note_lines = lead.notes.split('\n')
+                            if len(note_lines) > 50:
+                                lead.notes = '\n'.join(note_lines[-50:]) + f"\n{new_note}"
+                            else:
+                                lead.notes += f"\n{new_note}"
                         else:
-                            lead.notes += f"\n{new_note}"
-                    else:
-                        lead.notes = new_note
-                    
-                    # ⚡ Background: conversation summary (don't block)
-                    Thread(target=_async_conversation_analysis, args=(ci, lead, message_text, phone_number), daemon=True).start()
-                    
-                    db.session.commit()
+                            lead.notes = new_note
+                        
+                        # ⚡ Background: conversation summary (don't block)
+                        Thread(target=_async_conversation_analysis, args=(ci, lead, message_text, phone_number), daemon=True).start()
+                        
+                        db.session.commit()
+                    finally:
+                        # 🛑 BUILD 150: ALWAYS stop typing indicator, regardless of success/failure
+                        if typing_started:
+                            try:
+                                wa_service.send_typing(jid, False)
+                                logger.info(f"✅ Typing indicator stopped for {phone_number}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to stop typing indicator: {e}")
                     
                 except Exception as msg_error:
                     logger.error(f"❌ WhatsApp message processing error: {msg_error}")

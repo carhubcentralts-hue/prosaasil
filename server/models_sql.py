@@ -191,6 +191,22 @@ class WhatsAppMessage(db.Model):
     read_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+
+class WhatsAppConversationState(db.Model):
+    """BUILD 150: Track AI active/inactive state per WhatsApp conversation"""
+    __tablename__ = "whatsapp_conversation_state"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    phone = db.Column(db.String(64), nullable=False, index=True)  # Customer phone number
+    ai_active = db.Column(db.Boolean, default=True)  # True = AI responds, False = human only
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    
+    __table_args__ = (
+        db.UniqueConstraint('business_id', 'phone', name='uq_business_phone_state'),
+    )
+
+
 # === LEADS CRM SYSTEM - Monday/HubSpot/Salesforce style ===
 
 class Lead(db.Model):

@@ -569,6 +569,27 @@ def apply_migrations():
         migrations_applied.append("create_call_session_table")
         log.info("✅ Applied migration 23: create_call_session_table - Appointment deduplication")
     
+    # Migration 24: Create WhatsAppConversationState table for AI toggle per conversation
+    if not check_table_exists('whatsapp_conversation_state'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE whatsapp_conversation_state (
+                id SERIAL PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                phone VARCHAR(64) NOT NULL,
+                ai_active BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                updated_by INTEGER,
+                CONSTRAINT fk_business FOREIGN KEY (business_id) REFERENCES business(id),
+                CONSTRAINT fk_updated_by FOREIGN KEY (updated_by) REFERENCES users(id),
+                CONSTRAINT uq_business_phone_state UNIQUE (business_id, phone)
+            )
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_state_business ON whatsapp_conversation_state(business_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_state_phone ON whatsapp_conversation_state(phone)"))
+        migrations_applied.append("create_whatsapp_conversation_state_table")
+        log.info("✅ Applied migration 24: create_whatsapp_conversation_state_table - AI toggle per conversation")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

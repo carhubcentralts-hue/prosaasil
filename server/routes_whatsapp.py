@@ -1,11 +1,14 @@
-import os, requests
-from flask import Blueprint, jsonify, request, session
+import os, requests, logging
+from flask import Blueprint, jsonify, request, session, g
 from server.extensions import csrf
 from server.auth_api import require_api_auth
+from server.db import db
+from server.models_sql import WhatsAppConversationState
 
 whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
+log = logging.getLogger(__name__)
 
 # BUILD 136: REMOVED hardcoded business_1 - now uses tenant_id_from_ctx() dynamically
 # Helper function to get tenant-specific auth directory
@@ -134,12 +137,98 @@ def disconnect():
     return jsonify(r.json()), r.status_code
 
 
+# === BUILD 150: AI Active/Inactive Toggle for Customer Service ===
+
+@whatsapp_bp.route('/ai-state', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def set_ai_state():
+    """Toggle AI active/inactive for a specific WhatsApp conversation"""
+    from server.routes_crm import get_business_id
+    
+    data = request.get_json() or {}
+    phone = data.get('phone')
+    active = data.get('active', True)
+    
+    if not phone:
+        return jsonify({"success": False, "error": "Missing phone number"}), 400
+    
+    business_id = get_business_id()
+    user_id = getattr(g, 'user', {}).get('id') if hasattr(g, 'user') else None
+    
+    try:
+        # Find or create state record
+        state = WhatsAppConversationState.query.filter_by(
+            business_id=business_id,
+            phone=phone
+        ).first()
+        
+        if state:
+            state.ai_active = active
+            state.updated_by = user_id
+        else:
+            state = WhatsAppConversationState(
+                business_id=business_id,
+                phone=phone,
+                ai_active=active,
+                updated_by=user_id
+            )
+            db.session.add(state)
+        
+        db.session.commit()
+        log.info(f"✅ AI state for {phone}: {'active' if active else 'inactive'} (business {business_id})")
+        return jsonify({"success": True, "ai_active": active})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"❌ Failed to set AI state: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@whatsapp_bp.route('/ai-state', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_ai_state():
+    """Get AI active/inactive state for a specific WhatsApp conversation"""
+    from server.routes_crm import get_business_id
+    
+    phone = request.args.get('phone')
+    if not phone:
+        return jsonify({"success": False, "error": "Missing phone number"}), 400
+    
+    business_id = get_business_id()
+    
+    state = WhatsAppConversationState.query.filter_by(
+        business_id=business_id,
+        phone=phone
+    ).first()
+    
+    # Default to active if no state record exists
+    ai_active = state.ai_active if state else True
+    return jsonify({"success": True, "ai_active": ai_active})
+
+
+def is_ai_active_for_conversation(business_id: int, phone: str) -> bool:
+    """Helper function to check if AI should respond to this conversation
+    
+    Used by WhatsApp message handlers to determine if AI should auto-respond.
+    Returns True (AI active) by default if no state is set.
+    """
+    try:
+        state = WhatsAppConversationState.query.filter_by(
+            business_id=business_id,
+            phone=phone
+        ).first()
+        return state.ai_active if state else True
+    except Exception as e:
+        log.error(f"Error checking AI state for {phone}: {e}")
+        return True  # Default to active on error
+
+
 # === שלב 3: JSON יציב ו-commit/rollback ===
 from server.utils.api_guard import api_handler
 
 # === שלב 1: השלמת 3 routes ש-UI מבקש (תואם ל-WhatsAppPage.jsx) ===
 from server.models_sql import WhatsAppMessage, Customer
-from server.db import db
 from sqlalchemy import func
 
 @whatsapp_bp.route('/contacts', methods=['GET'])

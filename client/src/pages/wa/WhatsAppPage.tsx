@@ -136,12 +136,26 @@ export function WhatsAppPage() {
     loadPrompts();
   }, []);
 
-  // Poll messages for selected thread
+  // Poll messages for selected thread and load AI state
   useEffect(() => {
     if (!selectedThread) {
       setMessages([]);
+      setAiActive(true); // Reset to default when no thread selected
       return;
     }
+
+    // Load AI state for this conversation
+    const fetchAiState = async () => {
+      try {
+        const response = await http.get<{success: boolean; ai_active: boolean}>(`/api/whatsapp/ai-state?phone=${encodeURIComponent(selectedThread.phone)}`);
+        if (response.success) {
+          setAiActive(response.ai_active);
+        }
+      } catch (error) {
+        console.error('Error loading AI state:', error);
+        setAiActive(true); // Default to active on error
+      }
+    };
 
     // Load messages immediately
     const fetchMessages = async () => {
@@ -157,6 +171,7 @@ export function WhatsAppPage() {
       }
     };
 
+    fetchAiState();
     fetchMessages();
 
     // Poll every 3 seconds for new messages

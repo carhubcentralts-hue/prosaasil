@@ -62,6 +62,7 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **Billing and Contracts**: Integrated payment processing and contract generation.
 - **Automatic Recording Cleanup**: **BUILD 148**: 7-day retention policy with scheduled cleanup every 6 hours. Deletes from Twilio API, local files, and DB. Only clears DB reference after successful external deletion to allow retry on failure.
 - **Recording URL Fix**: **BUILD 149**: Fixed recording_url not being saved when updating existing call_logs - now properly persisted for display in UI.
+- **WhatsApp AI Toggle**: **BUILD 150**: Customer service can toggle AI on/off per WhatsApp conversation. Features back button to exit chat, AI active/inactive toggle button with visual state, persisted in database (`whatsapp_conversation_state` table). When AI is inactive, incoming messages are saved but no AI response is generated, allowing human agents to handle the conversation manually.
 - **Enhanced Reminders System**: Comprehensive management.
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses.
 - **Multi-Tenant Isolation**: Complete business data separation.
