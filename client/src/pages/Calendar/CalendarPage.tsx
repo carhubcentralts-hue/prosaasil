@@ -86,6 +86,7 @@ export function CalendarPage() {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [filterDate, setFilterDate] = useState<string>('');  // ✅ BUILD 144: Date filter
   
   // Modal states
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
@@ -121,7 +122,7 @@ export function CalendarPage() {
     fetchAppointments();
   }, []);
 
-  // Filter appointments based on search and filters
+  // Filter appointments based on search, filters, and date
   const filteredAppointments = appointments.filter(appointment => {
     const matchesSearch = !searchTerm || 
       appointment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -130,8 +131,31 @@ export function CalendarPage() {
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
     
-    return matchesSearch && matchesStatus && matchesType;
+    // ✅ BUILD 144: Date filter - when date selected from calendar or filter
+    let matchesDate = true;
+    if (filterDate) {
+      const appointmentDate = new Date(appointment.start_time).toDateString();
+      const filterDateObj = new Date(filterDate).toDateString();
+      matchesDate = appointmentDate === filterDateObj;
+    } else if (selectedDate) {
+      const appointmentDate = new Date(appointment.start_time).toDateString();
+      matchesDate = appointmentDate === selectedDate.toDateString();
+    }
+    
+    return matchesSearch && matchesStatus && matchesType && matchesDate;
   });
+  
+  // ✅ BUILD 144: Handle calendar date click - show only that day's appointments
+  const handleCalendarDateClick = (date: Date) => {
+    setSelectedDate(date);
+    setFilterDate(''); // Clear manual date filter when clicking calendar
+  };
+  
+  // ✅ BUILD 144: Clear all date filters
+  const clearDateFilter = () => {
+    setSelectedDate(null);
+    setFilterDate('');
+  };
 
   // Get appointments for a specific date
   const getAppointmentsForDate = (date: Date) => {
@@ -372,6 +396,18 @@ export function CalendarPage() {
               <option value="signing">חתימה</option>
               <option value="call_followup">מעקב שיחה</option>
             </select>
+            
+            {/* ✅ BUILD 144: Date filter */}
+            <input
+              type="date"
+              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={filterDate}
+              onChange={(e) => {
+                setFilterDate(e.target.value);
+                setSelectedDate(null);
+              }}
+              data-testid="input-filter-date"
+            />
 
             <div className="flex bg-slate-100 rounded-lg p-1 w-full">
               {(['month', 'week', 'day'] as const).map((view) => (
@@ -438,6 +474,18 @@ export function CalendarPage() {
               <option value="signing">חתימה</option>
               <option value="call_followup">מעקב שיחה</option>
             </select>
+            
+            {/* ✅ BUILD 144: Date filter */}
+            <input
+              type="date"
+              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={filterDate}
+              onChange={(e) => {
+                setFilterDate(e.target.value);
+                setSelectedDate(null);
+              }}
+              data-testid="input-filter-date-desktop"
+            />
 
             {/* View Toggle */}
             <div className="flex bg-slate-100 rounded-lg p-1 flex-shrink-0">
@@ -517,11 +565,12 @@ export function CalendarPage() {
                   <div
                     key={index}
                     className={`
-                      min-h-[60px] md:min-h-[120px] p-1 md:p-2 border rounded-lg cursor-pointer hover:bg-slate-50
-                      ${day.isCurrentMonth ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100'}
+                      min-h-[60px] md:min-h-[120px] p-1 md:p-2 border-2 rounded-lg cursor-pointer transition-all
+                      ${day.isCurrentMonth ? 'bg-white border-slate-200 hover:bg-slate-50' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}
                       ${isToday ? 'border-blue-500 bg-blue-50' : ''}
+                      ${selectedDate && day.date.toDateString() === selectedDate.toDateString() ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200' : ''}
                     `}
-                    onClick={() => setSelectedDate(day.date)}
+                    onClick={() => handleCalendarDateClick(day.date)}
                     data-testid={`calendar-day-${day.date.getDate()}`}
                   >
                     <div className={`
@@ -565,9 +614,32 @@ export function CalendarPage() {
       <div className="mt-6 md:mt-8 bg-white rounded-xl shadow-sm border border-slate-200">
         <div className="p-4 md:p-6 border-b border-slate-200">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">
-              פגישות ({filteredAppointments.length})
-            </h3>
+            <div className="flex flex-col gap-1">
+              <h3 className="text-lg font-semibold text-slate-900">
+                {selectedDate || filterDate ? (
+                  <>
+                    פגישות ליום {(selectedDate || new Date(filterDate)).toLocaleDateString('he-IL', {
+                      weekday: 'long',
+                      day: 'numeric',
+                      month: 'long'
+                    })} ({filteredAppointments.length})
+                  </>
+                ) : (
+                  <>כל הפגישות ({filteredAppointments.length})</>
+                )}
+              </h3>
+              {/* ✅ BUILD 144: Clear date filter button */}
+              {(selectedDate || filterDate) && (
+                <button
+                  className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  onClick={clearDateFilter}
+                  data-testid="button-clear-date-filter"
+                >
+                  <X className="h-4 w-4" />
+                  הצג את כל הפגישות
+                </button>
+              )}
+            </div>
             <button
               className="btn-primary inline-flex items-center justify-center gap-2 px-4 py-2 min-w-fit whitespace-nowrap"
               onClick={openNewAppointmentModal}
