@@ -1,11 +1,13 @@
 import os, requests, logging
-from flask import Blueprint, jsonify, request, session, g
+from datetime import datetime, timedelta
+from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
 from server.auth_api import require_api_auth
 from server.db import db
-from server.models_sql import WhatsAppConversationState
+from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
 
 whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
+internal_whatsapp_bp = Blueprint('internal_whatsapp', __name__, url_prefix='/api/internal/whatsapp')
 BAILEYS_BASE = os.getenv('BAILEYS_BASE_URL', 'http://127.0.0.1:3300')
 INT_SECRET   = os.getenv('INTERNAL_SECRET')
 log = logging.getLogger(__name__)
@@ -729,3 +731,137 @@ def send_manual_message():
             
     except Exception as e:
         return {"ok": False, "error": str(e)}, 500
+
+
+# ============================================================================
+# 🔔 BUILD 151: Internal WhatsApp Status Webhook
+# ============================================================================
+
+def validate_internal_secret():
+    """Validate internal secret header for internal-only endpoints"""
+    secret = request.headers.get('X-Internal-Secret')
+    return secret and secret == INT_SECRET
+
+def _create_whatsapp_disconnect_notification(business_id: int):
+    """
+    🔔 BUILD 151: Create a system notification when WhatsApp disconnects
+    Uses LeadReminder with type='system_whatsapp_disconnect' so it flows through
+    the existing notification system.
+    """
+    try:
+        # Check if notification already exists (prevent duplicates)
+        existing = LeadReminder.query.filter_by(
+            tenant_id=business_id,
+            reminder_type='system_whatsapp_disconnect',
+            completed_at=None
+        ).first()
+        
+        if existing:
+            log.info(f"[WHATSAPP_STATUS] Disconnect notification already exists for business_id={business_id}")
+            return
+        
+        # Find business owner to associate notification
+        owner = User.query.filter_by(business_id=business_id, role='owner').first()
+        
+        # Create the notification reminder
+        reminder = LeadReminder(
+            tenant_id=business_id,
+            lead_id=None,  # System notification - not related to a lead
+            due_at=datetime.utcnow(),  # Due immediately
+            note="חיבור הווטסאפ נותק - יש להיכנס להגדרות ולחבר מחדש",
+            description="חיבור הווטסאפ לעסק נותק. יש להיכנס להגדרות WhatsApp ולסרוק את קוד ה-QR מחדש כדי להתחבר.",
+            channel='ui',
+            priority='high',
+            reminder_type='system_whatsapp_disconnect',
+            created_by=owner.id if owner else None
+        )
+        
+        db.session.add(reminder)
+        db.session.commit()
+        
+        log.info(f"[WHATSAPP_STATUS] ✅ Created disconnect notification for business_id={business_id}")
+        
+    except Exception as e:
+        log.error(f"[WHATSAPP_STATUS] ❌ Failed to create disconnect notification: {e}")
+        db.session.rollback()
+
+def _clear_whatsapp_disconnect_notification(business_id: int):
+    """
+    🔔 BUILD 151: Clear/complete the disconnect notification when WhatsApp reconnects
+    """
+    try:
+        reminders = LeadReminder.query.filter_by(
+            tenant_id=business_id,
+            reminder_type='system_whatsapp_disconnect',
+            completed_at=None
+        ).all()
+        
+        if not reminders:
+            log.info(f"[WHATSAPP_STATUS] No active disconnect notifications to clear for business_id={business_id}")
+            return
+        
+        for reminder in reminders:
+            reminder.completed_at = datetime.utcnow()
+        
+        db.session.commit()
+        log.info(f"[WHATSAPP_STATUS] ✅ Cleared {len(reminders)} disconnect notification(s) for business_id={business_id}")
+        
+    except Exception as e:
+        log.error(f"[WHATSAPP_STATUS] ❌ Failed to clear disconnect notifications: {e}")
+        db.session.rollback()
+
+@csrf.exempt
+@internal_whatsapp_bp.route('/status-webhook', methods=['POST'])
+def whatsapp_status_webhook():
+    """
+    🔔 BUILD 151: Internal webhook to handle WhatsApp connection status changes
+    Called by Baileys service when connection status changes.
+    Creates/clears notification reminders for business owners.
+    """
+    try:
+        # 1) Validate internal secret
+        if not validate_internal_secret():
+            log.error("[WHATSAPP_STATUS] ❌ Unauthorized request - invalid internal secret")
+            return jsonify({"error": "unauthorized"}), 401
+        
+        # 2) Parse request
+        data = request.get_json() or {}
+        tenant_id = data.get('tenant_id')  # e.g., "business_1"
+        status = data.get('status')  # "connected" or "disconnected"
+        reason = data.get('reason')  # optional: "logged_out", etc.
+        
+        if not tenant_id or status not in ('connected', 'disconnected'):
+            log.error(f"[WHATSAPP_STATUS] Invalid payload: tenant_id={tenant_id}, status={status}")
+            return jsonify({"error": "invalid_payload"}), 400
+        
+        # 3) Extract business_id from tenant_id (business_1 -> 1)
+        try:
+            if tenant_id.startswith('business_'):
+                business_id = int(tenant_id.split('_')[1])
+            else:
+                business_id = int(tenant_id)
+        except (ValueError, IndexError):
+            log.error(f"[WHATSAPP_STATUS] Cannot parse business_id from tenant_id={tenant_id}")
+            return jsonify({"error": "invalid_tenant_id"}), 400
+        
+        # 4) Verify business exists
+        business = Business.query.get(business_id)
+        if not business:
+            log.warning(f"[WHATSAPP_STATUS] Unknown business_id={business_id} (tenant_id={tenant_id})")
+            return jsonify({"ok": True}), 200  # Don't error - just ignore
+        
+        log.info(f"[WHATSAPP_STATUS] 📬 Received status={status} for business_id={business_id} (reason={reason})")
+        
+        # 5) Create or clear notification based on status
+        if status == 'disconnected':
+            _create_whatsapp_disconnect_notification(business_id)
+        else:  # connected
+            _clear_whatsapp_disconnect_notification(business_id)
+        
+        return jsonify({"ok": True}), 200
+        
+    except Exception as e:
+        log.error(f"[WHATSAPP_STATUS] ❌ Error processing webhook: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500

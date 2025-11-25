@@ -384,8 +384,9 @@ def create_app():
         app.register_blueprint(receipts_contracts_bp)
         
         # WhatsApp Canonical API (replaces all other WhatsApp routes)
-        from server.routes_whatsapp import whatsapp_bp
+        from server.routes_whatsapp import whatsapp_bp, internal_whatsapp_bp
         app.register_blueprint(whatsapp_bp)
+        app.register_blueprint(internal_whatsapp_bp)  # BUILD 151: Internal status webhook
         
         # WhatsApp Webhook endpoints for Baileys service
         from server.routes_webhook import webhook_bp
