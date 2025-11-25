@@ -304,7 +304,7 @@ def transcribe_with_whisper_api(audio_file):
         return "תמלול Whisper נכשל"
 
 def auto_cleanup_old_recordings():
-    """✨ מחיקה אוטומטית של הקלטות ישנות (יותר מיומיים) + קבצים מהדיסק"""
+    """✨ BUILD 147: מחיקה אוטומטית של הקלטות ישנות (יותר משבוע) + קבצים מהדיסק"""
     try:
         from server.app_factory import get_process_app
         from server.db import db
@@ -314,8 +314,8 @@ def auto_cleanup_old_recordings():
         
         app = get_process_app()
         with app.app_context():
-            # מחק הקלטות מעל יומיים
-            cutoff_date = datetime.utcnow() - timedelta(days=2)
+            # מחק הקלטות מעל שבוע (7 ימים) - תואם ל-UI message
+            cutoff_date = datetime.utcnow() - timedelta(days=7)
             
             old_calls = CallLog.query.filter(
                 CallLog.created_at < cutoff_date,
