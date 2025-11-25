@@ -609,13 +609,14 @@ def impersonate_business(business_id):
         if not business.is_active:
             return jsonify({"error": "העסק אינו פעיל"}), 400
         
-        # BUILD 142 ROLLBACK: Restore impersonating flag for production stability
-        session["impersonating"] = True  # RESTORED
+        # BUILD 144: Store original admin for banner display
+        session["impersonator"] = current_admin  # ✅ CRITICAL: Save original user for /api/auth/me
+        session["impersonating"] = True
         session["impersonated_tenant_id"] = business.id
         session.modified = True  # CRITICAL: Force Flask to save session
         
         logger.info(f"✅ System admin {current_admin.get('email')} impersonating business {business.id}")
-        logger.info(f"🔍 Session state: impersonating={session.get('impersonating')}, tenant_id={session.get('impersonated_tenant_id')}")
+        logger.info(f"🔍 Session state: impersonating={session.get('impersonating')}, tenant_id={session.get('impersonated_tenant_id')}, impersonator={session.get('impersonator')}")
         
         # BUILD 142: Return both formats for compatibility
         return jsonify({
@@ -643,9 +644,11 @@ def exit_impersonation():
     try:
         logger.info("🔄 Exiting impersonation")
         
-        # BUILD 142 ROLLBACK: Clear ALL impersonation keys (flag + tenant_id)
-        session.pop("impersonating", None)  # RESTORED
+        # BUILD 144: Clear ALL impersonation keys
+        session.pop("impersonator", None)  # ✅ Clear original user
+        session.pop("impersonating", None)
         session.pop("impersonated_tenant_id", None)
+        session.modified = True  # Force session save
         
         logger.info(f"✅ Successfully exited impersonation, restored: {session.get('user') or session.get('al_user')}")
         
