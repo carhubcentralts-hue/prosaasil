@@ -798,7 +798,8 @@ def toggle_ai_for_conversation():
         
         # Update AI state
         state.ai_active = bool(ai_enabled)
-        state.updated_by = g.user.id if hasattr(g, 'user') and g.user else None
+        # 🔥 FIX: g.user is a dict, not an object - use .get() instead of .id
+        state.updated_by = g.user.get('id') if hasattr(g, 'user') and g.user else None
         
         db.session.commit()
         
