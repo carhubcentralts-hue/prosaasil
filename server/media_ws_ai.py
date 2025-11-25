@@ -814,6 +814,7 @@ class MediaStreamHandler:
         self.last_nlp_processed_hash = None  # Hash of last processed conversation for NLP dedup
         self.last_nlp_hash_timestamp = 0  # Timestamp when hash was set (for TTL)
         self.nlp_processing_lock = threading.Lock()  # Prevent concurrent NLP runs
+        self.nlp_is_processing = False  # 🛡️ BUILD 149: Flag to prevent concurrent NLP threads
         
         # 🔒 Response collision prevention - thread-safe optimistic lock
         self.response_pending_event = threading.Event()  # Thread-safe flag
@@ -2047,6 +2048,11 @@ class MediaStreamHandler:
         with self.nlp_processing_lock:
             now = time.time()
             
+            # 🛡️ BUILD 149 FIX: Check if another NLP thread is still running
+            if self.nlp_is_processing:
+                print(f"⏭️ [NLP] BLOCKED - Another NLP thread is still processing")
+                return
+            
             # Check if we should process (new hash OR expired TTL)
             if self.last_nlp_processed_hash is None:
                 # First run
@@ -2065,6 +2071,10 @@ class MediaStreamHandler:
                 hash_age = now - self.last_nlp_hash_timestamp
                 print(f"⏭️ [NLP] Skipping duplicate (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
                 return
+            
+            # 🛡️ Mark as processing BEFORE releasing lock to prevent race
+            if should_process:
+                self.nlp_is_processing = True
         
         if not should_process:
             print(f"🔍 [DEBUG] should_process=False - returning early")
@@ -2095,6 +2105,10 @@ class MediaStreamHandler:
                 # Cache NOT updated - allows retry on next utterance
             finally:
                 loop.close()
+                # 🛡️ BUILD 149 FIX: Always clear processing flag when done
+                with self.nlp_processing_lock:
+                    self.nlp_is_processing = False
+                    print(f"🔓 [NLP] Cleared nlp_is_processing flag")
         
         # Launch in background thread to avoid blocking and event loop conflicts
         print(f"🚀 [NLP] Launching NLP thread...")
