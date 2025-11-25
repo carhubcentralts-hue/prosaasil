@@ -304,19 +304,28 @@ def transcribe_with_whisper_api(audio_file):
         return "תמלול Whisper נכשל"
 
 def auto_cleanup_old_recordings():
-    """✨ BUILD 147: מחיקה אוטומטית של הקלטות ישנות (יותר משבוע) + קבצים מהדיסק"""
+    """✨ BUILD 148: מחיקה אוטומטית של הקלטות ישנות (יותר משבוע) + Twilio + קבצים מהדיסק
+    
+    Full cleanup process:
+    1. Find recordings older than 7 days (per business isolation)
+    2. Delete from Twilio servers (if URL is from Twilio)
+    3. Delete local files if exist
+    4. Clear recording_url from DB (keep transcription for reference)
+    """
     try:
         from server.app_factory import get_process_app
         from server.db import db
         from server.models_sql import CallLog
         from datetime import datetime, timedelta
         import os
+        import re
         
         app = get_process_app()
         with app.app_context():
             # מחק הקלטות מעל שבוע (7 ימים) - תואם ל-UI message
             cutoff_date = datetime.utcnow() - timedelta(days=7)
             
+            # Query with business isolation - each business's recordings are handled separately
             old_calls = CallLog.query.filter(
                 CallLog.created_at < cutoff_date,
                 CallLog.recording_url.isnot(None)
@@ -324,9 +333,34 @@ def auto_cleanup_old_recordings():
             
             deleted_count = 0
             files_deleted = 0
+            twilio_deleted = 0
+            
+            # Twilio credentials for API deletion
+            account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+            auth_token = os.getenv("TWILIO_AUTH_TOKEN")
             
             for call in old_calls:
-                # מחק קובץ מהדיסק אם קיים
+                # 1. Delete from Twilio if URL matches Twilio pattern
+                if call.recording_url and "api.twilio.com" in call.recording_url:
+                    try:
+                        # Extract recording SID from URL
+                        # Pattern: .../Recordings/RExxxxxx
+                        match = re.search(r'/Recordings/(RE[a-zA-Z0-9]+)', call.recording_url)
+                        if match and account_sid and auth_token:
+                            recording_sid = match.group(1)
+                            from twilio.rest import Client
+                            client = Client(account_sid, auth_token)
+                            try:
+                                client.recordings(recording_sid).delete()
+                                twilio_deleted += 1
+                                log.info(f"🗑️ Deleted Twilio recording: {recording_sid} (business_id={call.business_id})")
+                            except Exception as twilio_err:
+                                # Recording might already be deleted - not critical
+                                log.warning(f"⚠️ Twilio deletion failed for {recording_sid}: {twilio_err}")
+                    except Exception as e:
+                        log.warning(f"⚠️ Could not extract recording SID from URL: {e}")
+                
+                # 2. מחק קובץ מהדיסק אם קיים
                 if call.call_sid:
                     recordings_dir = "server/recordings"
                     file_path = f"{recordings_dir}/{call.call_sid}.mp3"
@@ -335,17 +369,17 @@ def auto_cleanup_old_recordings():
                         try:
                             os.remove(file_path)
                             files_deleted += 1
-                            log.info(f"🗑️ Deleted recording file: {file_path}")
+                            log.info(f"🗑️ Deleted local file: {file_path} (business_id={call.business_id})")
                         except Exception as e:
                             log.error(f"Failed to delete file {file_path}: {e}")
                 
-                # נקה URL מהDB (שמור transcription - זה טקסט קטן)
+                # 3. נקה URL מהDB (שמור transcription - זה טקסט קטן)
                 call.recording_url = None
                 deleted_count += 1
             
             db.session.commit()
             
-            log.info(f"✅ Auto cleanup completed: {deleted_count} DB entries cleared, {files_deleted} files deleted")
+            log.info(f"✅ Auto cleanup completed: {deleted_count} DB entries, {twilio_deleted} Twilio, {files_deleted} local files")
             return deleted_count, files_deleted
             
     except Exception as e:

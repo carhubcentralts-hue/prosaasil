@@ -908,4 +908,35 @@ def create_app():
             _app_singleton = app
             print("✅ App singleton set - future calls will reuse this instance")
     
+    # 🗑️ BUILD 148: Automatic recording cleanup scheduler (7-day retention)
+    try:
+        print("\n🗑️ Starting automatic recording cleanup scheduler...")
+        from server.tasks_recording import auto_cleanup_old_recordings
+        import threading
+        import time as scheduler_time
+        
+        def recording_cleanup_scheduler():
+            """Background scheduler - runs cleanup daily"""
+            print("🗑️ Recording cleanup scheduler started (runs every 6 hours)")
+            # Wait 5 minutes after startup before first run
+            scheduler_time.sleep(300)
+            
+            while True:
+                try:
+                    with app.app_context():
+                        deleted, files = auto_cleanup_old_recordings()
+                        if deleted > 0 or files > 0:
+                            print(f"🗑️ Scheduled cleanup completed: {deleted} DB entries, {files} files")
+                except Exception as e:
+                    print(f"⚠️ Scheduled cleanup failed: {e}")
+                
+                # Run every 6 hours (21600 seconds)
+                scheduler_time.sleep(21600)
+        
+        cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
+        cleanup_thread.start()
+        print("✅ Recording cleanup scheduler started (7-day retention, runs every 6 hours)")
+    except Exception as e:
+        print(f"⚠️ Recording cleanup scheduler setup failed (non-critical): {e}")
+    
     return app

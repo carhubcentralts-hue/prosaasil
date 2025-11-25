@@ -159,12 +159,13 @@ def dashboard_activity():
         # Add WhatsApp activities (with None check for created_at)
         for msg in recent_whatsapp:
             if msg.created_at:  # Only add if created_at is not None
+                msg_body = msg.body or ""  # Use 'body' field, not 'message_body'
                 activities.append({
                     "ts": msg.created_at.isoformat() + "Z",
                     "type": "whatsapp",
-                    "leadId": msg.customer_id,
-                    "preview": msg.message_body[:50] + "..." if len(msg.message_body) > 50 else msg.message_body,
-                    "provider": "baileys"  # Default provider
+                    "leadId": getattr(msg, 'customer_id', None),
+                    "preview": msg_body[:50] + "..." if len(msg_body) > 50 else msg_body,
+                    "provider": getattr(msg, 'provider', "baileys")  # Default provider
                 })
         
         # Add call activities (with None check for created_at)
