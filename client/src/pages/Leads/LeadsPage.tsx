@@ -449,7 +449,7 @@ export default function LeadsPage() {
                   
                   <TableCell data-testid={`text-phone-${lead.id}`} className="min-w-[120px]">
                     <div dir="ltr" className="text-right text-sm">
-                      {safe(lead.phone) || safe(lead.phone_e164) || safe(lead.display_phone, 'ללא טלפון')}
+                      {lead.display_phone || lead.phone_e164 || lead.phone || 'ללא טלפון'}
                     </div>
                   </TableCell>
                   
@@ -778,7 +778,7 @@ export default function LeadsPage() {
                   <div className="flex items-center gap-2" data-testid={`text-phone-mobile-${lead.id}`}>
                     <Phone className="w-4 h-4 text-gray-400" />
                     <span dir="ltr" className="text-gray-700 dark:text-gray-300">
-                      {safe(lead.phone) || safe(lead.phone_e164) || safe(lead.display_phone, 'ללא טלפון')}
+                      {lead.display_phone || lead.phone_e164 || lead.phone || 'ללא טלפון'}
                     </span>
                   </div>
                 </div>
