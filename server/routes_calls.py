@@ -83,8 +83,10 @@ def list_calls():
                 "status": call.status,
                 "direction": getattr(call, 'direction', 'inbound'),
                 "at": call.created_at.isoformat() if call.created_at else None,
+                "created_at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
                 "transcription": call.transcription,
+                "summary": call.summary if hasattr(call, 'summary') else None,
                 "hasRecording": bool(call.recording_url),
                 "hasTranscript": bool(call.transcription),
                 "expiresAt": expiry_date
