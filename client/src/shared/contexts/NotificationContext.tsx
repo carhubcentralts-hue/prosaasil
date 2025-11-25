@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { http } from '../../services/http';
 
 export interface Notification {
   id: string;
@@ -69,24 +70,19 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     setIsRefreshing(true);
     try {
-      const response = await fetch('/api/notifications', {
-        credentials: 'include'
-      });
+      // BUILD 143: Use http.get() instead of raw fetch - ensures CSRF and credentials
+      const data = await http.get<{ success?: boolean; notifications?: any[] }>('/api/notifications');
       
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.notifications) {
-          const converted = data.notifications.map(convertApiNotification);
-          setNotifications(converted);
-          
-          // Update count callback
-          const unreadCount = converted.filter(n => !n.read).length;
-          if (countCallback) {
-            countCallback(unreadCount);
-          }
+      if (data.notifications) {
+        const converted = data.notifications.map(convertApiNotification);
+        setNotifications(converted);
+        
+        // Update count callback
+        const unreadCount = converted.filter((n: Notification) => !n.read).length;
+        if (countCallback) {
+          countCallback(unreadCount);
         }
       } else {
-        console.error('Failed to fetch notifications:', response.status);
         setNotifications([]);
       }
     } catch (error) {

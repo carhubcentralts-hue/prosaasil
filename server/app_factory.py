@@ -152,45 +152,36 @@ def create_app():
         'SESSION_REFRESH_EACH_REQUEST': True
     })
     
-    # 1) Flask bootstrap אחיד לשתי הסביבות (Preview/Prod) - לפי ההנחיות המדויקות
+    # 1) Flask bootstrap - ProxyFix for Replit's reverse proxy
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     app.config.update(PREFERRED_URL_SCHEME='https')
 
-    IS_PREVIEW = (
-        'picard.replit.dev' in os.getenv('REPLIT_URL', '') or
-        os.getenv('PREVIEW_MODE') == '1'
-    )
-
-    # Consolidated Cookie policy - מתוקן לפי הarchitect (תמיד HttpOnly=True!)
-    if IS_PREVIEW:
-        app.config.update(
-            SESSION_COOKIE_SAMESITE='None',  # None לPreview לפי ההנחיות
-            SESSION_COOKIE_SECURE=True,      # True לPreview לפי ההנחיות  
-            SESSION_COOKIE_HTTPONLY=True,    # ✅ אבטחה - תמיד HttpOnly=True (לפי architect)
-            REMEMBER_COOKIE_SAMESITE='None',
-            REMEMBER_COOKIE_SECURE=True,
-            REMEMBER_COOKIE_HTTPONLY=True,   # ✅ גם remember cookie מאובטח
-        )
-    else:
-        # BUILD 142 ARCHITECT FIX: Replit has HTTPS termination + ProxyFix handles X-Forwarded-Proto
-        # So we CAN use SECURE=True! Browsers reject SAMESITE=None with SECURE=False
-        app.config.update(
-            SESSION_COOKIE_SAMESITE='None',  # None for cross-origin (required by Replit)
-            SESSION_COOKIE_SECURE=True,      # TRUE because ProxyFix sees HTTPS headers
-            SESSION_COOKIE_HTTPONLY=True,    # ✅ Keep HttpOnly for security
-            REMEMBER_COOKIE_SAMESITE='None',
-            REMEMBER_COOKIE_SECURE=True,     # Match session cookie setting
-            REMEMBER_COOKIE_HTTPONLY=True,   # ✅ Keep HttpOnly for security
-        )
-
-    # SeaSurf – מקור יחיד
-    # BUILD 143 FIX: CSRF cookie MUST have SameSite=None + Secure for cross-origin to work!
+    # ═══════════════════════════════════════════════════════════════════
+    # BUILD 143 UNIFIED COOKIE CONFIGURATION - ONE SET FOR ALL ENVIRONMENTS
+    # All cookies MUST use the same settings for Replit cross-origin to work!
+    # ═══════════════════════════════════════════════════════════════════
+    
+    # Session Cookie Settings
     app.config.update(
-        SEASURF_COOKIE_NAME='XSRF-TOKEN',
+        SESSION_COOKIE_NAME='session',
+        SESSION_COOKIE_SECURE=True,       # Required for Replit HTTPS
+        SESSION_COOKIE_SAMESITE='None',   # Required for cross-origin
+        SESSION_COOKIE_HTTPONLY=True,     # Security: JS can't read session
+        SESSION_COOKIE_PATH='/',
+        REMEMBER_COOKIE_SECURE=True,
+        REMEMBER_COOKIE_SAMESITE='None',
+        REMEMBER_COOKIE_HTTPONLY=True,
+    )
+    
+    # SeaSurf CSRF Cookie Settings - MUST match session settings!
+    app.config.update(
+        SEASURF_COOKIE_NAME='csrf_token',
         SEASURF_HEADER='X-CSRFToken',
-        SEASURF_COOKIE_SAMESITE='None',  # Required for cross-origin Replit requests
-        SEASURF_COOKIE_SECURE=True,       # Required with SameSite=None
-        SEASURF_COOKIE_HTTPONLY=False,    # Frontend needs to read it!
+        SEASURF_COOKIE_SECURE=True,       # Required for Replit HTTPS
+        SEASURF_COOKIE_SAMESITE='None',   # Required for cross-origin
+        SEASURF_COOKIE_HTTPONLY=False,    # MUST be False! Frontend needs to read it
+        SEASURF_COOKIE_PATH='/',
+        SEASURF_INCLUDE_OR_EXEMPT_VIEWS='include',  # Default include all views
     )
     
     # Initialize SeaSurf
@@ -289,18 +280,15 @@ def create_app():
     # CSRF כבר מוגדר למעלה - הסרת כפילות
     
     # CORS with security restrictions - SECURE: regex patterns work in Flask-CORS
+    # BUILD 143: All origins unified - no more IS_PREVIEW checks
     cors_origins = [
         "http://localhost:5000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
         r"^https://[\w-]+\.replit\.app$",    # Regex pattern for *.replit.app
         r"^https://[\w-]+\.replit\.dev$"     # Regex pattern for *.replit.dev
     ]
-    # Only add specific preview origins in Preview mode
-    if IS_PREVIEW:
-        cors_origins.extend([
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "http://localhost:8080"          # Common dev server ports
-        ])  # Specific preview origins only
     
     CORS(app, 
          origins=cors_origins,

@@ -21,8 +21,11 @@ export async function refreshCSRF(): Promise<void> {
 function getCSRFToken(): string | null {
   if (csrfToken) return csrfToken;
   
-  // Try XSRF-TOKEN first (as configured on server), then fallback to _csrf_token
-  let token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1];
+  // BUILD 143: Try csrf_token first (unified cookie name), then fallbacks
+  let token = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+  if (!token) {
+    token = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/)?.[1];
+  }
   if (!token) {
     token = document.cookie.match(/(?:^|;\s*)_csrf_token=([^;]+)/)?.[1];
   }
