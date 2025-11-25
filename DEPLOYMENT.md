@@ -1,24 +1,198 @@
-# 🚀 Cloud Run Deployment Guide
+# 🚀 ProSaaS Deployment Guide
 
-## Overview
-AgentLocator can be deployed to Cloud Run with the Flask/ASGI service, while Baileys runs as a separate service or in development mode.
+This guide covers deploying ProSaaS to different environments.
 
-## Deployment Options
+---
 
-### Option 1: Single Service (Flask only) - RECOMMENDED for Cloud Run
-Deploy only the Flask/ASGI service to Cloud Run. Baileys runs separately (external service or dev environment).
+## 📋 Table of Contents
 
-**Required Environment Variables:**
+1. [Development (Replit)](#development-replit)
+2. [Docker Deployment (VPS/Self-hosted)](#docker-deployment)
+3. [Cloud Run Deployment](#cloud-run-deployment)
+4. [Environment Variables](#environment-variables)
+5. [Troubleshooting](#troubleshooting)
+
+---
+
+## 🛠️ Development (Replit)
+
+### Quick Start
+
 ```bash
-# Set in Cloud Run secrets/environment
-BAILEYS_BASE_URL=https://your-baileys-service.com  # External Baileys service URL
-DATABASE_URL=postgresql://...                       # PostgreSQL connection string
-OPENAI_API_KEY=sk-...                              # OpenAI API key
-GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON={...}            # GCP credentials (JSON)
-INTERNAL_SECRET=...                                # Auto-generated if not set
+# In Replit workspace - run both services
+honcho start -f Procfile
 ```
 
-**Deployment Command:**
+This starts:
+- **Flask/ASGI** on port 5000
+- **Baileys** on port 3300
+
+### Manual Start
+
+```bash
+# Start backend only
+uvicorn asgi:app --host 0.0.0.0 --port 5000 --ws websockets
+
+# Start Baileys (in separate terminal)
+cd services/whatsapp && node baileys_service.js
+```
+
+---
+
+## 🐳 Docker Deployment
+
+### Prerequisites
+
+- Docker & Docker Compose installed
+- Git repository cloned
+- GCP credentials JSON file (for TTS/STT)
+
+### Step 1: Clone & Setup
+
+```bash
+# Clone repository
+git clone https://github.com/YOUR_USERNAME/prosaas.git
+cd prosaas
+
+# Copy environment template
+cp .env.example .env
+
+# Edit with your values
+nano .env
+```
+
+### Step 2: Prepare Credentials
+
+```bash
+# Create credentials directory
+mkdir -p credentials
+
+# Copy your GCP service account JSON
+cp /path/to/your-gcp-credentials.json credentials/gcp-credentials.json
+```
+
+### Step 3: Build & Run
+
+```bash
+# Build all images
+docker compose build
+
+# Start all services
+docker compose up -d
+
+# Check status
+docker compose ps
+
+# View logs
+docker compose logs -f
+```
+
+### Step 4: Verify
+
+```bash
+# Check backend health
+curl http://localhost:5000/health
+
+# Check Baileys health
+curl http://localhost:3300/health
+
+# Check frontend
+curl http://localhost/health
+```
+
+### Production with Managed Database
+
+If using an external managed database (Railway, Neon, Supabase, etc.):
+
+```bash
+# Use production overrides (skips local PostgreSQL)
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Useful Commands
+
+```bash
+# Stop all services
+docker compose down
+
+# Restart specific service
+docker compose restart backend
+
+# View logs for specific service
+docker compose logs -f backend
+
+# Rebuild and restart
+docker compose up -d --build
+
+# Clean everything (including volumes)
+docker compose down -v
+```
+
+### Service Ports
+
+| Service   | Internal Port | External Port | Description                    |
+|-----------|---------------|---------------|--------------------------------|
+| Frontend  | 80            | 80            | Nginx serving React app        |
+| Backend   | 5000          | 5000          | Flask/ASGI API + WebSockets    |
+| Baileys   | 3300          | 3300          | WhatsApp Baileys service       |
+| Database  | 5432          | 5432          | PostgreSQL (local only)        |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Docker Compose                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   Frontend   │  │   Backend    │  │   Baileys    │      │
+│  │   (Nginx)    │──│ (Flask/ASGI) │──│  (Node.js)   │      │
+│  │   :80        │  │   :5000      │  │   :3300      │      │
+│  └──────────────┘  └──────┬───────┘  └──────────────┘      │
+│                           │                                 │
+│                    ┌──────┴───────┐                        │
+│                    │  PostgreSQL  │                        │
+│                    │    :5432     │                        │
+│                    └──────────────┘                        │
+└─────────────────────────────────────────────────────────────┘
+              │              │              │
+              ▼              ▼              ▼
+         External:       External:      External:
+          OpenAI         Twilio      Google Cloud
+```
+
+### WhatsApp QR Code
+
+After starting, get the WhatsApp QR code:
+
+```bash
+# Check Baileys logs for QR code
+docker compose logs baileys
+
+# Or via API
+curl http://localhost:3300/qr
+```
+
+Scan the QR code with your WhatsApp mobile app to connect.
+
+---
+
+## ☁️ Cloud Run Deployment
+
+### Overview
+
+Deploy Flask/ASGI to Cloud Run with external Baileys service.
+
+### Required Environment Variables
+
+```bash
+BAILEYS_BASE_URL=https://your-baileys-service.com
+DATABASE_URL=postgresql://...
+OPENAI_API_KEY=sk-...
+GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON={...}
+INTERNAL_SECRET=...
+```
+
+### Deployment Command
+
 ```bash
 # In Replit
 replit deploy
@@ -29,138 +203,159 @@ replit deploy
 # 3. Use external Baileys service
 ```
 
-### Option 2: Development (Both services)
-For local development, both services run together.
+### How it Works
 
-**No environment variables needed** - defaults to localhost.
-
-```bash
-# In Replit workspace
-honcho start -f Procfile
-```
-
-## How start_production.sh Works
-
-The script checks for `BAILEYS_BASE_URL`:
+The `start_production.sh` script checks for `BAILEYS_BASE_URL`:
 
 - **If SET**: Skip Baileys, use external service → ✅ Cloud Run compatible
-- **If NOT SET**: Start Baileys locally on 127.0.0.1:3300 → ⚠️ Development only
+- **If NOT SET**: Start Baileys locally → ⚠️ Development only
 
-## Cloud Run Configuration
-
-### 1. Deployment Settings
-```yaml
-# In .replit (already configured)
-[deployment]
-run = ["sh", "-c", "bash ./start_production.sh"]
-deploymentTarget = "cloudrun"
-build = ["sh", "-c", "pip install ."]
-```
-
-### 2. Required Secrets (add in Replit)
-1. `DATABASE_URL` - PostgreSQL database
-2. `OPENAI_API_KEY` - OpenAI API key
-3. `GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON` - GCP credentials
-4. `BAILEYS_BASE_URL` - External Baileys service URL (e.g., https://baileys.example.com)
-
-### 3. Optional Secrets
-- `INTERNAL_SECRET` - Auto-generated if not provided
-- `TTS_VOICE` - Google TTS voice (default: he-IL-Wavenet-D)
-- `TTS_PITCH` - TTS pitch (default: 0)
-- `TTS_RATE` - TTS rate (default: 1.0)
-
-## Warmup & Cold Start
-
-The system includes automatic warmup to eliminate first-call latency:
-
-1. **Automatic warmup** on startup (warmup_services_async)
-2. **Warmup endpoint**: `GET /warmup` for Cloud Run startup probes
-
-### Add Startup Probe (Optional)
-```yaml
-# Cloud Run configuration
-startupProbe:
-  httpGet:
-    path: /warmup
-    port: 5000
-  initialDelaySeconds: 3
-  periodSeconds: 10
-  failureThreshold: 3
-```
-
-## Troubleshooting
-
-### Error: "multiple ports exposed"
-**Solution**: The .replit file has development ports. Cloud Run only uses port 5000 (or $PORT). This is normal - the script handles it.
-
-### Error: "multiple services"
-**Solution**: Set `BAILEYS_BASE_URL` environment variable to skip local Baileys.
-
-### Error: "localhost/127.0.0.1 not accessible"
-**Solution**: Use external Baileys service via `BAILEYS_BASE_URL`.
-
-## Testing Deployment
-
-After deployment:
+### Testing Deployment
 
 ```bash
-# 1. Check health
-curl https://your-app.run.app/healthz
+# Check health
+curl https://your-app.run.app/health
 
-# 2. Check warmup status
+# Check warmup status
 curl https://your-app.run.app/warmup
 
-# 3. Check version
+# Check version
 curl https://your-app.run.app/version
 ```
 
-Expected response:
-```json
-{
-  "status": "warmed",
-  "services": {
-    "openai": "ok",
-    "tts": "ok",
-    "stt": "ok",
-    "database": "ok"
-  },
-  "duration_ms": 2000
-}
+---
+
+## 🔐 Environment Variables
+
+### Required
+
+| Variable                 | Description                              | Example                        |
+|--------------------------|------------------------------------------|--------------------------------|
+| `DATABASE_URL`           | PostgreSQL connection string             | `postgresql://user:pass@host/db` |
+| `OPENAI_API_KEY`         | OpenAI API key                           | `sk-...`                       |
+| `TWILIO_ACCOUNT_SID`     | Twilio Account SID                       | `AC...`                        |
+| `TWILIO_AUTH_TOKEN`      | Twilio Auth Token                        | `...`                          |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP credentials JSON    | `/app/credentials/gcp.json`    |
+
+### Optional
+
+| Variable           | Default                | Description                   |
+|--------------------|------------------------|-------------------------------|
+| `TTS_VOICE`        | `he-IL-Standard-A`     | Google TTS voice              |
+| `TTS_RATE`         | `1.0`                  | Speech rate                   |
+| `TTS_PITCH`        | `0.0`                  | Voice pitch                   |
+| `INTERNAL_SECRET`  | (auto-generated)       | Internal API security token   |
+| `FLASK_ENV`        | `production`           | Flask environment             |
+
+See `.env.example` for the complete list.
+
+---
+
+## 🔧 Troubleshooting
+
+### Docker Issues
+
+**Error: Port already in use**
+```bash
+# Check what's using the port
+lsof -i :5000
+
+# Kill the process or change port in .env
+BACKEND_PORT=8000
 ```
 
-## Architecture
+**Error: Database connection failed**
+```bash
+# Check if PostgreSQL is running
+docker compose ps db
 
-```
-┌─────────────────────────────────────┐
-│         Cloud Run Instance          │
-│  ┌──────────────────────────────┐   │
-│  │   Flask/ASGI (port $PORT)    │   │
-│  │  - Twilio WebSocket          │   │
-│  │  - REST API                  │   │
-│  │  - WhatsApp integration      │   │
-│  └──────────────────────────────┘   │
-│              │                       │
-│              ▼                       │
-│     (BAILEYS_BASE_URL)               │
-└──────────────┼──────────────────────┘
-               │
-               ▼
-   ┌────────────────────────┐
-   │  External Baileys      │
-   │  (Separate service)    │
-   └────────────────────────┘
+# Check database logs
+docker compose logs db
+
+# Restart database
+docker compose restart db
 ```
 
-## Port Configuration
+**Error: WhatsApp not connecting**
+```bash
+# Check Baileys logs
+docker compose logs baileys
 
-- **Cloud Run**: Uses `$PORT` environment variable (default: 8080)
-- **Development**: Flask on 5000, Baileys on 3300
-- **The script automatically adapts** based on `BAILEYS_BASE_URL`
+# Restart Baileys
+docker compose restart baileys
 
-## BUILD 100.15 Features
+# Remove auth and re-scan QR
+rm -rf storage/whatsapp/*
+docker compose restart baileys
+```
 
-✅ Automatic service warmup (eliminates cold start)
-✅ External Baileys support (Cloud Run compatible)
-✅ Single-port deployment
-✅ Automatic INTERNAL_SECRET generation
-✅ Sub-2-second first-call latency
+### Cloud Run Issues
+
+**Error: "multiple ports exposed"**
+- Cloud Run only uses port 5000. This warning is normal.
+
+**Error: "multiple services"**
+- Set `BAILEYS_BASE_URL` to use external Baileys service.
+
+**Error: "localhost not accessible"**
+- Cloud Run doesn't support localhost. Use external services.
+
+---
+
+## 📊 Monitoring
+
+### Health Endpoints
+
+```bash
+# Backend
+curl http://localhost:5000/health
+
+# Baileys
+curl http://localhost:3300/health
+
+# Frontend
+curl http://localhost/health
+```
+
+### Logs
+
+```bash
+# All services
+docker compose logs -f
+
+# Specific service
+docker compose logs -f backend
+docker compose logs -f baileys
+```
+
+---
+
+## 🔄 Updates
+
+### Updating the Application
+
+```bash
+# Pull latest code
+git pull origin main
+
+# Rebuild and restart
+docker compose up -d --build
+```
+
+### Database Migrations
+
+Migrations run automatically on startup. If needed manually:
+
+```bash
+docker compose exec backend python -c "from server.db import db; db.create_all()"
+```
+
+---
+
+## 📞 Support
+
+For issues:
+1. Check logs: `docker compose logs -f`
+2. Check health endpoints
+3. Review environment variables
+4. Check GitHub issues

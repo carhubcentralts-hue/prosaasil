@@ -76,3 +76,56 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
+
+# Deployment to External Server
+
+## Docker Deployment Files
+
+The project is prepared for Docker deployment with the following files:
+
+### Docker Files
+- `Dockerfile.backend` - Python Flask/ASGI backend
+- `Dockerfile.baileys` - Node.js WhatsApp Baileys service  
+- `Dockerfile.frontend` - React frontend with Nginx
+- `docker-compose.yml` - Main orchestration file
+- `docker-compose.prod.yml` - Production overrides (managed DB)
+- `docker/nginx.conf` - Nginx configuration for frontend
+
+### Environment Configuration
+- `.env.example` - Template for all environment variables
+- Copy to `.env` and fill in your values before deployment
+
+### Quick Docker Deployment
+
+```bash
+# 1. Clone repository
+git clone https://github.com/YOUR_USERNAME/prosaas.git
+cd prosaas
+
+# 2. Setup environment
+cp .env.example .env
+nano .env  # Fill in your values
+
+# 3. Setup GCP credentials
+mkdir -p credentials
+cp /path/to/gcp-credentials.json credentials/
+
+# 4. Build and run
+docker compose build
+docker compose up -d
+
+# 5. Check status
+docker compose ps
+docker compose logs -f
+```
+
+### Service Ports (Docker)
+- Frontend: 80 (Nginx)
+- Backend: 5000 (Flask/ASGI)
+- Baileys: 3300 (Node.js WhatsApp)
+- PostgreSQL: 5432 (local only)
+
+### Notes
+- Replit development continues to work normally
+- Docker files don't affect Replit deployment
+- See `DEPLOYMENT.md` for full deployment guide

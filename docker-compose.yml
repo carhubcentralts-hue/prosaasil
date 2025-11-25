@@ -1,0 +1,145 @@
+# ===========================================
+# ProSaaS - Docker Compose Configuration
+# ===========================================
+# 
+# Usage:
+#   Development:  docker compose up -d
+#   Production:   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   Logs:         docker compose logs -f [service]
+#   Stop:         docker compose down
+#
+# ===========================================
+
+version: '3.8'
+
+services:
+  # ===========================================
+  # PostgreSQL Database
+  # ===========================================
+  db:
+    image: postgres:15-alpine
+    container_name: prosaas-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-prosaas}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prosaas_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-prosaas}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prosaas}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # Backend - Python Flask + ASGI
+  # ===========================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: prosaas-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prosaas}:${POSTGRES_PASSWORD:-prosaas_secret}@db:5432/${POSTGRES_DB:-prosaas}
+      
+      # Server
+      PORT: 5000
+      FLASK_ENV: production
+      
+      # Internal communication
+      BAILEYS_BASE_URL: http://baileys:3300
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      
+      # External APIs (from .env.production)
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+      
+      # Google Cloud (TTS/STT)
+      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/gcp-credentials.json
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      
+      # Optional settings
+      TTS_VOICE: ${TTS_VOICE:-he-IL-Standard-A}
+      TTS_RATE: ${TTS_RATE:-1.0}
+      TTS_PITCH: ${TTS_PITCH:-0.0}
+      
+    volumes:
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+      - ./credentials:/app/credentials:ro
+    ports:
+      - "${BACKEND_PORT:-5000}:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================
+  # Baileys - Node.js WhatsApp Service
+  # ===========================================
+  baileys:
+    build:
+      context: .
+      dockerfile: Dockerfile.baileys
+    container_name: prosaas-baileys
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+      BAILEYS_PORT: 3300
+      FLASK_BASE_URL: http://backend:5000
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+    volumes:
+      - ./storage/whatsapp:/app/auth_info_baileys
+    ports:
+      - "${BAILEYS_PORT:-3300}:3300"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3300/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================
+  # Frontend - Nginx Static Server
+  # ===========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: prosaas-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  pgdata:
+    driver: local
+
+# ===========================================
+# Networks (default bridge is used)
+# ===========================================
+networks:
+  default:
+    name: prosaas-network

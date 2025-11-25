@@ -1,0 +1,39 @@
+# ===========================================
+# ProSaaS Baileys - Node.js WhatsApp Service
+# ===========================================
+FROM node:18-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies for Baileys
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy package files
+COPY services/whatsapp/package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy application code
+COPY services/whatsapp/baileys_service.js ./
+
+# Create auth directory (will be mounted as volume)
+RUN mkdir -p auth_info_baileys
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV BAILEYS_PORT=3300
+ENV FLASK_BASE_URL=http://backend:5000
+
+# Expose port
+EXPOSE 3300
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:3300/health || exit 1
+
+# Run the application
+CMD ["node", "baileys_service.js"]
