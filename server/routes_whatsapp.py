@@ -492,12 +492,14 @@ def baileys_webhook():
                 
                 # Send response via Baileys
                 send_start = time.time()
+                log.info(f"📨 Attempting to send to {from_number} (tenant={tenant_id}): {str(response_text)[:50]}...")
                 
                 send_result = wa_service.send_message(
                     to=f"{from_number}@s.whatsapp.net",
                     message=response_text,
                     tenant_id=tenant_id  # MULTI-TENANT: Route to correct WhatsApp session
                 )
+                log.info(f"📨 send_result: {send_result}")
                 
                 send_duration = time.time() - send_start
                 log.info(f"📤 Send duration: {send_duration:.2f}s")
