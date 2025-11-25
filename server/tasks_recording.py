@@ -160,6 +160,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         raise
             else:
                 # עדכן תמלול וסיכום לCall קיים
+                # 🔥 BUILD 149 FIX: Always update recording_url if provided!
+                if recording_url and not call_log.recording_url:
+                    call_log.recording_url = recording_url
+                    log.info(f"✅ Updated recording_url for existing call: {call_sid}")
                 call_log.transcription = transcription
                 call_log.summary = summary  # ✨ סיכום חכם
                 call_log.status = "processed"
