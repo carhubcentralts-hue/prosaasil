@@ -159,11 +159,22 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         
         # Parse response
         result_text = response.choices[0].message.content
-        print(f"🔍 [NLP] GPT-4o-mini returned: {result_text}")
+        print(f"")
+        print(f"=" * 60)
+        print(f"🔍 [NLP RESULT] GPT-4o-mini extraction complete")
+        print(f"=" * 60)
+        print(f"📄 [NLP RESULT] Raw response: {result_text}")
         import json
         result = json.loads(result_text or "{}")
         
-        print(f"✅ [NLP] Parsed result: {result}")
+        print(f"📊 [NLP RESULT] Parsed values:")
+        print(f"📊 [NLP RESULT]   - action: {result.get('action', 'N/A')}")
+        print(f"📊 [NLP RESULT]   - date: {result.get('date', 'N/A')}")
+        print(f"📊 [NLP RESULT]   - time: {result.get('time', 'N/A')}")
+        print(f"📊 [NLP RESULT]   - name: {result.get('name', 'N/A')}")
+        print(f"📊 [NLP RESULT]   - confidence: {result.get('confidence', 'N/A')}")
+        print(f"=" * 60)
+        print(f"")
         logger.info(f"📝 [NLP] Extracted: {result}")
         return result
         

@@ -350,11 +350,23 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         int (appointment ID) for backwards compatibility OR
         None on error
     """
+    print(f"")
+    print(f"🔧 [CREATE_APPT] ========== create_appointment_from_realtime called ==========")
+    print(f"🔧 [CREATE_APPT] Input parameters:")
+    print(f"🔧 [CREATE_APPT]   - business_id: {business_id}")
+    print(f"🔧 [CREATE_APPT]   - customer_name: {customer_name}")
+    print(f"🔧 [CREATE_APPT]   - customer_phone: {customer_phone}")
+    print(f"🔧 [CREATE_APPT]   - treatment_type: {treatment_type}")
+    print(f"🔧 [CREATE_APPT]   - start_iso: {start_iso}")
+    print(f"🔧 [CREATE_APPT]   - end_iso: {end_iso}")
+    print(f"🔧 [CREATE_APPT]   - notes: {notes}")
+    
     try:
         from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
         
         app = _get_flask_app()
         with app.app_context():
+            print(f"🔧 [CREATE_APPT] Creating CreateAppointmentInput...")
             input_data = CreateAppointmentInput(
                 business_id=business_id,
                 customer_name=customer_name,
@@ -365,17 +377,20 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 notes=notes,
                 source="realtime_phone"
             )
+            print(f"🔧 [CREATE_APPT] Input created successfully, calling _calendar_create_appointment_impl...")
             
             result = _calendar_create_appointment_impl(input_data, context=None, session=None)
+            print(f"🔧 [CREATE_APPT] _calendar_create_appointment_impl returned: {type(result)}")
             
             # 🔥 FIX: Handle CreateAppointmentOutput dataclass (not dict!)
             if hasattr(result, 'appointment_id'):
                 # Success - got CreateAppointmentOutput
                 appt_id = result.appointment_id
-                print(f"✅ [CRM] Created appointment #{appt_id} for {customer_name}")
-                print(f"✅ [CRM] Status: {result.status}, WhatsApp: {result.whatsapp_status}")
-                if result.lead_id:
-                    print(f"✅ [CRM] Lead created/updated: #{result.lead_id}")
+                print(f"✅ [CREATE_APPT] SUCCESS! Appointment #{appt_id} created")
+                print(f"✅ [CREATE_APPT]   - status: {result.status}")
+                print(f"✅ [CREATE_APPT]   - whatsapp_status: {result.whatsapp_status}")
+                print(f"✅ [CREATE_APPT]   - lead_id: {result.lead_id}")
+                print(f"✅ [CREATE_APPT]   - message: {result.confirmation_message}")
                 # Return dict for backwards compatibility
                 return {
                     "ok": True,
@@ -387,16 +402,18 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
                 }
             elif isinstance(result, dict):
                 # Legacy dict format
+                print(f"🔧 [CREATE_APPT] Got dict result: {result}")
                 if result.get("ok"):
                     appt_id = result.get("appointment_id")
-                    print(f"✅ [CRM] Created appointment #{appt_id} for {customer_name}")
+                    print(f"✅ [CREATE_APPT] SUCCESS (dict)! Appointment #{appt_id} created")
                 else:
                     error_msg = result.get("message", "Unknown error")
-                    print(f"⚠️ [CRM] Appointment creation failed: {error_msg}")
+                    print(f"❌ [CREATE_APPT] FAILED (dict): {error_msg}")
                 return result
             else:
                 # Unexpected result format
-                print(f"⚠️ [CRM] Unexpected result format: {type(result)}")
+                print(f"❌ [CREATE_APPT] UNEXPECTED RESULT TYPE: {type(result)}")
+                print(f"❌ [CREATE_APPT] Result value: {result}")
                 return None
                 
     except Exception as e:
@@ -1668,75 +1685,93 @@ class MediaStreamHandler:
         
         # 🔥 NEW: Handle "confirm" action (user confirmed appointment)
         if action == "confirm":
-            print(f"✅ [NLP] 🎯 CONFIRM action triggered!")
+            print(f"")
+            print(f"=" * 80)
+            print(f"🎯 [APPOINTMENT FLOW] ========== CONFIRM ACTION TRIGGERED ==========")
+            print(f"=" * 80)
+            print(f"📝 [FLOW STEP 1] NLP returned: action={action}, date={date_iso}, time={time_str}, name={customer_name}")
+            print(f"📝 [FLOW STEP 1] confidence={confidence}")
             
             # Get CRM context
             crm_context = getattr(self, 'crm_context', None)
-            print(f"🔍 [CONFIRM] CRM context exists: {crm_context is not None}")
+            print(f"📝 [FLOW STEP 2] CRM context exists: {crm_context is not None}")
             
             # ✅ BUILD 145: FALLBACK - Use pending_slot if NLP didn't return date/time
             # This handles cases where user confirmed but NLP missed the time from earlier messages
             if crm_context and hasattr(crm_context, 'pending_slot') and crm_context.pending_slot:
                 pending = crm_context.pending_slot
-                print(f"🔍 [CONFIRM] pending_slot found: {pending}")
+                print(f"📝 [FLOW STEP 3] pending_slot found: {pending}")
                 
                 # Use pending_slot values if NLP values are missing
                 if not date_iso and pending.get('date'):
                     date_iso = pending['date']
-                    print(f"🔄 [CONFIRM] Using date from pending_slot: {date_iso}")
+                    print(f"📝 [FLOW STEP 3] Using date from pending_slot: {date_iso}")
                 if not time_str and pending.get('time'):
                     time_str = pending['time']
-                    print(f"🔄 [CONFIRM] Using time from pending_slot: {time_str}")
+                    print(f"📝 [FLOW STEP 3] Using time from pending_slot: {time_str}")
+            else:
+                print(f"📝 [FLOW STEP 3] No pending_slot available")
             
             # ✅ STEP 1: Validate we have date and time
+            print(f"📝 [FLOW STEP 4] Checking date/time: date={date_iso}, time={time_str}")
             if not date_iso or not time_str:
-                print(f"⚠️ [NLP] ❌ Incomplete confirmation (date={date_iso}, time={time_str}) - asking AI to clarify")
+                print(f"❌ [FLOW STEP 4] FAILED - Missing date/time! Asking AI to clarify")
                 # Clear stale pending_slot to avoid loops
                 if crm_context and hasattr(crm_context, 'pending_slot'):
                     crm_context.pending_slot = None
-                    print(f"🧹 [CONFIRM] Cleared stale pending_slot")
+                    print(f"🧹 [FLOW STEP 4] Cleared stale pending_slot")
                 # Ask AI to clarify the time
                 await self._send_server_event_to_ai("need_datetime - חסרים פרטים לקביעת התור. שאל את הלקוח: לאיזה יום ושעה תרצה לקבוע?")
                 return
             
-            print(f"✅ [CONFIRM] Date/time OK: {date_iso} {time_str}")
+            print(f"✅ [FLOW STEP 4] OK - Date/time valid: {date_iso} {time_str}")
             
             # ✅ STEP 2: Check if we have customer name and phone
             # Customer phone should be available from call context
             customer_phone = crm_context.customer_phone if crm_context else None
-            print(f"🔍 [CONFIRM] customer_phone from context: {customer_phone}")
+            print(f"📝 [FLOW STEP 5] Checking customer info:")
+            print(f"📝 [FLOW STEP 5]   - phone from context: {customer_phone}")
+            print(f"📝 [FLOW STEP 5]   - name from NLP: {customer_name}")
             
             # 🔥 FALLBACK: If NLP didn't extract name, check temp cache and crm_context
             if not customer_name:
                 if crm_context and crm_context.customer_name:
                     customer_name = crm_context.customer_name
-                    print(f"🔄 [CONFIRM] Using name from crm_context: {customer_name}")
+                    print(f"📝 [FLOW STEP 5]   - name from crm_context: {customer_name}")
                 elif hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                     customer_name = self.pending_customer_name
-                    print(f"🔄 [CONFIRM] Using name from temp cache: {customer_name}")
+                    print(f"📝 [FLOW STEP 5]   - name from temp cache: {customer_name}")
                     # CRITICAL: Write name back to crm_context so it's persisted!
                     if crm_context:
                         crm_context.customer_name = customer_name
-                        print(f"✅ [CONFIRM] Hydrated temp cache → crm_context.customer_name")
+                        print(f"📝 [FLOW STEP 5]   - hydrated temp cache → crm_context")
             
             # 🔥 STRICT SEQUENCING: Ask for name FIRST, then phone (never both!)
+            print(f"📝 [FLOW STEP 6] Checking if all data is complete...")
             if not customer_name or not customer_phone:
                 # Missing name or phone - ask AI to collect it IN ORDER
-                print(f"⚠️ [NLP] ❌ Missing customer info (name={customer_name}, phone={customer_phone})")
+                print(f"📝 [FLOW STEP 6] Missing customer info:")
+                print(f"📝 [FLOW STEP 6]   - name: {customer_name or 'MISSING!'}")
+                print(f"📝 [FLOW STEP 6]   - phone: {customer_phone or 'MISSING!'}")
                 
                 # Priority 1: Name (ALWAYS ask for name first!)
                 if not customer_name:
-                    print(f"📝 [CONFIRM] Sending need_name event to AI")
+                    print(f"❌ [FLOW STEP 6] BLOCKED - Need name first! Sending need_name event")
                     await self._send_server_event_to_ai("need_name - שאל את הלקוח: על איזה שם לרשום את התור?")
                     return
                 
                 # Priority 2: Phone (only after we have name!)
                 if not customer_phone:
-                    print(f"📞 [CONFIRM] Sending need_phone event to AI")
+                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone! Sending need_phone event")
                     await self._send_server_event_to_ai("need_phone - שאל את הלקוח: אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)")
                     return
             
-            print(f"✅ [CONFIRM] All data complete! name={customer_name}, phone={customer_phone}, date={date_iso}, time={time_str}")
+            print(f"")
+            print(f"✅ [FLOW STEP 6] ALL DATA COMPLETE!")
+            print(f"✅ [FLOW STEP 6]   - name: {customer_name}")
+            print(f"✅ [FLOW STEP 6]   - phone: {customer_phone}")
+            print(f"✅ [FLOW STEP 6]   - date: {date_iso}")
+            print(f"✅ [FLOW STEP 6]   - time: {time_str}")
             
             # Calculate datetime
             from datetime import datetime, timedelta
@@ -1760,23 +1795,29 @@ class MediaStreamHandler:
             slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes from DB settings
             end_dt = start_dt + timedelta(minutes=slot_duration_min)
             
-            print(f"📅 [NLP] Appointment duration: {slot_duration_min} minutes (from DB policy)")
+            print(f"📝 [FLOW STEP 7] Calculated times:")
+            print(f"📝 [FLOW STEP 7]   - start_dt: {start_dt.isoformat()}")
+            print(f"📝 [FLOW STEP 7]   - duration: {slot_duration_min} minutes (from DB policy)")
+            print(f"📝 [FLOW STEP 7]   - end_dt: {end_dt.isoformat()}")
             
             # ✅ STEP 1: Validate slot is within business hours AND check calendar availability
-            print(f"🔍 [CONFIRM] Validating slot: {start_dt.isoformat()}")
+            print(f"📝 [FLOW STEP 8] Validating slot availability...")
             is_valid = validate_appointment_slot(self.business_id, start_dt)
-            print(f"🔍 [CONFIRM] Slot validation result: {is_valid}")
+            print(f"📝 [FLOW STEP 8] Slot validation result: {is_valid}")
             
             if not is_valid:
-                print(f"❌ [NLP] Slot {start_dt.isoformat()} outside business hours - SKIPPING")
+                print(f"❌ [FLOW STEP 8] FAILED - Slot outside business hours or taken!")
                 # 🔥 Send feedback to AI
                 await self._send_server_event_to_ai(f"השעה {time_str} ביום {date_iso} תפוסה או מחוץ לשעות העבודה. תציע שעה אחרת ללקוח.")
                 return
             
-            print(f"✅ [CONFIRM] Slot is valid - proceeding to create appointment")
+            print(f"✅ [FLOW STEP 8] OK - Slot is available!")
             
             # 🛡️ STEP 2: DB-BASED DEDUPLICATION - Check CallSession table
             appt_hash = start_dt.isoformat()
+            print(f"📝 [FLOW STEP 9] Checking for duplicate appointments...")
+            print(f"📝 [FLOW STEP 9]   - appt_hash: {appt_hash}")
+            print(f"📝 [FLOW STEP 9]   - call_sid: {self.call_sid}")
             
             # Check DB for duplicate
             try:
@@ -1784,26 +1825,36 @@ class MediaStreamHandler:
                 app = _get_flask_app()
                 with app.app_context():
                     call_session = CallSession.query.filter_by(call_sid=self.call_sid).first()
+                    print(f"📝 [FLOW STEP 9]   - call_session exists: {call_session is not None}")
                     
                     if call_session and call_session.last_confirmed_slot == appt_hash:
-                        print(f"⚠️ [NLP] ⏭️ DB Duplicate detected - appointment for {appt_hash} already created - SKIPPING")
+                        print(f"⚠️ [FLOW STEP 9] SKIPPED - Duplicate detected! Appointment for {appt_hash} already created")
                         return
                     
-                    # 🛡️ CRITICAL: customer_phone is guaranteed valid from line 1596 check
-                    # This code only runs if both name AND phone passed validation
-                    print(f"✅ [NLP] ▶️ Validation passed - creating appointment for '{customer_name}' phone={customer_phone}")
-                    print(f"🔍 [CONFIRM] Calling create_appointment_from_realtime...")
+                    print(f"✅ [FLOW STEP 9] OK - No duplicate found")
+                    
+                    # 🛡️ CRITICAL: customer_phone is guaranteed valid from previous checks
+                    print(f"")
+                    print(f"🚀 [FLOW STEP 10] ========== CREATING APPOINTMENT IN DATABASE ==========")
+                    print(f"🚀 [FLOW STEP 10] Parameters:")
+                    print(f"🚀 [FLOW STEP 10]   - business_id: {self.business_id}")
+                    print(f"🚀 [FLOW STEP 10]   - customer_name: {customer_name}")
+                    print(f"🚀 [FLOW STEP 10]   - customer_phone: {customer_phone}")
+                    print(f"🚀 [FLOW STEP 10]   - start_iso: {start_dt.isoformat()}")
+                    print(f"🚀 [FLOW STEP 10]   - end_iso: {end_dt.isoformat()}")
                     
                     # Create appointment
                     result = create_appointment_from_realtime(
                         business_id=self.business_id,
-                        customer_phone=customer_phone,  # Validated at line 1596
-                        customer_name=customer_name,  # ✅ Only real names pass validation
-                        treatment_type="פגישה",  # Default treatment type
+                        customer_phone=customer_phone,
+                        customer_name=customer_name,
+                        treatment_type="פגישה",
                         start_iso=start_dt.isoformat(),
                         end_iso=end_dt.isoformat(),
                         notes=f"נקבע בשיחה - confidence={confidence}"
                     )
+                    
+                    print(f"🚀 [FLOW STEP 10] create_appointment_from_realtime returned: {result}")
                     
                     # 🔥 ENHANCED: Handle appointment creation result with proper error handling
                     if result and isinstance(result, dict):
@@ -1812,7 +1863,7 @@ class MediaStreamHandler:
                             error_type = result.get("error", "unknown")
                             error_msg = result.get("message", "שגיאה לא ידועה")
                             
-                            print(f"⚠️ [CRM] Appointment creation failed: {error_msg}")
+                            print(f"❌ [FLOW STEP 10] FAILED - {error_type}: {error_msg}")
                             
                             # 🔥 CRITICAL: Send appropriate server event based on error type
                             if error_type == "need_phone":
@@ -1836,7 +1887,18 @@ class MediaStreamHandler:
                             call_session.last_confirmed_slot = appt_hash
                             from server.db import db
                             db.session.commit()
-                        print(f"✅ [NLP] Created appointment #{appt_id} for {customer_name} at {appt_hash}")
+                        
+                        print(f"")
+                        print(f"=" * 80)
+                        print(f"✅✅✅ [FLOW STEP 11] APPOINTMENT CREATED SUCCESSFULLY! ✅✅✅")
+                        print(f"=" * 80)
+                        print(f"✅ [FLOW STEP 11]   - appointment_id: {appt_id}")
+                        print(f"✅ [FLOW STEP 11]   - customer: {customer_name}")
+                        print(f"✅ [FLOW STEP 11]   - phone: {customer_phone}")
+                        print(f"✅ [FLOW STEP 11]   - datetime: {date_iso} {time_str}")
+                        print(f"=" * 80)
+                        print(f"")
+                        
                         # Update CRM context with appointment ID
                         if crm_context:
                             crm_context.last_appointment_id = appt_id
@@ -1854,11 +1916,15 @@ class MediaStreamHandler:
                         # 🔥 Send confirmation to AI (with ✅ marker so AI knows it can say "התור נקבע!")
                         await self._send_server_event_to_ai(f"✅ appointment_created: התור נקבע בהצלחה ל-{customer_name} בתאריך {date_iso} בשעה {time_str}. תודיע ללקוח!")
                     else:
-                        print(f"❌ [NLP] Failed to create appointment for {appt_hash}")
+                        print(f"")
+                        print(f"❌❌❌ [FLOW STEP 11] FAILED TO CREATE APPOINTMENT! ❌❌❌")
+                        print(f"❌ [FLOW STEP 11] Result was None or had no appointment_id")
                         # 🔥 Send failure to AI
                         await self._send_server_event_to_ai("❌ שגיאה ביצירת התור. נסה שעה אחרת.")
             except Exception as e:
-                print(f"❌ [NLP] DB deduplication error: {e}")
+                print(f"")
+                print(f"❌❌❌ [FLOW STEP 10] EXCEPTION DURING APPOINTMENT CREATION! ❌❌❌")
+                print(f"❌ [FLOW STEP 10] Error: {e}")
                 import traceback
                 traceback.print_exc()
     
