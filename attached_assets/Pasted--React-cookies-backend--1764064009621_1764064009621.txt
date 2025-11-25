@@ -1,0 +1,139 @@
+אחי נושם.
+אני רואה בדיוק מה קרה – וזאת תקלה קלאסית של React שלא קשורה בכלל ל-cookies ולא ל-backend.
+
+התקלה שאתה רואה עכשיו:
+
+Uncaught ReferenceError: React is not defined
+
+📌 זו תקלה פרונט־אנד
+ולא קשורה לכל הבאגים של אימות / session / התחזות / טפסים.
+
+וזה קורה ב-Replit Deploy בלבד אחרי build.
+
+🔥 מה באמת קרה?
+
+90% שזה אחד משני הדברים:
+
+⸻
+
+✅ 1. נמחק לך per-page import של React בגללהוי (Vite/ESBuild)
+
+בגרסאות מסוימות של Vite/React צריך להוסיף:
+
+import React from 'react';
+
+גם אם זה נראה מיותר.
+
+📌 אם ב-CRMPage.tsx, LeadCard.tsx, NotificationContext.tsx או כל קובץ אחר –
+נגעתם, שיניתם, הזזתם JSX…
+והסרתם בטעות את ה-import של React → Vite מנקה אותו → production נופל.
+
+בפיתוח זה עובד, בפריסה נופל.
+
+⸻
+
+✅ 2. או שיש קובץ אחד בלבד עם רכיב JSX מחוץ ל-React context
+
+נגיד משהו כמו:
+
+<button onClick={...}/>
+
+שנמצא בקובץ JS רגיל בלי JSX transform →
+Vite מנסה לבנות → לא מוצא React → האתר מת.
+
+⸻
+
+🧨 מאיפה מגיע ה-error?
+
+תראה את ה-stack trace:
+
+https://ai-crmd.replit.app/assets/index-CPW0XTqe.js:...
+
+זה bundle production
+התאונה לא מאפשרת לראות איזה קובץ גרם לזה.
+
+צריך לגרום ל-Agent לבדוק בקוד:
+
+✔ לחפש בקוד:
+
+jsx
+<something...
+
+בקבצים שאין בהם:
+
+import React from "react";
+
+או:
+
+/* @jsxImportSource react */
+
+
+⸻
+
+🩹 מה עושים עכשיו (הוראה מדויקת שאתה שולח לסוכן)
+
+תן לו את זה אחד לאחד:
+
+⸻
+
+🚀 הנחיה לסוכן (העתק-הדבק):
+
+הנחיה: פקודה דחופה — תקן את תקלה “React is not defined” בפריסה
+
+בצע את כל השלבים הבאים:
+
+1. הפעל חיפוש בכל הפרויקט:
+
+חפש את כל הקבצים עם JSX:
+
+<[^>]+>
+
+ובדוק אם יש import תקין בראש הקובץ:
+
+import React from 'react';
+
+או
+
+import * as React from 'react';
+
+אם לא – הוסף.
+
+2. בדוק שאין קבצי TS/JS שמכילים JSX אבל לא מוגדרים כ-.tsx
+
+אם יש → המרה ל-.tsx.
+
+3. ודא שקובץ index.tsx כולל:
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+
+4. הרץ build ל-frontend
+
+ותוודא שאין WARNINGS של JSX transform missing.
+
+5. פרוס מחדש.
+
+⸻
+
+💥 למה זה קרה עכשיו?
+
+כי בזמן תיקוני ה-CSRF/Notifications/Forms הוא נגע בקבצים:
+	•	CrmPage.tsx
+	•	NotificationContext.tsx
+	•	LeadCard.tsx
+	•	ReminderModal.tsx
+
+כל שינוי כזה גורם ל-Vite להכריח import של React אם הוא לא קיים →
+בפיתוח זה נסלח
+ב-production זה מתרסק.
+
+⸻
+
+✔ סיכום קצר
+
+זו תקלה פרונטנד 100%,
+פתירה, פשוטה, ומהירה.
+
+תן לו את ההנחיה למעלה, והוא יסיים את זה תוך דקה.
+
+רוצה שאכין לך נוסח מדויק שתדביק לו?
