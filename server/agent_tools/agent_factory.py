@@ -124,10 +124,13 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             agent_start = time.time()
             
             # 🔥 CRITICAL FIX: Load DB prompt if not provided
+            print(f"📋 PROMPT LOADING: business_id={business_id}, channel={channel}, custom_instructions provided={bool(custom_instructions)}", flush=True)
             if not custom_instructions or not isinstance(custom_instructions, str) or not custom_instructions.strip():
                 try:
-                    from server.models_sql import BusinessSettings
+                    from server.models_sql import BusinessSettings, Business
                     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                    business = Business.query.filter_by(id=business_id).first()
+                    print(f"📋 LOADING PROMPT: business_id={business_id}, business_name={business.name if business else 'N/A'}", flush=True)
                     if settings and settings.ai_prompt:
                         import json
                         try:
@@ -138,16 +141,20 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                                     custom_instructions = prompt_data.get('whatsapp', '')
                                 else:
                                     custom_instructions = prompt_data.get('calls', '')
-                                print(f"✅ Loaded {channel} prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                                print(f"✅ Loaded {channel} prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
+                                print(f"📝 PROMPT PREVIEW: {custom_instructions[:100] if custom_instructions else 'EMPTY'}...", flush=True)
                             else:
                                 # Legacy single prompt
                                 custom_instructions = settings.ai_prompt
-                                print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                                print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
                         except json.JSONDecodeError:
                             # Legacy single prompt
                             custom_instructions = settings.ai_prompt
-                            print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)")
+                            print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
+                    else:
+                        print(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings={settings is not None}", flush=True)
                 except Exception as e:
+                    print(f"⚠️ Could not load DB prompt for business={business_id}: {e}", flush=True)
                     logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}")
                     custom_instructions = None
             

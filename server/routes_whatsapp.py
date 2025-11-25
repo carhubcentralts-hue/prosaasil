@@ -349,6 +349,14 @@ def baileys_webhook():
         from server.services.business_resolver import resolve_business_with_fallback
         business_id, status = resolve_business_with_fallback('whatsapp', tenant_id)
         
+        print(f"🏢 BUSINESS RESOLUTION: tenant_id={tenant_id} → business_id={business_id} (status={status})", flush=True)
+        
+        # 🔥 Get business name for clear logging
+        from server.models_sql import Business
+        business = Business.query.filter_by(id=business_id).first() if business_id else None
+        business_name = business.name if business else "UNKNOWN"
+        print(f"🏢 BUSINESS: {business_name} (ID={business_id})", flush=True)
+        
         if status == 'found':
             log.info(f"✅ Resolved business_id={business_id} from tenantId={tenant_id}")
         else:
@@ -376,6 +384,31 @@ def baileys_webhook():
                 
                 if not from_number or not message_text:
                     continue
+                
+                # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
+                # Sometimes Baileys sends bot's outbound messages back as "incoming"
+                recent_outbound = WhatsAppMessage.query.filter_by(
+                    business_id=business_id,
+                    to_number=from_number,
+                    direction='outbound'
+                ).order_by(WhatsAppMessage.created_at.desc()).first()
+                
+                if recent_outbound:
+                    from datetime import datetime, timedelta
+                    time_diff = datetime.utcnow() - recent_outbound.created_at
+                    # If we sent a similar message in the last 30 seconds, skip
+                    if time_diff < timedelta(seconds=30):
+                        # Check if message content is similar (our response echoing)
+                        if recent_outbound.body and message_text in recent_outbound.body:
+                            print(f"🚫 LOOP PREVENTED: Ignoring echo of our own message to {from_number}", flush=True)
+                            log.warning(f"🚫 Ignoring bot echo: {message_text[:50]}...")
+                            continue
+                        # Also skip if message looks like AI response (Hebrew AI phrases)
+                        ai_markers = ['אני כאן', 'כדי לעזור', 'תיאום פגישות', 'אשמח לעזור', 'שלום', 'ברוכים הבאים']
+                        if any(marker in message_text for marker in ai_markers) and len(message_text) > 50:
+                            print(f"🚫 LOOP PREVENTED: Ignoring AI-like message: {message_text[:50]}...", flush=True)
+                            log.warning(f"🚫 Skipping AI-like message (possible echo)")
+                            continue
                 
                 log.info(f"📱 Processing message from {from_number}: {message_text[:50]}...")
                 
