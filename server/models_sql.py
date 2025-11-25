@@ -258,7 +258,10 @@ class LeadReminder(db.Model):
     
     due_at = db.Column(db.DateTime, nullable=False, index=True)
     note = db.Column(db.Text)
+    description = db.Column(db.Text)  # BUILD 143: Additional details
     channel = db.Column(db.String(16), default="ui")  # ui|email|push|whatsapp
+    priority = db.Column(db.String(16), default="medium")  # BUILD 143: low|medium|high
+    reminder_type = db.Column(db.String(32), default="general")  # BUILD 143: general|lead_related
     
     # Status tracking
     delivered_at = db.Column(db.DateTime)
