@@ -120,10 +120,16 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
     
     Args:
         business_id: Business ID
-        requested_dt: datetime object (timezone-aware)
+        requested_dt: datetime object - can be:
+            - Timezone-aware: will be converted to business timezone
+            - Naive: ASSUMED to be in business timezone (Asia/Jerusalem for Israel)
     
     Returns:
         True if slot is valid AND available, False otherwise
+        
+    Note: This system operates in Israel timezone. Naive datetimes are 
+    assumed to be Israel local time. For cross-timezone support, always 
+    pass timezone-aware datetimes.
     """
     try:
         from server.policy.business_policy import get_business_policy
@@ -131,6 +137,18 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
         import pytz
         
         policy = get_business_policy(business_id)
+        business_tz = pytz.timezone(policy.tz)  # Get business timezone early
+        
+        # 🔥 STRICT TIMEZONE HANDLING:
+        # 1. Timezone-aware input: Convert to business timezone
+        # 2. Naive input: Assume it's already in business timezone (Israel local time)
+        if requested_dt.tzinfo is not None:
+            # Convert from source timezone to business timezone
+            requested_dt = requested_dt.astimezone(business_tz)
+            print(f"🔍 [VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
+        else:
+            # Naive datetime - assume it's in business local time
+            print(f"🔍 [VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
         
         # 🔥 STEP 1: Check business hours (skip for 24/7)
         if not policy.allow_24_7:
@@ -191,9 +209,21 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
         # 🔥 STEP 2: Check calendar availability (prevent overlaps!)
         # Calculate end time using slot_size_min from policy
         slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes
+        
+        # Note: requested_dt is already normalized to business timezone at the start
+        # Convert to naive for DB comparison (DB stores naive in Israel local time)
         requested_end_dt = requested_dt + timedelta(minutes=slot_duration_min)
         
-        print(f"🔍 [VALIDATION] Checking calendar: {requested_dt.strftime('%Y-%m-%d %H:%M')} - {requested_end_dt.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
+        # Strip tzinfo for DB comparison - requested_dt is already in correct timezone
+        if hasattr(requested_dt, 'tzinfo') and requested_dt.tzinfo:
+            requested_start_naive = requested_dt.replace(tzinfo=None)
+            requested_end_naive = requested_end_dt.replace(tzinfo=None)
+        else:
+            # Already naive
+            requested_start_naive = requested_dt
+            requested_end_naive = requested_end_dt
+        
+        print(f"🔍 [VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
         
         # Query DB for overlapping appointments
         from server.models_sql import Appointment
@@ -204,8 +234,8 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             overlapping = Appointment.query.filter(
                 Appointment.business_id == business_id,
                 Appointment.status.in_(['scheduled', 'confirmed']),  # Only active appointments
-                Appointment.start_time < requested_end_dt,  # Existing start before our end
-                Appointment.end_time > requested_dt  # Existing end after our start
+                Appointment.start_time < requested_end_naive,  # Existing start before our end
+                Appointment.end_time > requested_start_naive  # Existing end after our start
             ).count()
             
             if overlapping > 0:
@@ -4988,9 +5018,32 @@ class MediaStreamHandler:
             print(f"❌ Call finalization setup failed: {e}")
     
     def _start_call_recording(self):
-        """✅ התחל הקלטת שיחה דרך Twilio REST API - מבטיח שכל השיחות מוקלטות"""
+        """✅ התחל הקלטת שיחה דרך Twilio REST API - מבטיח שכל השיחות מוקלטות
+        
+        Idempotency: Safe to call multiple times - checks for existing recordings
+        Thread-safe: Runs in background thread
+        Error handling: Graceful degradation - recording failure doesn't crash the call
+        Retry: Resets flag on failure to allow retry later in call
+        
+        Note: TwiML fallback (<Record>) is the primary mechanism. This is an 
+        additional layer to ensure recording starts early in the call.
+        """
         try:
+            # Idempotency check: Don't start if already succeeded
+            if getattr(self, '_recording_succeeded', False):
+                return
+            
+            # Mark attempt in progress
+            if hasattr(self, '_recording_attempt_count'):
+                self._recording_attempt_count += 1
+                if self._recording_attempt_count > 3:
+                    # Stop retrying after 3 attempts
+                    return
+            else:
+                self._recording_attempt_count = 1
+            
             import threading
+            import time as time_module
             
             def start_recording_in_background():
                 try:
@@ -4998,7 +5051,7 @@ class MediaStreamHandler:
                     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
                     
                     if not account_sid or not auth_token:
-                        print(f"⚠️ Missing Twilio credentials - cannot start recording")
+                        print(f"⚠️ Missing Twilio credentials - TwiML fallback will handle recording")
                         return
                     
                     if not self.call_sid:
@@ -5008,38 +5061,64 @@ class MediaStreamHandler:
                     from twilio.rest import Client
                     client = Client(account_sid, auth_token)
                     
-                    # Start recording the call
+                    # Small delay to let Twilio establish call state
+                    time_module.sleep(0.5)
+                    
+                    # Idempotency: Check if recording already exists
                     try:
-                        # Check if recording already exists
                         existing_recordings = client.recordings.list(call_sid=self.call_sid, limit=1)
                         if existing_recordings:
-                            print(f"✅ Recording already active for {self.call_sid}")
+                            self._recording_succeeded = True
+                            self._recording_sid = existing_recordings[0].sid
+                            print(f"✅ Recording already active for {self.call_sid}: {self._recording_sid}")
                             return
-                        
-                        # Start a new recording via REST API
+                    except Exception as list_error:
+                        # Failed to check existing recordings - try to create anyway
+                        print(f"⚠️ Could not check existing recordings: {list_error}")
+                    
+                    # Start a new recording via REST API
+                    try:
                         recording = client.calls(self.call_sid).recordings.create(
-                            recording_channels="dual",  # Record both channels
-                            recording_status_callback=None  # Will use the handle_recording webhook
+                            recording_channels="dual"  # Record both channels
                         )
+                        self._recording_succeeded = True
+                        self._recording_sid = recording.sid
                         print(f"✅ Recording started for {self.call_sid}: {recording.sid}")
                         
                     except Exception as rec_error:
                         error_msg = str(rec_error).lower()
-                        if 'recording is already in progress' in error_msg or 'already' in error_msg:
+                        # These are expected conditions - recording is active
+                        if any(phrase in error_msg for phrase in [
+                            'recording is already in progress',
+                            'already',
+                            'duplicate',
+                            'cannot be modified'
+                        ]):
+                            self._recording_succeeded = True
                             print(f"✅ Recording already in progress for {self.call_sid}")
+                        elif 'call is not in-progress' in error_msg:
+                            # Call hasn't started yet - TwiML fallback will handle
+                            print(f"⚠️ Call {self.call_sid} not in-progress - TwiML fallback will handle recording")
                         else:
-                            print(f"⚠️ Could not start recording for {self.call_sid}: {rec_error}")
+                            # Transient failure - allow retry
+                            print(f"⚠️ Could not start REST API recording for {self.call_sid}: {rec_error}")
                         
                 except Exception as e:
-                    print(f"⚠️ Recording start failed: {e}")
+                    # Transient failure - allow retry, TwiML fallback is active
+                    print(f"⚠️ Recording start failed (TwiML fallback active): {e}")
             
-            # Run in background
-            thread = threading.Thread(target=start_recording_in_background, daemon=True)
+            # Run in background - don't block call handling
+            thread = threading.Thread(
+                target=start_recording_in_background, 
+                daemon=True,
+                name=f"Recording-{self.call_sid[:8] if self.call_sid else 'unknown'}"
+            )
             thread.start()
             self.background_threads.append(thread)
             
         except Exception as e:
-            print(f"⚠️ Recording setup failed: {e}")
+            # Never crash the call due to recording setup failure
+            print(f"⚠️ Recording setup failed (TwiML fallback active): {e}")
     
     def _create_call_log_on_start(self):
         """✅ יצירת call_log מיד בהתחלת שיחה - למניעת 'Call SID not found' errors"""
