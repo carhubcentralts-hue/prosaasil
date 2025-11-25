@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, Trash2, Calendar, FileText, Volume2, AlertTriangle, Edit, Save, X } from 'lucide-react';
 import { http } from '../../services/http';
 
@@ -81,6 +82,7 @@ interface CallDetails {
 }
 
 export function CallsPage() {
+  const navigate = useNavigate();
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
@@ -93,6 +95,36 @@ export function CallsPage() {
   const [playingRecording, setPlayingRecording] = useState<string | null>(null);
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState('');
+
+  // Open lead in CRM - navigate to lead detail page
+  const openInCRM = async (call: Call) => {
+    // If call already has a lead_id, navigate directly
+    if (call.lead_id) {
+      navigate(`/leads/${call.lead_id}`);
+      return;
+    }
+    
+    // Otherwise, try to find lead by phone number
+    const phoneNumber = call.from_e164 || '';
+    if (phoneNumber) {
+      try {
+        // Search for lead with this phone number
+        const response = await http.get(`/api/leads?search=${encodeURIComponent(phoneNumber)}`);
+        if (response && (response as any).leads && (response as any).leads.length > 0) {
+          const lead = (response as any).leads[0];
+          navigate(`/leads/${lead.id}`);
+          return;
+        }
+      } catch (error) {
+        console.error('Error searching for lead:', error);
+      }
+      // No lead found - navigate to leads page with search
+      navigate(`/leads?search=${encodeURIComponent(phoneNumber)}`);
+    } else {
+      // No phone number - just go to leads page
+      navigate('/leads');
+    }
+  };
 
   useEffect(() => {
     loadCalls();
@@ -740,7 +772,7 @@ export function CallsPage() {
                     </Button>
                   </>
                 )}
-                <Button variant="outline" onClick={() => alert('פתיחת CRM - בפיתוח')} data-testid="button-open-crm">
+                <Button variant="outline" onClick={() => selectedCall && openInCRM(selectedCall)} data-testid="button-open-crm">
                   <ExternalLink className="h-4 w-4 ml-2" />
                   פתח בCRM
                 </Button>
