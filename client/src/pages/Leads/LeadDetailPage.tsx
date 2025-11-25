@@ -17,9 +17,7 @@ const TABS = [
   { key: 'overview', label: 'סקירה', icon: User },
   { key: 'conversation', label: 'שיחות', icon: MessageSquare },
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
-  { key: 'reminders', label: 'תזכורות', icon: CheckCircle2 },
-  { key: 'invoices', label: 'חשבוניות', icon: Calendar },
-  { key: 'contracts', label: 'חוזים', icon: Tag },
+  { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
   { key: 'activity', label: 'פעילות', icon: Activity },
 ] as const;
 
@@ -318,8 +316,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
-        {activeTab === 'invoices' && <InvoicesTab leadId={lead.id} />}
-        {activeTab === 'contracts' && <ContractsTab leadId={lead.id} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
       </div>
 
@@ -397,21 +393,14 @@ function OverviewTab({ lead, reminders, onOpenReminder }: { lead: Lead; reminder
               </div>
             </div>
           )}
-          
-          {lead.notes && (
-            <div className="mt-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">הערות</label>
-              <p className="text-sm text-gray-900 bg-gray-50 p-3 rounded-md">{lead.notes}</p>
-            </div>
-          )}
         </Card>
       </div>
 
-      {/* Reminders */}
+      {/* Tasks */}
       <div className="order-first lg:order-last">
         <Card className="p-4 sm:p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-medium text-gray-900">תזכורות קרובות</h3>
+            <h3 className="text-lg font-medium text-gray-900">משימות קרובות</h3>
             <Button
               onClick={onOpenReminder}
               size="sm"
@@ -419,20 +408,20 @@ function OverviewTab({ lead, reminders, onOpenReminder }: { lead: Lead; reminder
               data-testid="button-create-reminder"
             >
               <Clock className="w-4 h-4 mr-2" />
-              צור תזכורת
+              צור משימה
             </Button>
           </div>
           {reminders.length === 0 ? (
             <div className="text-center py-8">
               <Clock className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-sm text-gray-500 mb-4">אין תזכורות</p>
+              <p className="text-sm text-gray-500 mb-4">אין משימות</p>
               <Button
                 onClick={onOpenReminder}
                 size="sm"
                 className="bg-blue-600 hover:bg-blue-700 text-white"
               >
                 <Clock className="w-4 h-4 mr-2" />
-                צור תזכורת ראשונה
+                צור משימה ראשונה
               </Button>
             </div>
           ) : (
@@ -540,18 +529,18 @@ function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900">תזכורות</h3>
+        <h3 className="text-lg font-medium text-gray-900">משימות</h3>
         <Button 
           size="sm" 
           onClick={onOpenReminder}
           data-testid="button-add-reminder"
         >
           <Plus className="w-4 h-4 ml-2" />
-          תזכורת חדשה
+          משימה חדשה
         </Button>
       </div>
       {reminders.length === 0 ? (
-        <p className="text-sm text-gray-500">אין תזכורות</p>
+        <p className="text-sm text-gray-500">אין משימות</p>
       ) : (
         <div className="space-y-3">
           {reminders.map((reminder) => (
