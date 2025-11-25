@@ -29,7 +29,7 @@ interface Appointment {
   start_time: string;
   end_time: string;
   location?: string;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  status: 'scheduled' | 'confirmed' | 'paid' | 'unpaid' | 'cancelled';
   appointment_type: 'viewing' | 'meeting' | 'signing' | 'call_followup';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   contact_name?: string;
@@ -46,7 +46,7 @@ interface AppointmentForm {
   start_time: string;
   end_time: string;
   location: string;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  status: 'scheduled' | 'confirmed' | 'paid' | 'unpaid' | 'cancelled';
   appointment_type: 'viewing' | 'meeting' | 'signing' | 'call_followup';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   contact_name: string;
@@ -63,9 +63,9 @@ const APPOINTMENT_TYPES = {
 const STATUS_TYPES = {
   scheduled: { label: 'מתוכנן', color: 'bg-gray-100 text-gray-800' },
   confirmed: { label: 'מאושר', color: 'bg-blue-100 text-blue-800' },
-  completed: { label: 'הושלם', color: 'bg-green-100 text-green-800' },
-  cancelled: { label: 'בוטל', color: 'bg-red-100 text-red-800' },
-  no_show: { label: 'לא הגיע', color: 'bg-yellow-100 text-yellow-800' }
+  paid: { label: 'שילם', color: 'bg-green-100 text-green-800' },
+  unpaid: { label: 'לא שילם', color: 'bg-yellow-100 text-yellow-800' },
+  cancelled: { label: 'בוטל', color: 'bg-red-100 text-red-800' }
 };
 
 const PRIORITY_TYPES = {
@@ -379,9 +379,9 @@ export function CalendarPage() {
               <option value="all">כל הסטטוסים</option>
               <option value="scheduled">מתוכנן</option>
               <option value="confirmed">מאושר</option>
-              <option value="completed">הושלם</option>
+              <option value="paid">שילם</option>
+              <option value="unpaid">לא שילם</option>
               <option value="cancelled">בוטל</option>
-              <option value="no_show">לא הגיע</option>
             </select>
 
             <select
@@ -456,9 +456,9 @@ export function CalendarPage() {
               <option value="all">כל הסטטוסים</option>
               <option value="scheduled">מתוכנן</option>
               <option value="confirmed">מאושר</option>
-              <option value="completed">הושלם</option>
+              <option value="paid">שילם</option>
+              <option value="unpaid">לא שילם</option>
               <option value="cancelled">בוטל</option>
-              <option value="no_show">לא הגיע</option>
             </select>
 
             {/* Type Filter */}
@@ -867,9 +867,9 @@ export function CalendarPage() {
                   >
                     <option value="scheduled">מתוכנן</option>
                     <option value="confirmed">מאושר</option>
-                    <option value="completed">הושלם</option>
+                    <option value="paid">שילם</option>
+                    <option value="unpaid">לא שילם</option>
                     <option value="cancelled">בוטל</option>
-                    <option value="no_show">לא הגיע</option>
                   </select>
                 </div>
 
