@@ -124,6 +124,12 @@ def login():
         # Note: Don't set tenant_id here - use impersonated_tenant_id only for impersonation per guidelines
         session['token'] = f"session_{user.id}"  # Simple session token
         
+        # BUILD 144: Critical session persistence settings for production!
+        session.permanent = True  # Use PERMANENT_SESSION_LIFETIME
+        session.modified = True   # Force cookie to be sent
+        session['_last_activity'] = datetime.now().isoformat()
+        session['_session_start'] = datetime.now().isoformat()
+        
         # 🔍 BUILD 138 DEBUG: Log what we stored in session
         print(f"🔍 LOGIN SUCCESS: user_id={user.id}, email={user.email}, role={user.role}, business_id={user.business_id}")
         

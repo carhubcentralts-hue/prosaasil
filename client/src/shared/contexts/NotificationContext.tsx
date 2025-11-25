@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { http } from '../../services/http';
+import { useAuth } from '../../features/auth/hooks';
 
 export interface Notification {
   id: string;
@@ -60,8 +61,17 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [countCallback, setCountCallback] = useState<((count: number) => void) | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // BUILD 144: Get auth state to only fetch when logged in
+  const { user, isAuthenticated } = useAuth();
 
   const refreshNotifications = useCallback(async () => {
+    // BUILD 144: Don't fetch if not authenticated - prevents 401 spam
+    if (!isAuthenticated || !user) {
+      setNotifications([]);
+      return;
+    }
+    
     // Prevent concurrent refreshes
     if (isRefreshing) {
       console.log('[NotificationContext] Refresh already in progress, skipping');
@@ -91,16 +101,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     } finally {
       setIsRefreshing(false);
     }
-  }, [countCallback]);
+  }, [countCallback, isAuthenticated, user]);
 
   const setNotificationCountCallback = useCallback((callback: (count: number) => void) => {
     setCountCallback(() => callback);
   }, []);
 
-  // Auto-fetch notifications on mount
+  // Auto-fetch notifications when authenticated
   useEffect(() => {
-    refreshNotifications();
-  }, [refreshNotifications]);
+    if (isAuthenticated && user) {
+      refreshNotifications();
+    }
+  }, [refreshNotifications, isAuthenticated, user]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
