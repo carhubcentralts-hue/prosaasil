@@ -329,7 +329,10 @@ def baileys_webhook():
             return jsonify({"error": "unauthorized"}), 401
         
         data = request.get_json()
-        tenant_id = data.get('tenantId', 'business_1')
+        tenant_id = data.get('tenantId')
+        if not tenant_id:
+            log.error("❌ CRITICAL: No tenantId in webhook payload - cannot process!")
+            return jsonify({"error": "missing_tenant_id"}), 400
         payload = data.get('payload', {})
         messages = payload.get('messages', [])
         
@@ -558,7 +561,9 @@ def send_manual_message():
         from server.whatsapp_provider import get_whatsapp_service
         
         # MULTI-TENANT: Create tenant_id from business_id
-        tenant_id = f"business_{business_id}" if business_id else "business_1"
+        if not business_id:
+            return {"ok": False, "error": "no_business_id"}, 400
+        tenant_id = f"business_{business_id}"
         
         wa_service = get_whatsapp_service(tenant_id=tenant_id)
         

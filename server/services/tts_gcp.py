@@ -68,7 +68,7 @@ def ensure_greeting_files():
     """Ensure Hebrew greeting files exist"""
     try:
         greetings = {
-            "static/tts/greeting_he.mp3": "שלום וברוכים הבאים לשי דירות ומשרדים בעמ. איך אפשר לסייע לך היום?",
+            "static/tts/greeting_he.mp3": "שלום, איך אוכל לעזור לך היום?",
             "static/tts/fallback_he.mp3": "שלום, אנא המתן רגע."
         }
         

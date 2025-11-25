@@ -165,7 +165,7 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         note_lines = lead.notes.split('\n')
                         # ⚡ FIXED: Get more context - last 10 messages (5 exchanges)
                         for line in note_lines[-10:]:
-                            match = re.match(r'\[(WhatsApp|לאה|עוזרת|עוזר)\s+\d+:\d+:\d+\]:\s*(.+)', line)  # ✅ תמיכה בכולם
+                            match = re.match(r'\[(WhatsApp|AI|עוזרת|עוזר|סוכן)\s+\d+:\d+:\d+\]:\s*(.+)', line)  # ✅ דינמי - תומך בכל סוג עוזר
                             if match:
                                 sender, content = match.group(1), match.group(2).strip()
                                 # Don't truncate - keep full message

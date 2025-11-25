@@ -44,10 +44,12 @@ def agent_booking():
         # Parse request
         data = request.get_json(force=True)
         user_text = data.get("text", "")
-        business_id = data.get("business_id", 1)
+        business_id = data.get("business_id")
         
         if not user_text:
             return jsonify({"error": "Missing 'text' field"}), 400
+        if not business_id:
+            return jsonify({"error": "Missing 'business_id' field"}), 400
         
         # Get business name for agent personalization
         business = Business.query.get(business_id)
@@ -122,10 +124,12 @@ def agent_sales():
     try:
         data = request.get_json(force=True)
         user_text = data.get("text", "")
-        business_id = data.get("business_id", 1)
+        business_id = data.get("business_id")
         
         if not user_text:
             return jsonify({"error": "Missing 'text' field"}), 400
+        if not business_id:
+            return jsonify({"error": "Missing 'business_id' field"}), 400
         
         # Get business
         business = Business.query.get(business_id)

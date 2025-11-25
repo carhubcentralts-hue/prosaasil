@@ -434,7 +434,7 @@ def view_invoice(invoice_id):
         
         # שליפת פרטי העסק
         business = Business.query.get(payment.business_id) if payment.business_id else None
-        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
+        business_name = business.name if business else "העסק"
         
         # יצירת PDF בזיכרון
         buffer = BytesIO()
@@ -555,7 +555,7 @@ def download_invoice(invoice_id):
         
         # שליפת פרטי העסק
         business = Business.query.get(payment.business_id) if payment.business_id else None
-        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
+        business_name = business.name if business else "העסק"
         
         buffer = BytesIO()
         p = canvas.Canvas(buffer, pagesize=A4)
@@ -665,7 +665,7 @@ def view_contract(contract_id):
         customer = Customer.query.get(deal.customer_id) if deal and deal.customer_id else None
         business = Business.query.get(customer.business_id) if customer and customer.business_id else None
         
-        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
+        business_name = business.name if business else "העסק"
         
         buffer = BytesIO()
         p = canvas.Canvas(buffer, pagesize=A4)
@@ -798,7 +798,7 @@ def download_contract(contract_id):
         customer = Customer.query.get(deal.customer_id) if deal and deal.customer_id else None
         business = Business.query.get(customer.business_id) if customer and customer.business_id else None
         
-        business_name = business.name if business else "שי דירות ומשרדים בע״מ"
+        business_name = business.name if business else "העסק"
         
         buffer = BytesIO()
         p = canvas.Canvas(buffer, pagesize=A4)

@@ -4423,8 +4423,9 @@ class MediaStreamHandler:
             # ✅ CRITICAL FIX: Use shared Flask app instance (no recreation!)
             business_id = getattr(self, 'business_id', None)
             if not business_id:
-                business_id = 1  # Fallback to business 1
-                print(f"⚠️ No business_id set, using fallback: {business_id}")
+                # ❌ CRITICAL: No fallback! Business must be identified from call
+                print(f"❌ CRITICAL ERROR: No business_id set! Cannot process without business context")
+                raise ValueError("Business ID is required - no fallback allowed")
             
             # Get customer name from conversation if available
             customer_name = None
@@ -4921,7 +4922,10 @@ class MediaStreamHandler:
                             full_conversation = "\n".join(conv_lines)
                         
                         # צור סיכום AI
-                        business_id = getattr(self, 'business_id', 1)
+                        business_id = getattr(self, 'business_id', None)
+                        if not business_id:
+                            print(f"❌ No business_id set for call summary - skipping")
+                            return
                         ci = CustomerIntelligence(business_id)
                         summary_data = ci.generate_conversation_summary(
                             full_conversation,
@@ -4996,7 +5000,7 @@ class MediaStreamHandler:
                         # ✅ LOG DATABASE CONNECTION (per הנחיות)
                         db_url = os.getenv('DATABASE_URL', 'NOT_SET')
                         db_driver = db_url.split(':')[0] if db_url else 'none'
-                        print(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 1)}, SID={self.call_sid}", flush=True)
+                        print(f"🔧 DB_URL_AT_WRITE: driver={db_driver}, BIZ={getattr(self, 'business_id', 'N/A')}, SID={self.call_sid}", flush=True)
                         
                         # בדוק אם כבר קיים
                         existing = CallLog.query.filter_by(call_sid=self.call_sid).first()
@@ -5006,7 +5010,11 @@ class MediaStreamHandler:
                         
                         # צור call_log חדש
                         call_log = CallLog()  # type: ignore[call-arg]
-                        call_log.business_id = getattr(self, 'business_id', 1)
+                        business_id = getattr(self, 'business_id', None)
+                        if not business_id:
+                            print(f"❌ No business_id set - cannot create call_log")
+                            return
+                        call_log.business_id = business_id
                         call_log.call_sid = self.call_sid
                         call_log.from_number = str(self.phone_number or "")
                         call_log.to_number = str(getattr(self, 'to_number', '') or '')
@@ -5019,7 +5027,7 @@ class MediaStreamHandler:
                         if not call_session:
                             call_session = CallSession()  # type: ignore[call-arg]
                             call_session.call_sid = self.call_sid
-                            call_session.business_id = getattr(self, 'business_id', 1)
+                            call_session.business_id = business_id
                             # lead_id will be set later by ensure_lead
                             db.session.add(call_session)
                             print(f"✅ Created CallSession for {self.call_sid}")
@@ -5128,7 +5136,10 @@ class MediaStreamHandler:
                 try:
                     app = _get_flask_app()  # ✅ Use singleton
                     with app.app_context():
-                        business_id = getattr(self, 'business_id', 1)
+                        business_id = getattr(self, 'business_id', None)
+                        if not business_id:
+                            print(f"❌ No business_id for customer intelligence - skipping")
+                            return
                         ci = CustomerIntelligence(business_id)
                         
                         # יצירת טקסט מלא מההיסטוריה הנוכחית

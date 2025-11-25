@@ -61,10 +61,9 @@ class BaileysProvider(Provider):
         try:
             # 🔥 FIX: Check actual WhatsApp connection, not just service health!
             headers = {"X-Internal-Secret": self.internal_secret}
-            tenant_id = "business_1"  # Default tenant
-            
+            # ✅ Multi-tenant: Check first available tenant for service health
             response = self._session.get(
-                f"{self.outbound_url}/whatsapp/{tenant_id}/status",
+                f"{self.outbound_url}/health",  # General service health
                 headers=headers,
                 timeout=1.0  # ⚡ Fast health check
             )

@@ -67,7 +67,7 @@ def create_invoice_simple(amount_agorot: int) -> str:
 <body>
     <div class="header">
         <h1>חשבונית {inv_no}</h1>
-        <p>שי דירות ומשרדים בע״מ</p>
+        <p>{os.getenv('BUSINESS_NAME', 'העסק')}</p>
     </div>
     <p class="amount">סכום: {amount_agorot/100:.2f} {(os.getenv('CURRENCY') or 'ILS').upper()}</p>
     <p>תאריך: {datetime.utcnow().strftime('%d/%m/%Y %H:%M')}</p>
@@ -689,7 +689,7 @@ def contract_sign():
 <body>
     <div class="header">
         <h1>חוזה שירות</h1>
-        <h2>שי דירות ומשרדים בע״מ</h2>
+        <h2>{os.getenv('BUSINESS_NAME', 'העסק')}</h2>
     </div>
     <p>חוזה זה נחתם בתאריך {datetime.utcnow().strftime("%d/%m/%Y %H:%M")}</p>
     <div class="signature">

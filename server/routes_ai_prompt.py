@@ -18,10 +18,13 @@ def save_prompt(tenant):
     """שמירת פרומפט לפי ההוראות - תמיד JSON + commit/rollback"""
     data = request.get_json(force=True)
     
-    # מיפוי למודל BusinessSettings
-    business_id = 1  # business_1 → 1
-    if tenant == 'business_1':
-        business_id = 1
+    # מיפוי למודל BusinessSettings - DYNAMIC: Extract ID from tenant string
+    if not tenant or not tenant.startswith('business_'):
+        return {"ok": False, "error": "invalid_tenant_format"}, 400
+    try:
+        business_id = int(tenant.replace('business_', ''))
+    except ValueError:
+        return {"ok": False, "error": "invalid_tenant_id"}, 400
     
     # Get or create settings
     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
