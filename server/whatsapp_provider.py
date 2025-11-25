@@ -129,12 +129,13 @@ class BaileysProvider(Provider):
         logger.warning(f"⏰ Baileys didn't connect within {timeout}s")
         return False
     
-    def send_typing(self, jid: str, is_typing: bool = True) -> Dict[str, Any]:
-        """⚡ Send typing indicator - instant user feedback"""
+    def send_typing(self, jid: str, is_typing: bool = True, tenant_id: str = None) -> Dict[str, Any]:
+        """⚡ Send typing indicator - instant user feedback (MULTI-TENANT)"""
         try:
             payload = {
                 "jid": jid,
-                "typing": is_typing
+                "typing": is_typing,
+                "tenantId": tenant_id or "business_1"  # Multi-tenant support
             }
             
             response = self._session.post(
@@ -148,22 +149,22 @@ class BaileysProvider(Provider):
             # Don't log - typing is optional
             return {"status": "error", "error": str(e)}
     
-    def send_text(self, to: str, text: str) -> Dict[str, Any]:
-        """⚡ Send text message via Baileys HTTP API with AUTO-RESTART"""
+    def send_text(self, to: str, text: str, tenant_id: str = None) -> Dict[str, Any]:
+        """⚡ Send text message via Baileys HTTP API with AUTO-RESTART (MULTI-TENANT)"""
         max_attempts = 1  # 🔥 Single attempt to prevent loops
         last_error = None
+        effective_tenant = tenant_id or "business_1"  # MULTI-TENANT support
         
         for attempt in range(max_attempts):
             try:
                 # 🔥 AUTO-RESTART: If Baileys is down, try to start it!
                 if not self._check_health():
                     logger.warning("⚠️ Baileys service unavailable - attempting auto-restart...")
-                    tenant_id = "business_1"  # Default tenant for now
                     
-                    # Try to start Baileys
-                    if self._start_baileys(tenant_id):
+                    # Try to start Baileys for this tenant
+                    if self._start_baileys(effective_tenant):
                         # Wait for it to become ready (10s max)
-                        if not self._wait_for_ready(tenant_id, timeout=10.0):
+                        if not self._wait_for_ready(effective_tenant, timeout=10.0):
                             logger.error("❌ Baileys auto-restart timed out")
                             return {
                                 "provider": "baileys",
@@ -186,7 +187,8 @@ class BaileysProvider(Provider):
                     "to": to.replace("whatsapp:", "").replace("+", ""),
                     "type": "text",
                     "text": text,
-                    "idempotencyKey": idempotency_key
+                    "idempotencyKey": idempotency_key,
+                    "tenantId": effective_tenant  # MULTI-TENANT: Route to correct session
                 }
                 
                 logger.info(f"⚡ Sending WhatsApp to {to[:15]}...")
@@ -231,8 +233,8 @@ class BaileysProvider(Provider):
             "error": last_error
         }
     
-    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
-        """Send media message via Baileys HTTP API"""
+    def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
+        """Send media message via Baileys HTTP API (MULTI-TENANT)"""
         try:
             if not self._check_health():
                 return {
@@ -243,13 +245,15 @@ class BaileysProvider(Provider):
             
             # Generate idempotency key
             idempotency_key = str(uuid.uuid4())
+            effective_tenant = tenant_id or "business_1"  # MULTI-TENANT support
             
             payload = {
                 "to": to.replace("whatsapp:", "").replace("+", ""),
                 "type": "media",
                 "mediaUrl": media_url,
                 "caption": caption,
-                "idempotencyKey": idempotency_key
+                "idempotencyKey": idempotency_key,
+                "tenantId": effective_tenant  # MULTI-TENANT: Route to correct session
             }
             
             response = requests.post(
@@ -408,25 +412,25 @@ def get_provider() -> Provider:
         logger.info("Auto-selected Twilio provider (fallback)")
         return TwilioProvider()
 
-def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any] | None = None):
-    """Get WhatsApp service with smart routing and failover"""
+def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any] | None = None, tenant_id: str = None):
+    """Get WhatsApp service with smart routing and failover (MULTI-TENANT)"""
     global _whatsapp_service
     
     # Provider override for specific request
     if provider:
         p = provider.lower()
         if p == "twilio":
-            return WhatsAppService(TwilioProvider())
+            return WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         if p == "baileys":
-            return WhatsAppService(BaileysProvider())
+            return WhatsAppService(BaileysProvider(), tenant_id=tenant_id)
     
     # Smart routing logic
     if thread_data:
         resolved_provider = _resolve_smart_provider(thread_data)
         if resolved_provider == "twilio":
-            return WhatsAppService(TwilioProvider())
+            return WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         elif resolved_provider == "baileys":
-            return WhatsAppService(BaileysProvider())
+            return WhatsAppService(BaileysProvider(), tenant_id=tenant_id)
     
     # Default service with auto-routing
     if _whatsapp_service is None:
@@ -436,17 +440,17 @@ def get_whatsapp_service(provider: str | None = None, thread_data: Dict[str, Any
             # Auto-routing: prefer Baileys if available, fallback to Twilio
             baileys = BaileysProvider()
             if baileys._check_health():
-                _whatsapp_service = WhatsAppService(baileys)
+                _whatsapp_service = WhatsAppService(baileys, tenant_id=tenant_id)
             else:
                 logger.info("Baileys unavailable, using Twilio")
-                _whatsapp_service = WhatsAppService(TwilioProvider())
+                _whatsapp_service = WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         elif provider_type == "baileys":
-            _whatsapp_service = WhatsAppService(BaileysProvider())
+            _whatsapp_service = WhatsAppService(BaileysProvider(), tenant_id=tenant_id)
         elif provider_type == "twilio":
-            _whatsapp_service = WhatsAppService(TwilioProvider())
+            _whatsapp_service = WhatsAppService(TwilioProvider(), tenant_id=tenant_id)
         else:
             logger.warning(f"Unknown provider: {provider_type}, using auto")
-            _whatsapp_service = WhatsAppService(BaileysProvider())
+            _whatsapp_service = WhatsAppService(BaileysProvider(), tenant_id=tenant_id)
     
     return _whatsapp_service
 
@@ -487,24 +491,28 @@ def _resolve_smart_provider(thread_data: Dict[str, Any]) -> str:
         return "twilio"  # Safe fallback
 
 class WhatsAppService:
-    """⚡ OPTIMIZED Unified WhatsApp service interface"""
+    """⚡ OPTIMIZED Unified WhatsApp service interface (MULTI-TENANT)"""
     
-    def __init__(self, provider: Provider):
+    def __init__(self, provider: Provider, tenant_id: str = None):
         self.provider = provider
+        self.tenant_id = tenant_id  # MULTI-TENANT: Store tenant context
     
-    def send_typing(self, jid: str, is_typing: bool = True) -> Dict[str, Any]:
-        """⚡ Send typing indicator - creates instant UX feel"""
+    def send_typing(self, jid: str, is_typing: bool = True, tenant_id: str = None) -> Dict[str, Any]:
+        """⚡ Send typing indicator - creates instant UX feel (MULTI-TENANT)"""
+        effective_tenant = tenant_id or self.tenant_id or "business_1"
         if hasattr(self.provider, 'send_typing'):
-            return self.provider.send_typing(jid, is_typing)
+            return self.provider.send_typing(jid, is_typing, tenant_id=effective_tenant)
         return {"status": "unsupported"}
         
-    def send_message(self, to: str, message: str) -> Dict[str, Any]:
-        """Send text message via provider"""
-        return self.provider.send_text(to, message)
+    def send_message(self, to: str, message: str, tenant_id: str = None) -> Dict[str, Any]:
+        """Send text message via provider (MULTI-TENANT)"""
+        effective_tenant = tenant_id or self.tenant_id or "business_1"
+        return self.provider.send_text(to, message, tenant_id=effective_tenant)
         
-    def send_media(self, to: str, media_url: str, caption: str = "") -> Dict[str, Any]:
-        """Send media message via provider"""
-        return self.provider.send_media(to, media_url, caption)
+    def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
+        """Send media message via provider (MULTI-TENANT)"""
+        effective_tenant = tenant_id or self.tenant_id or "business_1"
+        return self.provider.send_media(to, media_url, caption, tenant_id=effective_tenant)
         
     def get_status(self) -> Dict[str, Any]:
         """Get service status with health checks"""
@@ -532,10 +540,12 @@ class WhatsAppService:
                 "error": str(e)
             }
     
-    def send_with_failover(self, to: str, message: str, thread_data: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        """Send message with automatic failover"""
+    def send_with_failover(self, to: str, message: str, thread_data: Dict[str, Any] | None = None, tenant_id: str = None) -> Dict[str, Any]:
+        """Send message with automatic failover (MULTI-TENANT)"""
+        effective_tenant = tenant_id or self.tenant_id or "business_1"
+        
         # Try primary provider
-        result = self.send_message(to, message)
+        result = self.send_message(to, message, tenant_id=effective_tenant)
         
         if result.get("status") == "error":
             # Get alternative provider
@@ -544,8 +554,8 @@ class WhatsAppService:
             
             try:
                 logger.info(f"Failing over from {current_provider} to {alternative}")
-                alt_service = get_whatsapp_service(alternative)
-                result = alt_service.send_message(to, message)
+                alt_service = get_whatsapp_service(alternative, tenant_id=effective_tenant)
+                result = alt_service.send_message(to, message, tenant_id=effective_tenant)
                 result["failover"] = True
                 result["original_provider"] = current_provider
             except Exception as e:

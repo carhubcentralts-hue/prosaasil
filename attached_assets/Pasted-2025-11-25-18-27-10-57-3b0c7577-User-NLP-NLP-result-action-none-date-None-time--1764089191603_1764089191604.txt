@@ -1,0 +1,113 @@
+2025-11-25 18:27:10.57
+3b0c7577
+User
+🔍 [NLP] ◀️ NLP result: {'action': 'none', 'date': None, 'time': None, 'name': None, 'confidence': 1.0}
+2025-11-25 18:27:10.57
+3b0c7577
+User
+🔍 [NLP RESULT] GPT-4o-mini extraction complete
+2025-11-25 18:27:10.57
+3b0c7577
+User
+✅ [NLP] Async NLP parser completed successfully
+2025-11-25 18:27:10.57
+3b0c7577
+User
+✅ [NLP] Cache updated after successful processing
+2025-11-25 18:27:10.70
+3b0c7577
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-25 18:27:10.70
+3b0c7577
+User
+🎤 END OF UTTERANCE: 0.9s audio, conversation #3
+2025-11-25 18:27:10.70
+3b0c7577
+User
+🧠 STATE -> PROCESSING | len=13760 | silence_ms=523
+2025-11-25 18:27:10.70
+3b0c7577
+User
+✅ Processing complete for conversation #3
+2025-11-25 18:27:11.21
+3b0c7577
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-11-25 18:27:11.45
+3b0c7577
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=24
+2025-11-25 18:27:11.52
+3b0c7577
+User
+🧠 STATE -> PROCESSING | len=9920 | silence_ms=522
+2025-11-25 18:27:11.52
+3b0c7577
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-11-25 18:27:11.52
+3b0c7577
+User
+🎤 END OF UTTERANCE: 0.6s audio, conversation #4
+2025-11-25 18:27:11.52
+3b0c7577
+User
+✅ Processing complete for conversation #4
+2025-11-25 18:27:11.81
+3b0c7577
+User
+🎙️ REAL_VOICE: rms=1138.0 > threshold=115.6
+2025-11-25 18:27:12.45
+3b0c7577
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=19
+2025-11-25 18:27:12.55
+3b0c7577
+User
+💓 WS_KEEPALIVE #1 (prevents 5min timeout)
+2025-11-25 18:27:12.60
+3b0c7577
+User
+📨 Received: mark
+2025-11-25 18:27:13.45
+3b0c7577
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=5358
+2025-11-25 18:27:15.19
+3b0c7577
+User
+[REALTIME] event: conversation.item.created
+2025-11-25 18:27:15.19
+3b0c7577
+User
+[REALTIME] event: response.output_item.added
+2025-11-25 18:27:15.22
+3b0c7577
+User
+[REALTIME] event: response.content_part.added
+2025-11-25 18:27:15.31
+3b0c7577
+User
+✅ [AUDIO] Frame #1: 160 bytes, first5=4c 4a 6a d9 c7, buffer=640
+2025-11-25 18:27:15.31
+3b0c7577
+User
+[TX_LOOP] Frame 1: type=None, event=media, has_media=True
+
+2025-11-25 18:27:15.31
+3b0c7577
+User
+✅ [AUDIO] Frame #2: 160 bytes, first5=44 3f 3e 3d 3c, buffer=480
+2025-11-25 18:27:15.31
+3b0c7577
+User
+[REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=4c 4a 6a d9 c7
+2025-11-25 18:27:15.31
+3b0c7577
+User
+[TX_LOOP] Frame 0: type=None, event=media, has_media=True
+2025-11-25 18:27:15.31
+3b0c7577
+User
+✅ [AUDIO] Frame #3: 160 bytes, first5=ac ac ad ad ae, buffer=320

@@ -103,17 +103,18 @@ app.post('/whatsapp/:tenantId/disconnect', requireSecret, async (req, res) => {
   }
 });
 
-// ⚡ FAST typing indicator endpoint
+// ⚡ FAST typing indicator endpoint - MULTI-TENANT SUPPORT
 app.post('/sendTyping', async (req, res) => {
   try {
-    const { jid, typing = true } = req.body;
+    const { jid, typing = true, tenantId } = req.body;
     
     if (!jid) {
       return res.status(400).json({ error: 'Missing jid' });
     }
     
-    const tenantId = 'business_1';
-    const s = sessions.get(tenantId);
+    // Multi-tenant: use provided tenantId or default to business_1
+    const effectiveTenantId = tenantId || 'business_1';
+    const s = sessions.get(effectiveTenantId);
     
     if (!s || !s.sock || !s.connected) {
       return res.status(503).json({ error: 'WhatsApp not connected' });
@@ -131,18 +132,18 @@ app.post('/sendTyping', async (req, res) => {
 app.post('/send', async (req, res) => {
   const startTime = Date.now();
   try {
-    const { to, text, type = 'text' } = req.body;
+    const { to, text, type = 'text', tenantId } = req.body;
     
     if (!to || !text) {
       return res.status(400).json({ error: 'Missing required fields: to, text' });
     }
     
-    // Use business_1 as default tenant for now (multi-tenant support can be added later)
-    const tenantId = 'business_1';
-    const s = sessions.get(tenantId);
+    // MULTI-TENANT: Use provided tenantId or default to business_1
+    const effectiveTenantId = tenantId || 'business_1';
+    const s = sessions.get(effectiveTenantId);
     
     if (!s || !s.sock || !s.connected) {
-      console.error(`[send] ❌ WhatsApp not connected for ${tenantId}`);
+      console.error(`[send] ❌ WhatsApp not connected for ${effectiveTenantId}`);
       return res.status(503).json({ error: 'WhatsApp not connected' });
     }
     

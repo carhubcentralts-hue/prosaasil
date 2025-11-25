@@ -360,7 +360,7 @@ def baileys_webhook():
         import time
         overall_start = time.time()
         
-        wa_service = get_whatsapp_service()
+        wa_service = get_whatsapp_service(tenant_id=tenant_id)  # MULTI-TENANT: Pass tenant_id for correct WhatsApp session
         processed_count = 0
         
         for msg in messages:
@@ -484,7 +484,8 @@ def baileys_webhook():
                 
                 send_result = wa_service.send_message(
                     to=f"{from_number}@s.whatsapp.net",
-                    message=response_text
+                    message=response_text,
+                    tenant_id=tenant_id  # MULTI-TENANT: Route to correct WhatsApp session
                 )
                 
                 send_duration = time.time() - send_start
@@ -548,14 +549,17 @@ def send_manual_message():
         # שליחת הודעה דרך WhatsApp provider
         from server.whatsapp_provider import get_whatsapp_service
         
-        wa_service = get_whatsapp_service()
+        # MULTI-TENANT: Create tenant_id from business_id
+        tenant_id = f"business_{business_id}" if business_id else "business_1"
+        
+        wa_service = get_whatsapp_service(tenant_id=tenant_id)
         
         # התאמת פורמט המספר (אם נדרש)
         formatted_number = to_number
         if '@' not in formatted_number:
             formatted_number = f"{to_number}@s.whatsapp.net"
         
-        send_result = wa_service.send_message(formatted_number, message)
+        send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
         
         if send_result.get('status') == 'sent':
             # שמירת ההודעה בבסיס הנתונים
