@@ -30,6 +30,26 @@ const NotificationContext = createContext<NotificationContextType | null>(null);
 
 // Convert API notification to Notification type
 function convertApiNotification(apiNotif: any): Notification {
+  // BUILD 151: Handle system notifications (like WhatsApp disconnect)
+  if (apiNotif.reminder_type === 'system_whatsapp_disconnect') {
+    return {
+      id: apiNotif.id,
+      type: 'system',
+      title: '⚠️ חיבור WhatsApp נותק',
+      message: apiNotif.description || apiNotif.title || 'יש להתחבר מחדש להגדרות WhatsApp',
+      timestamp: new Date(apiNotif.due_date),
+      read: false,
+      metadata: {
+        priority: apiNotif.priority || 'high',
+        actionRequired: true,
+        reminderType: 'system_whatsapp_disconnect',
+        navigateTo: '/settings',  // Navigation target for settings page
+        dueAt: apiNotif.due_date
+      }
+    };
+  }
+  
+  // Default task notification handling
   const priority = apiNotif.category === 'overdue' ? 'urgent' : 
                   apiNotif.category === 'today' ? 'high' : 'medium';
   

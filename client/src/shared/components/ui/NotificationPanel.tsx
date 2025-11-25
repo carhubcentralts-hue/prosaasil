@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Bell,
   X,
@@ -11,7 +12,10 @@ import {
   Clock,
   Info,
   AlertTriangle,
-  Building2
+  Building2,
+  Wifi,
+  WifiOff,
+  Settings
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../../features/auth/hooks';
@@ -30,7 +34,15 @@ interface NotificationItemProps {
 }
 
 function NotificationItem({ notification, onClick }: NotificationItemProps) {
+  // BUILD 151: Check if this is a WhatsApp disconnect notification
+  const isWhatsAppDisconnect = notification.metadata?.reminderType === 'system_whatsapp_disconnect';
+  
   const getIcon = () => {
+    // BUILD 151: Special icon for WhatsApp disconnect
+    if (isWhatsAppDisconnect) {
+      return <WifiOff className="h-4 w-4" />;
+    }
+    
     switch (notification.type) {
       case 'call': return <Phone className="h-4 w-4" />;
       case 'whatsapp': return <MessageCircle className="h-4 w-4" />;
@@ -38,13 +50,18 @@ function NotificationItem({ notification, onClick }: NotificationItemProps) {
       case 'task': return <Clock className="h-4 w-4" />;
       case 'meeting': return <Calendar className="h-4 w-4" />;
       case 'payment': return <DollarSign className="h-4 w-4" />;
-      case 'system': return <Info className="h-4 w-4" />;
+      case 'system': return <Settings className="h-4 w-4" />;
       case 'urgent': return <AlertTriangle className="h-4 w-4" />;
       default: return <Bell className="h-4 w-4" />;
     }
   };
 
   const getIconColor = () => {
+    // BUILD 151: Red icon for WhatsApp disconnect
+    if (isWhatsAppDisconnect) {
+      return 'text-red-600';
+    }
+    
     switch (notification.type) {
       case 'call': return 'text-blue-600';
       case 'whatsapp': return 'text-green-600';
@@ -286,6 +303,7 @@ interface NotificationPanelProps {
 }
 
 export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: NotificationPanelProps) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { notifications, refreshNotifications, setNotificationCountCallback } = useNotifications();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
@@ -313,6 +331,14 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
   if (!isOpen) return null;
 
   const handleNotificationClick = (notification: Notification) => {
+    // BUILD 151: Handle navigation for system notifications
+    if (notification.metadata?.navigateTo) {
+      onClose(); // Close the panel
+      navigate(notification.metadata.navigateTo);
+      return;
+    }
+    
+    // Default: show detail modal
     setSelectedNotification(notification);
     setIsDetailModalOpen(true);
   };
