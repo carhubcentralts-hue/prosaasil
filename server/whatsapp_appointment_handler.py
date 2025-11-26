@@ -237,30 +237,44 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
             'message': 'שגיאה ביצירת פגישה מווצאפ'
         }
 
-def send_appointment_confirmation(customer_phone: str, appointment_data: Dict) -> Dict:
+def send_appointment_confirmation(customer_phone: str, appointment_data: Dict, business_id: int = None) -> Dict:
     """
     שולח אישור פגישה בווצאפ
+    ✅ BUILD 154: Dynamic business phone - no hardcoded numbers
     """
     try:
         meeting_time = datetime.fromisoformat(appointment_data['meeting_time'])
         time_str = meeting_time.strftime("%d/%m/%Y בשעה %H:%M")
+        
+        # ✅ BUILD 154: Get business phone dynamically
+        contact_phone_line = ""
+        if business_id:
+            try:
+                from server.models_sql import Business
+                business = Business.query.get(business_id)
+                if business and business.phone_e164:
+                    display_phone = business.phone_e164
+                    if display_phone.startswith('+972'):
+                        display_phone = '0' + display_phone[4:]
+                    contact_phone_line = f"\n📞 ליצירת קשר: {display_phone}"
+            except Exception as e:
+                print(f"⚠️ Could not get business phone: {e}")
         
         # הודעת אישור
         confirmation_message = f"""
 🗓️ *פגישה נקבעה בהצלחה!*
 
 📅 תאריך: {time_str}
-🏢 נושא: {appointment_data['title']}
-📞 ליצירת קשר: 050-1234567
+🏢 נושא: {appointment_data['title']}{contact_phone_line}
 
 נשמח לראותכם! אם יש צורך בשינוי, אנא הודיעו מראש.
-        """.strip()  # ✅ הסרת חתימה hardcoded
+        """.strip()
         
-        # שליחה דרך API המאוחד
+        # שליחה דרך API המאוחד - ✅ BUILD 154: Dynamic business_id
         response = requests.post("http://localhost:5000/api/whatsapp/send", json={
             'to': customer_phone,
             'message': confirmation_message,
-            'business_id': 1
+            'business_id': business_id or 1
         })
         
         if response.status_code == 200:
