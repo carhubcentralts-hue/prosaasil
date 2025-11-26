@@ -977,6 +977,18 @@ export default function LeadsPage() {
                     <Edit className="w-4 h-4 ml-1" />
                     ערוך
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
+                    }}
+                    className="h-9 px-3 text-red-600 border-red-200 hover:bg-red-50"
+                    data-testid={`button-delete-card-mobile-${lead.id}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
                 </Card>
               </div>
