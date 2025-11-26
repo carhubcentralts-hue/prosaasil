@@ -1,0 +1,87 @@
+## 4.x Payments / Contracts – Feature Freeze (Disable Safely)
+
+חשוב: כרגע בעל המערכת **לא משתמש בכלל** בפיצ'רים של:
+- תשלומים / גבייה / Tranzila / Stripe
+- הצעות מחיר / חוזים / מסמכי חתימה דיגיטלית הקשורים לתשלום
+
+המטרה: 
+1) שלא יהיה שום hardcoded URL או מידע רגיש/ישן במודולים האלה.  
+2) שלא יהיו כפתורים/מסכים באפליקציה שמובילים לפיצ'רים חצי-שבורים.  
+3) להשאיר את הקוד במצב "מנוטרל באופן מסודר" – אפשר יהיה להפעיל בעתיד כשנבנה את זה כמו שצריך.
+
+### 4.x.1 זיהוי כל מה שקשור לתשלומים/חוזים
+
+חפש במערכת קבצים וספריות כגון (שמות דוגמה, תתאים לשמות המדויקים בפרויקט):
+
+- `server/api_payments.py`
+- `server/api_invoices.py`
+- `server/api_contracts.py`
+- `server/providers/payments.py`
+- `invoice_generator.py`
+- `digital_signature_service.py`
+- כל קובץ תחת `server/providers/` שקשור ל־Tranzila / Stripe / payments
+- רכיבי Frontend תחת:
+  - `client/src/pages/Payments...`
+  - `client/src/pages/Invoices...`
+  - `client/src/pages/Contracts...`
+  - כפתורים כמו "תשלום", "הפק חשבונית", "חתימה דיגיטלית"
+
+### 4.x.2 ניטרול צד Backend (API)
+
+ב־Backend:
+
+1. אל תמחק קבצים, אבל:
+   - לכל endpoint "חי" של תשלומים / חוזים (למשל `/api/payments/...`, `/api/contracts/...`, `/api/invoices/...`):
+     - החזר סטטוס `410 Gone` או `501 Not Implemented` עם הודעה ברורה JSON:
+       - `"detail": "Payments & contracts are currently disabled in this environment."`
+   - אם יש endpoints שנקראים אוטומטית ב־Webhook מצד ספק כלשהו (Tranzila וכדומה) – ודא שהם **לא מופעלים בפועל** ב־production כרגע (ולא בחשבון אמיתי).
+
+2. ודא שאין:
+   - hardcoded URLs ישנים (כמו `ai-crmd.replit.app`).
+   - hardcoded business IDs.
+   - hardcoded סכומים / מטבעות.
+
+3. הוסף flag כללי ב־env ובקוד, לדוגמה:
+   - `.env.example`:
+     - `ENABLE_PAYMENTS=false`
+     - `ENABLE_CONTRACTS=false`
+   - ובקוד – לפני כל לוגיקת תשלום/חוזה:
+     - אם `ENABLE_PAYMENTS` / `ENABLE_CONTRACTS` = false → החזר 410 / 501 כמו למעלה.
+
+### 4.x.3 ניטרול צד Frontend (UI)
+
+ב־Frontend:
+
+1. בתפריטים / Sidebar / דפי לקוח:
+   - הסר או **החבא** (לא רק disable, אלא לא להראות בכלל) כפתורים/קישורים ל:
+     - "תשלום אונליין"
+     - "הפק חשבונית"
+     - "יצירת חוזה"
+     - כל מסך שמפנה לפיצ'ר שאינו עובד כרגע.
+
+2. אם יש כבר דפי Payments/Invoices/Contracts קיימים:
+   - אפשר להשאיר אותם בקוד, אבל:
+     - לא להציג קישורים אליהם.
+     - ואם מישהו ייכנס ל־URL ישיר – תציג הודעה ברורה:
+       - "מודול התשלומים/חוזים אינו פעיל בסביבה זו."
+
+3. ודא ש:
+   - אין טקסטים קבועים שמבטיחים ללקוח "תשלום אונליין" אם זה לא פעיל בפועל.
+   - אין כפתורי CTA שמפעילים קריאות API לתשלומים.
+
+### 4.x.4 למה **לא** להתעסק עכשיו
+
+בשלב זה **לא לבנות / לשפר** לוגיקת תשלום/חוזים עצמה.  
+המטרה עכשיו:
+
+- אבטחה: שלא יהיו URLs ישנים / סודות / פרטי תשלום Hardcoded.
+- יציבות: שלא יהיו קריאות שבורות למודולים לא גמורים.
+- UX: המשתמש בכלל לא יראה שיש "מודול תשלומים" עד שנחליט להפעיל אותו.
+
+בפועל:
+- תתמקד עכשיו בייצוב מלא של:
+  - Twilio (שיחות)
+  - WhatsApp / Baileys
+  - CRM / לידים / משתמשים
+  - Multi-tenant בכל הנתיבים
+- תתייחס למודולי תשלום/חוזים כ־"Feature Flag OFF" – מוכנים לסבב פיתוח עתידי, לא ל־production הנוכחי.

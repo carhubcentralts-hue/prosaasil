@@ -1,16 +1,44 @@
+"""
+Receipts & Contracts API
+⚠️ BUILD 154: All payment/contract features are DISABLED by default.
+Set ENABLE_PAYMENTS=true and ENABLE_CONTRACTS=true in .env to enable.
+"""
 from flask import Blueprint, request, jsonify
 from server.auth_api import require_api_auth
 import uuid
+import os
 from datetime import datetime
 import base64
 
 # Blueprint for receipts and contracts
 receipts_contracts_bp = Blueprint('receipts_contracts', __name__)
 
+# ============================================
+# ⚠️ BUILD 154: Feature Flag Guards
+# ============================================
+def _payments_disabled():
+    """Check if payments feature is disabled"""
+    return os.getenv("ENABLE_PAYMENTS", "false").lower() != "true"
+
+def _contracts_disabled():
+    """Check if contracts feature is disabled"""
+    return os.getenv("ENABLE_CONTRACTS", "false").lower() != "true"
+
+def _feature_disabled_response(feature_name):
+    """Standard response for disabled features"""
+    return jsonify({
+        "success": False,
+        "error": f"{feature_name} feature is currently disabled in this environment.",
+        "detail": f"Set ENABLE_{feature_name.upper()}=true in environment to enable.",
+        "status": "feature_disabled"
+    }), 410
+
 @receipts_contracts_bp.route('/api/receipts', methods=['GET'])
 @require_api_auth()
 def list_receipts():
     """רשימת כל החשבוניות"""
+    if _payments_disabled():
+        return _feature_disabled_response("payments")
     try:
         from server.models_sql import Invoice, Deal, Payment, db, Lead
         from server.routes_crm import get_business_id
@@ -57,6 +85,8 @@ def list_receipts():
 @require_api_auth()
 def create_receipt():
     """יצירת חשבונית אמיתית ושמירה ב-DB"""
+    if _payments_disabled():
+        return _feature_disabled_response("payments")
     try:
         from server.models_sql import Invoice, Deal, Payment, db, Lead
         from server.routes_crm import get_business_id
@@ -172,6 +202,8 @@ def create_receipt():
 @require_api_auth()
 def list_contracts():
     """רשימת כל החוזים"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         from server.models_sql import Contract, Deal, Lead, db
         from server.routes_crm import get_business_id
@@ -220,6 +252,8 @@ def list_contracts():
 @require_api_auth()
 def create_contract():
     """יצירת חוזה אמיתי ושמירה ב-DB"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         from server.models_sql import Contract, Deal, db, Lead
         from server.routes_crm import get_business_id
@@ -315,6 +349,8 @@ def create_contract():
 @require_api_auth()
 def get_contract(contract_id):
     """שליפת פרטי חוזה"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         from server.models_sql import Contract, Deal, Lead, db
         from server.routes_crm import get_business_id
@@ -355,6 +391,8 @@ def get_contract(contract_id):
 @require_api_auth()
 def sign_contract(contract_id):
     """חתימה דיגיטלית על חוזה"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         from server.models_sql import Contract, db
         from server.routes_crm import get_business_id
@@ -407,6 +445,8 @@ def sign_contract(contract_id):
 @require_api_auth()
 def view_invoice(invoice_id):
     """הצגת חשבונית בפורמט PDF"""
+    if _payments_disabled():
+        return _feature_disabled_response("payments")
     try:
         from server.models_sql import Invoice, Payment, Business, Deal, db
         from reportlab.pdfgen import canvas
@@ -528,6 +568,8 @@ def view_invoice(invoice_id):
 @require_api_auth()
 def download_invoice(invoice_id):
     """הורדת חשבונית בפורמט PDF"""
+    if _payments_disabled():
+        return _feature_disabled_response("payments")
     try:
         from server.models_sql import Invoice, Payment, Business, Deal, db
         from reportlab.pdfgen import canvas
@@ -646,6 +688,8 @@ def download_invoice(invoice_id):
 @require_api_auth()
 def view_contract(contract_id):
     """הצגת חוזה בפורמט PDF"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         from server.models_sql import Contract, Deal, Customer, Business, db
         from reportlab.pdfgen import canvas
@@ -779,6 +823,8 @@ def view_contract(contract_id):
 @require_api_auth()
 def download_contract(contract_id):
     """הורדת חוזה בפורמט PDF"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         from server.models_sql import Contract, Deal, Customer, Business, db
         from reportlab.pdfgen import canvas

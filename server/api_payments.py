@@ -1,6 +1,9 @@
 """
 Payments & CRM API - תשלומים, חשבוניות וחוזים לפי הנחיות 100% GO
 NOTE: Stripe deprecated - use PayPal + Tranzila in api_crm_unified.py
+
+⚠️ BUILD 154: All payment/contract features are DISABLED by default.
+Set ENABLE_PAYMENTS=true and ENABLE_CONTRACTS=true in .env to enable.
 """
 from flask import Blueprint, request, jsonify, send_file
 import logging
@@ -14,6 +17,25 @@ from server.services.invoice_service import create_invoice_for_payment
 
 api_bp = Blueprint("api_payments", __name__, url_prefix="/api")
 log = logging.getLogger("api.payments")
+
+# ============================================
+# ⚠️ BUILD 154: Feature Flag Guards
+# ============================================
+def _payments_disabled():
+    """Check if payments feature is disabled"""
+    return os.getenv("ENABLE_PAYMENTS", "false").lower() != "true"
+
+def _contracts_disabled():
+    """Check if contracts feature is disabled"""
+    return os.getenv("ENABLE_CONTRACTS", "false").lower() != "true"
+
+def _feature_disabled_response(feature_name):
+    """Standard response for disabled features"""
+    return jsonify({
+        "error": f"{feature_name} feature is currently disabled in this environment.",
+        "detail": f"Set ENABLE_{feature_name.upper()}=true in environment to enable.",
+        "status": "feature_disabled"
+    }), 410
 
 # === DEPRECATED STRIPE ROUTES ===
 
@@ -40,10 +62,13 @@ def stripe_webhook():
     }), 410
 
 # === INVOICES ===
+# ⚠️ BUILD 154: Invoices disabled when ENABLE_PAYMENTS=false
 
 @api_bp.get("/invoices/<invoice_number>")
 def get_invoice(invoice_number):
     """הורדת חשבונית"""
+    if _payments_disabled():
+        return _feature_disabled_response("payments")
     try:
         inv = Invoice.query.filter_by(invoice_number=invoice_number).first_or_404()
         return send_file(inv.pdf_path, as_attachment=True)
@@ -54,6 +79,8 @@ def get_invoice(invoice_number):
 @api_bp.post("/invoices/create")
 def create_invoice_manual():
     """יצירת חשבונית ידנית"""
+    if _payments_disabled():
+        return _feature_disabled_response("payments")
     try:
         data = request.get_json() or {}
         payment_id = int(data["payment_id"])
@@ -132,9 +159,13 @@ def render_contract_html(deal, signer_name=None, signature_png=None):
     
     return template
 
+# ⚠️ BUILD 154: All contract endpoints guarded by ENABLE_CONTRACTS flag
+
 @api_bp.get("/contracts/preview")
 def contract_preview():
     """תצוגה מקדימה של חוזה"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         deal_id = int(request.args["deal_id"])
         deal = Deal.query.get_or_404(deal_id)
@@ -147,6 +178,8 @@ def contract_preview():
 @api_bp.post("/contracts/sign")
 def contract_sign():
     """חתימה על חוזה"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         data = request.get_json() or {}
         deal_id = int(data["deal_id"])
@@ -211,6 +244,8 @@ def contract_sign():
 @api_bp.get("/contracts/<contract_number>")
 def get_contract(contract_number):
     """הורדת חוזה חתום"""
+    if _contracts_disabled():
+        return _feature_disabled_response("contracts")
     try:
         contract = Contract.query.filter(
             Contract.pdf_path.like(f"%{contract_number}%")

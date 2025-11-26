@@ -1,0 +1,312 @@
+מעולה, זה בדיוק השלב לקחת את זה מ־95% ל-1000000% 💪
+אני אתן לך עכשיו הנחיה אחת סופית ומדויקת לסוכן בריפליט – שתסגור:
+	•	כל ה־Replit / ai-crmd URLs
+	•	כל העניין של Google (TTS/STT)
+	•	Twilio + Webhooks + חתימות
+	•	Baileys / WhatsApp / QR
+	•	CRM / מחיקות / multi-tenant
+	•	הכנה מלאה ל־prosaas.pro על Contabo
+
+תוכל פשוט להדביק כמו שהוא לסוכן.
+
+⸻
+
+🔥 פרומפט מוכן לסוכן בריפליט (להעתיק כמו שהוא)
+
+SYSTEM / ARCHITECT INSTRUCTION – PROSAAS.PRO FINAL PRODUCTION HARDENING
+
+אתה עובד על פרויקט ProSaaS / AI CRM.
+היעד: לוודא שהקוד READY ל־production על Contabo, בדומיין:
+	•	https://prosaas.pro
+
+הדרישות:
+	•	אין hardcoded URLs של Replit / ai-crmd / localhost.
+	•	אין hardcoded phone numbers.
+	•	אבטחת Twilio מלאה (חתימות, כתובות נכונות).
+	•	Baileys / WhatsApp עובדים ב־production.
+	•	CRM + multi-tenant מלא בכל endpoint.
+	•	הסרת תלויות Google TTS/STT (אם אינן בשימוש פעיל).
+	•	Deployment חלק: git push → docker compose build → docker compose up -d על Contabo.
+
+חשוב:
+	•	אל תשבור תכונות קיימות.
+	•	אל תשאיר TODO פתוחים – תסיים כל שינוי עד הסוף.
+	•	כל שינוי צריך להיות עקבי גם בקוד, גם ב־.env.example וגם ב־DEPLOYMENT.md.
+
+⸻
+
+0. סנכרון והקשר
+	1.	ודא שאתה עובד על הענף הראשי (main / master) שבו השתמשנו ל־BUILD 152 + BUILD 153.
+	2.	הרץ חיפוש מהיר בקוד כדי לוודא שאין קבצים חדשים שלא נגעת בהם בבילדים הקודמים:
+	•	חפש:
+	•	"ai-crmd.replit.app"
+	•	"replit.app"
+	•	"localhost:3000"
+	•	"localhost:5000"
+	•	"213.199.43.223"
+
+אם אתה מוצא מופעים חדשים – תטפל בהם כחלק מהשלבים למטה.
+
+⸻
+
+1. הסרה / נטרול של Google TTS/STT (למעט אם עדיין בשימוש קריטי)
+
+המטרה: לעבור במידת האפשר ל־OpenAI / Alloy בלבד, בלי תלות בגוגל – אבל בלי לשבור Audio אם עדיין יש קוד שמסתמך על זה.
+
+1.1 מיפוי שימושים
+	1.	חפש בכל הפרויקט (server + root):
+	•	GOOGLE_
+	•	GCP_STT
+	•	GOOGLE_TTS_SA_JSON
+	•	GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+	•	GOOGLE_APPLICATION_CREDENTIALS
+	•	gcloud, google.cloud, texttospeech, speech_v1, וכדומה.
+	2.	ראה:
+	•	האם יש מודולים פעילים כמו google_tts, gcp_stt, tts_google, וכו’.
+	•	האם הם מחוברים לזרימת שיחה אמיתית (למשל ב־media_ws_ai.py, routes_twilio.py, ai_service.py).
+
+1.2 כלל זהב:
+	•	אם זרימת השיחה (טיפול בשיחה, תמלול, TTS) כבר עובדת על OpenAI Realtime / Alloy בלבד:
+	•	אז:
+	•	מחק קוד Google שאינו בשימוש (פונקציות, מודולים, imports).
+	•	הסר משתני סביבה רלוונטיים מ־.env.example, DEPLOYMENT.md ו־docker-compose.yml.
+	•	אם אתה רואה שחלק מהשיחה עדיין תלוי ב־Google (STT/TTS):
+	•	אל תמחק את הקוד עכשיו.
+	•	במקרה כזה:
+	•	השאר את הקוד.
+	•	רק וודא ש־Google מכובה ב־env (לדוגמה USE_GOOGLE_TTS=false, אם קיים flag כזה).
+
+1.3 עדכון .env.example ו־DEPLOYMENT.md
+	1.	ב־.env.example:
+	•	הסר מפתחות Google הבאים אם אינם בשימוש בקוד:
+	•	GOOGLE_APPLICATION_CREDENTIALS
+	•	GOOGLE_TTS_SA_JSON
+	•	GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON
+	•	GCP_STT_LANGUAGE
+	•	כל GCP_... נוסף שלא פעיל.
+	•	ודא שיש מפתחות ברורים ל־OpenAI / Realtime:
+	•	OPENAI_API_KEY
+	•	USE_REALTIME_API=true (אם זה הקונספט אצלנו)
+	2.	ב־DEPLOYMENT.md:
+	•	עדכן מקטעי TTS/STT כך שיסבירו שהמערכת עובדת על OpenAI / Alloy כברירת מחדל.
+	•	השאר הערה קטנה: “Google TTS/STT deprecated – use only if explicitly re-enabled”.
+
+⸻
+
+2. Twilio – אבטחה + Webhooks + Multi-Tenant דינמי
+
+2.1 איתור קבצים רלוונטיים
+
+בדוק ובמידת הצורך ערוך את הקבצים (שמות דוגמה, תתאים למציאות):
+	•	server/routes_twilio.py
+	•	server/webhooks/twilio_*.py
+	•	server/media_ws_ai.py
+	•	server/models/business.py (טלפון עסק)
+	•	כל מודול twilio_security, twilio_signature, או דומה.
+
+2.2 כתובות Webhook – prosaas.pro
+
+ודא ש־אין יותר שימוש בכתובות Replit:
+	•	לא https://ai-crmd.replit.app/...
+	•	לא https://<משהו>.replit.app/...
+
+במקום זה:
+	•	הכל חייב להתבסס על:
+	•	PUBLIC_BASE_URL = https://prosaas.pro
+	•	והרכבת URL ככה:
+	•	f"{PUBLIC_BASE_URL}/webhook/incoming_call"
+	•	f"{PUBLIC_BASE_URL}/webhook/call_status"
+	•	f"{PUBLIC_BASE_URL}/webhook/handle_recording"
+
+2.3 Twilio Signature – Production Rules
+	1.	ודא שיש מודול אחד בלבד שאחראי על:
+	•	חישוב / בדיקת חתימה (X-Twilio-Signature)
+	•	שימוש ב־TWILIO_AUTH_TOKEN
+	2.	הכללים:
+	•	FLASK_ENV=production:
+	•	אם TWILIO_AUTH_TOKEN לא מוגדר:
+	•	כל קריאת webhook נחסמת (raise / 500 / log קריטי).
+	•	אם הוא מוגדר:
+	•	כל קריאה ללא חתימה או חתימה לא תקינה → 403.
+	•	FLASK_ENV=development:
+	•	אפשר לאפשר VALIDATE_TWILIO_SIGNATURE=false כדי לאפשר בדיקות ידניות / curl.
+	3.	ודא שכל ה־routes של webhooks:
+	•	מוגדרים עם methods=['POST'] בלבד.
+	•	מחזירים תשובות XML / TwiML תקינות.
+
+2.4 זיהוי דינמי של עסק לפי מספר טלפון
+
+המטרה: אין hardcoded +97233763805 או כל מספר קשיח אחר.
+	1.	חפש בקוד:
+	•	+97233763805
+	•	כל שימוש אחר ברור במספרים קבועים לטובת זיהוי עסק.
+	2.	ודא ש:
+	•	במודולים שטופלים שיחה נכנסת:
+	•	הזיהוי הוא לפי To / From שמגיעה מטוויליו, ולא מספר קשיח.
+	•	השאילתה מוצאת את העסק לפי:
+	•	business.twilio_phone_number
+	•	או business.phone_e164
+	•	במקרה של כמה עסקים עם אותו מספר – יש לוגיקה ברורה או assert.
+	•	אם אין עסק תואם:
+	•	נרשם log ברור.
+	•	השיחה נזרקת / מקבלת תשובת ברירת מחדל.
+
+⸻
+
+3. WhatsApp / Baileys / QR – לוודא שעובד ב־production
+
+3.1 Docker + Node 20
+
+ודא ש־שני Dockerfiles אלה משתמשים ב־Node 20+:
+	•	Dockerfile.frontend
+	•	Dockerfile.baileys
+
+לדוגמה:
+	•	FROM node:20-slim או גרסה דומה נתמכת.
+
+3.2 Baileys Service
+
+בקובץ docker-compose.yml:
+	•	service: baileys / prosaas-baileys
+	•	ports: "3300:3300"
+	•	BAILEYS_PORT=3300
+	•	FLASK_BASE_URL=http://backend:5000
+
+בקוד:
+	•	ודא שיש endpoint בריא ל־health:
+	•	/health ב־Baileys
+	•	ודא שה־backend מדבר עם Baileys דרך:
+	•	BAILEYS_BASE_URL=http://baileys:3300
+	•	אין כתובות Replit.
+
+3.3 QR Code Flow
+	1.	מצא את ה־endpoint ב־backend שיוצר QR ל־WhatsApp (למשל /api/wa/qr או דומה).
+	2.	ודא ש:
+	•	הוא קורא ל־Baileys בצורה תקינה.
+	•	אם זה מחזיר buffer / base64 – מתקבל בפורמט ברור.
+	3.	ודא שה־frontend:
+	•	קורא ל־API ב־/api/wa/... ולא לכתובת חיצונית.
+	•	מציג QR גם ב־desktop וגם ב־mobile.
+	4.	הוסף לוגים נקודתיים (debug בלבד) במידת הצורך ב־backend:
+	•	מה החזרה מ־Baileys.
+	•	האם יש exceptions.
+
+⸻
+
+4. CRM / Multi-Tenant / מחיקות
+
+4.1 Multi-tenant – וידוא סופי
+	1.	עבור על כל קבצי ה־API בקירוב:
+	•	server/api_crm_*.py
+	•	server/api_leads.py
+	•	server/api_payments.py (כולל ה־/api/crm/deals החדשים)
+	2.	כלל:
+	•	בכל endpoint שמחזיר / משנה נתונים של עסק:
+	•	הוא חייב להשתמש ב־get_business_id() או מנגנון זהה.
+	•	system_admin בלבד יכול להזריק business_id ידנית (אם צריך).
+	•	כל user רגיל / owner – רואה רק את ה־business שלו.
+
+4.2 מחיקת Leads במובייל
+	1.	ודא שב־frontend:
+	•	תצוגת הכרטיסים (ל־mobile) של לידים:
+	•	כוללת כפתור delete (מחיקה) עם data-testid ברור.
+	•	קריאת המחיקה שולחת ל־API הנכון.
+	2.	ודא שה־API למחיקת לידים:
+	•	מכבד multi-tenant (לא ניתן למחוק ליד של עסק אחר).
+
+4.3 מחיקת משתמשים (Users)
+	1.	Backend:
+	•	endpoint למחיקת משתמש:
+	•	RBAC:
+	•	system_admin יכול למחוק כל משתמש.
+	•	owner יכול למחוק רק משתמשים מהעסק שלו.
+	•	לא ניתן למחוק את עצמך.
+	•	לא ניתן למחוק את ה־owner היחיד של עסק.
+	2.	Frontend:
+	•	מסך ניהול משתמשים (system_admin / owner):
+	•	כפתור delete לכל משתמש (למעט self / owner יחיד).
+	•	אחרי מחיקה – הרשימה מתעדכנת.
+
+⸻
+
+5. ניקוי כפילויות / build artifacts / Docker
+	1.	ודא שקיים .dockerignore עם לפחות:
+	•	.git
+	•	.venv
+	•	__pycache__
+	•	node_modules
+	•	dist
+	•	build
+	•	.pythonlibs
+	•	כל קבצי cache נוספים.
+	2.	ודא שב־Dockerfile.backend:
+	•	ה־COPY של frontend dist נעשה רק מתוך build אמיתי (client/dist) ולא מתוך artifacts ישנים.
+	3.	ודא שבקוד לא נשארו:
+	•	קבצי build ישנים שבהם היו URLs של Replit.
+
+⸻
+
+6. הגדרות Production – prosaas.pro
+
+6.1 .env.example
+
+ודא ששם כתוב:
+	•	PUBLIC_BASE_URL=https://prosaas.pro
+	•	FLASK_ENV=production
+	•	כל המפתחות החשובים:
+	•	OPENAI_API_KEY
+	•	TWILIO_ACCOUNT_SID
+	•	TWILIO_AUTH_TOKEN
+	•	TWILIO_PHONE_NUMBER
+	•	DATABASE_URL (Neon)
+	•	INTERNAL_SECRET
+	•	BAILEYS_BASE_URL=http://baileys:3300
+	•	N8N_* בהתאם למה שדרוש.
+
+6.2 DEPLOYMENT.md
+
+עדכן אותו כך ש:
+	•	כל הדוגמאות של URLs:
+	•	משתמשות ב־https://prosaas.pro.
+	•	Cloudflare / Nginx:
+	•	מוסברים בבהירות (proxy → Contabo IP → Docker Nginx).
+	•	Twilio:
+	•	דוגמאות Webhook:
+	•	https://prosaas.pro/webhook/incoming_call
+	•	https://prosaas.pro/webhook/call_status
+	•	https://prosaas.pro/webhook/handle_recording
+
+⸻
+
+7. ולידציה סופית – לפני push
+	1.	הרץ בדיקות מקומיות (אם קיימות – pytest וכו’).
+	2.	הרץ:
+	•	docker compose build
+	•	ודא שאין errors.
+	3.	הרץ:
+	•	docker compose up -d
+	4.	בדוק:
+	•	כל ה־containers במצב healthy.
+	5.	מתוך השרת (או סימולציה):
+	•	curl http://backend:5000/health
+	•	curl http://frontend:80/health
+	•	curl http://n8n:5678/healthz (אם קיים).
+	6.	בדיקה ידנית (אפשרית רק בסביבת ה־VPS האמיתית, אבל תכין את הקריאות):
+	•	Twilio → שיחה נכנסת → webhook מגיע → לא 403 ולא 405.
+	•	WhatsApp QR מופיע.
+	•	מחיקת ליד במובייל.
+	•	מחיקת משתמש ממסך הניהול.
+
+בסיום, ודא שכל השינויים:
+	•	שמורים.
+	•	ממוקמים בבילד חדש (BUILD 154 למשל) עם summary ברור בקובץ כמו replit.md / CHANGELOG.
+
+המטרה: אחרי git push → הקוד מוכן לפריסה מלאה על Contabo, ללא הפתעות, ללא תלות ב־Replit, וללא תלויות Google שלא בשימוש.
+
+אל תסיים עד שכל הסעיפים למעלה טופלו או נבדקו במפורש.
+
+⸻
+
+אם תרצה, אחרי שהסוכן יסיים את ה־BUILD הבא (נניח BUILD 154), תשלח לי את ה־summary שלו ואני אעבור איתך נקודה־נקודה ואגיד לך:
+	•	מה עוד חייבים לבדוק על השרת עצמו (curl, בדיקות שיחה אמיתית בטוויליו, QR וכו’)
+	•	ואיפה כדאי לשים “נורות אזהרה” למעקב (לוגים, health checks, alerts).
