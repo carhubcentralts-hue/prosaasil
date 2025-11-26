@@ -17,11 +17,20 @@ def _effective_url(req):
     return f"{scheme}://{host}{req.path}"
 
 def require_twilio_signature(f):
-    """Decorator to validate Twilio webhook signatures"""
+    """Decorator to validate Twilio webhook signatures
+    ✅ BUILD 152: Added VALIDATE_TWILIO_SIGNATURE env var for explicit control
+    """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # In development, skip validation  
-        if os.getenv('FLASK_ENV') == 'development' or os.getenv('PUBLIC_HOST'):
+        # ✅ BUILD 152: Explicit env var to control signature validation
+        validate_signature_env = os.getenv('VALIDATE_TWILIO_SIGNATURE', 'true').lower()
+        
+        # Skip validation in development mode OR when explicitly disabled
+        if os.getenv('FLASK_ENV') == 'development':
+            return f(*args, **kwargs)
+        
+        if validate_signature_env == 'false':
+            print("⚠️ VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped")
             return f(*args, **kwargs)
             
         # Get Twilio auth token
