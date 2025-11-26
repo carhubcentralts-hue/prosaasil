@@ -127,6 +127,54 @@ docker compose logs -f
 - Backend: 5000 (Flask/ASGI)
 - Baileys: 3300 (Node.js WhatsApp)
 - PostgreSQL: 5432 (local only)
+- n8n: 5678 (Workflow Automation)
+
+## n8n Workflow Automation
+
+### Overview
+n8n is integrated as a workflow automation platform, enabling custom automation flows triggered by WhatsApp messages, calls, and other events.
+
+### Access URLs
+- **n8n UI**: `https://your-domain.com/n8n`
+- **Webhook URLs**: `https://your-domain.com/n8n/webhook/<workflow-id>`
+- **Test Webhooks**: `https://your-domain.com/n8n/webhook-test/<workflow-id>`
+
+### Configuration (.env)
+```bash
+N8N_PORT=5678
+N8N_USER=admin
+N8N_PASSWORD=your_secure_password
+TZ=Asia/Jerusalem
+```
+
+### Docker Files
+- `Dockerfile.n8n` - n8n container configuration
+- Service in `docker-compose.yml` - Full service definition
+
+### WhatsApp Webhook Integration
+To trigger n8n workflows from WhatsApp messages:
+
+1. Create a new workflow in n8n
+2. Add "Webhook" trigger node
+3. Copy the webhook URL
+4. Configure the backend to send events to this URL
+
+Example webhook payload for WhatsApp:
+```json
+{
+  "event": "whatsapp_message",
+  "from": "+972501234567",
+  "message": "Hello!",
+  "business_id": "business_1",
+  "timestamp": "2024-01-01T12:00:00Z"
+}
+```
+
+### CORS Configuration
+CORS is pre-configured in nginx for:
+- `https://*.replit.app`
+- `https://*.replit.dev`
+- Custom domain (`PUBLIC_BASE_URL`)
 
 ### Notes
 - Replit development continues to work normally
