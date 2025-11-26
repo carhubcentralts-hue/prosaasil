@@ -71,13 +71,16 @@ def tranzila_create_link(biz, gw, amount_agorot: int, currency: str, payment_id:
     if not (gw and gw.tranzila_terminal):
         return PayResult(False, error="tranzila terminal missing for this business")
     
+    # ✅ BUILD 153 FINAL: Use PUBLIC_BASE_URL for production URLs (no hardcoded replit URLs!)
+    public_base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    
     base = f"https://direct.tranzila.com/{gw.tranzila_terminal}/iframenew.php"
     params = {
         "sum": f"{amount_agorot/100:.2f}",
         "currency": currency,
-        "success_url": os.getenv("TRANZILA_RETURN_SUCCESS", "https://ai-crmd.replit.app/api/crm/payments/tranzila/return/success"),
-        "fail_url": os.getenv("TRANZILA_RETURN_FAIL", "https://ai-crmd.replit.app/api/crm/payments/tranzila/return/fail"),
-        "notify_url": os.getenv("TRANZILA_NOTIFY_URL", "https://ai-crmd.replit.app/api/crm/payments/tranzila/notify"),
+        "success_url": os.getenv("TRANZILA_RETURN_SUCCESS", f"{public_base}/api/crm/payments/tranzila/return/success"),
+        "fail_url": os.getenv("TRANZILA_RETURN_FAIL", f"{public_base}/api/crm/payments/tranzila/return/fail"),
+        "notify_url": os.getenv("TRANZILA_NOTIFY_URL", f"{public_base}/api/crm/payments/tranzila/notify"),
         "lang": "he",
         "ordernum": str(payment_id),    # Our internal payment ID
         "udf": str(biz.id)              # Business ID for webhook recovery
