@@ -35,9 +35,13 @@ def require_twilio_signature(f):
         # Get Twilio auth token
         auth_token = os.getenv('TWILIO_AUTH_TOKEN')
         if not auth_token:
-            # If no auth token, log warning but continue (graceful degradation)
-            print("⚠️ TWILIO_AUTH_TOKEN not set - signature validation skipped")
-            return f(*args, **kwargs)
+            # ✅ BUILD 153 FINAL: SECURITY FIX - reject in production if no auth token
+            if flask_env == 'development':
+                print("⚠️ DEV MODE: TWILIO_AUTH_TOKEN not set - signature validation skipped")
+                return f(*args, **kwargs)
+            else:
+                print("❌ PRODUCTION: TWILIO_AUTH_TOKEN not set - rejecting request")
+                abort(403)
         
         # Get signature from header
         signature = request.headers.get('X-Twilio-Signature')
