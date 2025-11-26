@@ -119,9 +119,9 @@ For HTTPS in production, you need SSL certificates:
 mkdir -p certs
 
 # Option 1: Let's Encrypt (recommended for production)
-sudo certbot certonly --standalone -d your-domain.com
-cp /etc/letsencrypt/live/your-domain.com/fullchain.pem ./certs/
-cp /etc/letsencrypt/live/your-domain.com/privkey.pem ./certs/
+sudo certbot certonly --standalone -d prosaas.pro
+cp /etc/letsencrypt/live/prosaas.pro/fullchain.pem ./certs/
+cp /etc/letsencrypt/live/prosaas.pro/privkey.pem ./certs/
 
 # Option 2: Self-signed (for testing only)
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
@@ -208,8 +208,8 @@ n8n is integrated as a workflow automation platform for ProSaaS. It enables cust
 |---------|-------------|
 | Service Name | `n8n` |
 | Internal Port | 5678 |
-| External URL | `https://your-domain.com/n8n` |
-| Webhook URL | `https://your-domain.com/n8n/webhook/<workflow-id>` |
+| External URL | `https://prosaas.pro/n8n` |
+| Webhook URL | `https://prosaas.pro/n8n/webhook/<workflow-id>` |
 
 ⚠️ **Note**: n8n runs only in Docker deployment (VPS), not in Replit.
 
@@ -224,7 +224,7 @@ TZ=Asia/Jerusalem               # Timezone
 
 # n8n Integration (Backend → n8n events)
 N8N_ENABLED=true                                           # Enable event sending
-N8N_WEBHOOK_URL=https://your-domain.com/n8n/webhook/abc123  # Your workflow webhook
+N8N_WEBHOOK_URL=https://prosaas.pro/n8n/webhook/abc123     # Your workflow webhook
 N8N_WEBHOOK_SECRET=your_secret_token                        # Security token
 ```
 
@@ -238,7 +238,7 @@ docker compose up -d
 ```
 
 3. **Access n8n UI**:
-   - Open `https://your-domain.com/n8n`
+   - Open `https://prosaas.pro/n8n`
    - Login with `N8N_USER` / `N8N_PASSWORD`
 
 4. **Create a workflow**:
