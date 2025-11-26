@@ -8,9 +8,10 @@ This guide covers deploying ProSaaS to different environments.
 
 1. [Development (Replit)](#development-replit)
 2. [Docker Deployment (VPS/Self-hosted)](#docker-deployment)
-3. [Cloud Run Deployment](#cloud-run-deployment)
-4. [Environment Variables](#environment-variables)
-5. [Troubleshooting](#troubleshooting)
+3. [n8n Workflow Automation](#n8n-workflow-automation)
+4. [Cloud Run Deployment](#cloud-run-deployment)
+5. [Environment Variables](#environment-variables)
+6. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -194,6 +195,153 @@ curl http://localhost:3300/qr
 ```
 
 Scan the QR code with your WhatsApp mobile app to connect.
+
+---
+
+## 🔄 n8n Workflow Automation
+
+n8n is integrated as a workflow automation platform for ProSaaS. It enables custom automation flows triggered by WhatsApp messages, calls, leads, and other events.
+
+### Overview
+
+| Feature | Description |
+|---------|-------------|
+| Service Name | `n8n` |
+| Internal Port | 5678 |
+| External URL | `https://your-domain.com/n8n` |
+| Webhook URL | `https://your-domain.com/n8n/webhook/<workflow-id>` |
+
+⚠️ **Note**: n8n runs only in Docker deployment (VPS), not in Replit.
+
+### Environment Variables
+
+```bash
+# n8n Server Settings
+N8N_PORT=5678                    # Port for n8n UI
+N8N_USER=admin                   # Username for n8n UI
+N8N_PASSWORD=secure_password     # Password for n8n UI
+TZ=Asia/Jerusalem               # Timezone
+
+# n8n Integration (Backend → n8n events)
+N8N_ENABLED=true                                           # Enable event sending
+N8N_WEBHOOK_URL=https://your-domain.com/n8n/webhook/abc123  # Your workflow webhook
+N8N_WEBHOOK_SECRET=your_secret_token                        # Security token
+```
+
+### Quick Start (Docker)
+
+1. **Add n8n environment variables to `.env`**
+
+2. **Start with Docker Compose** (n8n starts automatically):
+```bash
+docker compose up -d
+```
+
+3. **Access n8n UI**:
+   - Open `https://your-domain.com/n8n`
+   - Login with `N8N_USER` / `N8N_PASSWORD`
+
+4. **Create a workflow**:
+   - Add **Webhook** trigger node
+   - Copy the webhook URL
+   - Set `N8N_WEBHOOK_URL` in `.env` to this URL
+   - Set `N8N_ENABLED=true`
+
+### Event Types
+
+The backend automatically sends these events to n8n:
+
+| Event Type | Trigger | Payload |
+|------------|---------|---------|
+| `whatsapp_incoming` | Customer sends WhatsApp message | `from`, `message`, `business_id`, `lead_id`, `lead_name` |
+| `whatsapp_outgoing` | AI/System sends WhatsApp response | `to`, `message`, `business_id`, `lead_id`, `is_ai_response` |
+| `call_started` | Phone call begins | `phone`, `business_id`, `call_sid` |
+| `call_ended` | Phone call ends | `phone`, `business_id`, `duration_seconds`, `summary` |
+| `lead_created` | New lead created | `lead_id`, `phone`, `name`, `business_id`, `source` |
+| `appointment_created` | Appointment scheduled | `appointment_id`, `lead_id`, `datetime`, `business_id` |
+
+### Example Payload (WhatsApp Incoming)
+
+```json
+{
+  "event_type": "whatsapp_incoming",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "source": "prosaas",
+  "from": "+972501234567",
+  "message": "שלום, אני מעוניין לקבוע פגישה",
+  "business_id": "1",
+  "lead_id": 42,
+  "lead_name": "ישראל ישראלי",
+  "direction": "incoming"
+}
+```
+
+### Security
+
+1. **n8n UI Authentication**: Protected by `N8N_USER` / `N8N_PASSWORD`
+
+2. **Webhook Token**: Add `?token=your_secret` to verify requests:
+   - Set `N8N_WEBHOOK_SECRET=your_secret` in `.env`
+   - The backend automatically adds `?token=...` to webhook requests
+   - Configure n8n to validate the token in your workflow
+
+3. **CORS**: Pre-configured in nginx for:
+   - `https://*.replit.app`
+   - `https://*.replit.dev`
+   - Your custom domain (`PUBLIC_BASE_URL`)
+
+### Integration Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Docker Compose                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │   Frontend   │  │   Backend    │──│     n8n      │      │
+│  │   (Nginx)    │  │ (Flask/ASGI) │  │  (Workflows) │      │
+│  │   :80        │  │   :5000      │  │   :5678      │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+│         │                  │                  │             │
+│         └──────────────────┴──────────────────┘             │
+│                            │                                │
+│                     ┌──────┴───────┐                        │
+│                     │   WhatsApp   │                        │
+│                     │   Events     │                        │
+│                     │   ──────►    │                        │
+│                     │   n8n Hooks  │                        │
+│                     └──────────────┘                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Use Cases
+
+- **Lead Notifications**: Send Slack/Email when new lead arrives
+- **CRM Integration**: Sync leads to external CRM (Salesforce, HubSpot)
+- **Custom Responses**: Trigger specific workflows based on keywords
+- **Appointment Reminders**: Send reminders via additional channels
+- **Analytics**: Push data to Google Sheets, Airtable, etc.
+
+### Troubleshooting
+
+**n8n not accessible**:
+```bash
+# Check if container is running
+docker compose ps n8n
+
+# Check logs
+docker compose logs n8n
+```
+
+**Events not arriving**:
+```bash
+# Check N8N_ENABLED is true
+echo $N8N_ENABLED
+
+# Check webhook URL is correct
+echo $N8N_WEBHOOK_URL
+
+# Check backend logs for n8n events
+docker compose logs backend | grep N8N
+```
 
 ---
 
