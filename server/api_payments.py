@@ -222,42 +222,21 @@ def get_contract(contract_number):
         return jsonify({"error": "Contract not found"}), 404
 
 # === CRM DATA ===
+# ✅ BUILD 153: Fixed multi-tenant enforcement - use routes_crm.py endpoints instead
+# These deprecated endpoints redirect to the proper tenant-scoped ones
 
 @api_bp.get("/deals")
 def list_deals():
-    """רשימת דילים"""
-    try:
-        deals = Deal.query.all()
-        return jsonify([{
-            "id": d.id,
-            "customer_id": d.customer_id,
-            "title": d.title,
-            "stage": d.stage,
-            "amount": d.amount,
-            "created_at": d.created_at.isoformat() if d.created_at else None
-        } for d in deals])
-    except Exception as e:
-        log.error("Deals list failed: %s", e)
-        return jsonify({"error": "Failed to fetch deals"}), 500
+    """❌ DEPRECATED: Use /api/crm/deals instead (with proper RBAC)"""
+    return jsonify({
+        "error": "This endpoint is deprecated. Use /api/crm/deals instead",
+        "redirect": "/api/crm/deals"
+    }), 410
 
 @api_bp.post("/deals")
 def create_deal():
-    """יצירת דיל חדש"""
-    try:
-        data = request.get_json() or {}
-        deal = Deal()
-        deal.customer_id = int(data["customer_id"])
-        deal.title = data.get("title", "")
-        deal.stage = data.get("stage", "new")
-        deal.amount = int(data.get("amount", 0))
-        db.session.add(deal)
-        db.session.commit()
-        
-        return jsonify({
-            "id": deal.id,
-            "message": "Deal created successfully"
-        }), 201
-        
-    except Exception as e:
-        log.error("Deal creation failed: %s", e)
-        return jsonify({"error": "Deal creation failed"}), 500
+    """❌ DEPRECATED: Use /api/crm/deals instead (with proper RBAC)"""
+    return jsonify({
+        "error": "This endpoint is deprecated. Use /api/crm/deals instead",
+        "redirect": "/api/crm/deals"
+    }), 410
