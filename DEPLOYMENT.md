@@ -46,7 +46,9 @@ cd services/whatsapp && node baileys_service.js
 
 - Docker & Docker Compose installed
 - Git repository cloned
-- GCP credentials JSON file (for TTS/STT)
+- OpenAI API key (required)
+- Twilio credentials (for phone calls)
+- **GCP credentials NOT required** - Uses OpenAI Realtime API by default!
 
 ### Step 1: Clone & Setup
 
@@ -62,17 +64,7 @@ cp .env.example .env
 nano .env
 ```
 
-### Step 2: Prepare Credentials
-
-```bash
-# Create credentials directory
-mkdir -p credentials
-
-# Copy your GCP service account JSON
-cp /path/to/your-gcp-credentials.json credentials/gcp-credentials.json
-```
-
-### Step 3: Build & Run
+### Step 2: Build & Run
 
 ```bash
 # Build all images

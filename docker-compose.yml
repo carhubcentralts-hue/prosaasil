@@ -65,19 +65,20 @@ services:
       TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
       VALIDATE_TWILIO_SIGNATURE: ${VALIDATE_TWILIO_SIGNATURE:-true}
       
-      # Google Cloud (TTS/STT)
-      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/gcp-credentials.json
-      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      # Voice Calls - OpenAI Realtime API (recommended - no GCP needed!)
+      USE_REALTIME_API: ${USE_REALTIME_API:-true}
       
-      # Optional settings
-      TTS_VOICE: ${TTS_VOICE:-he-IL-Standard-A}
-      TTS_RATE: ${TTS_RATE:-1.0}
-      TTS_PITCH: ${TTS_PITCH:-0.0}
+      # Google Cloud (OPTIONAL - only if USE_REALTIME_API=false)
+      # GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/gcp-credentials.json
+      # GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      
+      # Feature flags
+      ENABLE_PAYMENTS: ${ENABLE_PAYMENTS:-false}
+      ENABLE_CONTRACTS: ${ENABLE_CONTRACTS:-false}
       
     volumes:
       - ./storage:/app/storage
       - ./logs:/app/logs
-      - ./credentials:/app/credentials:ro
     ports:
       - "${BACKEND_PORT:-5000}:5000"
     healthcheck:

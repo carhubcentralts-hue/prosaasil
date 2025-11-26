@@ -77,8 +77,8 @@ ProSaaS employs a multi-tenant architecture with isolated business data. It inte
 # External Dependencies
 
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
-- **OpenAI**: GPT-4o-mini, `gpt-4o-realtime-preview`, Hebrew-Optimized VAD, and Whisper transcription.
-- **Google Cloud Platform**: STT Streaming API v1 for Hebrew, TTS Standard API (legacy/fallback).
+- **OpenAI**: GPT-4o-mini, `gpt-4o-realtime-preview` (for voice calls - replaces GCP!), and Whisper transcription.
+- **Google Cloud Platform**: OPTIONAL - Only if USE_REALTIME_API=false (legacy fallback).
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
@@ -112,15 +112,11 @@ cd prosaas
 cp .env.example .env
 nano .env  # Fill in your values
 
-# 3. Setup GCP credentials
-mkdir -p credentials
-cp /path/to/gcp-credentials.json credentials/
-
-# 4. Build and run
+# 3. Build and run (GCP NOT required - uses OpenAI Realtime API!)
 docker compose build
 docker compose up -d
 
-# 5. Check status
+# 4. Check status
 docker compose ps
 docker compose logs -f
 ```
