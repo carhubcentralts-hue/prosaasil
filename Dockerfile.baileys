@@ -1,7 +1,8 @@
 # ===========================================
 # ProSaaS Baileys - Node.js WhatsApp Service
+# ✅ BUILD 153: Node 20+ required for Baileys
 # ===========================================
-FROM node:18-slim
+FROM node:20-slim
 
 # Set working directory
 WORKDIR /app

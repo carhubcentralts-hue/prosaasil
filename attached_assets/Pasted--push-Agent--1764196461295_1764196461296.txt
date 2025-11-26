@@ -1,0 +1,294 @@
+מעולה, זה בדיוק השלב לעצור ולסגור פינות לפני עוד push.
+אני לא רואה את הקוד המעודכן אחרי ה-Agent, אבל אני כן יכול לתת לך הנחיית-על מסודרת לסוכן בריפליט, שתוודא שהוא:
+	•	משמר את כל מה שכבר תיקנו ידנית ביחד
+	•	משלים את מה שהוא כתב ב-BUILD 152 (ולא סיים)
+	•	מוודא שהכול עובד multi-tenant, פרודקשן, שרת חיצוני – בלי קיצורי דרך
+
+אני אתן לך טקסט מוכן להדבקה לסוכן. אתה פשוט פותח Agent חדש, מדביק את זה כ-prompt ראשוני, ומריץ אותו על הפרויקט.
+
+⸻
+
+🧠 MASTER BRIEF לסוכן – ProSaaS על Contabo, Multi-Tenant מלא, בלי באגים
+
+תדביק לסוכן כמו שזה. אל תערבב עם דברים אחרים.
+
+⸻
+
+You are working on the ProSaaS / AI CRM project that is already deployed on an external Contabo server with Docker + Nginx + Neon/Postgres.
+
+Your goal in this task:
+	1.	Align the codebase with the current working production state on Contabo
+	2.	Guarantee full multi-tenant behavior (per business) in all critical flows
+	3.	Fix and finalize everything that was only partially done in BUILD 152
+	4.	Make sure Replit repo → git push → Contabo pull will work without manual hotfixes on the server
+
+Do NOT reset or re-init the DB. All fixes must be backwards-compatible with existing Neon data.
+
+⸻
+
+0. Sync & Context
+	1.	Make sure the repo you see is the same codebase that was deployed to Contabo (the one using docker-compose.yml, Dockerfile.backend, Dockerfile.frontend, Dockerfile.baileys, docker/nginx.conf).
+	2.	Confirm the project is using Neon DATABASE_URL and not local Postgres in code:
+	•	DATABASE_URL env should be used by SQLAlchemy/DB layer.
+	3.	Open and read:
+	•	docker-compose.yml
+	•	docker/nginx.conf
+	•	server/routes_webhook.py (or equivalent Twilio routes file)
+	•	server/twilio_*.py (or similar)
+	•	server/media_ws_ai.py
+	•	server/models/*.py
+	•	Frontend auth / users / leads / WhatsApp pages
+
+⸻
+
+1. Hardcoded phone numbers – VERIFY & CLEAN
+
+Even if you think it’s done in BUILD 152 – verify again:
+	1.	Run (in the repo root):
+
+grep -R "+97233763805" -n .
+grep -R "33763805" -n .
+grep -R "TWILIO_PHONE" -n server
+
+	2.	The result MUST be:
+	•	No hardcoded phone numbers pointing to a single business.
+	•	All business identification MUST be based on a business phone field, for example:
+	•	Business.twilio_phone_number
+or
+	•	Business.phone_e164 (if that’s the canonical field).
+	3.	In the Twilio incoming call route:
+	•	Extract the dialed number from To (and normalize to E.164).
+	•	Find business by that field (Business.twilio_phone_number == to_e164).
+	•	If not found – log clearly and use a safe fallback (or reject nicely).
+	4.	Outgoing calls:
+	•	When calling client.calls.create, use:
+
+from_ = business.twilio_phone_number or settings.TWILIO_PHONE_NUMBER
+
+No per-business logic may rely on a hardcoded number.
+
+⸻
+
+2. Twilio Webhooks – 405 / 403 / Signature
+
+You must fully fix the Twilio webhooks. Today the logs already show:
+	•	405 Method Not Allowed
+	•	403 Forbidden – Missing / Invalid X-Twilio-Signature
+
+Tasks:
+	1.	Locate all Twilio routes (probably in something like routes_webhook.py / routes_twilio.py):
+	•	/webhook/incoming_call
+	•	/webhook/call_status
+	•	/webhook/handle_recording (if exists)
+	•	any WhatsApp/Twilio webhook endpoints
+	2.	For each route:
+	•	Make sure HTTP methods are correct:
+	•	@bp.route("/webhook/incoming_call", methods=["POST"])
+	•	@bp.route("/webhook/call_status", methods=["POST"])
+	•	If you need OPTIONS for CORS – add it explicitly but don’t break Twilio.
+	3.	Twilio signature validation:
+	•	There is an env VALIDATE_TWILIO_SIGNATURE according to BUILD 152.
+	•	Implement logic:
+
+VALIDATE_TWILIO_SIGNATURE = os.getenv("VALIDATE_TWILIO_SIGNATURE", "true").lower() == "true"
+
+	•	If VALIDATE_TWILIO_SIGNATURE is false → skip validation, always accept (for dev).
+	•	If true → fully validate using Twilio’s official helper, but:
+	•	Use the exact URL that Twilio calls, including https://prosaas.pro/webhook/...
+	•	Make sure Nginx forwards correct Host and X-Forwarded-Proto headers so you can reconstruct the full URL properly.
+
+	4.	Check that:
+	•	A manual curl -X POST from the server to http://localhost/webhook/incoming_call returns 200, not 403 or 405.
+	•	A real Twilio call does not get HTTP 403/405 in the logs.
+
+⸻
+
+3. Nginx Frontend Proxy – backend, n8n, webhook
+
+Confirm the Nginx config (docker/nginx.conf) is exactly this structure (or better):
+	•	server_name prosaas.pro www.prosaas.pro
+	•	root /usr/share/nginx/html;
+	•	SPA rule:
+
+location / {
+    try_files $uri /index.html;
+}
+
+	•	Backend API:
+
+location /api/ {
+    proxy_pass http://backend:5000/api/;
+    ...
+}
+
+	•	Twilio webhooks:
+
+location /webhook/ {
+    proxy_pass http://backend:5000/webhook/;
+    ...
+}
+
+	•	n8n:
+
+location /n8n/ {
+    proxy_pass http://n8n:5678/;
+    ...
+}
+
+Important:
+	•	The upstream host names backend and n8n must match service names in docker-compose.yml.
+	•	Run docker exec -it prosaas-frontend nginx -t and make sure config passes.
+
+⸻
+
+4. Baileys / WhatsApp – QR & Node 20+
+
+We had previous issues with:
+	•	Node version mismatch (Node 18 vs Baileys requiring 20+)
+	•	Missing dependencies in package-lock
+	•	QR code not rendering in the CRM
+
+You must:
+	1.	Open Dockerfile.baileys:
+	•	Base image must be Node 20+ (e.g. node:20-slim).
+	•	npm ci --only=production must succeed with the existing package-lock.json.
+If it doesn’t — fix the lock file by running npm install in dev, then commit lock file.
+	2.	Baileys service in docker-compose.yml:
+	•	Must reference this Dockerfile and expose health endpoint.
+	•	Verify /health returns 200.
+	3.	In the frontend:
+	•	WhatsApp page & QR component (e.g. WhatsAppPage.tsx, WhatsAppChat.tsx):
+	•	Ensure QR code request calls your backend, not some old Replit URL.
+	•	Backend route should proxy or generate QR from Baileys service.
+	4.	End result:
+	•	When you visit the WhatsApp page in the CRM on production:
+	•	QR appears.
+	•	Baileys logs show correct connection and scanning.
+
+⸻
+
+5. CRM – Delete Lead (Mobile) & Delete User
+
+You must guarantee these are implemented in code and not רק דיבורים ב-BUILD 152.
+
+5.1 Delete Lead on Mobile
+	1.	Locate mobile lead cards component (e.g. LeadCard.tsx, or mobile layout of Leads page).
+	2.	Verify:
+	•	There is a delete button/icon on the mobile view, not only in desktop table.
+	•	It calls the same delete API as desktop (e.g. DELETE /api/leads/:id).
+	•	It has proper data-testid attributes if the project uses them.
+
+5.2 User Deletion with RBAC
+	1.	Backend:
+	•	There must be an endpoint for deleting users (e.g. DELETE /api/users/:id).
+	•	RBAC rules:
+	•	system_admin can delete any user.
+	•	owner can delete only users in their own business.
+	•	No one can delete:
+	•	himself
+	•	the only owner of a business (must keep at least one owner).
+	2.	Frontend:
+	•	Where system_admin manages users (Admin Users page), there must be:
+	•	A delete button that calls that endpoint.
+	•	Where business owner manages users of his business, there must be:
+	•	Delete option according to those rules.
+	•	Any “Delete user” button should give clear success/error feedback.
+	3.	Verify in code that these behaviors are actually wired and not just mentioned in BUILD 152 summary.
+
+⸻
+
+6. Multi-Tenant Enforcement – Across the Board
+
+Do a focused multi-tenant audit:
+
+For each of these areas, make sure every DB query is scoped by business_id (or equivalent):
+	•	Leads
+	•	Calls / Call logs
+	•	WhatsApp conversations / messages
+	•	Notifications (/api/notifications – was 404/401)
+	•	Tasks
+	•	Invoices / Offers / Signatures
+	•	Users listing for non-system_admin
+
+Rules:
+	•	system_admin may see cross-business if that’s the design.
+	•	owner / agent / representative must ONLY see their own business data.
+
+Look for any query like:
+
+Lead.query.all()
+CallLog.query.order_by(...)
+
+And refactor to:
+
+Lead.query.filter_by(business_id=current_business_id)
+
+Make sure this is done consistently, especially in:
+	•	API route handlers
+	•	Background jobs / workers
+	•	n8n integration (if any DB access is there)
+
+⸻
+
+7. Production Build & CI Flow
+
+The goal: one clean flow:
+
+Replit → git push → Contabo → git pull → docker compose up -d --build
+
+You must:
+	1.	Ensure Dockerfile.frontend uses a Node 20+ base image compatible with the frontend stack (Vite 7, React Router 7, etc.).
+	2.	Ensure npm ci (or npm install --omit=dev) in Dockerfile succeeds.
+	3.	Ensure docker-compose.yml has no leftover Replit-specific URLs like ai-crmd.replit.app.
+	4.	In .env.example / .env.production template:
+	•	Include all required envs:
+	•	DATABASE_URL
+	•	OPENAI_API_KEY
+	•	TWILIO_*
+	•	VALIDATE_TWILIO_SIGNATURE
+	•	PUBLIC_BASE_URL=https://prosaas.pro
+	•	n8n envs
+
+Document final build procedure in a short DEPLOYMENT.md section:
+	•	How to build & run locally with Docker
+	•	How to deploy to Contabo
+
+⸻
+
+8. Final Self-Test Checklist
+
+After all changes:
+	1.	Locally (or on staging) run:
+
+docker compose up -d --build
+
+	2.	Verify:
+
+	•	curl http://localhost/health → 200
+	•	curl http://localhost/api/health (if exists) → 200
+	•	curl http://localhost/webhook/incoming_call (POST without signature if validation disabled) → 200
+
+	3.	On production (Contabo):
+
+	•	Open https://prosaas.pro – CRM loads.
+	•	You can log in with existing admin/business users from Neon.
+	•	Twilio:
+	•	Set webhook URLs to https://prosaas.pro/webhook/incoming_call etc.
+	•	Call the number:
+	•	Call arrives.
+	•	No 403 / 405 in backend logs.
+	•	WhatsApp:
+	•	QR displays.
+	•	Baileys logs correct behavior.
+	•	CRM:
+	•	On mobile – you can delete lead.
+	•	As system_admin – you can delete users respecting RBAC.
+
+⸻
+
+⚠️ IMPORTANT:
+Do not add any new “quick hacks” on the server only. All changes must be in the repo so that a fresh git pull && docker compose up -d --build gives a fully working system.
+
+⸻
+
+אם אתה רוצה, אחרי שהסוכן יסיים את ה-run עם ההנחיה הזאת – תשלח לי את ה־summary שהוא כתב (כמו של BUILD 152), ואני אעבור איתך נקודה-נקודה מה עוד חסר או אם משהו עדיין לא נשמע לי סגור.
