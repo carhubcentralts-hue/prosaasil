@@ -99,10 +99,14 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
                 'score': appointment_info['criteria_score']
             }
         
-        # ✅ FIX: Use provided business_id or fallback
+        # ✅ BUILD 155 SECURITY: Require explicit business_id - NO fallback to first business!
+        # This prevents cross-tenant data leakage in multi-tenant environments
         if not business_id:
-            business = Business.query.first()
-            business_id = business.id if business else 1
+            return {
+                'success': False,
+                'reason': 'business_id נדרש ליצירת פגישה',
+                'error': 'MISSING_BUSINESS_ID'
+            }
         
         # חיפוש או יצירת לקוח
         # ✅ FIX: Filter by both phone AND business_id for multi-tenant safety
@@ -237,28 +241,32 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
             'message': 'שגיאה ביצירת פגישה מווצאפ'
         }
 
-def send_appointment_confirmation(customer_phone: str, appointment_data: Dict, business_id: int = None) -> Dict:
+def send_appointment_confirmation(customer_phone: str, appointment_data: Dict, business_id: int) -> Dict:
     """
     שולח אישור פגישה בווצאפ
-    ✅ BUILD 154: Dynamic business phone - no hardcoded numbers
+    ✅ BUILD 155: Requires business_id - no fallback to prevent cross-tenant issues
     """
+    # ✅ BUILD 155 SECURITY: Require explicit business_id
+    if not business_id:
+        print("❌ send_appointment_confirmation: business_id is required")
+        return {'success': False, 'error': 'MISSING_BUSINESS_ID'}
+    
     try:
         meeting_time = datetime.fromisoformat(appointment_data['meeting_time'])
         time_str = meeting_time.strftime("%d/%m/%Y בשעה %H:%M")
         
         # ✅ BUILD 154: Get business phone dynamically
         contact_phone_line = ""
-        if business_id:
-            try:
-                from server.models_sql import Business
-                business = Business.query.get(business_id)
-                if business and business.phone_e164:
-                    display_phone = business.phone_e164
-                    if display_phone.startswith('+972'):
-                        display_phone = '0' + display_phone[4:]
-                    contact_phone_line = f"\n📞 ליצירת קשר: {display_phone}"
-            except Exception as e:
-                print(f"⚠️ Could not get business phone: {e}")
+        try:
+            from server.models_sql import Business
+            business = Business.query.get(business_id)
+            if business and business.phone_e164:
+                display_phone = business.phone_e164
+                if display_phone.startswith('+972'):
+                    display_phone = '0' + display_phone[4:]
+                contact_phone_line = f"\n📞 ליצירת קשר: {display_phone}"
+        except Exception as e:
+            print(f"⚠️ Could not get business phone: {e}")
         
         # הודעת אישור
         confirmation_message = f"""
@@ -270,11 +278,11 @@ def send_appointment_confirmation(customer_phone: str, appointment_data: Dict, b
 נשמח לראותכם! אם יש צורך בשינוי, אנא הודיעו מראש.
         """.strip()
         
-        # שליחה דרך API המאוחד - ✅ BUILD 154: Dynamic business_id
+        # שליחה דרך API המאוחד - ✅ BUILD 155: Explicit business_id required
         response = requests.post("http://localhost:5000/api/whatsapp/send", json={
             'to': customer_phone,
             'message': confirmation_message,
-            'business_id': business_id or 1
+            'business_id': business_id
         })
         
         if response.status_code == 200:
@@ -395,8 +403,8 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
             appointment_result = create_whatsapp_appointment(phone_number, message_text, message_id, business_id)  # ✅ FIX: Pass business_id
             
             if appointment_result['success']:
-                # שלח אישור
-                send_appointment_confirmation(phone_number, appointment_result)
+                # שלח אישור - ✅ BUILD 155: Pass business_id for multi-tenant safety
+                send_appointment_confirmation(phone_number, appointment_result, business_id)
                 
                 result['processed'] = True
                 result['appointment_created'] = True
