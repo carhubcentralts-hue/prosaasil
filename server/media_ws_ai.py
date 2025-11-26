@@ -4142,10 +4142,12 @@ class MediaStreamHandler:
                         self.business_id = business.id
                         print(f"✅ זיהוי עסק לפי טלפון {self.phone_number}: {business.name}")
                 
-                # אם אין עדיין business_id, השתמש בfallback
+                # ✅ BUILD 152: אם אין עדיין business_id, השתמש בfallback דינמי (ללא hardcoded phone)
                 if not self.business_id:
                     from server.services.business_resolver import resolve_business_with_fallback
-                    self.business_id, status = resolve_business_with_fallback('twilio_voice', '+97233763805')
+                    # ✅ BUILD 152: Use actual to_number if available, otherwise get first active business
+                    lookup_phone = self.to_number or self.phone_number or None
+                    self.business_id, status = resolve_business_with_fallback('twilio_voice', lookup_phone)
                     print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
                 
                 if not self.business_id:

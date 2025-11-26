@@ -153,12 +153,11 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
     """
     ✅ BUILD 89: יצירת/עדכון ליד אוטומטי - עם try/except מלא
     Thread-safe: רץ בהקשר נפרד עם app context
+    ✅ BUILD 152: הסרת hardcoded phone number - זיהוי דינמי לפי Business.phone_e164
     """
     from server.app_factory import get_process_app
     
-    # ✅ ברירת מחדל ל-to_number
-    if not to_number:
-        to_number = "+97233763805"
+    # ✅ BUILD 152: to_number יקבע דינמית לפי עסק פעיל (אם חסר)
     
     print(f"🔵 CREATE_LEAD_FROM_CALL - Starting for {from_number}, call_sid={call_sid}")
     
@@ -276,6 +275,11 @@ def incoming_call_preview():
     replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     
+    # ✅ BUILD 152: Dynamic phone from first active business
+    from server.models_sql import Business
+    preview_business = Business.query.filter_by(is_active=True).first() or Business.query.first()
+    preview_to_number = preview_business.phone_e164 if preview_business else "preview"
+    
     vr = VoiceResponse()
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
@@ -283,7 +287,7 @@ def incoming_call_preview():
         status_callback=f"https://{host}/webhook/stream_status"
     )
     stream.parameter(name="CallSid", value=call_sid)
-    stream.parameter(name="To", value="+97233763805")  # ✅ Fixed: correct number for business 1
+    stream.parameter(name="To", value=preview_to_number)  # ✅ BUILD 152: Dynamic from Business
     
     return _twiml(vr)
 
@@ -349,10 +353,13 @@ def incoming_call():
             # בדוק אם כבר קיים (למקרה של retry)
             existing = CallLog.query.filter_by(call_sid=call_sid).first()
             if not existing:
+                # ✅ BUILD 152: Dynamic to_number fallback (no hardcoded phone!)
+                fallback_to = to_number or (business.phone_e164 if business else None) or "unknown"
+                
                 call_log = CallLog(
                     call_sid=call_sid,
                     from_number=from_number,
-                    to_number=to_number or "+97233763805",
+                    to_number=fallback_to,  # ✅ BUILD 152: Dynamic, not hardcoded
                     business_id=business_id,
                     call_status="initiated",  # ✅ BUILD 90: Legacy field
                     status="initiated"
@@ -469,16 +476,17 @@ def handle_recording():
             if not call_log:
                 # Self-heal: צור fallback call_log
                 print(f"⚠️ handle_recording: Creating fallback call_log for {call_sid}")
-                # ✅ BUILD 98: שימוש בעסק פעיל ראשון
+                # ✅ BUILD 152: שימוש בעסק פעיל ראשון + טלפון דינמי
                 from server.models_sql import Business
                 biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
                 biz_id = biz.id if biz else 1
+                biz_phone = biz.phone_e164 if biz else "unknown"  # ✅ BUILD 152: Dynamic
                 print(f"📊 handle_recording fallback: business_id={biz_id}")
                 
                 call_log = CallLog(
                     call_sid=call_sid,
                     from_number="unknown",
-                    to_number="+97233763805",
+                    to_number=biz_phone,  # ✅ BUILD 152: Dynamic, not hardcoded
                     business_id=biz_id,
                     call_status="completed",  # ✅ BUILD 90: Legacy field
                     status="recorded"
@@ -567,16 +575,17 @@ def stream_status():
                 if not call_log:
                     # Self-heal: צור fallback call_log
                     print(f"⚠️ stream_status: Creating fallback call_log for {call_sid}")
-                    # ✅ BUILD 98: שימוש בעסק פעיל ראשון
+                    # ✅ BUILD 152: שימוש בעסק פעיל ראשון + טלפון דינמי
                     from server.models_sql import Business
                     biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
                     biz_id = biz.id if biz else 1
+                    biz_phone = biz.phone_e164 if biz else "unknown"  # ✅ BUILD 152: Dynamic
                     print(f"📊 stream_status fallback: business_id={biz_id}")
                     
                     call_log = CallLog(
                         call_sid=call_sid,
                         from_number="unknown",
-                        to_number="+97233763805",
+                        to_number=biz_phone,  # ✅ BUILD 152: Dynamic, not hardcoded
                         business_id=biz_id,
                         call_status="in-progress",  # ✅ BUILD 90: Legacy field
                         status="streaming"
