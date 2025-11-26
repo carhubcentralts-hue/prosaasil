@@ -87,35 +87,35 @@ function generateSearchResults(query: string, userRole: string, businessId?: num
         status: 'פוטנציאלי'
       }
     },
-    // Invoices
-    {
-      id: 'invoice-1',
-      type: 'invoice',
-      title: 'חשבונית #1001',
-      subtitle: 'לאה בן דוד',
-      description: 'עמלת תיווך דירה',
-      metadata: {
-        businessId: 1,
-        businessName: 'ProSaaS',
-        amount: 25000,
-        date: '15/12/2024',
-        status: 'שולם'
-      }
-    },
-    {
-      id: 'invoice-2',
-      type: 'invoice',
-      title: 'חשבונית #1002',
-      subtitle: 'דוד גרין',
-      description: 'שכירות משרד',
-      metadata: {
-        businessId: 1,
-        businessName: 'ProSaaS',
-        amount: 15000,
-        date: '20/12/2024',
-        status: 'ממתין'
-      }
-    },
+    // ⚠️ BILLING DISABLED - Invoices hidden until payments feature is activated
+    // {
+    //   id: 'invoice-1',
+    //   type: 'invoice',
+    //   title: 'חשבונית #1001',
+    //   subtitle: 'לאה בן דוד',
+    //   description: 'עמלת תיווך דירה',
+    //   metadata: {
+    //     businessId: 1,
+    //     businessName: 'ProSaaS',
+    //     amount: 25000,
+    //     date: '15/12/2024',
+    //     status: 'שולם'
+    //   }
+    // },
+    // {
+    //   id: 'invoice-2',
+    //   type: 'invoice',
+    //   title: 'חשבונית #1002',
+    //   subtitle: 'דוד גרין',
+    //   description: 'שכירות משרד',
+    //   metadata: {
+    //     businessId: 1,
+    //     businessName: 'ProSaaS',
+    //     amount: 15000,
+    //     date: '20/12/2024',
+    //     status: 'ממתין'
+    //   }
+    // },
     // Calls
     {
       id: 'call-1',

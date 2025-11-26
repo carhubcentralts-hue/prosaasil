@@ -651,7 +651,8 @@ export default function LeadsPage() {
                       >
                         <User className="w-4 h-4" />
                       </button>
-                      <button
+                      {/* ⚠️ BILLING DISABLED - Hidden until payments feature is activated */}
+                      {/* <button
                         onClick={(e) => {
                           e.stopPropagation();
                           navigate(`/app/billing?leadId=${lead.id}`);
@@ -661,7 +662,7 @@ export default function LeadsPage() {
                         title="הוצא חשבונית"
                       >
                         <Receipt className="w-4 h-4" />
-                      </button>
+                      </button> */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -732,7 +733,8 @@ export default function LeadsPage() {
                           <User className="w-3 h-3 ml-1" />
                           פרטים
                         </Button>
-                        <Button
+                        {/* ⚠️ BILLING DISABLED - Hidden until payments feature is activated */}
+                        {/* <Button
                           size="sm"
                           variant="secondary"
                           onClick={(e) => {
@@ -744,7 +746,7 @@ export default function LeadsPage() {
                         >
                           <Receipt className="w-3 h-3 ml-1" />
                           חשבונית
-                        </Button>
+                        </Button> */}
                         <Button
                           size="sm"
                           variant="secondary"
