@@ -183,6 +183,27 @@ export function UsersPage() {
     }
   };
 
+  const handleDeleteUser = async (user: SystemUser) => {
+    if (!window.confirm(`האם אתה בטוח שברצונך למחוק את המשתמש ${user.name}?`)) {
+      return;
+    }
+    
+    try {
+      const businessId = user.business_id || '0';
+      const response = await http.delete(`/api/admin/businesses/${businessId}/users/${user.id}`) as any;
+      
+      if (response && response.success) {
+        alert('המשתמש נמחק בהצלחה');
+        await loadUsers();
+      } else {
+        alert('שגיאה במחיקת המשתמש: ' + (response?.error || response?.message || 'שגיאה לא ידועה'));
+      }
+    } catch (error: any) {
+      console.error('Error deleting user:', error);
+      alert('שגיאה במחיקת המשתמש: ' + (error?.message || 'שגיאה לא ידועה'));
+    }
+  };
+
   const filteredUsers = users.filter(user => {
     const matchesSearch = searchQuery === '' || 
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -421,7 +442,13 @@ export function UsersPage() {
                           <Settings className="w-4 h-4" />
                         </Button>
                         {user.role !== 'admin' && (
-                          <Button variant="ghost" size="sm" title="מחיקה">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            title="מחיקה"
+                            onClick={() => handleDeleteUser(user)}
+                            data-testid={`button-delete-user-${user.id}`}
+                          >
                             <Trash2 className="w-4 h-4 text-red-500" />
                           </Button>
                         )}
@@ -509,7 +536,14 @@ export function UsersPage() {
                       הגדרות
                     </Button>
                     {user.role !== 'admin' && (
-                      <Button variant="ghost" size="sm" title="מחיקה" className="flex-1">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        title="מחיקה" 
+                        className="flex-1"
+                        onClick={() => handleDeleteUser(user)}
+                        data-testid={`button-delete-user-mobile-${user.id}`}
+                      >
                         <Trash2 className="w-4 h-4 mr-1 text-red-500" />
                         מחק
                       </Button>
