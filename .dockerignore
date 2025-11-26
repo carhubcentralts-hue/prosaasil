@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Documentation (not needed in production images)
+*.md
+!requirements.md
+
+# Development/Test files
+.env
+.env.local
+.env.development
+*.test.ts
+*.spec.ts
+tests/
+acceptance_test_runner.py
+curl_leads_test_suite.sh
+
+# Build artifacts and caches
+build/
+.pythonlibs/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+*.egg
+
+# Node modules (rebuilt during Docker build)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Credential placeholders (actual creds mounted at runtime)
+credentials/*.json
+!credentials/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Attached assets (user uploads - too large)
+attached_assets/
+
+# Replit-specific
+.replit
+replit.nix
+.upm/
+.cache/
+.config/

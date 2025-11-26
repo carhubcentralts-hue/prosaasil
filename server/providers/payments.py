@@ -74,6 +74,11 @@ def tranzila_create_link(biz, gw, amount_agorot: int, currency: str, payment_id:
     # ✅ BUILD 153 FINAL: Use PUBLIC_BASE_URL for production URLs (no hardcoded replit URLs!)
     public_base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     
+    # ✅ Guard: Require PUBLIC_BASE_URL in production to prevent invalid callback URLs
+    flask_env = os.getenv("FLASK_ENV", "production")
+    if not public_base and flask_env != "development":
+        return PayResult(False, error="PUBLIC_BASE_URL required for Tranzila payment callbacks in production")
+    
     base = f"https://direct.tranzila.com/{gw.tranzila_terminal}/iframenew.php"
     params = {
         "sum": f"{amount_agorot/100:.2f}",
