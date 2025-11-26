@@ -130,11 +130,61 @@ services:
       timeout: 10s
       retries: 3
 
+  # ===========================================
+  # n8n - Workflow Automation Platform
+  # ===========================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: prosaas-n8n
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # n8n Core Settings
+      N8N_HOST: 0.0.0.0
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_PATH: /n8n
+      WEBHOOK_URL: ${PUBLIC_BASE_URL}/n8n/
+      N8N_EDITOR_BASE_URL: ${PUBLIC_BASE_URL}/n8n/
+      
+      # Security
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-changeme}
+      
+      # Database (uses SQLite by default, can use Postgres)
+      DB_TYPE: sqlite
+      DB_SQLITE_DATABASE: /home/node/.n8n/database.sqlite
+      
+      # Timezone
+      TZ: ${TZ:-Asia/Jerusalem}
+      GENERIC_TIMEZONE: ${TZ:-Asia/Jerusalem}
+      
+      # Execution settings
+      EXECUTIONS_PROCESS: main
+      N8N_METRICS: "true"
+      
+      # CORS for webhooks
+      N8N_CORS_ORIGIN: ${PUBLIC_BASE_URL},https://*.replit.app,https://*.replit.dev
+      
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 # ===========================================
 # Volumes
 # ===========================================
 volumes:
   pgdata:
+    driver: local
+  n8n_data:
     driver: local
 
 # ===========================================

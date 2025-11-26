@@ -1,0 +1,24 @@
+# ===========================================
+# ProSaaS - n8n Workflow Automation
+# ===========================================
+# 
+# This is a simple wrapper Dockerfile for n8n
+# with custom configurations for ProSaaS
+#
+# ===========================================
+
+FROM n8nio/n8n:latest
+
+# Set environment defaults
+ENV N8N_HOST=0.0.0.0
+ENV N8N_PORT=5678
+ENV N8N_PROTOCOL=http
+ENV N8N_PATH=/n8n
+ENV GENERIC_TIMEZONE=Asia/Jerusalem
+
+# Expose n8n port
+EXPOSE 5678
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD wget -q --spider http://localhost:5678/healthz || exit 1
