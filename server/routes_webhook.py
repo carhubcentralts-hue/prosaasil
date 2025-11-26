@@ -8,6 +8,7 @@ from flask import Blueprint, request, jsonify
 from server.extensions import csrf
 from threading import Thread
 import time
+from server.services.n8n_integration import n8n_whatsapp_incoming, n8n_whatsapp_outgoing
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +265,15 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         incoming_msg.provider = 'baileys'
                         db.session.add(incoming_msg)
                         
+                        # 🔗 n8n: Send incoming message event (async, non-blocking)
+                        n8n_whatsapp_incoming(
+                            phone=phone_number,
+                            message=message_text,
+                            business_id=str(business_id),
+                            lead_id=lead.id if lead else None,
+                            lead_name=customer.name if customer else None
+                        )
+                        
                         # Save outgoing if sent
                         if send_result.get('status') == 'sent':
                             outgoing_msg = WhatsAppMessage()
@@ -276,6 +286,15 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                             outgoing_msg.provider = send_result.get('provider', 'baileys')
                             outgoing_msg.provider_message_id = send_result.get('message_id')
                             db.session.add(outgoing_msg)
+                            
+                            # 🔗 n8n: Send outgoing message event (async, non-blocking)
+                            n8n_whatsapp_outgoing(
+                                phone=phone_number,
+                                message=ai_response,
+                                business_id=str(business_id),
+                                lead_id=lead.id if lead else None,
+                                is_ai=True
+                            )
                         
                         # Update lead notes (FIXED: store full messages, not truncated)
                         new_note = f"[WhatsApp {timestamp}]: {message_text}\n[עוזר {timestamp}]: {ai_response}"  # ✅ עוזר!
