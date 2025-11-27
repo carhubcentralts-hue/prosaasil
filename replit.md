@@ -157,6 +157,31 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 - No cross-tenant data leakage possible
 - Each business has complete data isolation
 
+---
+
+# BUILD 156 - User Management & Phone Normalization Fixes
+
+**Date**: November 27, 2025
+
+## Fixes Applied
+
+### 1. Phone Number Normalization ✔
+- **FIXED**: `business_resolver.py` now normalizes phone numbers with spaces for comparison
+- Phone numbers like `+972 3 376 3805` now match correctly with incoming `+97233763805`
+- Both `phone_number` and `whatsapp_number` fields are normalized during comparison
+
+### 2. User Management Page Complete Overhaul ✔
+- **FIXED**: User creation now uses correct API endpoint `/api/admin/businesses/{id}/users`
+- **FIXED**: Business selection - system_admin gets all businesses, owner/admin gets their own business
+- **REMOVED**: Impersonation button (impersonation is only for businesses, not users)
+- **ADDED**: Bulk delete functionality with multi-select checkboxes
+- **FIXED**: Mobile view completely redesigned - responsive cards layout
+- **ADDED**: Password field in user creation form (was missing)
+
+### 3. API Response Handling ✔
+- **FIXED**: Correct parsing of `/api/admin/businesses` response (uses `items` field)
+- **FIXED**: Non-system-admins use their own business from session for user creation
+
 ## Status: READY FOR PRODUCTION
 
 ✅ All security checks passed  
@@ -166,3 +191,5 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 ✅ Domain configuration set to prosaas.pro
 ✅ Duplicate routes removed
 ✅ nginx WebSocket path fixed
+✅ User management page fully functional
+✅ Phone normalization working
