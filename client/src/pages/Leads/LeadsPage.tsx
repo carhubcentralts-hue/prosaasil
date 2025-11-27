@@ -798,7 +798,54 @@ export default function LeadsPage() {
 
       {/* Mobile Cards View - Hidden on Desktop */}
       {!loading && (
-        <div className="md:hidden space-y-4">
+        <div className="md:hidden space-y-3">
+          {/* Mobile Bulk Actions Bar */}
+          {selectedLeadIds.size > 0 && (
+            <div className="sticky top-0 z-20 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="w-5 h-5 text-red-600" />
+                <span className="font-medium text-red-800">{selectedLeadIds.size} נבחרו</span>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setSelectedLeadIds(new Set())}
+                  className="h-8 px-3 text-gray-600"
+                  data-testid="button-cancel-selection-mobile"
+                >
+                  <X className="w-4 h-4 ml-1" />
+                  בטל
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={handleBulkDelete}
+                  disabled={isDeleting}
+                  className="h-8 px-3 bg-red-600 hover:bg-red-700 text-white"
+                  data-testid="button-bulk-delete-mobile"
+                >
+                  <Trash2 className="w-4 h-4 ml-1" />
+                  מחק
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Select All for Mobile */}
+          {sortedLeads.length > 0 && (
+            <div className="flex items-center gap-2 px-2 py-2 bg-gray-50 rounded-lg">
+              <Checkbox
+                checked={selectedLeadIds.size === sortedLeads.length && sortedLeads.length > 0}
+                onCheckedChange={handleToggleSelectAll}
+                data-testid="checkbox-select-all-mobile"
+              />
+              <span className="text-sm text-gray-600">
+                {selectedLeadIds.size === sortedLeads.length ? 'בטל בחירת הכל' : 'בחר הכל'}
+              </span>
+            </div>
+          )}
+
           {sortedLeads.length === 0 ? (
             <Card className="p-8 text-center">
               <p className="text-gray-500 dark:text-gray-400" data-testid="no-leads-message">
@@ -809,24 +856,40 @@ export default function LeadsPage() {
             sortedLeads.map((lead) => (
               <div 
                 key={lead.id} 
-                className="cursor-pointer hover:shadow-md transition-shadow"
+                className={`cursor-pointer hover:shadow-md transition-shadow ${selectedLeadIds.has(lead.id) ? 'ring-2 ring-blue-500' : ''}`}
                 onClick={(e) => {
-                  // Only navigate if we're not clicking on status badge or action buttons
+                  // Only navigate if we're not clicking on status badge, checkbox, or action buttons
                   if (!e.defaultPrevented && editingStatus !== lead.id) {
                     navigate(`/app/leads/${lead.id}`);
                   }
                 }}
                 data-testid={`card-lead-mobile-${lead.id}`}
               >
-                <Card className="p-4 space-y-3">
-                {/* Header: Name and Status */}
-                <div className="flex items-start justify-between gap-3">
+                <Card className="p-3 space-y-2">
+                {/* Header: Checkbox, Name and Status */}
+                <div className="flex items-start gap-2">
+                  {/* Checkbox */}
+                  <div 
+                    className="flex-shrink-0 pt-1"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleToggleSelect(lead.id);
+                    }}
+                  >
+                    <Checkbox
+                      checked={selectedLeadIds.has(lead.id)}
+                      onCheckedChange={() => handleToggleSelect(lead.id)}
+                      data-testid={`checkbox-lead-mobile-${lead.id}`}
+                    />
+                  </div>
+                  
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-gray-900 dark:text-white text-base mb-1 truncate" data-testid={`text-name-mobile-${lead.id}`}>
+                    <h3 className="font-semibold text-gray-900 dark:text-white text-sm mb-0.5 truncate" data-testid={`text-name-mobile-${lead.id}`}>
                       {lead.full_name || `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || lead.display_phone || lead.phone_e164 || '—'}
                     </h3>
                     {lead.email && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400 truncate" data-testid={`text-email-mobile-${lead.id}`}>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate" data-testid={`text-email-mobile-${lead.id}`}>
                         {safe(lead.email)}
                       </p>
                     )}
@@ -896,24 +959,20 @@ export default function LeadsPage() {
                   </div>
                 </div>
 
-                {/* Contact Info */}
-                <div className="flex items-center gap-4 text-sm">
-                  <div className="flex items-center gap-2" data-testid={`text-phone-mobile-${lead.id}`}>
-                    <Phone className="w-4 h-4 text-gray-400" />
-                    <span dir="ltr" className="text-gray-700 dark:text-gray-300">
+                {/* Contact Info & Meta - Compact */}
+                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 px-6">
+                  <div className="flex items-center gap-1" data-testid={`text-phone-mobile-${lead.id}`}>
+                    <Phone className="w-3 h-3" />
+                    <span dir="ltr">
                       {lead.display_phone || lead.phone_e164 || lead.phone || 'ללא טלפון'}
                     </span>
                   </div>
-                </div>
-
-                {/* Meta Info */}
-                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
                     <span data-testid={`text-source-mobile-${lead.id}`}>
-                      מקור: {safe(lead.source) === 'call' || safe(lead.source) === 'phone' ? 'טלפון' : 
-                            safe(lead.source) === 'whatsapp' ? 'ווצאפ' :
-                            safe(lead.source) === 'form' || safe(lead.source) === 'website' ? 'טופס' :
-                            safe(lead.source) === 'manual' ? 'ידני' : safe(lead.source, 'לא ידוע')}
+                      {safe(lead.source) === 'call' || safe(lead.source) === 'phone' ? 'טלפון' : 
+                       safe(lead.source) === 'whatsapp' ? 'ווצאפ' :
+                       safe(lead.source) === 'form' || safe(lead.source) === 'website' ? 'טופס' :
+                       safe(lead.source) === 'manual' ? 'ידני' : safe(lead.source, '—')}
                     </span>
                     <span data-testid={`text-created-mobile-${lead.id}`}>
                       {new Date(lead.created_at).toLocaleDateString('he-IL')}
@@ -921,7 +980,7 @@ export default function LeadsPage() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
+                {/* Action Buttons - Simplified: Only WhatsApp, Call, Delete */}
                 <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
                   {(lead.phone || lead.phone_e164 || lead.display_phone) && (
                     <>
@@ -932,10 +991,10 @@ export default function LeadsPage() {
                           e.stopPropagation();
                           handleWhatsAppOpen(lead.phone || lead.phone_e164 || lead.display_phone || '');
                         }}
-                        className="flex-1 h-9 text-green-600 border-green-200 hover:bg-green-50"
+                        className="flex-1 h-8 text-xs text-green-600 border-green-200 hover:bg-green-50"
                         data-testid={`button-whatsapp-mobile-${lead.id}`}
                       >
-                        <MessageSquare className="w-4 h-4 ml-1" />
+                        <MessageSquare className="w-3.5 h-3.5 ml-1" />
                         ווצאפ
                       </Button>
                       <Button
@@ -945,51 +1004,26 @@ export default function LeadsPage() {
                           e.stopPropagation();
                           handleCall(lead.phone || lead.phone_e164 || lead.display_phone || '');
                         }}
-                        className="flex-1 h-9 text-blue-600 border-blue-200 hover:bg-blue-50"
+                        className="flex-1 h-8 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
                         data-testid={`button-call-mobile-${lead.id}`}
                       >
-                        <Phone className="w-4 h-4 ml-1" />
+                        <Phone className="w-3.5 h-3.5 ml-1" />
                         חייג
                       </Button>
                     </>
                   )}
                   <Button
                     size="sm"
-                    variant="secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/app/leads/${lead.id}`);
-                    }}
-                    className="flex-1 h-9 text-purple-600 border-purple-200 hover:bg-purple-50"
-                    data-testid={`button-details-fullpage-mobile-${lead.id}`}
-                  >
-                    <User className="w-4 h-4 ml-1" />
-                    צפה בלקוח
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/app/leads/${lead.id}`);
-                    }}
-                    className="flex-1 h-9 text-gray-600 border-gray-200 hover:bg-gray-50"
-                    data-testid={`button-edit-mobile-${lead.id}`}
-                  >
-                    <Edit className="w-4 h-4 ml-1" />
-                    ערוך
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
+                    variant="primary"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
                     }}
-                    className="h-9 px-3 text-red-600 border-red-200 hover:bg-red-50"
+                    className="h-8 px-3 text-xs bg-red-600 hover:bg-red-700 text-white"
                     data-testid={`button-delete-card-mobile-${lead.id}`}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-3.5 h-3.5 ml-1" />
+                    מחק
                   </Button>
                 </div>
                 </Card>
