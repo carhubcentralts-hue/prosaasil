@@ -192,39 +192,7 @@ def dashboard_activity():
         return jsonify({"error": "internal_server_error"}), 500
 
 # === ADMIN ENDPOINTS ===
-
-@api_adapter_bp.route('/api/admin/businesses', methods=['GET'])
-@require_api_auth(['admin', 'manager', 'system_admin', 'owner'])  # BUILD 137: Use proper decorator
-def admin_businesses():
-    """Get all businesses - admin and manager only"""
-    try:
-        businesses = Business.query.all()
-        
-        items = []
-        for business in businesses:
-            # Count active users for this business
-            active_users = User.query.filter_by(
-                business_id=business.id,
-                is_active=True
-            ).count()
-            
-            items.append({
-                "id": business.id,
-                "name": business.name,
-                "domain": f"{business.name.lower().replace(' ', '')}.co.il",  # Mock domain
-                "createdAt": business.created_at.isoformat() + "Z",
-                "activeUsers": active_users,
-                "status": "active" if business.is_active else "inactive"
-            })
-        
-        return jsonify({
-            "businesses": items,
-            "total": len(items)
-        })
-        
-    except Exception as e:
-        logger.error(f"Error in admin_businesses: {e}")
-        return jsonify({"error": "internal_server_error"}), 500
+# ✅ BUILD 155: Removed duplicate /api/admin/businesses - now handled by admin_bp in routes_admin.py
 
 @api_adapter_bp.route('/api/admin/stats', methods=['GET'])
 @require_api_auth(['admin', 'manager', 'system_admin', 'owner'])  # BUILD 137: Use proper decorator

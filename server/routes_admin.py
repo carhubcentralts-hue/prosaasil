@@ -187,71 +187,7 @@ def api_overview():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@admin_bp.get("/api/admin/kpis/calls")
-@require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
-def api_kpis_calls():
-    """Get calls KPI with date filtering"""
-    try:
-        # Get date range from query parameters
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        time_filter = request.args.get('time_filter', 'today')
-        
-        # Calculate date range
-        now = datetime.utcnow()
-        if time_filter == 'week':
-            date_start = (now - timedelta(days=7)).date()
-            date_end = now.date()
-        elif time_filter == 'month':
-            date_start = (now - timedelta(days=30)).date()
-            date_end = now.date()
-        elif time_filter == 'custom' and start_date and end_date:
-            date_start = datetime.strptime(start_date, '%Y-%m-%d').date()
-            date_end = datetime.strptime(end_date, '%Y-%m-%d').date()
-        else:  # today
-            date_start = now.date()
-            date_end = now.date()
-            
-        count = CallLog.query.filter(
-            func.date(CallLog.created_at) >= date_start,
-            func.date(CallLog.created_at) <= date_end
-        ).count()
-        return str(count)
-    except Exception as e:
-        return "0"
-
-@admin_bp.get("/api/admin/kpis/whatsapp")
-@require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
-def api_kpis_whatsapp():
-    """Get WhatsApp KPI with date filtering"""
-    try:
-        # Get date range from query parameters  
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-        time_filter = request.args.get('time_filter', 'today')
-        
-        # Calculate date range
-        now = datetime.utcnow()
-        if time_filter == 'week':
-            date_start = (now - timedelta(days=7)).date()
-            date_end = now.date()
-        elif time_filter == 'month':
-            date_start = (now - timedelta(days=30)).date()
-            date_end = now.date()
-        elif time_filter == 'custom' and start_date and end_date:
-            date_start = datetime.strptime(start_date, '%Y-%m-%d').date()
-            date_end = datetime.strptime(end_date, '%Y-%m-%d').date()  
-        else:  # today
-            date_start = now.date()
-            date_end = now.date()
-            
-        count = WhatsAppMessage.query.filter(
-            func.date(WhatsAppMessage.created_at) >= date_start,
-            func.date(WhatsAppMessage.created_at) <= date_end
-        ).count()
-        return str(count)
-    except Exception as e:
-        return "0"
+# ✅ BUILD 155: Removed duplicate KPI endpoints (calls/whatsapp) - unified versions at lines 443+
 
 @admin_bp.get("/api/admin/kpis/businesses")
 @require_api_auth(["system_admin"])  # BUILD 135: Global KPIs - system_admin only
@@ -443,7 +379,7 @@ def api_admin_kpis_overview():
 @admin_bp.get("/api/admin/kpis/calls")
 @require_api_auth(["system_admin"])  # BUILD 135: Global/tenant KPIs - system_admin only
 def api_admin_kpis_calls():
-    """Get calls KPIs - REAL DATA ONLY (duplicate endpoint, should be removed)"""
+    """Get calls KPIs - REAL DATA ONLY with optional tenant filtering"""
     try:
         from datetime import datetime, timedelta
         
@@ -472,7 +408,7 @@ def api_admin_kpis_calls():
 @admin_bp.get("/api/admin/kpis/whatsapp")
 @require_api_auth(["system_admin"])  # BUILD 135: Global/tenant KPIs - system_admin only
 def api_admin_kpis_whatsapp():
-    """Get WhatsApp KPIs - REAL DATA ONLY (duplicate endpoint, should be removed)"""
+    """Get WhatsApp KPIs - REAL DATA ONLY with optional tenant filtering"""
     try:
         from datetime import datetime, timedelta
         
