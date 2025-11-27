@@ -56,15 +56,12 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 break
         
         # חיפוש לקוח קיים או יצירת חדש
-        # ✅ קבלת business_id מה-call_log
+        # ✅ BUILD 155 FINAL: קבלת business_id מה-call_log - אין fallback!
         business_id = call_log.business_id if call_log else None
         if not business_id:
-            # ✅ BUILD 155: Fallback לעסק פעיל בלבד (אין fallback ל-1)
-            business = Business.query.filter_by(is_active=True).first()
-            if not business:
-                print(f"❌ No active business found - cannot create appointment")
-                return {'success': False, 'reason': 'לא נמצא עסק פעיל במערכת'}
-            business_id = business.id
+            # ✅ BUILD 155 SECURITY: NO fallback - must have deterministic business_id
+            print(f"❌ Cannot resolve business_id for call {call_sid} - no fallback allowed (multi-tenant security)")
+            return {'success': False, 'reason': 'לא ניתן לזהות את העסק - נדרש business_id'}
         
         if phone_number:
             # ✅ FIX: Query by phone_e164 not phone (correct column name)
