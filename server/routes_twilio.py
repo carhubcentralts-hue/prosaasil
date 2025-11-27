@@ -306,17 +306,24 @@ def voice_webhook():
     return incoming_call()
 
 @csrf.exempt
-@twilio_bp.route("/webhook/incoming_call", methods=["POST"])
+@twilio_bp.route("/webhook/incoming_call", methods=["POST", "GET"])
 @require_twilio_signature
 def incoming_call():
     """
     ✅ BUILD 89: צור call_log מיד + TwiML with Twilio SDK + Parameter (CRITICAL!)
+    ✅ BUILD 155: Support both GET and POST (Twilio may use either)
     """
     start_time = time.time()
     
-    call_sid = request.form.get("CallSid", "")
-    from_number = request.form.get("From", "")
-    to_number = request.form.get("To", "")
+    # ✅ BUILD 155: Support both GET (query params) and POST (form data)
+    if request.method == "GET":
+        call_sid = request.args.get("CallSid", "")
+        from_number = request.args.get("From", "")
+        to_number = request.args.get("To", "")
+    else:
+        call_sid = request.form.get("CallSid", "")
+        from_number = request.form.get("From", "")
+        to_number = request.form.get("To", "")
     
     # ✅ BUILD 100: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_e164 (העמודה האמיתית!)
     from server.models_sql import Business

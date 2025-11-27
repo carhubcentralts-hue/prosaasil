@@ -132,6 +132,11 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 - **ADDED**: CSRF exemption to `/webhook/test` endpoint
 - **VERIFIED**: All webhooks also have `@require_twilio_signature` for security
 
+### 11. Twilio GET Support ✔
+- **FIXED**: `/webhook/incoming_call` now supports both GET and POST methods
+- **REASON**: Twilio may send GET requests to voice webhooks (depending on configuration)
+- **ADDED**: Proper parameter extraction for both `request.args` (GET) and `request.form` (POST)
+
 ## Multi-Tenant Phone Identification Flow
 
 ### How it works:

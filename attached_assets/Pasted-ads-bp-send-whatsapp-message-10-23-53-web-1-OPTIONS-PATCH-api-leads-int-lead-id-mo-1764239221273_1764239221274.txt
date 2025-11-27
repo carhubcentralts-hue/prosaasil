@@ -1,0 +1,470 @@
+ads_bp.send_whatsapp_message
+10:23:53 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/move -> leads_bp.move_lead_in_kanban
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders -> leads_bp.get_lead_reminders
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/reminders -> leads_bp.create_reminder
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.get_reminder
+10:23:53 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/<int:lead_id>/reminders/<int:reminder_id> -> leads_bp.update_reminder
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/leads/<int:lead_id>/status -> leads_bp.update_lead_status
+10:23:53 web.1     |   {'OPTIONS', 'PATCH'} /api/leads/bulk -> leads_bp.bulk_update_leads
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/leads/bulk-delete -> leads_bp.bulk_delete_leads
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/notifications -> leads_bp.get_notifications
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/receipts -> receipts_contracts.list_receipts
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/receipts -> receipts_contracts.create_receipt
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/reminders -> leads_bp.get_all_reminders
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/reminders -> leads_bp.create_general_reminder
+10:23:53 web.1     |   {'OPTIONS', 'PATCH'} /api/reminders/<int:reminder_id> -> leads_bp.update_general_reminder
+10:23:53 web.1     |   {'OPTIONS', 'DELETE'} /api/reminders/<int:reminder_id> -> leads_bp.delete_general_reminder
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/reminders/due -> leads_bp.get_due_reminders
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/search -> crm_bp.global_search
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/statuses -> status_management.get_business_statuses
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/statuses -> status_management.create_status
+10:23:53 web.1     |   {'OPTIONS', 'PUT'} /api/statuses/<int:status_id> -> status_management.update_status
+10:23:53 web.1     |   {'OPTIONS', 'DELETE'} /api/statuses/<int:status_id> -> status_management.delete_status
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/statuses/reorder -> status_management.reorder_statuses
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/ui/login -> ui.api_login
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD', 'POST'} /api/ui/logout -> ui.api_logout
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/ai-state -> whatsapp.set_ai_state
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/ai-state -> whatsapp.get_ai_state
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/ai-state/<phone_number> -> whatsapp.get_ai_state_for_conversation
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/contacts -> whatsapp.api_wa_contacts
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/conversation/<phone_number> -> whatsapp.get_conversation
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/disconnect -> whatsapp.disconnect
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/messages -> whatsapp.api_wa_messages
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/prompts/<int:business_id> -> whatsapp.save_whatsapp_prompt
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/qr -> whatsapp.qr
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/reset -> whatsapp.reset
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/send -> whatsapp.send_manual_message
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/start -> whatsapp.start
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/stats -> whatsapp.api_wa_stats
+10:23:53 web.1     |   {'OPTIONS', 'GET', 'HEAD'} /api/whatsapp/status -> whatsapp.status
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/toggle-ai -> whatsapp.toggle_ai_for_conversation
+10:23:53 web.1     |   {'OPTIONS', 'POST'} /api/whatsapp/webhook/incoming -> whatsapp.baileys_webhook
+10:23:53 web.1     | ================
+10:23:53 web.1     | ✅ Simple SPA routes registered (no blueprint)
+10:23:54 web.1     | 🔧 [BACKGROUND] Running migrations...🔧 [BACKGROUND] Running migrations...
+10:23:54 web.1     | 
+10:23:54 web.1     | 🔥🔥🔥 WARMUP STARTING - Preloading all services...
+10:23:54 web.1     | 🔥🔥🔥 WARMUP STARTING - Preloading all services...
+10:23:54 web.1     |   🔥 Warming OpenAI client...  🔥 Warming OpenAI client...
+10:23:54 web.1     | 
+10:23:55 web.1     | ================================================================================================================================================================
+10:23:55 web.1     | 
+10:23:55 web.1     | 🔥 STARTING TTS PRE-WARMUP...
+10:23:55 web.1     | 🔥 STARTING TTS PRE-WARMUP...
+10:23:55 web.1     |     ✅ OpenAI client ready
+10:23:55 web.1     |   🔥 Warming Google TTS client...
+10:23:55 web.1     |     ✅ TTS client ready
+10:23:55 web.1     |     ✅ OpenAI client ready
+10:23:55 web.1     |   🔥 Warming Google TTS client...
+10:23:55 web.1     |     ✅ TTS client ready
+10:23:55 web.1     |   🔥 Warming Google STT client...
+10:23:55 web.1     |   🔥 Warming Google STT client...
+10:23:55 web.1     | 🔒 LAYER 1 (BEFORE): 0 FAQs in database
+10:23:55 web.1     | 🔒 LAYER 1 (BEFORE): 0 FAQs in database
+10:23:55 web.1     | ❌ TTS prewarm EXCEPTION: TTS synthesis failed during warmup
+10:23:55 web.1     | ❌ TTS prewarm EXCEPTION: TTS synthesis failed during warmup
+10:23:55 web.1     | Traceback: Traceback (most recent call last):
+10:23:55 web.1     |   File "/home/runner/workspace/server/app_factory.py", line 862, in create_app
+10:23:55 web.1     |     success = maybe_warmup()
+10:23:55 web.1     |               ^^^^^^^^^^^^^^
+10:23:55 web.1     |   File "/home/runner/workspace/server/services/gcp_tts_live.py", line 262, in maybe_warmup
+10:23:55 web.1     |     raise RuntimeError("TTS synthesis failed during warmup")
+10:23:55 web.1     | RuntimeError: TTS synthesis failed during warmup
+10:23:55 web.1     | 
+10:23:55 web.1     | Traceback: Traceback (most recent call last):
+10:23:55 web.1     |   File "/home/runner/workspace/server/app_factory.py", line 862, in create_app
+10:23:55 web.1     |     success = maybe_warmup()
+10:23:55 web.1     |               ^^^^^^^^^^^^^^
+10:23:55 web.1     |   File "/home/runner/workspace/server/services/gcp_tts_live.py", line 262, in maybe_warmup
+10:23:55 web.1     |     raise RuntimeError("TTS synthesis failed during warmup")
+10:23:55 web.1     | RuntimeError: TTS synthesis failed during warmup
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 
+10:23:55 web.1     | 🔥 Starting agent warmup...
+10:23:55 web.1     | 
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 
+10:23:55 web.1     | 🔥 Starting agent warmup...
+10:23:55 web.1     | 
+10:23:55 web.1     | 🔥 WARMUP: Pre-creating agents for active businesses...
+10:23:55 web.1     | 
+10:23:55 web.1     | 🔥 WARMUP: Pre-creating agents for active businesses...
+10:23:55 web.1     | ✅ Agent warmup started in background thread (with app context)
+10:23:55 web.1     | ✅ Agent warmup started in background thread (with app context)
+10:23:55 web.1     | ✅ App singleton set - future calls will reuse this instance
+10:23:55 web.1     | 
+10:23:55 web.1     | 🗑️ Starting automatic recording cleanup scheduler...
+10:23:55 web.1     | 🗑️ Starting automatic recording cleanup scheduler...
+10:23:55 web.1     | 
+10:23:55 web.1     | 🗑️ Recording cleanup scheduler started (runs every 6 hours)🗑️ Recording cleanup scheduler started (runs every 6 hours)
+10:23:55 web.1     | 
+10:23:55 web.1     | ✅ Recording cleanup scheduler started (7-day retention, runs every 6 hours)
+10:23:55 web.1     | ✅ Flask app created
+10:23:55 web.1     | ✅ LazyASGI: Flask app wrapped in ASGI🔒 LAYER 1 (BEFORE): 55 leads in database
+10:23:55 web.1     | 🔒 LAYER 1 (BEFORE): 55 leads in database
+10:23:55 web.1     | 
+10:23:55 web.1     | ✅ Recording cleanup scheduler started (7-day retention, runs every 6 hours)
+10:23:55 web.1     | ✅ Flask app created
+10:23:55 web.1     | ✅ [WARMUP] Flask app ready for Realtime calls
+10:23:55 web.1     | INFO:     172.31.102.194:59716 - "GET / HTTP/1.1" 200 OK
+10:23:55 web.1     |     ✅ STT client ready    ✅ STT client ready
+10:23:55 web.1     | 
+10:23:55 web.1     | 📊 Found 2 businesses to warm up📊 Found 2 businesses to warm up
+10:23:55 web.1     | 📋 PROMPT LOADING: business_id=10, channel=calls, custom_instructions provided=False
+10:23:55 web.1     | 
+10:23:55 web.1     | 📋 LOADING PROMPT: business_id=10, business_name=שישישי
+10:23:55 web.1     | ✅ Loaded calls prompt from DB for business=10 (53 chars)
+10:23:55 web.1     | 📝 PROMPT PREVIEW: אתה עוזר AI למכירות נדל"ן. שמור על שיחה קצרה וממוקדת....
+10:23:55 web.1     | 🔨 CALLING create_booking_agent(business_id=10, channel=calls)
+10:23:55 web.1     | 
+10:23:55 web.1     | ✅ Using DB prompt for שישישי (53 chars)
+10:23:55 web.1     |    System rules: 4173 chars (prepended)
+10:23:55 web.1     |    DB prompt: 53 chars
+10:23:55 web.1     |    = Total: 4226 chars
+10:23:55 web.1     | 
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+10:23:55 web.1     | TODAY: 2025-11-27 12:23 (Israel)
+10:23:55 web.1     | TOMORROW: 2025-11-28
+10:23:55 web.1     | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+10:23:55 web.1     | 
+10:23:55 web.1     | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+10:23:55 web.1     | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+10:23:55 web.1     | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+10:23:55 web.1     | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+10:23:55 web.1     | 4. 🔥 BUILD 112: 
+10:23:55 web.1     | ...
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 📅 Today calculated as: 2025-11-27 (Thursday)
+10:23:55 web.1     | 📅 Tomorrow calculated as: 2025-11-28
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 
+10:23:55 web.1     | ✅ create_booking_agent RETURNED: True
+10:23:55 web.1     | ⏱️  AGENT_CREATION_TIME: 109ms
+10:23:55 web.1     | ✅ Warmed: שישישי (calls)
+10:23:55 web.1     | 📋 PROMPT LOADING: business_id=10, channel=whatsapp, custom_instructions provided=False
+10:23:55 web.1     |   🔥 Warming 2 active businesses (Agent Cache)...
+10:23:55 web.1     |   🔥 Warming 2 active businesses (Agent Cache)...
+10:23:55 web.1     | 📋 LOADING PROMPT: business_id=10, business_name=שישישי
+10:23:55 web.1     | ✅ Loaded whatsapp prompt from DB for business=10 (58 chars)
+10:23:55 web.1     | 📝 PROMPT PREVIEW: אתה עוזר AI למכירות נדל"ן ב-WhatsApp. היה ידידותי ומקצועי....
+10:23:55 web.1     | 🔨 CALLING create_booking_agent(business_id=10, channel=whatsapp)
+10:23:55 web.1     | 
+10:23:55 web.1     | ✅ Using DB prompt for שישישי (58 chars)
+10:23:55 web.1     |    System rules: 4173 chars (prepended)
+10:23:55 web.1     |    DB prompt: 58 chars
+10:23:55 web.1     |    = Total: 4231 chars
+10:23:55 web.1     | 
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+10:23:55 web.1     | TODAY: 2025-11-27 12:23 (Israel)
+10:23:55 web.1     | TOMORROW: 2025-11-28
+10:23:55 web.1     | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+10:23:55 web.1     | 
+10:23:55 web.1     | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+10:23:55 web.1     | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+10:23:55 web.1     | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+10:23:55 web.1     | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+10:23:55 web.1     | 4. 🔥 BUILD 112: 
+10:23:55 web.1     | ...
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 📅 Today calculated as: 2025-11-27 (Thursday)
+10:23:55 web.1     | 📅 Tomorrow calculated as: 2025-11-28
+10:23:55 web.1     | ================================================================================
+10:23:55 web.1     | 
+10:23:55 web.1     | ✅ create_booking_agent RETURNED: True
+10:23:55 web.1     | ⏱️  AGENT_CREATION_TIME: 75ms
+10:23:55 web.1     | ✅ Warmed: שישישי (calls)
+10:23:55 web.1     | ✅ Warmed: שישישי (whatsapp)
+10:23:55 web.1     | 📋 PROMPT LOADING: business_id=1, channel=calls, custom_instructions provided=False
+10:23:55 web.1     | ✅ Warmed: שישישי (whatsapp)
+10:23:56 web.1     | INFO:     172.31.102.194:59716 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+10:23:56 web.1     | 📋 LOADING PROMPT: business_id=1, business_name=שי דירות ומשרדים בע״מ
+10:23:56 web.1     | ✅ Loaded calls prompt from DB for business=1 (1729 chars)
+10:23:56 web.1     | 📝 PROMPT PREVIEW: )
+10:23:56 web.1     | 
+10:23:56 web.1     | שם הסוכן: דניאל
+10:23:56 web.1     | תפקיד: נציג שירות ומכירות של חברת פרוסרוויס פתרונות לבית ולמשרד
+10:23:56 web.1     | אופי דיבור: אנושי...
+10:23:56 web.1     | 🔨 CALLING create_booking_agent(business_id=1, channel=calls)
+10:23:56 web.1     | 
+10:23:56 web.1     | ✅ Using DB prompt for שי דירות ומשרדים בע״מ (1729 chars)
+10:23:56 web.1     |    System rules: 4173 chars (prepended)
+10:23:56 web.1     |    DB prompt: 1729 chars
+10:23:56 web.1     |    = Total: 5902 chars
+10:23:56 web.1     | 
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+10:23:56 web.1     | TODAY: 2025-11-27 12:23 (Israel)
+10:23:56 web.1     | TOMORROW: 2025-11-28
+10:23:56 web.1     | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+10:23:56 web.1     | 
+10:23:56 web.1     | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+10:23:56 web.1     | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+10:23:56 web.1     | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+10:23:56 web.1     | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+10:23:56 web.1     | 4. 🔥 BUILD 112: 
+10:23:56 web.1     | ...
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 📅 Today calculated as: 2025-11-27 (Thursday)
+10:23:56 web.1     | 📅 Tomorrow calculated as: 2025-11-28
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 
+10:23:56 web.1     | ✅ create_booking_agent RETURNED: True
+10:23:56 web.1     | ⏱️  AGENT_CREATION_TIME: 78ms
+10:23:56 web.1     |   ✅ שישישי (calls): 114ms
+10:23:56 web.1     |   ✅ שישישי (calls): 114ms
+10:23:56 web.1     | ✅ Warmed: שי דירות ומשרדים בע״מ (calls)
+10:23:56 web.1     | 📋 PROMPT LOADING: business_id=1, channel=whatsapp, custom_instructions provided=False
+10:23:56 web.1     | ✅ Warmed: שי דירות ומשרדים בע״מ (calls)
+10:23:56 web.1     | 📋 LOADING PROMPT: business_id=1, business_name=שי דירות ומשרדים בע״מ
+10:23:56 web.1     | ✅ Loaded whatsapp prompt from DB for business=1 (997 chars)
+10:23:56 web.1     | 📝 PROMPT PREVIEW: אתה "לאה", סוכנת WhatsApp של שי נדל"ן.
+10:23:56 web.1     | 
+10:23:56 web.1     | 🎯 המשימה שלך:
+10:23:56 web.1     | - לעזור ללקוחות למצוא נכס
+10:23:56 web.1     | - לאסוף מידע: אזור, ...
+10:23:56 web.1     | 🔨 CALLING create_booking_agent(business_id=1, channel=whatsapp)
+10:23:56 web.1     | 
+10:23:56 web.1     | ✅ Using DB prompt for שי דירות ומשרדים בע״מ (997 chars)
+10:23:56 web.1     |    System rules: 4173 chars (prepended)
+10:23:56 web.1     |    DB prompt: 997 chars
+10:23:56 web.1     |    = Total: 5170 chars
+10:23:56 web.1     | 
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+10:23:56 web.1     | TODAY: 2025-11-27 12:23 (Israel)
+10:23:56 web.1     | TOMORROW: 2025-11-28
+10:23:56 web.1     | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+10:23:56 web.1     | 
+10:23:56 web.1     | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+10:23:56 web.1     | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+10:23:56 web.1     | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+10:23:56 web.1     | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+10:23:56 web.1     | 4. 🔥 BUILD 112: 
+10:23:56 web.1     | ...
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 📅 Today calculated as: 2025-11-27 (Thursday)
+10:23:56 web.1     | 📅 Tomorrow calculated as: 2025-11-28
+10:23:56 web.1     | ================================================================================
+10:23:56 web.1     | 
+10:23:56 web.1     | ✅ create_booking_agent RETURNED: True
+10:23:56 web.1     | ⏱️  AGENT_CREATION_TIME: 70ms
+10:23:56 web.1     | ✅ Warmed: שי דירות ומשרדים בע״מ (whatsapp)
+10:23:56 web.1     | 
+10:23:56 web.1     | 🎉 WARMUP COMPLETE: 4 agents ready in 594ms
+10:23:56 web.1     | ✅ Warmed: שי דירות ומשרדים בע״מ (whatsapp)
+10:23:56 web.1     | 
+10:23:56 web.1     | 🎉 WARMUP COMPLETE: 4 agents ready in 594ms
+10:23:56 web.1     |   ✅ שישישי (whatsapp): 51ms  ✅ שישישי (whatsapp): 50ms
+10:23:56 web.1     | 
+10:23:56 web.1     |   ✅ שי דירות ומשרדים בע״מ (calls): 0ms
+10:23:56 web.1     |   ✅ שי דירות ומשרדים בע״מ (calls): 0ms
+10:23:56 web.1     |   ✅ שי דירות ומשרדים בע״מ (whatsapp): 0ms
+10:23:56 web.1     | 
+10:23:56 web.1     | 🔥🔥🔥 WARMUP COMPLETE: 4/4 agents ready in 250ms
+10:23:56 web.1     | 🚀 System preheated - First AI response will be FAST!
+10:23:56 web.1     | 
+10:23:56 web.1     |   ✅ שי דירות ומשרדים בע״מ (whatsapp): 0ms
+10:23:56 web.1     | 
+10:23:56 web.1     | 🔥🔥🔥 WARMUP COMPLETE: 4/4 agents ready in 254ms
+10:23:56 web.1     | 🚀 System preheated - First AI response will be FAST!
+10:23:56 web.1     | 
+10:23:56 web.1     | ✅ Service warmup thread completed
+10:23:56 web.1     | INFO:     172.31.102.194:59716 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+10:23:56 web.1     | ✅ Service warmup thread completed
+10:23:57 web.1     | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+10:23:57 web.1     | ✅ DATA PROTECTION: 55 leads preserved (no deletions)
+10:23:57 web.1     | ✅ [BACKGROUND] Migrations applied
+10:23:57 web.1     | 🔄 Starting admin roles migration...
+10:23:57 web.1     | 📊 Found 1 users with legacy roles
+10:23:57 web.1     | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+10:23:57 web.1     | 
+10:23:57 web.1     | ✅ Successfully migrated 1 users to new role structure!
+10:23:57 web.1     | ✅ [BACKGROUND] Admin roles migrated
+10:23:57 web.1     | 👤 Admin exists (ID=8), resetting password to 'admin123'
+10:23:57 web.1     | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+10:23:58 web.1     | ✅ DATA PROTECTION: 55 leads preserved (no deletions)
+10:23:58 web.1     | ✅ [BACKGROUND] Migrations applied
+10:23:58 web.1     | 🔄 Starting admin roles migration...
+10:23:58 web.1     | ✅ Admin password reset: admin@admin.com / admin123
+10:23:58 web.1     | 🔧 Starting database initialization...
+10:23:58 web.1     | 📊 Found 1 users with legacy roles
+10:23:58 web.1     | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+10:23:58 web.1     | 
+10:23:58 web.1     | ✅ Successfully migrated 1 users to new role structure!
+10:23:58 web.1     | ✅ [BACKGROUND] Admin roles migrated
+10:23:58 web.1     | ✅ Business exists: שישישי (ID: 10)
+10:23:58 web.1     | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+10:23:58 web.1     | 
+10:23:58 web.1     | 📊 Total users in database: 5
+10:23:58 web.1     |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+10:23:58 web.1     |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+10:23:58 web.1     |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+10:23:58 web.1     |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+10:23:58 web.1     |   - User 8: admin@admin.com | role=system_admin | business_id=None
+10:23:58 web.1     | ✅ Lead statuses exist: 7 statuses found
+10:23:58 web.1     | ✅ FAQs table exists: 0 FAQs found across all businesses
+10:23:58 web.1     | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+10:23:58 web.1     | 👥 Checking user ownership...
+10:23:58 web.1     | 🔄 Starting User-to-Owner migration...
+10:23:58 web.1     | 📊 Found 2 businesses
+10:23:58 web.1     | ⚠️  Business 'שישישי' (ID=10) has NO users
+10:23:58 web.1     |    → Admin must create owner via UI: /app/admin/businesses
+10:23:58 web.1     | ✅ Business 'שי דירות ומשרדים בע״מ' (ID=1) already has owner: business@shai-offices.co.il
+10:23:58 web.1     | 
+10:23:58 web.1     | ✅ User-to-Owner migration completed!
+10:23:58 web.1     | 
+10:23:58 web.1     | ⚠️  1 businesses need manual owner creation:
+10:23:58 web.1     |    - שישישי (ID=10)
+10:23:58 web.1     | 
+10:23:58 web.1     |    → Login as system_admin and use BusinessUsersModal to create owners
+10:23:58 web.1     | ✅ User ownership check completed
+10:23:58 web.1     | ✅ Database initialization completed successfully!
+10:23:58 web.1     | 📧 Admin login: admin@admin.com / admin123
+10:23:58 web.1     | 🏢 Business ID: 10
+10:23:58 web.1     | ✅ [BACKGROUND] DB initialized successfully
+10:23:58 web.1     | 👤 Admin exists (ID=8), resetting password to 'admin123'
+10:23:58 web.1     | ✅ Admin password reset: admin@admin.com / admin123
+10:23:58 web.1     | 🔧 Starting database initialization...
+10:23:58 web.1     | ✅ Business exists: שישישי (ID: 10)
+10:23:58 web.1     | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+10:23:58 web.1     | 
+10:23:58 web.1     | 📊 Total users in database: 5
+10:23:58 web.1     |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+10:23:58 web.1     |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+10:23:58 web.1     |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+10:23:58 web.1     |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+10:23:58 web.1     |   - User 8: admin@admin.com | role=system_admin | business_id=None
+10:23:58 web.1     | ✅ Lead statuses exist: 7 statuses found
+10:23:58 web.1     | ✅ FAQs table exists: 0 FAQs found across all businesses
+10:23:58 web.1     | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+10:23:58 web.1     | 👥 Checking user ownership...
+10:23:58 web.1     | 🔄 Starting User-to-Owner migration...
+10:23:58 web.1     | 📊 Found 2 businesses
+10:23:59 web.1     | ⚠️  Business 'שישישי' (ID=10) has NO users
+10:23:59 web.1     |    → Admin must create owner via UI: /app/admin/businesses
+10:23:59 web.1     | ✅ Business 'שי דירות ומשרדים בע״מ' (ID=1) already has owner: business@shai-offices.co.il
+10:23:59 web.1     | 
+10:23:59 web.1     | ✅ User-to-Owner migration completed!
+10:23:59 web.1     | 
+10:23:59 web.1     | ⚠️  1 businesses need manual owner creation:
+10:23:59 web.1     |    - שישישי (ID=10)
+10:23:59 web.1     | 
+10:23:59 web.1     |    → Login as system_admin and use BusinessUsersModal to create owners
+10:23:59 web.1     | ✅ User ownership check completed
+10:23:59 web.1     | ✅ Database initialization completed successfully!
+10:23:59 web.1     | 📧 Admin login: admin@admin.com / admin123
+10:23:59 web.1     | 🏢 Business ID: 10
+10:23:59 web.1     | ✅ [BACKGROUND] DB initialized successfully
+10:24:16 web.1     | 🔐 LOGIN ATTEMPT: email=freezeb123@gmail.com
+10:24:17 web.1     | ✓ Found user: id=9, email=freezeb123@gmail.com, role=owner
+10:24:17 web.1     | ✓ Password hash: scrypt:32768:8:1$orTTirCs2vzSHaPs$405d47e27c9f2abf...
+10:24:17 web.1     | ✓ Password verification result: False
+10:24:17 web.1     | ❌ LOGIN: Invalid password for email=freezeb123@gmail.com
+10:24:17 web.1     | INFO:     172.31.102.194:59716 - "POST /api/auth/login HTTP/1.1" 401 Unauthorized
+10:24:33 web.1     | 🔐 LOGIN ATTEMPT: email=admin@admin.com
+10:24:33 web.1     | ✓ Found user: id=8, email=admin@admin.com, role=system_admin
+10:24:33 web.1     | ✓ Password hash: scrypt:32768:8:1$bTLyagZ1ke4HhWOM$489afbf67657e40d...
+10:24:33 web.1     | ✓ Password verification result: True
+10:24:34 web.1     | 🔍 LOGIN SUCCESS: user_id=8, email=admin@admin.com, role=system_admin, business_id=None
+10:24:34 web.1     | INFO:     172.31.102.194:59716 - "POST /api/auth/login HTTP/1.1" 200 OK
+10:24:34 web.1     | INFO:     172.31.102.194:59716 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+10:24:34 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:34 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:24:34 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:24:34 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:24:34 web.1     | 🔔 Found 1 reminders
+10:24:34 web.1     | INFO:     172.31.102.194:59716 - "GET /api/notifications HTTP/1.1" 200 OK
+10:24:34 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:35 web.1     | INFO:     172.31.102.194:59716 - "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 200 OK
+10:24:35 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:35 web.1     | INFO:     172.31.102.194:59716 - "GET /api/admin/phone-numbers HTTP/1.1" 200 OK
+10:24:35 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:35 web.1     | INFO:     172.31.102.194:53064 - "GET /api/leads?pageSize=5 HTTP/1.1" 200 OK
+10:24:35 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:36 web.1     | INFO:     172.31.102.194:53066 - "GET /api/admin/overview?time_filter=today&start_date=2025-11-27&end_date=2025-11-27 HTTP/1.1" 200 OK
+10:24:43 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:43 web.1     | INFO:     172.31.102.194:53064 - "GET /api/admin/businesses HTTP/1.1" 200 OK
+10:24:50 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:51 web.1     | INFO:     172.31.102.194:53064 - "GET /api/admin/businesses/1/overview HTTP/1.1" 200 OK
+10:24:53 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:54 web.1     | INFO:     172.31.102.194:53064 - "GET /api/admin/businesses HTTP/1.1" 200 OK
+10:24:58 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:24:58 web.1     | INFO:     172.31.102.194:53064 - "GET /api/admin/businesses/1/users HTTP/1.1" 200 OK
+10:25:04 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:25:04 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:25:04 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:25:04 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:25:04 web.1     | 🔔 Found 1 reminders
+10:25:04 web.1     | INFO:     172.31.102.194:53064 - "GET /api/notifications HTTP/1.1" 200 OK
+10:25:05 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:25:05 web.1     | INFO:     172.31.102.194:53064 - "GET /api/admin/businesses HTTP/1.1" 200 OK
+10:25:10 web.1     | INFO:     172.31.102.194:53064 - "GET /app/admin/businesses HTTP/1.1" 200 OK
+10:25:10 web.1     | INFO:     172.31.102.194:59716 - "GET /assets/index-Bj57IFa1.js HTTP/1.1" 200 OK
+10:25:10 web.1     | INFO:     172.31.102.194:53064 - "GET /assets/index-DtrRrAr2.css HTTP/1.1" 200 OK
+10:25:11 web.1     | INFO:     172.31.102.194:59716 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+10:25:11 web.1     | INFO:     172.31.102.194:53064 - "GET /favicon.ico HTTP/1.1" 200 OK
+10:25:11 web.1     | INFO:     172.31.102.194:53064 - "GET /api/auth/me HTTP/1.1" 200 OK
+10:25:12 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:25:12 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:25:12 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:25:12 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:25:12 web.1     | 🔔 Found 1 reminders
+10:25:12 web.1     | INFO:     172.31.102.194:53064 - "GET /api/notifications HTTP/1.1" 200 OK
+10:25:12 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:25:12 web.1     | INFO:     172.31.102.194:59716 - "GET /api/admin/businesses HTTP/1.1" 200 OK
+10:25:34 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:25:34 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:25:34 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:25:34 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:25:34 web.1     | 🔔 Found 1 reminders
+10:25:34 web.1     | INFO:     172.31.102.194:59716 - "GET /api/notifications HTTP/1.1" 200 OK
+10:25:42 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:25:42 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:25:42 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:25:42 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:25:42 web.1     | 🔔 Found 1 reminders
+10:25:42 web.1     | INFO:     172.31.102.194:59716 - "GET /api/notifications HTTP/1.1" 200 OK
+10:26:04 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:26:04 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:26:04 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:26:04 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:26:04 web.1     | 🔔 Found 1 reminders
+10:26:04 web.1     | INFO:     172.31.102.194:59716 - "GET /api/notifications HTTP/1.1" 200 OK
+10:26:12 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:26:12 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:26:12 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:26:12 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:26:12 web.1     | 🔔 Found 1 reminders
+10:26:12 web.1     | INFO:     172.31.102.194:59716 - "GET /api/notifications HTTP/1.1" 200 OK
+10:26:25 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CA6425bbcf57240bfb7e45a0e99422a5aa&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0E2NDI1YmJjZjU3MjQwYmZiN2U0NWEwZTk5NDIyYTVhYSIsImZyb20iOiIrOTcyNTA0Mjk0NzI0IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0MjM5MTg0In0.t1loKLLijKr-CuVwQNP3hYrvPw_lmSbdmjsYuO6s6dB14FktutL_VBY4gp1a_BBRzKZ55bpmOssHPz5vMnuFQg%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972504294724&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:25 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CA6425bbcf57240bfb7e45a0e99422a5aa&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0E2NDI1YmJjZjU3MjQwYmZiN2U0NWEwZTk5NDIyYTVhYSIsImZyb20iOiIrOTcyNTA0Mjk0NzI0IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0MjM5MTg0In0.t1loKLLijKr-CuVwQNP3hYrvPw_lmSbdmjsYuO6s6dB14FktutL_VBY4gp1a_BBRzKZ55bpmOssHPz5vMnuFQg%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972504294724&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&ErrorUrl=https%3A%2F%2Ff6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev%2Fwebhook%2Fincoming_call&FromCity=&CalledState=Yovel&ErrorCode=11200&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:30 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/call_status?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&Timestamp=Thu,+27+Nov+2025+10:26:30+%2B0000&CallbackSource=call-progress-events&CallerState=&ToZip=&SequenceNumber=0&CallSid=CA6425bbcf57240bfb7e45a0e99422a5aa&To=%2B97233763805&CallerZip=&ToCountry=IL&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=busy&Duration=0&From=%2B972504294724&CallDuration=0&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:33 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CA5b9f52a13607a05ab456ae400f029459&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0E1YjlmNTJhMTM2MDdhMDVhYjQ1NmFlNDAwZjAyOTQ1OSIsImZyb20iOiIrOTcyNTA0Mjk0NzI0IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0MjM5MTkzIn0.8UdKShiIB09UD0tHjlirymj_T4FqRHQpIaLBZgIDWBk-bh-tq8_b3D5RyPu0-cz4YFVFJou179MM8jV9a_MISg%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972504294724&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:33 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CA5b9f52a13607a05ab456ae400f029459&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0E1YjlmNTJhMTM2MDdhMDVhYjQ1NmFlNDAwZjAyOTQ1OSIsImZyb20iOiIrOTcyNTA0Mjk0NzI0IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0MjM5MTkzIn0.8UdKShiIB09UD0tHjlirymj_T4FqRHQpIaLBZgIDWBk-bh-tq8_b3D5RyPu0-cz4YFVFJou179MM8jV9a_MISg%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972504294724&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&ErrorUrl=https%3A%2F%2Ff6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev%2Fwebhook%2Fincoming_call&FromCity=&CalledState=Yovel&ErrorCode=11200&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:34 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:26:34 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:26:34 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:26:34 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:26:34 web.1     | 🔔 Found 1 reminders
+10:26:34 web.1     | INFO:     172.31.102.194:59716 - "GET /api/notifications HTTP/1.1" 200 OK
+10:26:39 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/call_status?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&Timestamp=Thu,+27+Nov+2025+10:26:39+%2B0000&CallbackSource=call-progress-events&CallerState=&ToZip=&SequenceNumber=0&CallSid=CA5b9f52a13607a05ab456ae400f029459&To=%2B97233763805&CallerZip=&ToCountry=IL&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=busy&Duration=0&From=%2B972504294724&CallDuration=0&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:39 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CA078c3dc4b6fa56526bde715d7733cd7a&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0EwNzhjM2RjNGI2ZmE1NjUyNmJkZTcxNWQ3NzMzY2Q3YSIsImZyb20iOiIrOTcyNTA0Mjk0NzI0IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0MjM5MTk5In0.T7krO8OHXQUZtndhwYWIfg-yPuoBM6RJ26Mq50rkJ50i7k3x9bJ1xJ6Y9iYn7UUjeeKEt9sXJh6H5up-vhwU6g%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972504294724&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:39 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CA078c3dc4b6fa56526bde715d7733cd7a&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0EwNzhjM2RjNGI2ZmE1NjUyNmJkZTcxNWQ3NzMzY2Q3YSIsImZyb20iOiIrOTcyNTA0Mjk0NzI0IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0MjM5MTk5In0.T7krO8OHXQUZtndhwYWIfg-yPuoBM6RJ26Mq50rkJ50i7k3x9bJ1xJ6Y9iYn7UUjeeKEt9sXJh6H5up-vhwU6g%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972504294724&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&ErrorUrl=https%3A%2F%2Ff6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev%2Fwebhook%2Fincoming_call&FromCity=&CalledState=Yovel&ErrorCode=11200&FromZip=&FromState= HTTP/1.1" 404 Not Found
+10:26:42 web.1     | 🔍 AUTH DEBUG: user_id=8, role=system_admin, business_id=None, computed_tenant=None, impersonating=False
+10:26:42 web.1     | 🔔 /api/notifications - tenant_id=None, g.tenant=None
+10:26:42 web.1     | ✅ system_admin viewing ALL notifications (no tenant filter)
+10:26:42 web.1     | 🔔 Querying reminders for tenant_id=None, is_system_admin=True
+10:26:42 web.1     | 🔔 Found 1 reminders
+10:26:42 web.1     | INFO:     172.31.102.194:59716 - "GET /api/notifications HTTP/1.1" 200 OK
+10:26:43 web.1     | INFO:     172.31.102.194:59716 - "GET /webhook/call_status?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&Timestamp=Thu,+27+Nov+2025+10:26:43+%2B0000&CallbackSource=call-progress-events&CallerState=&ToZip=&SequenceNumber=0&CallSid=CA078c3dc4b6fa56526bde715d7733cd7a&To=%2B97233763805&CallerZip=&ToCountry=IL&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=no-answer&Duration=0&From=%2B972504294724&CallDuration=0&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972504294724&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+^[[A
