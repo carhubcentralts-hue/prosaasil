@@ -647,6 +647,7 @@ def call_status():
     
     return resp
 
+@csrf.exempt  # ✅ BUILD 155: Added CSRF exemption for test webhook
 @twilio_bp.route("/webhook/test", methods=["POST", "GET"])
 def test_webhook():
     """Test webhook endpoint"""
