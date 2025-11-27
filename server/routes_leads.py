@@ -1148,26 +1148,22 @@ def bulk_delete_leads():
     if len(leads) == 0:
         return jsonify({"error": "No leads found or access denied", "success": False}), 404
     
-    # Delete found leads
+    # BUILD 157: Delete leads (skip activity logging - causes FK constraint issues)
     deleted_count = 0
+    deleted_names = []
+    
     for lead in leads:
         try:
-            # Log deletion BEFORE delete
-            create_activity(
-                lead.id,
-                "bulk_delete",
-                {
-                    "deleted_by": user.get('email', 'unknown') if user else 'unknown',
-                    "lead_name": lead.full_name
-                },
-                user.get('id') if user else None
-            )
+            deleted_names.append(lead.full_name or f"Lead #{lead.id}")
             db.session.delete(lead)
             deleted_count += 1
         except Exception as e:
             log.error(f"❌ Error deleting lead {lead.id}: {e}")
     
     db.session.commit()
+    
+    # Log summary after commit
+    log.info(f"🗑️ Bulk deleted by {user.get('email') if user else 'unknown'}: {deleted_names}")
     
     log.info(f"✅ Bulk delete completed: {deleted_count}/{len(lead_ids)} leads deleted")
     
