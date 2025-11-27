@@ -45,3 +45,4 @@ TESTING_STRIPE_SECRET_KEY = "sk_test_dummy_not_used"
 [userenv.development]
 FLASK_ENV = "development"
 VALIDATE_TWILIO_SIGNATURE = "false"
+PUBLIC_HOST = "https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev"
