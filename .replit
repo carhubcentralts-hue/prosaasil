@@ -41,3 +41,7 @@ integrations = ["javascript_stripe:1.0.0"]
 [userenv.shared]
 TESTING_VITE_STRIPE_PUBLIC_KEY = "pk_test_dummy_not_used"
 TESTING_STRIPE_SECRET_KEY = "sk_test_dummy_not_used"
+
+[userenv.development]
+FLASK_ENV = "development"
+VALIDATE_TWILIO_SIGNATURE = "false"
