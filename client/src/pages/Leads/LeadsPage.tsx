@@ -305,15 +305,23 @@ export default function LeadsPage() {
 
     setIsDeleting(true);
     try {
-      await http.post('/api/leads/bulk-delete', {
+      const response = await http.post('/api/leads/bulk-delete', {
         lead_ids: Array.from(selectedLeadIds)
-      });
+      }) as any;
       
+      console.log('✅ Bulk delete response:', response);
+      
+      // Clear selection and refresh
       setSelectedLeadIds(new Set());
-      refreshLeads();
-    } catch (error) {
+      await refreshLeads();
+      
+      // Show success message
+      const deletedCount = response?.deleted_count || selectedLeadIds.size;
+      alert(`נמחקו ${deletedCount} לידים בהצלחה`);
+    } catch (error: any) {
       console.error('Failed to bulk delete leads:', error);
-      alert('שגיאה במחיקת לידים');
+      const errorMessage = error?.message || error?.error || 'שגיאה במחיקת לידים';
+      alert(errorMessage);
     } finally {
       setIsDeleting(false);
     }

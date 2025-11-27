@@ -1114,13 +1114,12 @@ def bulk_delete_leads():
     user = get_current_user()
     is_system_admin = user.get('role') == 'system_admin' if user else False
     
-    # BUILD 135: ONLY system_admin can delete leads across tenants
-    if is_system_admin:
-        tenant_id = None
-    else:
-        tenant_id = get_current_tenant()
-        if not tenant_id:
-            return jsonify({"error": "No tenant access"}), 403
+    # BUILD 157: Always get tenant from session/g - even system_admin uses it when impersonating
+    tenant_id = get_current_tenant()
+    
+    # BUILD 157: For non-system-admin, tenant is required
+    if not is_system_admin and not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
     
     data = request.get_json()
     if not data or 'lead_ids' not in data:
@@ -1131,38 +1130,49 @@ def bulk_delete_leads():
     if not isinstance(lead_ids, list) or len(lead_ids) == 0:
         return jsonify({"error": "lead_ids must be a non-empty array"}), 400
     
-    # BUILD 135: Validate access to all leads with tenant filtering
-    if is_system_admin:
-        leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
-    else:
+    log.info(f"🗑️ Bulk delete: user={user.get('email') if user else 'unknown'}, is_system_admin={is_system_admin}, tenant_id={tenant_id}, lead_ids={lead_ids}")
+    
+    # BUILD 157: Find leads - use tenant filtering when available
+    if tenant_id:
         leads = Lead.query.filter(
             Lead.id.in_(lead_ids),
             Lead.tenant_id == tenant_id
         ).all()
+    else:
+        # System admin without impersonation - can delete any lead
+        leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
     
-    if len(leads) != len(lead_ids):
-        return jsonify({"error": "Some leads not found or access denied"}), 404
+    log.info(f"🗑️ Found {len(leads)} leads out of {len(lead_ids)} requested")
     
-    # Delete leads
+    # BUILD 157: Allow deletion of found leads - don't fail if some not found
+    if len(leads) == 0:
+        return jsonify({"error": "No leads found or access denied", "success": False}), 404
+    
+    # Delete found leads
     deleted_count = 0
     for lead in leads:
-        db.session.delete(lead)
-        deleted_count += 1
-        
-        # Log deletion
-        create_activity(
-            lead.id,
-            "bulk_delete",
-            {
-                "deleted_by": user.get('email', 'unknown') if user else 'unknown',
-                "lead_name": lead.full_name
-            },
-            user.get('id') if user else None
-        )
+        try:
+            # Log deletion BEFORE delete
+            create_activity(
+                lead.id,
+                "bulk_delete",
+                {
+                    "deleted_by": user.get('email', 'unknown') if user else 'unknown',
+                    "lead_name": lead.full_name
+                },
+                user.get('id') if user else None
+            )
+            db.session.delete(lead)
+            deleted_count += 1
+        except Exception as e:
+            log.error(f"❌ Error deleting lead {lead.id}: {e}")
     
     db.session.commit()
     
+    log.info(f"✅ Bulk delete completed: {deleted_count}/{len(lead_ids)} leads deleted")
+    
     return jsonify({
+        "success": True,
         "message": f"Bulk delete completed: {deleted_count} leads deleted",
         "deleted_count": deleted_count,
         "total_requested": len(lead_ids)
