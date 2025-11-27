@@ -621,35 +621,28 @@ export function WhatsAppPage() {
           </div>
         </Card>
 
-        {/* Bot Prompt Selection */}
+        {/* Bot Status Card */}
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
             <Bot className="h-5 w-5 ml-2" />
-            הגדרות בוט WhatsApp
+            סטטוס בוט WhatsApp
           </h2>
           
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                פרומפט WhatsApp נוכחי
-              </label>
-              <div className="p-3 border border-slate-200 rounded-lg bg-slate-50 max-h-32 overflow-y-auto">
-                <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                  {editingPrompt || 'אין פרומפט מוגדר'}
-                </p>
-              </div>
+            <div className="p-3 border border-slate-200 rounded-lg bg-slate-50">
+              <p className="text-sm text-slate-700">
+                <strong>מצב:</strong> {whatsappStatus.connected ? 'מחובר ופעיל' : 'לא מחובר'}
+              </p>
+              <p className="text-sm text-slate-600 mt-1">
+                <strong>ספק:</strong> {whatsappStatus.provider}
+              </p>
             </div>
             
             <div className="p-3 bg-blue-50 rounded-lg">
               <p className="text-sm text-blue-800">
-                <strong>שים לב:</strong> הבוט יגיב אוטומטית להודעות נכנסות לפי הפרומפט שמוגדר
+                <strong>שים לב:</strong> לעריכת הפרומפט, עבור להגדרות מערכת → AI Agent
               </p>
             </div>
-
-            <Button variant="outline" className="w-full" onClick={openPromptEditor} data-testid="button-edit-prompt">
-              <Settings className="h-4 w-4 ml-2" />
-              ערוך פרומפט
-            </Button>
           </div>
         </Card>
       </div>
@@ -956,59 +949,6 @@ export function WhatsAppPage() {
                   className="flex-1"
                 >
                   שמור
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Prompt Editor Modal */}
-      {showPromptEditor && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="modal-prompt-editor">
-          <Card className="p-6 max-w-2xl mx-4 w-full">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-slate-900">עריכת פרומפט WhatsApp</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowPromptEditor(false)}>×</Button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  תוכן הפרומפט
-                </label>
-                <textarea
-                  value={editingPrompt}
-                  onChange={(e) => setEditingPrompt(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md h-32"
-                  placeholder="הכנס את הפרומפט לבוט WhatsApp..."
-                  data-testid="textarea-prompt"
-                />
-                <p className="text-xs text-slate-500 mt-1">
-                  {editingPrompt.length} תווים
-                </p>
-              </div>
-              
-              <div className="p-3 bg-yellow-50 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  <strong>שים לב:</strong> שינויים בפרומפט יחולו מיידית על כל ההודעות החדשות
-                </p>
-              </div>
-              
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  onClick={() => setShowPromptEditor(false)}
-                  className="flex-1"
-                >
-                  בטל
-                </Button>
-                <Button 
-                  onClick={savePrompt}
-                  disabled={savingPrompt || !editingPrompt.trim()}
-                  className="flex-1"
-                >
-                  {savingPrompt ? "שומר..." : "שמור פרומפט"}
                 </Button>
               </div>
             </div>

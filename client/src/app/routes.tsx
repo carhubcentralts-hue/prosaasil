@@ -127,15 +127,7 @@ export function AppRoutes() {
           }
         />
 
-        {/* BUILD 135: Business-scoped routes */}
-        <Route
-          path="business/agent-prompts"
-          element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin']}>
-              <AgentPromptsPage />
-            </RoleGuard>
-          }
-        />
+        {/* BUILD 157: AI Prompts moved to System Settings only - removed from business routes */}
 
         {/* Business Routes */}
         <Route
