@@ -243,19 +243,13 @@ def _identify_business_for_call(to_number, from_number):
             print(f"✅ זיהוי עסק לפי מספר יוצא {from_number}: {business.name}")
             return business
     
-    # שלב 3: fallback לעסק הראשון הפעיל
+    # ✅ BUILD 155: fallback לעסק פעיל בלבד (אין fallback לכל עסק)
     business = Business.query.filter(Business.is_active == True).first()
     if business:
-        print(f"✅ שימוש בעסק ברירת מחדל (פעיל): {business.name}")
+        print(f"⚠️ שימוש בעסק פעיל ברירת מחדל: {business.name}")
         return business
         
-    # שלב 4: fallback אחרון לכל עסק
-    business = Business.query.first()
-    if business:
-        print(f"⚠️ שימוש בעסק ברירת מחדל (כללי): {business.name}")
-        return business
-        
-    print("❌ לא נמצא שום עסק במערכת")
+    print("❌ לא נמצא עסק פעיל במערכת - recording יישמר ללא שיוך עסק")
     return None
 
 def save_call_status(call_sid, status, duration=0, direction="inbound"):

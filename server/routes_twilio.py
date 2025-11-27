@@ -129,9 +129,12 @@ def _trigger_recording_for_call(call_sid):
             
             if call.status in ['in-progress', 'ringing']:
                 # השיחה עדיין פעילה - עדכן ל-Record TwiML
-                # ✅ FIX: Prefer PUBLIC_HOST in production, then dev domain for local testing
+                # ✅ BUILD 155: PUBLIC_HOST required in production
                 public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-                host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 'your-app.replit.app'
+                host = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
+                if not host:
+                    print("❌ PUBLIC_HOST not configured - cannot update call to Record")
+                    return
                 # ✅ FIX Error 12100: NO leading spaces/whitespace in XML tags
                 record_twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Record playBeep="false" timeout="30" maxLength="300" transcribe="false" action="https://{host}/webhook/handle_recording"/></Response>'
                 
@@ -189,11 +192,10 @@ def _create_lead_from_call(call_sid, from_number, to_number=None, business_id=No
                     biz = Business.query.filter_by(is_active=True).first()
                     if biz:
                         business_id = biz.id
-                        print(f"⚠️ Thread using fallback business_id={business_id}")
+                        print(f"⚠️ Thread using fallback active business_id={business_id}")
                     else:
-                        biz = Business.query.first()
-                        business_id = biz.id if biz else 1
-                        print(f"⚠️ Thread using ultimate fallback business_id={business_id}")
+                        print(f"❌ No business found for call {call_sid} - skipping lead creation")
+                        return  # Don't create leads without valid business
             
             # ✅ שלב 1: עדכן call_log (אם כבר נוצר ב-incoming_call) עם customer_id
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
@@ -275,10 +277,12 @@ def incoming_call_preview():
     replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     
-    # ✅ BUILD 152: Dynamic phone from first active business
+    # ✅ BUILD 155: Dynamic phone from first active business only
     from server.models_sql import Business
-    preview_business = Business.query.filter_by(is_active=True).first() or Business.query.first()
-    preview_to_number = preview_business.phone_e164 if preview_business else "preview"
+    preview_business = Business.query.filter_by(is_active=True).first()
+    if not preview_business:
+        return make_response("No active business configured", 503)
+    preview_to_number = preview_business.phone_e164 or "preview"
     
     vr = VoiceResponse()
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
@@ -342,11 +346,10 @@ def incoming_call():
         business = Business.query.filter_by(is_active=True).first()
         if business:
             business_id = business.id
-            print(f"⚠️ Using fallback business_id={business_id} (first active)")
+            print(f"⚠️ Using fallback active business_id={business_id}")
         else:
-            business = Business.query.first()
-            business_id = business.id if business else 1
-            print(f"⚠️ Using ultimate fallback business_id={business_id}")
+            print(f"❌ No active business found for to_number={to_number}")
+            business_id = None  # Will create call_log without business association
     
     if call_sid and from_number:
         try:
@@ -476,11 +479,14 @@ def handle_recording():
             if not call_log:
                 # Self-heal: צור fallback call_log
                 print(f"⚠️ handle_recording: Creating fallback call_log for {call_sid}")
-                # ✅ BUILD 152: שימוש בעסק פעיל ראשון + טלפון דינמי
+                # ✅ BUILD 155: שימוש בעסק פעיל ראשון + טלפון דינמי (אין fallback ל-1)
                 from server.models_sql import Business
-                biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
-                biz_id = biz.id if biz else 1
-                biz_phone = biz.phone_e164 if biz else "unknown"  # ✅ BUILD 152: Dynamic
+                biz = Business.query.filter_by(is_active=True).first()
+                if not biz:
+                    print(f"❌ No active business - cannot create fallback call_log")
+                    return resp  # Return without creating orphan record
+                biz_id = biz.id
+                biz_phone = biz.phone_e164 or "unknown"
                 print(f"📊 handle_recording fallback: business_id={biz_id}")
                 
                 call_log = CallLog(
@@ -575,11 +581,14 @@ def stream_status():
                 if not call_log:
                     # Self-heal: צור fallback call_log
                     print(f"⚠️ stream_status: Creating fallback call_log for {call_sid}")
-                    # ✅ BUILD 152: שימוש בעסק פעיל ראשון + טלפון דינמי
+                    # ✅ BUILD 155: שימוש בעסק פעיל ראשון + טלפון דינמי (אין fallback ל-1)
                     from server.models_sql import Business
-                    biz = Business.query.filter_by(is_active=True).first() or Business.query.first()
-                    biz_id = biz.id if biz else 1
-                    biz_phone = biz.phone_e164 if biz else "unknown"  # ✅ BUILD 152: Dynamic
+                    biz = Business.query.filter_by(is_active=True).first()
+                    if not biz:
+                        print(f"❌ No active business - cannot create fallback call_log")
+                        return make_response("", 200)  # Return without creating orphan record
+                    biz_id = biz.id
+                    biz_phone = biz.phone_e164 or "unknown"
                     print(f"📊 stream_status fallback: business_id={biz_id}")
                     
                     call_log = CallLog(
