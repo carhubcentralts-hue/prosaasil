@@ -107,12 +107,25 @@ def resolve_business_with_fallback(channel_type: str, identifier: str) -> Tuple[
         return channel_match.business_id, 'found'
     
     # Try phone match (if it's a valid phone number)
-    # 🔥 FIX: Use phone_number column (not phone_e164 which doesn't exist!)
+    # 🔥 BUILD 156: Normalize phone numbers for comparison (handle spaces, dashes)
     if normalized.startswith('+'):
-        business = Business.query.filter_by(phone_number=normalized, is_active=True).first()
-        if not business:
-            # Also try whatsapp_number as fallback
-            business = Business.query.filter_by(whatsapp_number=normalized, is_active=True).first()
+        # Get all active businesses and compare with normalized phones
+        active_businesses = Business.query.filter_by(is_active=True).all()
+        business = None
+        
+        for biz in active_businesses:
+            # Normalize stored phone numbers for comparison
+            biz_phone_norm = _normalize_identifier(biz.phone_number) if biz.phone_number else ""
+            biz_wa_norm = _normalize_identifier(biz.whatsapp_number) if biz.whatsapp_number else ""
+            
+            if normalized == biz_phone_norm:
+                log.info(f"✅ Phone match (normalized): {normalized} = DB:{biz.phone_number}")
+                business = biz
+                break
+            elif normalized == biz_wa_norm:
+                log.info(f"✅ WhatsApp match (normalized): {normalized} = DB:{biz.whatsapp_number}")
+                business = biz
+                break
         
         if business:
             log.info(f"✅ AUTO-DETECTED business_id={business.id} by phone_number={normalized}")
