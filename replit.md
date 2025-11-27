@@ -118,6 +118,35 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 - `DEPLOYMENT.md` updated for prosaas.pro
 - All Docker files verified
 
+### 9. Code Cleanup (BUILD 155) ✔
+- **FIXED**: `docker/nginx.conf` WebSocket path `/media-stream` → `/ws/` to match backend `/ws/twilio-media`
+- **REMOVED**: Duplicate `/api/admin/businesses` route from `api_adapter.py` (conflicts with `routes_admin.py`)
+- **REMOVED**: Duplicate `/api/admin/kpis/calls` and `/api/admin/kpis/whatsapp` from `routes_admin.py`
+- **VERIFIED**: `data_api` blueprint not registered (marked as duplicate)
+- **VERIFIED**: No `Business.query.first()` fallbacks in production code (only in `init_database.py` for initial setup)
+- **VERIFIED**: No hardcoded `business_id = 1` anywhere
+- **VERIFIED**: No hardcoded replit.app domains in production code
+
+## Multi-Tenant Phone Identification Flow
+
+### How it works:
+1. **Twilio calls your phone** → `/webhook/incoming_call` receives `To` number
+2. **Business Resolution**:
+   - First check: `BusinessContactChannel` table for exact `(channel_type, identifier)` match
+   - Fallback: `Business.phone_e164` or `Business.whatsapp_number` direct match
+   - If found: Auto-registers channel for faster future lookups
+   - If NOT found: **REJECTS the call** (security feature - no random business fallback!)
+
+### Configuration Steps:
+1. Create business in dashboard with `phone_e164` = your Twilio number
+2. Or add entry to `BusinessContactChannel(channel_type='twilio_voice', identifier='+1234567890', business_id=X)`
+3. Multiple phones per business: Add multiple `BusinessContactChannel` entries
+
+### Security:
+- Unknown phone numbers are REJECTED (returns 403)
+- No cross-tenant data leakage possible
+- Each business has complete data isolation
+
 ## Status: READY FOR PRODUCTION
 
 ✅ All security checks passed  
@@ -125,3 +154,5 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 ✅ Feature flags configured  
 ✅ Docker deployment files ready  
 ✅ Domain configuration set to prosaas.pro
+✅ Duplicate routes removed
+✅ nginx WebSocket path fixed
