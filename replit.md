@@ -182,6 +182,28 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 - **FIXED**: Correct parsing of `/api/admin/businesses` response (uses `items` field)
 - **FIXED**: Non-system-admins use their own business from session for user creation
 
+### 4. n8n Integration Security ✔
+- **ADDED**: Explicit business_id validation - events without business_id are REJECTED
+- **VERIFIED**: All n8n helper functions include business_id in payloads
+- **VERIFIED**: N8N_WEBHOOK_SECRET used for authentication
+- **VERIFIED**: N8N_ENABLED flag controls the feature
+
+### 5. Webhook Security ✔
+- **VERIFIED**: INTERNAL_SECRET validation on all WhatsApp webhooks
+- **VERIFIED**: resolve_business_with_fallback() enforces tenant isolation
+- **VERIFIED**: Unknown tenants are REJECTED (not processed)
+- **VERIFIED**: CSRF exempted but secured by internal secret
+
+### 6. No Duplicate Routes ✔
+- **VERIFIED**: data_api blueprint NOT registered (marked as duplicate)
+- **VERIFIED**: All other routes properly namespaced
+- **VERIFIED**: No conflicting route registrations
+
+### 7. RBAC Verification ✔
+- **CONFIRMED**: 4-tier hierarchy (system_admin → owner → admin → agent)
+- **CONFIRMED**: Only system_admin and owner can create users (intentional design)
+- **CONFIRMED**: Multi-tenant isolation enforced on all user management operations
+
 ## Status: READY FOR PRODUCTION
 
 ✅ All security checks passed  

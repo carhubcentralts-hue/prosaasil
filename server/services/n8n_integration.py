@@ -68,6 +68,11 @@ def send_event_to_n8n(
         logger.warning(f"[N8N] N8N_WEBHOOK_URL not configured - skipping event: {event_type}")
         return {"status": "not_configured"}
     
+    # 🔒 SECURITY: Require business_id for multi-tenant isolation
+    if not payload.get('business_id'):
+        logger.error(f"[N8N] ❌ REJECTED event '{event_type}' - missing business_id (multi-tenant requirement)")
+        return {"status": "rejected", "error": "missing_business_id"}
+    
     # Build event envelope
     event_data = {
         "event_type": event_type,
