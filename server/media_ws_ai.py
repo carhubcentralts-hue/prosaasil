@@ -65,7 +65,8 @@ ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "true").lower() in ("true", "1", 
 # 🚀 REALTIME API MODE - OpenAI Realtime API for phone calls
 # When enabled, phone calls use OpenAI Realtime API instead of Google STT/TTS
 # WhatsApp continues to use AgentKit (not affected by this flag)
-USE_REALTIME_API = os.getenv("USE_REALTIME_API", "false").lower() in ("true", "1", "yes")
+# ✅ FIX: Default to TRUE - this is the main feature, should be enabled by default
+USE_REALTIME_API = os.getenv("USE_REALTIME_API", "true").lower() in ("true", "1", "yes")
 
 # 🎯 AGENT 3 SPEC: Force gpt-4o-realtime-preview (NOT mini)
 # This overrides any environment variable to ensure compliance
@@ -459,6 +460,10 @@ print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + REALTIME API")
 print("="*80)
 print(f"[BOOT] DEBUG = {DEBUG}")
 print(f"[BOOT] 🚀 USE_REALTIME_API = {USE_REALTIME_API} {'(OpenAI Realtime for calls)' if USE_REALTIME_API else '(Google STT/TTS)'}")
+# 🔍 CRITICAL: Log to logger.info so it appears in production logs (bypass print suppression)
+logger.info(f"[BOOT] USE_REALTIME_API = {USE_REALTIME_API}")
+if not USE_REALTIME_API:
+    logger.warning("[BOOT] ⚠️ USE_REALTIME_API is FALSE - AI will NOT speak during calls! Set USE_REALTIME_API=true to enable.")
 if USE_REALTIME_API:
     is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
     cost_info = "$0.01-0.02/min (80% cheaper)" if is_mini else "$0.06-0.24/min (standard)"

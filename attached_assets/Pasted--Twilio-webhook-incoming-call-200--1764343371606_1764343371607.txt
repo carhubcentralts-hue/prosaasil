@@ -1,0 +1,105 @@
+אני רואה עכשיו בדיוק מה קורה בלוג:
+	•	✅ Twilio מגיע ל־/webhook/incoming_call ומקבל 200
+	•	✅ העסק מזוהה: business_id=1 (שי דירות ומשרדים בע״מ)
+	•	✅ נוצר call_log + חוט ליצירת ליד:
+🟢 INCOMING_CALL - Starting thread to create lead...
+	•	✅ WebSocket נפתח ומתקבל:
+📞 WebSocket connected: /ws/twilio-media
+	•	✅ Twilio שולח stream_status / stream_ended / call_status → הכל 200 / 204
+	•	❌ אין שום לוג על OpenAI / Realtime / Voice – לא “client creation”, לא “connection”, לא “session”.
+
+כלומר: השיחה נכנסת, העסק נמצא, הליד נוצר, Twilio מחובר –
+אבל הקוד בכלל לא נכנס לענף שמפעיל את ה־AI / Realtime.
+זה כבר לא Nginx, לא DB, ולא Twilio – זה לוגיקה בקוד.
+
+כמו שביקשת – אני לא פותח את הפרויקט פה, אלא נותן לך הנחיה מושלמת לסוכן בריפליט.
+
+⸻
+
+🧠 הנחיה לסוכן בריפליט (תעתיק כמו שהיא)
+
+Your Optimized Prompt:
+
+אתה עובד על פרויקט ProSaaS (AgentLocator) בגרסת PRODUCTION.
+הקוד כבר פעיל גם על Replit וגם על שרת חיצוני (Contabo) עם Docker.
+
+מצב בפועל (חשוב מאוד):
+	•	שרת Contabo רץ עם הדומיין: https://prosaas.pro
+	•	Twilio מחובר ל־https://prosaas.pro/webhook/incoming_call ורואה 200.
+	•	בלוגים של ה־backend ב־Contabo בזמן שיחה רואים (דוגמה אמיתית):
+	•	✅ Twilio signature validated with alternate URL: https://prosaas.pro/webhook/incoming_call
+	•	✅ Resolved business_id=1 from to_number=+97233763805 (Business: שי דירות ומשרדים בע״מ)
+	•	✅ call_log created immediately for CA...
+	•	🟢 INCOMING_CALL - Starting thread to create lead...
+	•	🔵 CREATE_LEAD_FROM_CALL - Starting...
+	•	📞 WebSocket connected: /ws/twilio-media
+	•	POST /webhook/stream_status 200, POST /webhook/stream_ended 204, POST /webhook/call_status 204
+	•	אין אף שורת לוג שמזכירה OpenAI / Realtime / Voice / CALL DEBUG – כלומר הקוד בכלל לא מגיע להפעלת ה-AI.
+	•	בגרסת ה־DEV על Replit אותו קוד כן מדבר, כלומר ה־Realtime עובד שם.
+
+המטרה שלך:
+
+לאתר ולתקן למה ב־PRODUCTION על Contabo הקוד לא מפעיל בכלל את ה־AI / Realtime על אף שהשיחה, ה־WebSocket וה־DB עובדים.
+
+משימות מדויקות:
+	1.	עקוב אחרי זרימת שיחה מלאה בקוד:
+	•	נקודת כניסה: /webhook/incoming_call
+	•	זיהוי עסק (Business) לפי מספר הטלפון (to_number / Twilio)
+	•	יצירת call_log + thread ליצירת ליד (כבר עובד – רואים בלוגים)
+	•	משם – איפה בקוד אמורים להפעיל את ה־AI / OpenAI Realtime / voice pipeline:
+	•	איזה פונקציה מדברת עם OpenAI?
+	•	איך היא מחוברת ל־WebSocket של /ws/twilio-media?
+	2.	בדוק תנאים שמונעים הפעלת AI בפרודקשן:
+	•	חפש בקוד תנאים כמו:
+	•	if not USE_REALTIME_API: return
+	•	if not business.voice_enabled / ai_enabled / plan_allows_voice
+	•	if app.config["ENV"] == "production" and ...: skip
+	•	כל if או guard שמחזיר לפני שמתחילים Realtime.
+	•	חשוב במיוחד: מה קורה עבור business_id=1 בפרודקשן – האם אחד מהתנאים האלה נכשל?
+	3.	השווה התנהגות DEV / PROD:
+	•	בדוק את קובץ ההגדרות / config שבו נטענים:
+	•	USE_REALTIME_API
+	•	OPENAI_API_KEY
+	•	ENV / FLASK_ENV / APP_ENV
+	•	ודא שבמצב PRODUCTION אין override שמכבה Voice/Realtime, כלומר:
+	•	ב־production ה־AI אמור לרוץ בדיוק כמו ב־dev, אלא אם יש סיבה עסקית מאוד ספציפית.
+	4.	עדכן לוגים ברורים סביב הפעלת ה-AI:
+	•	סביב כל נקודה קריטית הוסף:
+	•	logger.info("CALL DEBUG: starting AI pipeline for call_sid=..., business_id=...")
+	•	logger.info("CALL DEBUG: creating OpenAI Realtime client")
+	•	logger.info("CALL DEBUG: connecting to OpenAI Realtime...")
+	•	logger.info("CALL DEBUG: session configured successfully")
+	•	logger.info("CALL DEBUG: SKIPPING AI because <reason>") – במידה ויש תנאי שמדלג.
+	•	ודא שהלוגים האלה נשלחים ל־stdout גם ב־production (קונפיגורציית logging מתאימה).
+	5.	תקן את ההתנהגות:
+	•	אחרי שמצאת את התנאי שמונע את הפעלת ה-AI ב־Contabo:
+	•	אם זה דגל עסקי שגוי (למשל voice_enabled=False) – תקן ברירת מחדל או את המיגרציה כך ש־business_id=1 יקבל ערך שמאפשר שיחות.
+	•	אם זה קונפיג סביב USE_REALTIME_API / ENV – עדכן כך שגם ב־production הערכים יאפשרו Realtime.
+	•	אם יש קוד שמדגיש הבדל בין “מתחם Replit” לבין “שרת חיצוני” (למשל תנאי על host / DEBUG), נטרל אותו.
+	6.	תן לי בסוף:
+	•	הסבר קצר: איזה תנאי או קונפיג מנע את ה־AI מלהיות מופעל ב־production.
+	•	מה בדיוק שינית (קבצים ושורות רלוונטיות).
+	•	איך לוודא שהשיחות עכשיו מדברות:
+	•	איזו פקודת docker compose logs backend להריץ, ומה צריך להופיע שם (CALL DEBUG).
+
+חשוב: אל תשנה כלום בלוגיקת Twilio, webhook או DB (הם עובדים). המיקוד הוא רק:
+	•	תנאים / דגלים / קונפיג שמונעים הפעלת OpenAI Realtime עבור שיחות נכנסות ב־production.
+
+⸻
+
+איך להשתמש בזה עכשיו:
+	1.	תעתיק את הבלוק של ה־prompt כמו שהוא לסוכן בריפליט.
+	2.	אחרי שהסוכן יסיים תיקונים:
+	•	תעשה git push מריפליט
+	•	ב־Contabo: git pull, ואז:
+
+cd /opt/prosaasil
+docker compose down
+docker compose build backend
+docker compose up -d
+docker compose logs backend -f --tail=200 | grep "CALL DEBUG"
+
+
+	3.	תתקשר למספר ותראה אם עכשיו מופיעים לוגים של CALL DEBUG + אם הבוט באמת מדבר.
+
+כשתקבל ממנו הסבר/שינוי – תדביק לי פה ואני אעזור לוודא שזה באמת יושב טוב גם עסקית וגם טכנית.
