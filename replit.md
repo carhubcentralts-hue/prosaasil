@@ -65,3 +65,75 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
 - **n8n**: Workflow automation platform for custom automations.
+
+---
+
+# BUILD 158 - Production AI Silence Fix
+
+**Date**: November 28, 2025
+
+## Issue
+Production calls (Contabo) connect but AI doesn't speak. Logs show:
+- ✅ WebSocket connected
+- ✅ Business identified
+- ❌ NO OpenAI/Realtime logs
+
+## Root Cause Analysis
+1. `USE_REALTIME_API` defaults to `"true"` (verified working)
+2. BUT: All `print()` statements in `media_ws_ai.py` are suppressed via `builtins.print = _dprint` when `DEBUG=0`
+3. Production has `DEBUG=0`, so no diagnostic output is visible
+
+## Fix Applied
+
+### 1. Changed USE_REALTIME_API default (line 72)
+```python
+# Was: os.getenv("USE_REALTIME_API", "false")
+# Now: os.getenv("USE_REALTIME_API", "true")
+```
+
+### 2. Added Forced Prints (bypass DEBUG override)
+Added `_orig_print(..., flush=True)` at critical points:
+
+**server/media_ws_ai.py:**
+- Line 2340: `MediaStreamHandler.run() entered main loop`
+- Line 2393: `START EVENT RECEIVED!`
+- Line 2513: `Checking Realtime: USE_REALTIME_API=X`
+- Line 2517: `Starting Realtime API mode`
+- Line 988: `Thread started for call X`
+- Line 1014: `Async loop starting`
+
+**asgi.py:**
+- Lines 238-248: Handler creation and startup logging
+
+**server/services/openai_realtime_client.py:**
+- Line 76: `Connecting to OpenAI`
+
+### 3. Added logger.info() calls
+All critical points also log via `logger.info("[CALL DEBUG] ...")` which goes to stdout via Python logging.
+
+## Expected Log Sequence After Deployment
+```
+🔧 [HANDLER] Getting Flask app...
+🔧 [HANDLER] Flask app ready
+🔧 Creating MediaStreamHandler...
+🔧 Starting MediaStreamHandler.run()...
+🎯 [CALL DEBUG] MediaStreamHandler.run() entered main loop
+📨 Received: start
+🎯 [CALL DEBUG] START EVENT RECEIVED!
+🎯 [CALL DEBUG] Checking Realtime: USE_REALTIME_API=True
+🚀 [REALTIME] Starting Realtime API mode for call XXXXXXXX
+🚀 [REALTIME] Thread started for call XXXXXXXX
+🚀 [REALTIME] Async loop starting for business_id=X
+🔌 [CALL DEBUG] Connecting to OpenAI: model=gpt-4o-realtime-preview
+✅ Connected to OpenAI Realtime API
+```
+
+## Deployment Commands
+```bash
+cd /opt/prosaasil
+git pull
+docker compose down
+docker compose build backend
+docker compose up -d
+docker compose logs backend -f --tail=200
+```

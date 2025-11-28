@@ -982,7 +982,7 @@ class MediaStreamHandler:
         """
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
-        print(f"🚀 [REALTIME] Thread started for call {call_id} (FRESH SESSION)")
+        _orig_print(f"🚀 [REALTIME] Thread started for call {call_id} (FRESH SESSION)", flush=True)
         logger.info(f"[CALL DEBUG] Realtime thread started for call {call_id}")
         
         try:
@@ -1008,7 +1008,7 @@ class MediaStreamHandler:
         from server.services.openai_realtime_client import OpenAIRealtimeClient
         from server.services.realtime_prompt_builder import build_realtime_system_prompt
         
-        print(f"🚀 [REALTIME] Async loop starting for business_id={self.business_id}")
+        _orig_print(f"🚀 [REALTIME] Async loop starting for business_id={self.business_id}", flush=True)
         logger.info(f"[CALL DEBUG] Connecting to OpenAI Realtime for business_id={self.business_id}")
         
         client = None
@@ -2333,6 +2333,9 @@ class MediaStreamHandler:
         
         print(f"WS_START sid={self.stream_sid} mode=AI call_sid={self.call_sid}")
         print(f"🎯 CONVERSATION READY (VAD threshold: {VAD_RMS})")
+        # 🔥 CRITICAL: Force print to confirm handler started
+        _orig_print(f"🎯 [CALL DEBUG] MediaStreamHandler.run() entered main loop", flush=True)
+        logger.info("[CALL DEBUG] MediaStreamHandler.run() entered main loop")
         
         try:
             while True:
@@ -2386,6 +2389,10 @@ class MediaStreamHandler:
                     continue
 
                 if et == "start":
+                    # 🔥 CRITICAL: Force print to bypass DEBUG override
+                    _orig_print(f"🎯 [CALL DEBUG] START EVENT RECEIVED! call_sid will be extracted...", flush=True)
+                    logger.info("[CALL DEBUG] START EVENT RECEIVED - entering start handler")
+                    
                     # תמיכה בשני פורמטים: Twilio אמיתי ובדיקות
                     if "start" in evt:
                         # Twilio format: {"event": "start", "start": {"streamSid": "...", "callSid": "..."}}
@@ -2502,8 +2509,12 @@ class MediaStreamHandler:
                             print(f"✅ [REALTIME] greeting_sent=True (AI will generate greeting dynamically)")
                     
                     # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
+                    # 🔥 CRITICAL: Force print to bypass DEBUG override
+                    _orig_print(f"🎯 [CALL DEBUG] Checking Realtime: USE_REALTIME_API={USE_REALTIME_API}, realtime_thread={self.realtime_thread}", flush=True)
+                    logger.info(f"[CALL DEBUG] Checking Realtime: USE_REALTIME_API={USE_REALTIME_API}, realtime_thread={self.realtime_thread}")
+                    
                     if USE_REALTIME_API and not self.realtime_thread:
-                        print(f"🚀 [REALTIME] Starting Realtime API mode for call {self.call_sid[:8] if self.call_sid else 'unknown'}")
+                        _orig_print(f"🚀 [REALTIME] Starting Realtime API mode for call {self.call_sid[:8] if self.call_sid else 'unknown'}", flush=True)
                         logger.info(f"[CALL DEBUG] Starting OpenAI Realtime for business_id={self.business_id}, call={self.call_sid[:8] if self.call_sid else 'N/A'}")
                         
                         self.realtime_thread = threading.Thread(

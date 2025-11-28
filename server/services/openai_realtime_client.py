@@ -69,6 +69,8 @@ class OpenAIRealtimeClient:
         logger.info(f"[CALL DEBUG] 🔌 Connecting to OpenAI Realtime API: {self.model}")
         logger.info(f"[CALL DEBUG] URL: {self.url}")
         logger.info(f"[CALL DEBUG] API key present: {bool(self.api_key)}, key_prefix: {self.api_key[:10] if self.api_key else 'N/A'}...")
+        # 🔥 CRITICAL: Force print to bypass any suppression
+        print(f"🔌 [CALL DEBUG] Connecting to OpenAI: model={self.model}, api_key_present={bool(self.api_key)}", flush=True)
         
         try:
             self.ws = await websockets.connect(

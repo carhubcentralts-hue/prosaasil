@@ -232,19 +232,27 @@ async def ws_twilio_media(websocket: WebSocket):
         def run_handler():
             try:
                 # Ensure Flask app is created before handler runs
+                print("🔧 [HANDLER] Getting Flask app...", flush=True)
+                log.info("[CALL DEBUG] Getting Flask app for MediaStreamHandler")
                 _ = get_flask_app()
+                print("🔧 [HANDLER] Flask app ready", flush=True)
+                log.info("[CALL DEBUG] Flask app ready")
                 
                 print("🔧 Creating MediaStreamHandler...", flush=True)
+                log.info("[CALL DEBUG] Creating MediaStreamHandler")
                 handler = MediaStreamHandler(ws_wrapper)
                 print("🔧 Starting MediaStreamHandler.run()...", flush=True)
+                log.info("[CALL DEBUG] Starting MediaStreamHandler.run()")
                 handler.run()
                 print("✅ MediaStreamHandler completed", flush=True)
                 log.info("✅ MediaStreamHandler completed")
             except Exception as e:
                 print(f"❌ MediaStreamHandler error: {e}", flush=True)
+                log.error(f"[CALL DEBUG] ❌ MediaStreamHandler error: {e}")
                 import traceback
-                traceback.print_exc()
-                log.exception(f"❌ MediaStreamHandler error: {e}")
+                tb = traceback.format_exc()
+                print(tb, flush=True)
+                log.error(f"[CALL DEBUG] Traceback: {tb}")
             finally:
                 ws_wrapper.stop()
         
