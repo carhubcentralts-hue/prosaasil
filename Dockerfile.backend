@@ -20,7 +20,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
 RUN mkdir -p server/public
-COPY client/dist/ server/public/
 
 RUN mkdir -p storage/recordings storage/whatsapp logs
 

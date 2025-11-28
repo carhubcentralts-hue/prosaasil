@@ -1,0 +1,270 @@
+סבבה, הבנתי אותך לגמרי – אתה רוצה הנחיה אחת מושלמת ל־Agent
+עם תיקונים ספציפיים, בלי גרשיים מסביב ל־ENV, ובלי חפירות.
+
+הנה טקסט מוכן להדבקה ל־Replit Agent.
+פשוט העתק הדבק כמו שהוא.
+
+⸻
+
+⚙️ פרומפט מוכן ל־REPLIT AGENT  (COPY PASTE)
+
+אתה עובד על פרויקט בשם prosaasil.
+המטרה שלך: לוודא שדוקר, הדאטה בייס והמערכת של n8n עובדים יציב בפרודקשן
+בלי לשבור קבצי קונפיגורציה ובלי להכניס גרשיים סביב משתני סביבה.
+
+חשוב מאוד
+אל תוסיף גרשיים למשתני סביבה מסוג ${VAR}
+אל תשנה את מבנה קובץ env
+אל תוסיף או תוריד תווים מתוך הצורה ${VAR}
+
+עבוד רק על הקבצים הבאים
+docker compose yml
+docker nginx conf
+Dockerfile backend
+Dockerfile frontend
+Dockerfile baileys
+
+אל תיגע בשום קובץ אחר
+לא בקוד פייתון
+לא בקוד ריאקט
+לא בסקריפטים אחרים
+
+המטרה הסופית
+פקודה docker compose up minus d מרימה בהצלחה את כל השירותים
+frontend backend db n8n baileys
+בלי אזהרות על משתני סביבה חסרים
+ובלי קריסה של קונטיינר postgres או n8n
+
+שלבים ותיקונים ספציפיים שאתה חייב לעשות
+
+1  תיקון שירות הדאטה בייס בקובץ docker compose yml
+
+בקטע של השירות db ודא שהקטע הבא נראה בדיוק כך
+
+service db או prosaas db צריך להיראות כך
+
+db
+image postgres:14
+container_name prosaas-db
+restart unless-stopped
+environment
+POSTGRES_PASSWORD ${POSTGRES_PASSWORD}
+POSTGRES_USER ${POSTGRES_USER}
+POSTGRES_DB ${POSTGRES_DB}
+volumes
+- postgres_data:/var/lib/postgresql/data
+ports
+- 5432:5432
+
+שום גרשיים סביב משתני env
+לא “ ${POSTGRES_DB} “ ולא ’ ${POSTGRES_DB} ’
+רק הצורה ${POSTGRES_DB}
+
+ודא שבחלק volumes למטה מוגדר
+
+volumes
+postgres_data
+n8n_data
+
+2  תיקון שירות backend בקובץ docker compose yml
+
+בקטע של השירות backend ודא שבחלק environment יש
+
+environment  
+  DATABASE_URL ${DATABASE_URL}  
+  POSTGRES_DB ${POSTGRES_DB}  
+  POSTGRES_USER ${POSTGRES_USER}  
+  POSTGRES_PASSWORD ${POSTGRES_PASSWORD}  
+  PUBLIC_BASE_URL ${PUBLIC_BASE_URL}  
+  OPENAI_API_KEY ${OPENAI_API_KEY}  
+  TWILIO_PHONE_NUMBER ${TWILIO_PHONE_NUMBER}  
+  TWILIO_ACCOUNT_SID ${TWILIO_ACCOUNT_SID}  
+  TWILIO_AUTH_TOKEN ${TWILIO_AUTH_TOKEN}  
+
+3  תיקון שירות n8n בקובץ docker compose yml
+
+בשירות n8n ודא שהסביבה מוגדרת כך
+
+n8n
+image n8nio/n8n:latest
+container_name prosaas-n8n
+restart unless-stopped
+depends_on
+- db
+environment
+N8N_HOST 0.0.0.0
+N8N_PORT 5678
+N8N_PROTOCOL http
+N8N_PATH /n8n/
+N8N_BASE_URL ${PUBLIC_BASE_URL}/n8n/
+N8N_PUBLIC_URL ${PUBLIC_BASE_URL}/n8n/
+DB_TYPE postgresdb
+DB_POSTGRESDB_HOST prosaas-db
+DB_POSTGRESDB_PORT 5432
+DB_POSTGRESDB_DATABASE ${POSTGRES_DB}
+DB_POSTGRESDB_USER ${POSTGRES_USER}
+DB_POSTGRESDB_PASSWORD ${POSTGRES_PASSWORD}
+volumes
+- n8n_data:/home/node/.n8n
+
+שוב
+אין גרשיים סביב env
+אל תוסיף שורה עם N8N_SMTP או דברים שלא ביקשתי
+
+4  תיקון Dockerfile frontend
+
+בדוק את Dockerfile frontend
+כל מה שאתה צריך לעשות שם
+אם יש שורה עם
+
+RUN npm ci
+
+החלף אותה לשורה
+
+RUN npm install
+
+אל תוסיף flags מיותרים
+אל תוסיף force
+שאר הקובץ נשאר כמו שהוא
+
+5  תיקון Dockerfile baileys
+
+בדוק את Dockerfile baileys
+אם יש שורה
+
+RUN npm ci –only=production
+
+החלף אותה לשורה
+
+RUN npm install –omit=dev
+
+שאר הקובץ נשאר כמו שהוא
+
+6  תיקון Dockerfile backend
+
+בדוק Dockerfile backend
+ודא שהקובץ לא מנסה להעתיק client/dist אל backend
+צריך להיות משהו בסגנון
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+COPY server/ ./server/
+COPY asgi.py wsgi.py run_server.py ./
+
+RUN pip install –no-cache-dir –upgrade pip && pip install –no-cache-dir .
+
+RUN mkdir -p server/public
+RUN mkdir -p storage/recordings storage/whatsapp logs
+
+אל תוסיף COPY client/dist
+אל תיצור תלות בבילד של frontend בתוך backend
+
+7  תיקון nginx בקובץ docker nginx conf
+
+עבור לקובץ docker nginx conf
+ודא שיש בו שרת אחד בלבד על פורט 80
+ובתוכו
+
+server
+listen 80
+server_name _
+root /usr/share/nginx/html
+index index.html
+
+location /health  
+    access_log off  
+    return 200 ok  
+    add_header Content-Type text/plain  
+
+location /api  
+    proxy_pass http://backend:5000  
+    proxy_http_version 1.1  
+    proxy_set_header Upgrade $http_upgrade  
+    proxy_set_header Connection upgrade  
+    proxy_set_header Host $host  
+    proxy_set_header X-Real-IP $remote_addr  
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for  
+    proxy_set_header X-Forwarded-Proto $scheme  
+
+location /ws/  
+    proxy_pass http://backend:5000  
+    proxy_http_version 1.1  
+    proxy_set_header Upgrade $http_upgrade  
+    proxy_set_header Connection upgrade  
+    proxy_set_header Host $host  
+    proxy_set_header X-Real-IP $remote_addr  
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for  
+    proxy_set_header X-Forwarded-Proto $scheme  
+
+location /webhook  
+    proxy_pass http://backend:5000  
+    proxy_http_version 1.1  
+    proxy_set_header Host $host  
+    proxy_set_header X-Real-IP $remote_addr  
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for  
+    proxy_set_header X-Forwarded-Proto $scheme  
+
+location /n8n/  
+    proxy_pass http://n8n:5678/  
+    proxy_http_version 1.1  
+    proxy_set_header Upgrade $http_upgrade  
+    proxy_set_header Connection upgrade  
+    proxy_set_header Host $host  
+    proxy_set_header X-Real-IP $remote_addr  
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for  
+    proxy_set_header X-Forwarded-Proto $scheme  
+    proxy_read_timeout 300s  
+    proxy_send_timeout 300s  
+    proxy_connect_timeout 75s  
+    proxy_buffering off  
+
+location /n8nstatic/  
+    proxy_pass http://n8n:5678/static/  
+    proxy_http_version 1.1  
+    proxy_set_header Host $host  
+    proxy_set_header X-Real-IP $remote_addr  
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for  
+    proxy_set_header X-Forwarded-Proto $scheme  
+
+location /n8nassets/  
+    proxy_pass http://n8n:5678/assets/  
+    proxy_http_version 1.1  
+    proxy_set_header Host $host  
+    proxy_set_header X-Real-IP $remote_addr  
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for  
+    proxy_set_header X-Forwarded-Proto $scheme  
+
+location /assets  
+    expires 1y  
+    add_header Cache-Control public,immutable  
+
+location /  
+    try_files $uri $uri/ /index.html  
+
+אל תוסיף בלוקים נוספים מחוץ לבלוק server
+אל תעשה rewrite לנתיב n8n
+אל תשתמש ב sub_filter
+
+8  אחרי שסיימת לעשות את כל השינויים בקבצים
+
+הרץ את הפקודות הבאות במסוף השרת הראשי
+
+docker compose down –volumes
+docker system prune -af
+docker compose build –no-cache
+docker compose up -d
+
+ודא שהפקודה
+
+docker compose ps
+
+מראה את כל השירותים במצב Up ולא Restarting
+
+סיום הפרומפט
+
+⸻
+
+זהו.
+תדביק את כל זה ל־Agent.
+אחרי שהוא מסיים, תריץ את ארבע הפקודות בסוף ותשלח לי צילום של docker compose ps אם משהו עדיין מקרטע.
