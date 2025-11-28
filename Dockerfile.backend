@@ -19,7 +19,8 @@ COPY asgi.py wsgi.py run_server.py ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
-COPY client/dist/ ./server/public/ 2>/dev/null || mkdir -p ./server/public
+RUN mkdir -p server/public
+COPY client/dist/ server/public/
 
 RUN mkdir -p storage/recordings storage/whatsapp logs
 
