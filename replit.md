@@ -68,51 +68,54 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 
 ---
 
-# BUILD 160 - Docker Infrastructure Rebuild
+# BUILD 160 - Docker Infrastructure Rebuild (FIXED)
 
 **Date**: November 28, 2025
 
 ## Changes Made
 
-### 1. docker-compose.yml - Complete replacement
-- Simplified service definitions
-- Added env_file support for backend
-- Fixed n8n configuration with proper public URL and paths
-- Removed unnecessary healthchecks and volumes
+### 1. docker-compose.yml - Complete rebuild
+- **NO quotes around env vars** - uses `${VAR}` not `"${VAR}"`
+- db service: postgres:14 with proper env vars
+- backend: all required env vars (DATABASE_URL, POSTGRES_*, OPENAI, TWILIO)
+- n8n: depends on db, uses postgres (DB_TYPE: postgresdb), correct paths
 
 ### 2. Dockerfile.frontend
-- Changed `npm ci` to `npm install --force` for better dependency resolution
+- Changed to `npm install` (no flags)
 
-### 3. Dockerfile.backend  
-- Fixed client/dist copy block:
-  - Before: `COPY client/dist/ ./server/public/ 2>/dev/null || mkdir -p ./server/public`
-  - After: `RUN mkdir -p server/public` + `COPY client/dist/ server/public/`
+### 3. Dockerfile.baileys
+- Changed to `npm install --omit=dev`
 
-### 4. docker/nginx.conf - Complete replacement
-- Simplified configuration
-- Fixed n8n proxy paths: `/n8n/`, `/n8nstatic/`, `/n8nassets/`
-- Proper API and WebSocket proxying
+### 4. Dockerfile.backend  
+- Removed `COPY client/dist/` line
+- Kept only `RUN mkdir -p server/public`
 
-## Deployment Commands (STEP 5)
+### 5. docker/nginx.conf - Complete rebuild
+- /health: access_log off, Content-Type header
+- /api, /ws/, /webhook: full proxy headers
+- /n8n/: timeouts (300s), proxy_buffering off
+- /n8nstatic/ → http://n8n:5678/static/
+- /n8nassets/ → http://n8n:5678/assets/
+- /assets: 1y cache
+
+## Deployment Commands
 
 ```bash
 cd /opt/prosaasil
 git pull
 
-docker compose down --remove-orphans
+docker compose down --volumes
 docker system prune -af
 docker compose build --no-cache
 docker compose up -d
+
+# Verify all services are Up:
+docker compose ps
 ```
 
-## Validation Commands (STEP 6)
+## Validation Commands
 
 ```bash
-# Test n8n
-curl -I https://prosaas.pro/n8n/
-curl -I https://prosaas.pro/n8nassets/index-*.js
-curl -I https://prosaas.pro/n8nstatic/prefers-color-scheme.css
-
 # If any service fails, check logs:
 docker compose logs n8n --tail 200
 docker compose logs backend --tail 200
