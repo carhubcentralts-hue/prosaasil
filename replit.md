@@ -137,3 +137,55 @@ docker compose build backend
 docker compose up -d
 docker compose logs backend -f --tail=200
 ```
+
+---
+
+# BUILD 159 - Baileys Docker Networking Fix
+
+**Date**: November 28, 2025
+
+## Issue
+Backend container cannot communicate with Baileys container:
+```
+curl http://baileys:3300/health → Connection refused
+```
+But inside Baileys container:
+```
+curl 127.0.0.1:3300/health → ok ✅
+```
+
+## Root Cause
+`services/whatsapp/baileys_service.js` hardcoded `127.0.0.1` in the listen call:
+```javascript
+server = app.listen(PORT, '127.0.0.1', () => {...});
+```
+This made Baileys only accessible from inside its own container.
+
+## Fix Applied
+
+### 1. Updated `services/whatsapp/baileys_service.js`:
+- Added `HOST` constant that reads `BAILEYS_HOST` env var (default: `0.0.0.0`)
+- Changed `app.listen(PORT, '127.0.0.1', ...)` to `app.listen(PORT, HOST, ...)`
+- Added logging to confirm Docker networking mode
+
+### 2. Updated `docker-compose.yml`:
+- Added `BAILEYS_HOST: 0.0.0.0` to baileys service environment
+
+## Expected Log After Deployment
+```
+[BOOT] Baileys listening on 0.0.0.0:3300 pid=1
+[BOOT] Docker networking: ✅ accessible from other containers
+```
+
+## Deployment Commands
+```bash
+cd /opt/prosaasil
+git pull
+docker compose down
+docker compose build baileys
+docker compose up -d
+docker compose logs baileys --tail=20
+
+# Test connectivity:
+docker compose exec backend curl -v --max-time 5 http://baileys:3300/health
+```

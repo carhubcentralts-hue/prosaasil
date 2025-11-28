@@ -19,6 +19,7 @@ axios.defaults.httpAgent = keepAliveAgent;
 axios.defaults.timeout = 10000;  // ⚡ FIXED: 10s timeout for Flask webhooks
 
 const PORT = Number(process.env.BAILEYS_PORT || 3300);
+const HOST = process.env.BAILEYS_HOST || '0.0.0.0';  // ✅ Listen on all interfaces for Docker networking
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET;
 const FLASK_BASE_URL = process.env.FLASK_BASE_URL || 'http://127.0.0.1:5000';
 
@@ -487,9 +488,10 @@ async function disconnectSession(tenantId) {
 let server = null;
 function start() {
   if (server) return server;
-  server = app.listen(PORT, '127.0.0.1', () => {
+  server = app.listen(PORT, HOST, () => {
     const addr = server.address();
-    console.error(`[BOOT] Baileys listening on 127.0.0.1:${addr.port} pid=${process.pid} (internal only for security)`);
+    console.log(`[BOOT] Baileys listening on ${HOST}:${addr.port} pid=${process.pid}`);
+    console.log(`[BOOT] Docker networking: ${HOST === '0.0.0.0' ? '✅ accessible from other containers' : '⚠️ localhost only'}`);
   });
   server.on('error', (err) => { console.error('[SERVER ERROR]', err); });
   process.on('unhandledRejection', (err) => console.error('[UNHANDLED]', err));

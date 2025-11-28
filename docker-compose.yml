@@ -101,6 +101,7 @@ services:
     environment:
       NODE_ENV: production
       BAILEYS_PORT: 3300
+      BAILEYS_HOST: 0.0.0.0  # ✅ CRITICAL: Listen on all interfaces for Docker networking
       FLASK_BASE_URL: http://backend:5000
       INTERNAL_SECRET: ${INTERNAL_SECRET}
     volumes:
