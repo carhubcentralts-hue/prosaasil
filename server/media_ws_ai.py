@@ -978,15 +978,18 @@ class MediaStreamHandler:
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
         print(f"🚀 [REALTIME] Thread started for call {call_id} (FRESH SESSION)")
+        logger.info(f"[CALL DEBUG] Realtime thread started for call {call_id}")
         
         try:
             asyncio.run(self._run_realtime_mode_async())
         except Exception as e:
             print(f"❌ [REALTIME] Thread error: {e}")
+            logger.error(f"[CALL DEBUG] Realtime thread error: {e}")
             import traceback
             traceback.print_exc()
         finally:
             print(f"🔚 [REALTIME] Thread ended for call {call_id}")
+            logger.info(f"[CALL DEBUG] Realtime thread ended for call {call_id}")
     
     async def _run_realtime_mode_async(self):
         """
@@ -1001,6 +1004,7 @@ class MediaStreamHandler:
         from server.services.realtime_prompt_builder import build_realtime_system_prompt
         
         print(f"🚀 [REALTIME] Async loop starting for business_id={self.business_id}")
+        logger.info(f"[CALL DEBUG] Connecting to OpenAI Realtime for business_id={self.business_id}")
         
         client = None
         call_start_time = time.time()  # 💰 Track call duration for cost estimation
@@ -1012,7 +1016,9 @@ class MediaStreamHandler:
         self._ai_speech_start = None  # Track AI speech duration
         
         try:
+            logger.info(f"[CALL DEBUG] Creating OpenAI Realtime client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
+            logger.info(f"[CALL DEBUG] Client created, now connecting...")
             await client.connect()
             
             # 🔥 Store client reference for barge-in
@@ -1022,6 +1028,7 @@ class MediaStreamHandler:
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
+            logger.info(f"[CALL DEBUG] ✅ OpenAI Realtime connected successfully ({cost_info})")
             
             app = _get_flask_app()
             with app.app_context():
@@ -1050,6 +1057,7 @@ class MediaStreamHandler:
             print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
             
             # 🎯 Configure session with G.711 μ-law (NO TOOLS - appointment via NLP only)
+            logger.info(f"[CALL DEBUG] Configuring Realtime session...")
             await client.configure_session(
                 instructions=system_prompt,
                 voice="shimmer",  # ✅ Best for Hebrew: clear, natural, feminine voice
@@ -1061,6 +1069,7 @@ class MediaStreamHandler:
                 max_tokens=300  # 🎯 BALANCED: ~280-320 tokens for natural but brief responses (Agent 3 spec)
             )
             print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.6, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
+            logger.info(f"[CALL DEBUG] ✅ Realtime session configured - ready to speak!")
             
             # 📋 CRM: Initialize context and ensure lead exists
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
@@ -1097,8 +1106,11 @@ class MediaStreamHandler:
             
         except Exception as e:
             print(f"❌ [REALTIME] Async error: {e}")
+            logger.error(f"[CALL DEBUG] ❌ Realtime async error: {e}")
             import traceback
+            tb_str = traceback.format_exc()
             traceback.print_exc()
+            logger.error(f"[CALL DEBUG] Traceback: {tb_str}")
         finally:
             # 💰 COST TRACKING: Use centralized cost calculation
             self._calculate_and_log_cost()
@@ -1106,6 +1118,7 @@ class MediaStreamHandler:
             if client:
                 await client.disconnect()
                 print(f"🔌 [REALTIME] Disconnected")
+                logger.info(f"[CALL DEBUG] OpenAI Realtime disconnected")
     
     async def _realtime_audio_sender(self, client):
         """Send audio from Twilio to Realtime API"""
@@ -2422,11 +2435,14 @@ class MediaStreamHandler:
                         stream_registry.mark_start(self.call_sid)
                     
                     # ⚡ OPTIMIZED: זיהוי עסק + ברכה בשאילתה אחת!
+                    # 🔍 CALL DEBUG: Log bypass for production (prints are suppressed unless DEBUG=1)
+                    logger.info(f"[CALL DEBUG] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
                     try:
                         app = _get_flask_app()  # ✅ Use singleton
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
                         print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
+                        logger.info(f"[CALL DEBUG] Business identified: business_id={business_id}, greeting_len={len(greet) if greet else 0}")
                     except Exception as e:
                         import traceback
                         logger.error(f"[CALL-ERROR] Business identification failed: {e}")
@@ -2483,6 +2499,7 @@ class MediaStreamHandler:
                     # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
                     if USE_REALTIME_API and not self.realtime_thread:
                         print(f"🚀 [REALTIME] Starting Realtime API mode for call {self.call_sid[:8] if self.call_sid else 'unknown'}")
+                        logger.info(f"[CALL DEBUG] Starting OpenAI Realtime for business_id={self.business_id}, call={self.call_sid[:8] if self.call_sid else 'N/A'}")
                         
                         self.realtime_thread = threading.Thread(
                             target=self._run_realtime_mode_thread,
@@ -2499,6 +2516,7 @@ class MediaStreamHandler:
                         self.background_threads.append(realtime_out_thread)
                         
                         print(f"✅ [REALTIME] Threads started - greeting will be sent by async loop")
+                        logger.info(f"[CALL DEBUG] Realtime threads started successfully")
                         # ❌ DON'T set greeting_sent=True here - let the async loop do it after actually sending!
                     
                     # 🎵 GOOGLE TTS: Send greeting via Google TTS if NOT using Realtime

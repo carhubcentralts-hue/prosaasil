@@ -66,7 +66,9 @@ class OpenAIRealtimeClient:
             logger.warning("⚠️ Existing connection found - closing it first (prevent session reuse)")
             await self.disconnect()
         
-        logger.info(f"🔌 Connecting to OpenAI Realtime API: {self.model}")
+        logger.info(f"[CALL DEBUG] 🔌 Connecting to OpenAI Realtime API: {self.model}")
+        logger.info(f"[CALL DEBUG] URL: {self.url}")
+        logger.info(f"[CALL DEBUG] API key present: {bool(self.api_key)}, key_prefix: {self.api_key[:10] if self.api_key else 'N/A'}...")
         
         try:
             self.ws = await websockets.connect(
@@ -78,11 +80,13 @@ class OpenAIRealtimeClient:
                 ping_interval=20,
                 ping_timeout=10
             )
-            logger.info("✅ Connected to OpenAI Realtime API (FRESH SESSION)")
+            logger.info("[CALL DEBUG] ✅ Connected to OpenAI Realtime API (FRESH SESSION)")
             return self.ws
             
         except Exception as e:
-            logger.error(f"❌ Failed to connect to Realtime API: {e}")
+            logger.error(f"[CALL DEBUG] ❌ Failed to connect to Realtime API: {e}")
+            import traceback
+            logger.error(f"[CALL DEBUG] Traceback: {traceback.format_exc()}")
             raise
     
     async def disconnect(self):
