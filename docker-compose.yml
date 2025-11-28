@@ -1,5 +1,4 @@
 services:
-
   db:
     image: postgres:14
     container_name: prosaas-db
@@ -57,6 +56,8 @@ services:
       - backend
     ports:
       - "3300:3300"
+    env_file:
+      - .env
 
   n8n:
     image: n8nio/n8n:latest
