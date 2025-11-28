@@ -215,3 +215,41 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 ✅ nginx WebSocket path fixed
 ✅ User management page fully functional
 ✅ Phone normalization working
+
+---
+
+# BUILD 157 - Twilio Webhook Routing Fixes
+
+**Date**: November 28, 2025
+
+## Fixes Applied
+
+### 1. Twilio Webhook Route Aliases ✔
+- **ADDED**: `/webhook/incoming-call` (hyphen) as alias for `/webhook/incoming_call` (underscore)
+- **REASON**: Twilio webhook configuration may use either format
+- Both routes delegate to the same `incoming_call()` handler
+
+### 2. Debug Endpoint ✔
+- **ADDED**: `/webhook/debug-method` endpoint for troubleshooting
+- Returns HTTP method and path for verification
+
+### 3. Voice Webhook GET Support ✔
+- **VERIFIED**: `/webhook/voice` now supports both GET and POST methods
+- **VERIFIED**: `/webhook/incoming_call` supports both GET and POST methods
+
+## Webhook Endpoints Summary
+
+| Endpoint | Methods | Purpose |
+|----------|---------|---------|
+| `/webhook/voice` | GET, POST | Main Twilio voice webhook |
+| `/webhook/incoming_call` | GET, POST | Incoming call handler (underscore) |
+| `/webhook/incoming-call` | GET, POST | Incoming call handler (hyphen alias) |
+| `/webhook/debug-method` | GET, POST | Debug endpoint |
+| `/webhook/test` | GET, POST | Test endpoint |
+
+## Status: READY FOR PRODUCTION
+
+✅ All Twilio webhook routes support both GET and POST  
+✅ Hyphen and underscore route aliases in place  
+✅ Debug endpoint available for troubleshooting  
+✅ Client build successful
