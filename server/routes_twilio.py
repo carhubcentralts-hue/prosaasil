@@ -296,13 +296,21 @@ def incoming_call_preview():
     return _twiml(vr)
 
 @csrf.exempt
-@twilio_bp.route("/webhook/voice", methods=["POST"])
+@twilio_bp.route("/webhook/voice", methods=["POST", "GET"])
 @require_twilio_signature
 def voice_webhook():
     """
     ✅ BUILD 70: Main Twilio voice webhook - delegates to incoming_call
     This is the primary webhook URL configured in Twilio console
     """
+    return incoming_call()
+
+# ✅ BUILD 157: Add hyphen route alias for Twilio compatibility
+@csrf.exempt
+@twilio_bp.route("/webhook/incoming-call", methods=["POST", "GET"])
+@require_twilio_signature
+def incoming_call_hyphen():
+    """Route alias with hyphen for Twilio webhook"""
     return incoming_call()
 
 @csrf.exempt
@@ -659,6 +667,14 @@ def call_status():
 def test_webhook():
     """Test webhook endpoint"""
     return "TEST OK", 200
+
+# ✅ BUILD 157: Debug route to verify POST method works
+@csrf.exempt
+@twilio_bp.route("/webhook/debug-method", methods=["GET", "POST"])
+def debug_method():
+    """Debug route to verify HTTP methods"""
+    logger.info(f"[TWILIO DEBUG] method={request.method}, path={request.path}")
+    return f"method={request.method}, path={request.path}", 200
 
 # All health endpoints are handled by app_factory.py to avoid conflicts
 @twilio_bp.route("/webhook/test_media_streams_1756667590", methods=["GET"])
