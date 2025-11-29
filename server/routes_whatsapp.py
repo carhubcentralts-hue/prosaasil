@@ -292,6 +292,32 @@ def api_wa_messages():
         "platform": m.provider,
     } for m in msgs]}), 200
 
+
+@whatsapp_bp.route('/messages/<phone_number>', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def api_wa_messages_by_phone(phone_number):
+    """Get WhatsApp messages by phone number path parameter"""
+    from server.routes_crm import get_business_id
+    
+    business_id = get_business_id()
+    
+    clean_phone = phone_number.replace('+', '').replace('@s.whatsapp.net', '').replace('%2B', '')
+    
+    msgs = WhatsAppMessage.query.filter_by(
+        business_id=business_id,
+        to_number=clean_phone
+    ).order_by(WhatsAppMessage.created_at.asc()).all()
+    
+    return jsonify({"messages":[{
+        "id": m.id,
+        "text": m.body,
+        "type": m.message_type,
+        "direction": m.direction,
+        "ts": m.created_at.isoformat() if m.created_at else None,
+        "platform": m.provider,
+    } for m in msgs]}), 200
+
 @whatsapp_bp.route('/conversation/<phone_number>', methods=['GET'])
 @csrf.exempt
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
