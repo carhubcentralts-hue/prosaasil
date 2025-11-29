@@ -1,14 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, Trash2, Calendar, FileText, Volume2, AlertTriangle, Edit, Save, X } from 'lucide-react';
 import { http } from '../../services/http';
 
-// Temporary UI components
-const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`border border-gray-200 rounded-lg bg-white shadow-sm ${className}`}>{children}</div>
-);
+// Debounce hook for search optimization
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
-const Button = ({ children, className = "", variant = "default", size = "default", disabled = false, ...props }: {
+// Temporary UI components - optimized with React.memo
+const Card = React.memo(({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+  <div className={`border border-gray-200 rounded-lg bg-white shadow-sm ${className}`}>{children}</div>
+));
+
+const Button = React.memo(({ children, className = "", variant = "default", size = "default", disabled = false, ...props }: {
   children: React.ReactNode;
   className?: string;
   variant?: "default" | "outline" | "ghost" | "destructive";
@@ -36,9 +46,9 @@ const Button = ({ children, className = "", variant = "default", size = "default
       {children}
     </button>
   );
-};
+});
 
-const Badge = ({ children, className = "", variant = "default" }: {
+const Badge = React.memo(({ children, className = "", variant = "default" }: {
   children: React.ReactNode;
   className?: string;
   variant?: "default" | "success" | "warning" | "destructive";
@@ -54,7 +64,7 @@ const Badge = ({ children, className = "", variant = "default" }: {
       {children}
     </span>
   );
-};
+});
 
 // Interface definitions
 interface Call {
@@ -95,6 +105,12 @@ export function CallsPage() {
   const [playingRecording, setPlayingRecording] = useState<string | null>(null);
   const [editingTranscript, setEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState('');
+  const [deletingCall, setDeletingCall] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [deletingOldRecordings, setDeletingOldRecordings] = useState(false);
+
+  // Debounce search query to prevent excessive API calls
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   // Open lead in CRM - navigate to lead detail page
   const openInCRM = async (call: Call) => {
@@ -132,19 +148,18 @@ export function CallsPage() {
 
   useEffect(() => {
     loadCalls();
-  }, [searchQuery, statusFilter, directionFilter]);
+  }, [debouncedSearchQuery, statusFilter, directionFilter]);
 
-  const loadCalls = async () => {
+  const loadCalls = useCallback(async () => {
     try {
       setLoading(true);
       
-      const response = await http.get('/api/calls?search=' + encodeURIComponent(searchQuery) + '&status=' + statusFilter + '&direction=' + directionFilter + '&limit=50');
+      const response = await http.get('/api/calls?search=' + encodeURIComponent(debouncedSearchQuery) + '&status=' + statusFilter + '&direction=' + directionFilter + '&limit=50');
       
       if (response && typeof response === 'object' && 'success' in response && response.success) {
         setCalls((response as any).calls || []);
       } else {
         console.error('Error loading calls:', response);
-        // Fallback to empty array on error
         setCalls([]);
       }
     } catch (error) {
@@ -153,7 +168,7 @@ export function CallsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearchQuery, statusFilter, directionFilter]);
 
   const loadCallDetails = async (call: Call) => {
     try {
@@ -314,17 +329,68 @@ export function CallsPage() {
     setEditedTranscript('');
   };
 
-  const filteredCalls = calls.filter(call => {
-    const matchesSearch = !searchQuery || 
-      call.lead_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      call.from_e164.includes(searchQuery) ||
-      call.transcription?.toLowerCase().includes(searchQuery.toLowerCase());
+  // Delete a single call
+  const deleteCall = async (call: Call) => {
+    try {
+      setDeletingCall(call.sid);
+      
+      const response = await http.delete(`/api/calls/${call.sid}`);
+      
+      if (response && typeof response === 'object' && 'success' in response && (response as any).success) {
+        // Remove from local state
+        setCalls(calls.filter(c => c.sid !== call.sid));
+        setShowDeleteConfirm(null);
+      } else {
+        alert('שגיאה במחיקת השיחה');
+      }
+    } catch (error) {
+      console.error('Error deleting call:', error);
+      alert('שגיאה במחיקת השיחה');
+    } finally {
+      setDeletingCall(null);
+    }
+  };
+
+  // Delete old recordings (older than 7 days)
+  const deleteOldRecordings = async () => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק את כל ההקלטות הישנות מעל 7 ימים?')) {
+      return;
+    }
     
-    const matchesStatus = statusFilter === 'all' || call.status === statusFilter;
-    const matchesDirection = directionFilter === 'all' || call.direction === directionFilter;
-    
-    return matchesSearch && matchesStatus && matchesDirection;
-  });
+    try {
+      setDeletingOldRecordings(true);
+      
+      const response = await http.post('/api/calls/cleanup-recordings', {});
+      
+      if (response && typeof response === 'object' && 'success' in response && (response as any).success) {
+        const deleted = (response as any).deleted_count || 0;
+        alert(`נמחקו ${deleted} הקלטות ישנות בהצלחה`);
+        loadCalls(); // Refresh the list
+      } else {
+        alert('שגיאה במחיקת הקלטות ישנות');
+      }
+    } catch (error) {
+      console.error('Error deleting old recordings:', error);
+      alert('שגיאה במחיקת הקלטות ישנות');
+    } finally {
+      setDeletingOldRecordings(false);
+    }
+  };
+
+  // Memoize filtered calls to avoid recalculating on every render
+  const filteredCalls = useMemo(() => {
+    return calls.filter(call => {
+      const matchesSearch = !searchQuery || 
+        call.lead_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        call.from_e164.includes(searchQuery) ||
+        call.transcription?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesStatus = statusFilter === 'all' || call.status === statusFilter;
+      const matchesDirection = directionFilter === 'all' || call.direction === directionFilter;
+      
+      return matchesSearch && matchesStatus && matchesDirection;
+    });
+  }, [calls, searchQuery, statusFilter, directionFilter]);
 
   if (loading) {
     return (
@@ -346,9 +412,19 @@ export function CallsPage() {
           <p className="text-slate-600 mt-1">צפה בכל השיחות, הקלטות ותמלילים</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" size="sm" onClick={() => alert('מחיקת הקלטות ישנות - בפיתוח')} data-testid="button-delete-old">
-            <Calendar className="h-4 w-4 ml-2" />
-            מחק הקלטות ישנות
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={deleteOldRecordings} 
+            disabled={deletingOldRecordings}
+            data-testid="button-delete-old"
+          >
+            {deletingOldRecordings ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current ml-2" />
+            ) : (
+              <Trash2 className="h-4 w-4 ml-2" />
+            )}
+            {deletingOldRecordings ? 'מוחק...' : 'מחק הקלטות ישנות'}
           </Button>
         </div>
       </div>
@@ -533,6 +609,17 @@ export function CallsPage() {
                             </Button>
                           </>
                         )}
+                        
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowDeleteConfirm(call.sid)}
+                          disabled={deletingCall === call.sid}
+                          data-testid={`button-delete-desktop-${call.sid}`}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className={`h-4 w-4 ${deletingCall === call.sid ? 'animate-pulse' : ''}`} />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -647,6 +734,17 @@ export function CallsPage() {
                         </Button>
                       </>
                     )}
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowDeleteConfirm(call.sid)}
+                      disabled={deletingCall === call.sid}
+                      data-testid={`button-delete-${call.sid}`}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className={`h-4 w-4 ${deletingCall === call.sid ? 'animate-pulse' : ''}`} />
+                    </Button>
                   </div>
                 </Card>
               );
@@ -845,6 +943,49 @@ export function CallsPage() {
           </div>
         </Card>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="modal-delete-confirm">
+          <Card className="p-6 max-w-sm mx-4">
+            <div className="text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+                <Trash2 className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-medium text-slate-900 mb-2">מחיקת שיחה</h3>
+              <p className="text-sm text-slate-600 mb-4">
+                האם אתה בטוח שברצונך למחוק את השיחה? פעולה זו לא ניתנת לביטול.
+              </p>
+              <div className="flex gap-3 justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDeleteConfirm(null)}
+                  disabled={deletingCall !== null}
+                >
+                  ביטול
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    const callToDelete = calls.find(c => c.sid === showDeleteConfirm);
+                    if (callToDelete) deleteCall(callToDelete);
+                  }}
+                  disabled={deletingCall !== null}
+                >
+                  {deletingCall ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white ml-2" />
+                      מוחק...
+                    </>
+                  ) : (
+                    'מחק'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

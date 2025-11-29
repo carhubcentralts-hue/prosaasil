@@ -24,6 +24,8 @@ interface NotificationContextType {
   unreadCount: number;
   refreshNotifications: () => Promise<void>;
   setNotificationCountCallback: (callback: (count: number) => void) => void;
+  markAsComplete: (notificationId: string) => Promise<void>;
+  deleteNotification: (notificationId: string) => Promise<void>;
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
@@ -131,6 +133,49 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     setCountCallback(() => callback);
   }, []);
 
+  // Mark notification as complete (set completed_at on reminder)
+  const markAsComplete = useCallback(async (notificationId: string) => {
+    try {
+      // Notifications are based on reminders - complete the reminder
+      await http.patch(`/api/reminders/${notificationId}/complete`, {});
+      
+      // Remove from local state and update count from the new filtered list
+      setNotifications(prev => {
+        const newList = prev.filter(n => n.id !== notificationId);
+        // Update count callback with the new count
+        if (countCallback) {
+          const newCount = newList.filter(n => !n.read).length;
+          countCallback(newCount);
+        }
+        return newList;
+      });
+    } catch (error) {
+      console.error('Error marking notification as complete:', error);
+      throw error;
+    }
+  }, [countCallback]);
+
+  // Delete notification (delete the reminder)
+  const deleteNotification = useCallback(async (notificationId: string) => {
+    try {
+      await http.delete(`/api/reminders/${notificationId}`);
+      
+      // Remove from local state and update count from the new filtered list
+      setNotifications(prev => {
+        const newList = prev.filter(n => n.id !== notificationId);
+        // Update count callback with the new count
+        if (countCallback) {
+          const newCount = newList.filter(n => !n.read).length;
+          countCallback(newCount);
+        }
+        return newList;
+      });
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      throw error;
+    }
+  }, [countCallback]);
+
   // BUILD 144: Auto-fetch notifications + POLLING for real-time updates
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -171,7 +216,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       notifications, 
       unreadCount, 
       refreshNotifications, 
-      setNotificationCountCallback 
+      setNotificationCountCallback,
+      markAsComplete,
+      deleteNotification
     }}>
       {children}
     </NotificationContext.Provider>

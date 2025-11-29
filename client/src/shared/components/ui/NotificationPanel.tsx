@@ -15,7 +15,9 @@ import {
   Building2,
   Wifi,
   WifiOff,
-  Settings
+  Settings,
+  CheckCircle,
+  Trash2
 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../../features/auth/hooks';
@@ -153,10 +155,42 @@ interface NotificationDetailModalProps {
   notification: Notification | null;
   isOpen: boolean;
   onClose: () => void;
+  onMarkComplete: (id: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }
 
-function NotificationDetailModal({ notification, isOpen, onClose }: NotificationDetailModalProps) {
+function NotificationDetailModal({ notification, isOpen, onClose, onMarkComplete, onDelete }: NotificationDetailModalProps) {
+  const [isCompleting, setIsCompleting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   if (!isOpen || !notification) return null;
+
+  const handleMarkComplete = async () => {
+    setIsCompleting(true);
+    try {
+      await onMarkComplete(notification.id);
+      onClose();
+    } catch (error) {
+      console.error('Error marking as complete:', error);
+      alert('שגיאה בסימון ההתראה כהושלמה');
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק את ההתראה?')) return;
+    setIsDeleting(true);
+    try {
+      await onDelete(notification.id);
+      onClose();
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      alert('שגיאה במחיקת ההתראה');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const formatTime = (date: Date) => {
     return date.toLocaleString('he-IL', {
@@ -282,10 +316,38 @@ function NotificationDetailModal({ notification, isOpen, onClose }: Notification
 
         {/* Actions */}
         <div className="p-6 border-t border-slate-200 bg-slate-50">
-          <div className="flex gap-3 justify-end">
+          <div className="flex gap-3 justify-between">
+            <div className="flex gap-2">
+              <button
+                onClick={handleMarkComplete}
+                disabled={isCompleting || isDeleting}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                data-testid="button-mark-complete"
+              >
+                {isCompleting ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                ) : (
+                  <CheckCircle className="h-4 w-4" />
+                )}
+                סמן כהושלם
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isCompleting || isDeleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                data-testid="button-delete-notification"
+              >
+                {isDeleting ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                מחק
+              </button>
+            </div>
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors"
             >
               סגור
             </button>
@@ -305,7 +367,7 @@ interface NotificationPanelProps {
 export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: NotificationPanelProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { notifications, refreshNotifications, setNotificationCountCallback } = useNotifications();
+  const { notifications, refreshNotifications, setNotificationCountCallback, markAsComplete, deleteNotification } = useNotifications();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -408,6 +470,8 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
         notification={selectedNotification}
         isOpen={isDetailModalOpen}
         onClose={handleDetailModalClose}
+        onMarkComplete={markAsComplete}
+        onDelete={deleteNotification}
       />
     </>
   );

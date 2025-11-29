@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Users, 
   MessageCircle, 
@@ -44,11 +45,13 @@ function ProviderStatusCard() {
 
 
 function QuickActionsCard() {
+  const navigate = useNavigate();
+  
   const actions = [
-    { title: 'לידים', icon: <Users className="h-6 w-6" />, color: 'bg-violet-50 text-violet-600' },
-    { title: 'WhatsApp', icon: <MessageCircle className="h-6 w-6" />, color: 'bg-green-50 text-green-600' },
-    { title: 'שיחות', icon: <Phone className="h-6 w-6" />, color: 'bg-blue-50 text-blue-600' },
-    { title: 'לוח שנה', icon: <Calendar className="h-6 w-6" />, color: 'bg-orange-50 text-orange-600' }
+    { title: 'לידים', icon: <Users className="h-6 w-6" />, color: 'bg-violet-50 text-violet-600', route: '/app/leads' },
+    { title: 'WhatsApp', icon: <MessageCircle className="h-6 w-6" />, color: 'bg-green-50 text-green-600', route: '/app/whatsapp' },
+    { title: 'שיחות', icon: <Phone className="h-6 w-6" />, color: 'bg-blue-50 text-blue-600', route: '/app/calls' },
+    { title: 'לוח שנה', icon: <Calendar className="h-6 w-6" />, color: 'bg-orange-50 text-orange-600', route: '/app/calendar' }
   ];
 
   return (
@@ -59,7 +62,8 @@ function QuickActionsCard() {
           <button
             key={index}
             className="flex flex-col items-center p-4 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors min-h-[88px]"
-            onClick={() => window.location.href = '/app/leads'}
+            onClick={() => navigate(action.route)}
+            data-testid={`quick-action-${action.title}`}
           >
             <div className={cn(
               'p-3 rounded-xl mb-3 transition-transform hover:scale-105',
@@ -76,6 +80,18 @@ function QuickActionsCard() {
 }
 
 function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoading?: boolean }) {
+  const navigate = useNavigate();
+
+  const handleOpenActivity = (item: any) => {
+    if (item.type === 'call') {
+      navigate('/app/calls');
+    } else if (item.type === 'whatsapp') {
+      navigate('/app/whatsapp');
+    } else {
+      navigate('/app/leads');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -119,7 +135,11 @@ function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoadi
                 </div>
                 <p className="text-sm text-gray-600 mt-1">{item.preview}</p>
               </div>
-              <button className="text-blue-600 hover:text-blue-800 text-sm font-medium mr-2">
+              <button 
+                className="text-blue-600 hover:text-blue-800 text-sm font-medium mr-2"
+                onClick={() => handleOpenActivity(item)}
+                data-testid={`activity-open-${index}`}
+              >
                 פתח
               </button>
             </div>
@@ -134,7 +154,11 @@ function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoadi
       
       {activity && activity.length > 0 && (
         <div className="mt-4 text-center">
-          <button className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+          <button 
+            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            onClick={() => navigate('/app/leads')}
+            data-testid="activity-see-more"
+          >
             ראה עוד פעילות
           </button>
         </div>
