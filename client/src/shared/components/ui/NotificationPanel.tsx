@@ -501,10 +501,11 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
 interface UrgentNotificationPopupProps {
   notification: Notification | null;
   onDismiss: () => void;
+  onCloseAll: () => void;
   onMarkComplete: () => void;
 }
 
-export function UrgentNotificationPopup({ notification, onDismiss, onMarkComplete }: UrgentNotificationPopupProps) {
+export function UrgentNotificationPopup({ notification, onDismiss, onCloseAll, onMarkComplete }: UrgentNotificationPopupProps) {
   const [isCompleting, setIsCompleting] = useState(false);
   
   if (!notification) return null;
@@ -542,17 +543,17 @@ export function UrgentNotificationPopup({ notification, onDismiss, onMarkComplet
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-[60] p-4" dir="rtl">
-      <div className="fixed inset-0 bg-black bg-opacity-40" onClick={onDismiss} />
+      <div className="fixed inset-0 bg-black bg-opacity-40" onClick={onCloseAll} />
       
       <div className={cn(
         "relative bg-white rounded-2xl shadow-2xl border-2 p-6 max-w-md w-full animate-in zoom-in-95 fade-in duration-300",
         getBgColor()
       )}>
-        {/* Close button */}
+        {/* Close button - closes ALL urgent popups */}
         <button
-          onClick={onDismiss}
+          onClick={onCloseAll}
           className="absolute top-3 left-3 p-2 hover:bg-slate-100 rounded-full transition-colors"
-          data-testid="button-dismiss-urgent"
+          data-testid="button-close-urgent"
         >
           <X className="h-5 w-5 text-slate-500" />
         </button>

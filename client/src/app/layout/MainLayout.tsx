@@ -138,6 +138,7 @@ export function MainLayout() {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0); // Will be set from notifications
   const [currentUrgentIndex, setCurrentUrgentIndex] = useState(0);
+  const [hideAllUrgentPopups, setHideAllUrgentPopups] = useState(false);
   
   // Get urgent notifications from context
   const { urgentNotifications, markAsComplete, dismissUrgent, unreadCount } = useNotifications();
@@ -554,7 +555,7 @@ export function MainLayout() {
       />
 
       {/* Urgent Notification Popup - Shows for important alerts */}
-      {urgentNotifications.length > 0 && !notificationsPanelOpen && (
+      {urgentNotifications.length > 0 && !notificationsPanelOpen && !hideAllUrgentPopups && (
         <UrgentNotificationPopup
           notification={urgentNotifications[currentUrgentIndex] || null}
           onDismiss={() => {
@@ -568,6 +569,10 @@ export function MainLayout() {
             } else {
               setCurrentUrgentIndex(0);
             }
+          }}
+          onCloseAll={() => {
+            // Hide all urgent popups for this session
+            setHideAllUrgentPopups(true);
           }}
           onMarkComplete={async () => {
             const currentNotif = urgentNotifications[currentUrgentIndex];
