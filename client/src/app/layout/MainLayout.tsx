@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
-import { NotificationPanel } from '../../shared/components/ui/NotificationPanel';
+import { NotificationPanel, UrgentNotificationPopup } from '../../shared/components/ui/NotificationPanel';
+import { useNotifications } from '../../shared/contexts/NotificationContext';
 import { ImpersonationBanner } from '../../features/businesses/components/ImpersonationBanner';
 import { SearchModal } from '../../shared/components/ui/SearchModal';
 import { cn } from '../../shared/utils/cn';
@@ -136,12 +137,23 @@ export function MainLayout() {
   const [notificationsPanelOpen, setNotificationsPanelOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0); // Will be set from notifications
+  const [currentUrgentIndex, setCurrentUrgentIndex] = useState(0);
+  
+  // Get urgent notifications from context
+  const { urgentNotifications, markAsComplete, dismissUrgent, unreadCount } = useNotifications();
   
   // FIXED: Wrap in useCallback to prevent infinite loop
   const handleUnreadCountChange = useCallback((count: number) => {
     console.log('📮 MainLayout מקבל עדכון מונה:', count);
     setUnreadNotifications(count);
   }, []); // Empty dependency array - function doesn't depend on any values
+  
+  // Also sync unreadCount from context
+  useEffect(() => {
+    if (unreadCount !== undefined) {
+      setUnreadNotifications(unreadCount);
+    }
+  }, [unreadCount]);
   
   const { user, tenant, logout } = useAuth();
   const { isImpersonating } = useImpersonation(); // Use server-side impersonation state
@@ -540,6 +552,37 @@ export function MainLayout() {
         onClose={() => setNotificationsPanelOpen(false)}
         onUnreadCountChange={handleUnreadCountChange}
       />
+
+      {/* Urgent Notification Popup - Shows for important alerts */}
+      {urgentNotifications.length > 0 && !notificationsPanelOpen && (
+        <UrgentNotificationPopup
+          notification={urgentNotifications[currentUrgentIndex] || null}
+          onDismiss={() => {
+            const currentNotif = urgentNotifications[currentUrgentIndex];
+            if (currentNotif) {
+              dismissUrgent(currentNotif.id);
+            }
+            // Move to next urgent notification if exists
+            if (currentUrgentIndex < urgentNotifications.length - 1) {
+              setCurrentUrgentIndex(prev => prev + 1);
+            } else {
+              setCurrentUrgentIndex(0);
+            }
+          }}
+          onMarkComplete={async () => {
+            const currentNotif = urgentNotifications[currentUrgentIndex];
+            if (currentNotif) {
+              await markAsComplete(currentNotif.id);
+            }
+            // Move to next urgent notification if exists
+            if (currentUrgentIndex < urgentNotifications.length - 1) {
+              setCurrentUrgentIndex(prev => prev + 1);
+            } else {
+              setCurrentUrgentIndex(0);
+            }
+          }}
+        />
+      )}
 
       {/* Search Modal - Temporarily disabled until API is implemented */}
       {/* <SearchModal

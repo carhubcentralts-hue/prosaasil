@@ -496,3 +496,129 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
     </>
   );
 }
+
+// Urgent Notification Popup - Shows for important notifications that need immediate attention
+interface UrgentNotificationPopupProps {
+  notification: Notification | null;
+  onDismiss: () => void;
+  onMarkComplete: () => void;
+}
+
+export function UrgentNotificationPopup({ notification, onDismiss, onMarkComplete }: UrgentNotificationPopupProps) {
+  const [isCompleting, setIsCompleting] = useState(false);
+  
+  if (!notification) return null;
+  
+  const handleComplete = async () => {
+    setIsCompleting(true);
+    try {
+      await onMarkComplete();
+    } finally {
+      setIsCompleting(false);
+    }
+  };
+  
+  const getIcon = () => {
+    switch (notification.type) {
+      case 'meeting': return <Calendar className="h-8 w-8" />;
+      case 'task': return <Clock className="h-8 w-8" />;
+      case 'system': return <AlertTriangle className="h-8 w-8" />;
+      case 'urgent': return <AlertTriangle className="h-8 w-8" />;
+      default: return <Bell className="h-8 w-8" />;
+    }
+  };
+  
+  const getBgColor = () => {
+    if (notification.metadata?.priority === 'urgent') return 'bg-red-50 border-red-300';
+    if (notification.type === 'system') return 'bg-amber-50 border-amber-300';
+    return 'bg-blue-50 border-blue-300';
+  };
+  
+  const getIconColor = () => {
+    if (notification.metadata?.priority === 'urgent') return 'text-red-600';
+    if (notification.type === 'system') return 'text-amber-600';
+    return 'text-blue-600';
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-[60] p-4" dir="rtl">
+      <div className="fixed inset-0 bg-black bg-opacity-40" onClick={onDismiss} />
+      
+      <div className={cn(
+        "relative bg-white rounded-2xl shadow-2xl border-2 p-6 max-w-md w-full animate-in zoom-in-95 fade-in duration-300",
+        getBgColor()
+      )}>
+        {/* Close button */}
+        <button
+          onClick={onDismiss}
+          className="absolute top-3 left-3 p-2 hover:bg-slate-100 rounded-full transition-colors"
+          data-testid="button-dismiss-urgent"
+        >
+          <X className="h-5 w-5 text-slate-500" />
+        </button>
+        
+        {/* Icon */}
+        <div className={cn("flex justify-center mb-4", getIconColor())}>
+          {getIcon()}
+        </div>
+        
+        {/* Title */}
+        <h2 className="text-xl font-bold text-center text-slate-900 mb-2">
+          {notification.title}
+        </h2>
+        
+        {/* Message */}
+        <p className="text-center text-slate-700 mb-4">
+          {notification.message}
+        </p>
+        
+        {/* Due time if available */}
+        {notification.metadata?.dueAt && (
+          <div className="text-center mb-4 p-3 bg-white rounded-lg border border-slate-200">
+            <p className="text-sm text-slate-600">מיועד ל:</p>
+            <p className="text-lg font-semibold text-slate-900">
+              {new Date(notification.metadata.dueAt).toLocaleString('he-IL', {
+                dateStyle: 'short',
+                timeStyle: 'short'
+              })}
+            </p>
+          </div>
+        )}
+        
+        {/* Client info if available */}
+        {notification.metadata?.clientName && (
+          <div className="text-center mb-4">
+            <span className="inline-flex items-center gap-2 px-3 py-1 bg-white rounded-full border border-slate-200">
+              <User className="h-4 w-4 text-slate-600" />
+              <span className="text-slate-700">{notification.metadata.clientName}</span>
+            </span>
+          </div>
+        )}
+        
+        {/* Actions */}
+        <div className="flex gap-3 justify-center mt-6">
+          <button
+            onClick={handleComplete}
+            disabled={isCompleting}
+            className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+            data-testid="button-urgent-complete"
+          >
+            {isCompleting ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+            ) : (
+              <CheckCircle className="h-5 w-5" />
+            )}
+            סמן כהושלם
+          </button>
+          <button
+            onClick={onDismiss}
+            className="px-4 py-3 bg-slate-600 text-white rounded-xl hover:bg-slate-700 transition-colors font-medium"
+            data-testid="button-urgent-dismiss"
+          >
+            אישור
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

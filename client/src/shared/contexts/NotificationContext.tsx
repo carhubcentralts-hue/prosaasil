@@ -22,10 +22,12 @@ export interface Notification {
 interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
+  urgentNotifications: Notification[];
   refreshNotifications: () => Promise<void>;
   setNotificationCountCallback: (callback: (count: number) => void) => void;
   markAsComplete: (notificationId: string) => Promise<void>;
   deleteNotification: (notificationId: string) => Promise<void>;
+  dismissUrgent: (notificationId: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | null>(null);
@@ -83,13 +85,20 @@ function convertApiNotification(apiNotif: any): Notification {
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [dismissedUrgent, setDismissedUrgent] = useState<Set<string>>(new Set());
   const [countCallback, setCountCallback] = useState<((count: number) => void) | null>(null);
+  const countCallbackRef = useRef<((count: number) => void) | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const lastCountRef = useRef<number>(0);
   
   // BUILD 144: Get auth state to only fetch when logged in
   const { user, isAuthenticated } = useAuth();
+  
+  // Keep callback ref in sync
+  useEffect(() => {
+    countCallbackRef.current = countCallback;
+  }, [countCallback]);
 
   const refreshNotifications = useCallback(async () => {
     // BUILD 144: Don't fetch if not authenticated - prevents 401 spam
@@ -113,9 +122,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         const converted = data.notifications.map(convertApiNotification);
         setNotifications(converted);
         
-        // Update count callback
+        // Update count callback immediately using ref (ensures callback even if not yet registered)
         const unreadCount = converted.filter((n: Notification) => !n.read).length;
-        if (countCallback) {
+        if (countCallbackRef.current) {
+          countCallbackRef.current(unreadCount);
+        } else if (countCallback) {
           countCallback(unreadCount);
         }
       } else {
@@ -202,6 +213,34 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const unreadCount = notifications.filter(n => !n.read).length;
   
+  // Compute urgent notifications (today's meetings, overdue, high priority, system alerts)
+  const urgentNotifications = notifications.filter(n => {
+    // Skip if already dismissed
+    if (dismissedUrgent.has(n.id)) return false;
+    
+    // System notifications (like WhatsApp disconnect)
+    if (n.type === 'system' || n.type === 'urgent') return true;
+    
+    // Overdue notifications
+    if (n.metadata?.priority === 'urgent') return true;
+    
+    // Today's meetings/tasks with high priority
+    if (n.metadata?.priority === 'high' && n.metadata?.dueAt) {
+      const dueDate = new Date(n.metadata.dueAt);
+      const today = new Date();
+      if (dueDate.toDateString() === today.toDateString()) {
+        return true;
+      }
+    }
+    
+    return false;
+  });
+  
+  // Dismiss urgent notification (hide from popup but keep in list)
+  const dismissUrgent = useCallback((notificationId: string) => {
+    setDismissedUrgent(prev => new Set([...prev, notificationId]));
+  }, []);
+  
   // BUILD 144: Notify when new notifications arrive
   useEffect(() => {
     if (unreadCount > lastCountRef.current && lastCountRef.current > 0) {
@@ -215,10 +254,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     <NotificationContext.Provider value={{ 
       notifications, 
       unreadCount, 
+      urgentNotifications,
       refreshNotifications, 
       setNotificationCountCallback,
       markAsComplete,
-      deleteNotification
+      deleteNotification,
+      dismissUrgent
     }}>
       {children}
     </NotificationContext.Provider>
