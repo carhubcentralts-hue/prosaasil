@@ -597,6 +597,43 @@ def apply_migrations():
         migrations_applied.append("add_business_whatsapp_provider")
         log.info("✅ Applied migration 25: add_business_whatsapp_provider - Meta Cloud API support")
     
+    # Migration 26: Create WhatsAppConversation table for session tracking and auto-summary
+    if not check_table_exists('whatsapp_conversation'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE whatsapp_conversation (
+                id SERIAL PRIMARY KEY,
+                business_id INTEGER NOT NULL,
+                provider VARCHAR(32) DEFAULT 'baileys',
+                customer_wa_id VARCHAR(64) NOT NULL,
+                lead_id INTEGER,
+                started_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                last_message_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                last_customer_message_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                is_open BOOLEAN DEFAULT TRUE,
+                summary_created BOOLEAN DEFAULT FALSE,
+                summary TEXT,
+                created_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                updated_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
+                CONSTRAINT fk_wa_conv_business FOREIGN KEY (business_id) REFERENCES business(id),
+                CONSTRAINT fk_wa_conv_lead FOREIGN KEY (lead_id) REFERENCES leads(id)
+            )
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_business_open ON whatsapp_conversation(business_id, is_open)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_customer ON whatsapp_conversation(business_id, customer_wa_id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_last_msg ON whatsapp_conversation(last_message_at)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS idx_wa_conv_last_cust_msg ON whatsapp_conversation(last_customer_message_at)"))
+        migrations_applied.append("create_whatsapp_conversation_table")
+        log.info("✅ Applied migration 26: create_whatsapp_conversation_table - Session tracking + auto-summary")
+    
+    # Migration 27: Add whatsapp_last_summary fields to leads table
+    if check_table_exists('leads') and not check_column_exists('leads', 'whatsapp_last_summary'):
+        from sqlalchemy import text
+        db.session.execute(text("ALTER TABLE leads ADD COLUMN whatsapp_last_summary TEXT"))
+        db.session.execute(text("ALTER TABLE leads ADD COLUMN whatsapp_last_summary_at TIMESTAMP"))
+        migrations_applied.append("add_leads_whatsapp_summary")
+        log.info("✅ Applied migration 27: add_leads_whatsapp_summary - WhatsApp session summary on leads")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

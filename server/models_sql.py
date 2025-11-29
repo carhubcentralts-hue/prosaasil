@@ -208,6 +208,34 @@ class WhatsAppConversationState(db.Model):
     )
 
 
+class WhatsAppConversation(db.Model):
+    """BUILD 162: WhatsApp conversation sessions for tracking and auto-summary"""
+    __tablename__ = "whatsapp_conversation"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    provider = db.Column(db.String(32), default="baileys")  # baileys / meta
+    customer_wa_id = db.Column(db.String(64), nullable=False, index=True)  # Customer WhatsApp number
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # Link to Lead if exists
+    
+    # Session timestamps
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_message_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    last_customer_message_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Session state
+    is_open = db.Column(db.Boolean, default=True, index=True)
+    summary_created = db.Column(db.Boolean, default=False)
+    summary = db.Column(db.Text)  # AI-generated session summary
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        db.Index('idx_wa_conv_business_open', 'business_id', 'is_open'),
+        db.Index('idx_wa_conv_customer', 'business_id', 'customer_wa_id'),
+    )
+
+
 # === LEADS CRM SYSTEM - Monday/HubSpot/Salesforce style ===
 
 class Lead(db.Model):
@@ -239,6 +267,10 @@ class Lead(db.Model):
     tags = db.Column(db.JSON)  # JSON array for flexible tagging
     notes = db.Column(db.Text)
     summary = db.Column(db.Text)  # ✨ סיכום חכם קצר (10-30 מילים) מכל השיחות
+    
+    # BUILD 162: WhatsApp session summary
+    whatsapp_last_summary = db.Column(db.Text)  # Latest WhatsApp conversation summary
+    whatsapp_last_summary_at = db.Column(db.DateTime)  # When summary was created
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

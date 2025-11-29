@@ -1,0 +1,239 @@
+הנה הנחיה מוכנה אחד-לאחד להדבקה בסוכן בריפליט (באנגלית, כמו שביקשת).
+אל תוסיף ציטוטים – פשוט להעתיק כמו שזה:
+
+⸻
+
+SYSTEM / PROJECT CONTEXT (read only, do not modify)
+	•	Project: ProSaaS – multi-tenant AI CRM with:
+	•	Backend: Python (Flask/FastAPI style) + WhatsApp (Baileys + Meta Cloud API) + Twilio calls
+	•	Frontend: React/TypeScript – includes a “WhatsApp Business” settings page
+	•	Postgres + Docker + nginx + external server (Contabo)
+	•	Code in Replit and in production is already synced (git pull from server was done recently).
+	•	WhatsApp layer (as of BUILD 161):
+	•	Per-business provider field: whatsapp_provider with options:
+	•	"baileys" – WhatsApp Web (via Baileys, QR based)
+	•	"meta" (or similar) – Official WhatsApp Business Cloud API (Meta)
+	•	Unified WhatsApp gateway service already exists:
+	•	Handles provider selection (Baileys vs Meta)
+	•	Central webhook handler for incoming messages
+	•	Sending outgoing messages via the appropriate provider
+	•	There is already a CRM, tasks, leads, and (most likely) an AI summarization pipeline used for calls / conversations.
+
+Business goal
+	1.	Improve the WhatsApp settings UI:
+	•	Show “Active WhatsApp chats” for the current business (even when the bot is connected and working).
+	2.	Add dynamic WhatsApp conversation summaries:
+	•	If the bot does NOT receive a new message from the customer for 15 minutes, automatically:
+	•	Treat the current WhatsApp conversation as “ended”
+	•	Generate a summary only for that session (from the start of the current conversation, not the entire chat history)
+	•	Attach the summary into the CRM (e.g., as a conversation record / note / task)
+	•	This should work for both providers (Baileys and Meta), reusing the existing unified gateway as much as possible.
+
+⸻
+
+HARD CONSTRAINTS (must follow)
+	1.	Do NOT modify these:
+	•	.env – do not add quotes, do not remove variables, do not auto-edit this file at all.
+	•	docker-compose.yml, any Dockerfile.*, docker/nginx.conf – leave as they are.
+	•	Twilio call center, Realtime API, TTS, n8n – no changes.
+	2.	Scope of allowed changes
+	•	Backend: only WhatsApp-related models, services, routes, and existing summarization/CRM services.
+	•	Frontend: only the WhatsApp settings page and, if needed, WhatsApp-specific CRM components.
+	•	You may create new small modules/services/helpers to keep logic clean (e.g., whatsapp_sessions.py), but:
+	•	Don’t refactor unrelated code.
+	•	Don’t rename existing routes or change existing Baileys/Meta URLs (so production keeps working).
+	3.	Backwards compatibility
+	•	Existing behavior for Baileys must keep working exactly as before.
+	•	Businesses that already use WhatsApp must continue functioning without any manual migration by me.
+	•	The new features should work for both providers (whatsapp_provider), with minimal duplication.
+
+⸻
+
+TASK 1 – Model and DB: WhatsApp “Conversation Session” tracking
+
+Goal: Track WhatsApp sessions per business and know when a conversation is “active” or “ended”.
+	1.	Inspect existing WhatsApp persistence:
+	•	Search for existing models like WhatsappMessage, Conversation, CallConversation, etc.
+	•	If there is already a suitable conversation model for WhatsApp:
+	•	Prefer extending it instead of creating a brand-new one.
+	•	If there is no WhatsApp conversation/session model yet:
+	•	Create a new model, e.g. WhatsappConversation, with at least:
+	•	id
+	•	business_id
+	•	provider (baileys / meta)
+	•	customer_wa_id (WhatsApp number / JID)
+	•	started_at (timestamp)
+	•	last_message_at (timestamp – last WhatsApp message in this session)
+	•	last_customer_message_at (timestamp – last incoming message from the customer)
+	•	is_open (bool)
+	•	summary_created (bool, default false)
+	2.	Add a DB migration (following the existing migration pattern) to create/extend this model:
+	•	Migration must be minimal, only adding needed table/columns.
+	•	Keep compatibility with existing data.
+	3.	Make sure WhatsappConversation is linked to existing WhatsApp messages table, if present:
+	•	Either via conversation_id foreign key, or:
+	•	If no messages table exists, you may skip this but then the summarization will need to reconstruct content from whatever structure is already used to store message logs.
+
+⸻
+
+TASK 2 – Update incoming WhatsApp handling to maintain sessions
+
+Goal: For each incoming or outgoing WhatsApp message, keep session timestamps updated.
+	1.	Find the unified handler for incoming WhatsApp messages:
+	•	This is likely where Baileys webhook and Meta webhook both call into a shared function (something like handle_incoming_whatsapp_message or similar).
+	2.	Inside this handler (or a new helper), implement session logic:
+	•	Given: business, provider, from_number, to_number, body, timestamps, etc.
+	•	Determine the customer_wa_id as:
+	•	For one-to-one chats: the customer’s WhatsApp number/JID.
+	•	For group chats: you can either skip session tracking or handle separately – keep it simple, focus on one-to-one for now.
+	•	Look up an open WhatsappConversation for this business + provider + customer:
+	•	Condition: is_open = True.
+	•	If none exists:
+	•	Create a new WhatsappConversation with:
+	•	started_at = now()
+	•	last_message_at = now()
+	•	last_customer_message_at = now() if this is a customer-originated message.
+	•	If one exists:
+	•	Always update last_message_at = now().
+	•	If message is from customer → also update last_customer_message_at = now().
+	3.	Ensure outgoing messages from the bot/agent also update the same session:
+	•	Where the backend sends WhatsApp messages through the unified gateway (Baileys/Meta), update last_message_at on the corresponding session.
+	•	Do not mark these as customer messages.
+
+⸻
+
+TASK 3 – Active WhatsApp chats API (for UI)
+
+Goal: Provide the frontend with the count (and optionally list) of active chats in the last 15 minutes.
+	1.	Implement a backend endpoint, e.g.:
+GET /api/whatsapp/active-chats
+Behavior:
+	•	Determine the current business (according to the existing auth/tenant logic).
+	•	Query WhatsappConversation for:
+	•	business_id = current_business
+	•	is_open = True
+	•	last_message_at >= now() - 15 minutes
+	•	Return JSON structure like:
+
+{
+  "active_chats_count": 3,
+  "chats": [
+    {
+      "customer_wa_id": "9725XXXXXXX",
+      "last_message_at": "...",
+      "provider": "baileys"
+    }
+  ]
+}
+
+	•	It’s OK if chats is a minimal array; the UI may only use active_chats_count for now.
+
+	2.	Make sure this endpoint is exposed under the same API namespace as other WhatsApp settings APIs and reuses existing auth/permission patterns.
+
+⸻
+
+TASK 4 – Frontend: show “Active chats” in WhatsApp settings page
+
+Goal: Update the WhatsApp Business settings UI (the page that shows Baileys connection, Meta option, QR button, etc.)
+	1.	Locate the React component for the WhatsApp settings page:
+	•	It likely already shows:
+	•	Provider selection (Baileys / Meta)
+	•	Connection status
+	•	QR button (for Baileys)
+	•	Bot status card
+	2.	Extend it to:
+	•	Call the new endpoint GET /api/whatsapp/active-chats when the page loads and periodically (e.g. every 30–60 seconds).
+	•	Store active_chats_count in component state.
+	3.	In the UI card “WhatsApp bot status” (or the panel you currently use), add a line:
+	•	Label (Hebrew): שיחות פעילות:
+	•	Value: the number returned from the API (0, 1, 2, …).
+Example text: שיחות פעילות: 3
+	4.	Make sure:
+	•	The UI does not break if the endpoint returns an error → show שיחות פעילות: 0 or — gracefully.
+	•	When no chats are active, show 0 and no errors.
+
+⸻
+
+TASK 5 – Background job: auto-summary after 15 minutes of no customer reply
+
+Goal: Automatically summarize each WhatsApp conversation session once there has been no new customer message for 15 minutes, and then close that session.
+	1.	Locate the existing background job / scheduler mechanism:
+	•	There may already be a cron-like runner for:
+	•	Cleaning old files
+	•	Call summaries
+	•	n8n triggers
+	•	Reuse the existing pattern; do not introduce a second scheduler framework.
+	2.	Implement a periodic task that runs every few minutes (e.g. every 5 minutes):
+Steps:
+	•	Find all WhatsappConversation rows where:
+	•	is_open = True
+	•	summary_created = False
+	•	last_customer_message_at <= now() - 15 minutes
+	•	For each such conversation:
+	1.	Fetch all messages that belong to THIS session only.
+	•	Either via a relation (conversation_id) or by whatever structure you already use to store WhatsApp messages for that business/customer in this time window.
+	2.	Build a concise summary prompt, reusing the existing summarization service (the same one you use for call summaries / CRM summaries), for example:
+	•	Provide customer messages and bot messages ordered by time.
+	•	Ask the AI to summarize:
+	•	Who is the customer (if known)
+	•	What they asked for
+	•	What information was provided
+	•	What was agreed / next steps
+	3.	Call the existing AI summarizer function/service instead of writing a new OpenAI integration from scratch.
+	4.	Save the summary:
+	•	Into WhatsappConversation.summary (create this field if it doesn’t exist yet), and
+	•	Optionally also create a CRM record, e.g.:
+	•	A note attached to the lead / contact
+	•	Or a task “Follow up WhatsApp conversation – {short title}”
+	5.	Mark:
+	•	summary_created = True
+	•	is_open = False (conversation is now closed).
+	3.	Ensure idempotency:
+	•	The job should not create multiple summaries for the same session.
+	•	Using summary_created = True is enough to guard against duplicates.
+
+⸻
+
+TASK 6 – Optional: display summaries in CRM (minimal integration)
+
+Goal: Make sure the WhatsApp session summaries are visible somewhere in the CRM UI.
+	1.	Find the existing place where call summaries / conversation summaries are shown on the Customer / Lead page.
+	2.	Plug WhatsApp summaries into the same or a similar UI section:
+	•	A list of past conversations with:
+	•	Date/time
+	•	Provider (Baileys / Meta)
+	•	Summary text
+	3.	Keep this integration simple:
+	•	Do not redesign the whole CRM UI.
+	•	Just add another entry type for “WhatsApp conversation summary” using existing components.
+
+⸻
+
+DEFINITION OF DONE (must pass all)
+	1.	Existing Baileys integration:
+	•	QR connection continues to work.
+	•	Incoming/outgoing messages still flow for businesses with whatsapp_provider = "baileys".
+	2.	Existing Meta Cloud API integration:
+	•	Incoming/outgoing messages still work for businesses with whatsapp_provider = "meta" (or the exact provider identifier you implemented).
+	3.	Active chats:
+	•	When sending messages back and forth with a customer, the “Active chats” count on the WhatsApp settings page shows at least 1 during the conversation and goes back to 0 after some time without activity (once session is closed).
+	4.	Auto summary:
+	•	After a WhatsApp conversation in which the customer stops replying:
+	•	After 15 minutes with no customer message:
+	•	A summary is generated only for that session.
+	•	The session is marked as closed.
+	•	The summary is visible in the CRM (in whatever place you connected it).
+	5.	No infra changes:
+	•	.env, docker-compose.yml, Dockerfile.*, and nginx config remain unchanged.
+	•	Deployment still works with the same Docker commands as before.
+	6.	All tests / existing flows:
+	•	Backend + frontend start without errors.
+	•	No existing WhatsApp or call-center functionality is broken.
+
+When you finish, make a single, clean commit with a message like:
+
+feat(whatsapp): active chat counter + auto session summaries after 15 minutes
+
+and ensure everything runs correctly in Replit before I pull to the production server.
+
+⸻

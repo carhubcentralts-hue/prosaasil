@@ -1,0 +1,129 @@
+כן, הבנתי בדיוק מה אתה רוצה.
+הנה קטע המשך להנחיה הקודמת שלך לסוכן בריפליט – אתה יכול פשוט להדביק אותו אחרי ההנחיה האחרונה שנתת לו.
+
+⸻
+
+APPENDIX – WhatsApp Conversation Summary + Lead UI Adjustments
+(paste this after the previous instruction, don’t repeat the earlier parts)
+
+Scope
+
+This appendix adds WhatsApp-specific UX for leads:
+	1.	Dynamic WhatsApp conversation summary per lead.
+	2.	Better WhatsApp tab behaviour (show existing chats instead of “no chats”).
+	3.	Remove the “notes” field from the lead details where it currently shows raw WhatsApp text.
+
+Do not change Docker, .env, or any non-WhatsApp features.
+
+⸻
+
+1. WhatsApp Conversation Summary Logic (Backend)
+
+Goal: for each lead that talks via WhatsApp (Baileys or Meta), maintain a single “current session” summary that is created automatically when the conversation goes quiet.
+
+Definition of a WhatsApp session:
+	•	Scope: per business + lead + WhatsApp channel (phone number).
+	•	A session starts when:
+	•	The bot/agent sends the first reply in a new chat with that lead OR
+	•	The user sends a new message after at least 30 minutes of inactivity (you can re-use any existing session logic if present).
+	•	A session ends when there is no new incoming message from the customer for 15 minutes.
+
+Implementation requirements:
+	1.	Add a field on the lead (or a related table) to store the latest WhatsApp session summary, e.g.:
+	•	whatsapp_last_summary (text)
+	•	whatsapp_last_summary_at (timestamp)
+Use the existing migration pattern (same as Migration 25). Default values can be NULL.
+	2.	When a WhatsApp session is considered ended (15 minutes with no new customer message):
+	•	Collect only the messages from the current session window, not the entire historical chat.
+	•	Call the existing AI summarisation logic if available (or a small helper) to generate a short Hebrew summary for this session.
+	•	Save the result into whatsapp_last_summary and timestamp into whatsapp_last_summary_at for that lead.
+	3.	Provider-agnostic behaviour:
+	•	This must work for both providers:
+	•	whatsapp_provider="baileys"
+	•	whatsapp_provider="meta" (Meta Cloud API)
+	•	Reuse the unified WhatsApp gateway / central handler that you already created (handle_incoming_whatsapp_message).
+The summary logic should hook after messages are persisted to the DB, using the same events for both providers.
+	4.	Don’t block the webhook:
+	•	Summary generation should not slow down incoming webhooks.
+	•	If needed, trigger a background job / deferred task the same way other post-processing is handled (follow existing patterns in the project).
+
+⸻
+
+2. Displaying the WhatsApp Summary on the Lead Page (Frontend)
+
+Goal: on the lead details page, show the latest WhatsApp summary, and keep the “start chat” behaviour.
+
+2.1. Overview tab (“סקירה”)
+	1.	On the lead overview tab (סקירה), in the right panel where contact details are shown:
+	•	Remove the old “הערות” section that currently shows noisy WhatsApp text.
+	•	Replace it with a new block:
+	•	Title (Hebrew): סיכום שיחת WhatsApp אחרונה
+	•	Body: the content of whatsapp_last_summary, if exists.
+	•	If there is no summary yet: show a small placeholder like:
+	•	אין עדיין סיכום לשיחת WhatsApp.
+	2.	Data loading:
+	•	Extend the existing lead details API so that it returns:
+	•	whatsapp_last_summary
+	•	whatsapp_last_summary_at
+	•	Use these fields in the React component that renders the lead overview.
+
+2.2. WhatsApp tab inside the lead (“וואטסאפ”)
+Current behaviour: the tab shows “אין שיחות” + a button “התחל שיחה”.
+Desired behaviour:
+	1.	When there is message history for this lead via WhatsApp:
+	•	Show the messages in a chat-style view:
+	•	Customer vs bot/agent messages, similar to the existing UI used in the global WhatsApp console (reuse components if possible).
+	•	The main button text should be:
+	•	פתח שיחה (if there is history)
+	•	Clicking פתח שיחה should:
+	•	Focus the chat composer.
+	•	Allow the human agent to write and send messages manually via the existing send-message API, using the selected provider (baileys / meta).
+	2.	When there is no history yet:
+	•	Keep the current behaviour:
+	•	Show אין שיחות and a button like התחל שיחה.
+	•	Clicking it opens the composer and sends the first message.
+	3.	The WhatsApp summary is not shown in this tab – it is only on the overview tab.
+The WhatsApp tab is for live chat & history, not for summaries.
+	4.	Make sure the chat UI continues to work the same for both providers; the UI should not care whether Baileys or Meta is active – it just calls the same send-message endpoint.
+
+⸻
+
+3. Removing the “notes” from Contact Details
+	1.	In the lead details overview (סקירה):
+	•	There is currently a field under contact info that shows something like:
+	•	הערות: WhatsApp: ... with the raw last message.
+	•	Remove this field completely.
+	•	The only WhatsApp-related text in this area should now be the new WhatsApp summary block.
+	2.	Backend:
+	•	If there is a dedicated notes field that is still used elsewhere (not only for WhatsApp), don’t delete it from the DB.
+	•	Just stop showing auto-generated WhatsApp text in that UI location.
+	•	Do not break any manual notes feature (if one exists elsewhere).
+
+⸻
+
+4. Definition of Done (extra checks for this appendix)
+
+The new functionality is considered complete when:
+	1.	After a WhatsApp conversation with a lead becomes idle for 15+ minutes:
+	•	A new summary is generated only for the last session messages.
+	•	whatsapp_last_summary and whatsapp_last_summary_at are populated in the DB.
+	2.	On the lead overview tab:
+	•	The old “הערות” WhatsApp text is gone.
+	•	A block titled סיכום שיחת WhatsApp אחרונה appears with the new summary.
+	3.	On the WhatsApp tab for that lead:
+	•	Message history is visible (if exists).
+	•	The button text is פתח שיחה, and clicking it lets a human agent continue the conversation manually.
+	•	For a brand-new lead with no history, the flow still shows אין שיחות + התחל שיחה and works as before.
+	4.	Behaviour is identical whether the business uses:
+	•	whatsapp_provider="baileys" or
+	•	whatsapp_provider="meta".
+No regressions in the existing Baileys flow.
+	5.	No changes were made to:
+	•	Docker / nginx
+	•	.env content
+	•	Non-WhatsApp modules (calls, invoices, CRM core, n8n, etc.)
+
+⸻
+
+תעתיק ותדביק את כל הקטע הזה אחרי ההנחיה הקודמת באנגלית שנתתי לך – זה יחזק לו בדיוק את מה שביקשת:
+סיכום שיחה חכם לווטסאפ לכל ליד + UI נכון + בלי ההערות המיותרות.
