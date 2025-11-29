@@ -1275,8 +1275,8 @@ def get_active_chats():
     if not business_id:
         return jsonify({"success": False, "error": "no_business_id"}), 400
     
-    count = get_active_chats_count(business_id)
-    chats = get_chats_list(business_id, limit=50)
+    count = get_active_chats_count(int(business_id))
+    chats = get_chats_list(int(business_id), limit=50)
     
     return jsonify({
         "success": True,
