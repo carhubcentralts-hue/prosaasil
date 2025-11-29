@@ -111,6 +111,9 @@ export function CallsPage() {
 
   // Debounce search query to prevent excessive API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  
+  // Track initial load vs subsequent searches
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
   // Open lead in CRM - navigate to lead detail page
   const openInCRM = async (call: Call) => {
@@ -152,7 +155,10 @@ export function CallsPage() {
 
   const loadCalls = useCallback(async () => {
     try {
-      setLoading(true);
+      // Only show full loading spinner for initial load
+      if (!initialLoadComplete) {
+        setLoading(true);
+      }
       
       const response = await http.get('/api/calls?search=' + encodeURIComponent(debouncedSearchQuery) + '&status=' + statusFilter + '&direction=' + directionFilter + '&limit=50');
       
@@ -167,8 +173,11 @@ export function CallsPage() {
       setCalls([]);
     } finally {
       setLoading(false);
+      if (!initialLoadComplete) {
+        setInitialLoadComplete(true);
+      }
     }
-  }, [debouncedSearchQuery, statusFilter, directionFilter]);
+  }, [debouncedSearchQuery, statusFilter, directionFilter, initialLoadComplete]);
 
   const loadCallDetails = async (call: Call) => {
     try {
@@ -392,7 +401,8 @@ export function CallsPage() {
     });
   }, [calls, searchQuery, statusFilter, directionFilter]);
 
-  if (loading) {
+  // Only show full loading spinner for initial load
+  if (loading && !initialLoadComplete) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">

@@ -29,13 +29,11 @@ export type { Notification } from '../../contexts/NotificationContext';
 interface NotificationItemProps {
   notification: Notification;
   onClick: () => void;
-}
-interface NotificationItemProps {
-  notification: Notification;
-  onClick: () => void;
+  onMarkComplete?: (id: string) => Promise<void>;
 }
 
-function NotificationItem({ notification, onClick }: NotificationItemProps) {
+function NotificationItem({ notification, onClick, onMarkComplete }: NotificationItemProps) {
+  const [isCompleting, setIsCompleting] = useState(false);
   // BUILD 151: Check if this is a WhatsApp disconnect notification
   const isWhatsAppDisconnect = notification.metadata?.reminderType === 'system_whatsapp_disconnect';
   
@@ -139,11 +137,32 @@ function NotificationItem({ notification, onClick }: NotificationItemProps) {
               <Clock className="h-3 w-3" />
               {timeAgo(notification.timestamp)}
             </span>
-            {notification.metadata?.actionRequired && (
-              <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
-                נדרשת פעולה
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {notification.metadata?.actionRequired && (
+                <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
+                  נדרשת פעולה
+                </span>
+              )}
+              {onMarkComplete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsCompleting(true);
+                    onMarkComplete(notification.id).finally(() => setIsCompleting(false));
+                  }}
+                  disabled={isCompleting}
+                  className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full hover:bg-green-200 transition-colors flex items-center gap-1"
+                  data-testid={`button-quick-complete-${notification.id}`}
+                >
+                  {isCompleting ? (
+                    <div className="animate-spin rounded-full h-3 w-3 border-b border-green-700" />
+                  ) : (
+                    <CheckCircle className="h-3 w-3" />
+                  )}
+                  סמן כהושלם
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -451,6 +470,7 @@ export function NotificationPanel({ isOpen, onClose, onUnreadCountChange }: Noti
                   key={notification.id}
                   notification={notification}
                   onClick={() => handleNotificationClick(notification)}
+                  onMarkComplete={markAsComplete}
                 />
               ))}
             </div>
