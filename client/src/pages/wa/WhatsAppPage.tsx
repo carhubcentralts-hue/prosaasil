@@ -129,6 +129,10 @@ export function WhatsAppPage() {
   // AI active/inactive state per conversation
   const [aiActive, setAiActive] = useState(true);
   const [togglingAi, setTogglingAi] = useState(false);
+  
+  // Provider save state
+  const [savingProvider, setSavingProvider] = useState(false);
+  const [providerChanged, setProviderChanged] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -475,6 +479,31 @@ export function WhatsAppPage() {
     setAiActive(true); // Reset AI state when closing chat
   };
 
+  // Function to save provider selection
+  const saveProvider = async () => {
+    try {
+      setSavingProvider(true);
+      
+      const response = await http.put<{success: boolean; error?: string; provider?: string}>('/api/whatsapp/provider', {
+        provider: selectedProvider
+      });
+      
+      if (response.success) {
+        setProviderChanged(false);
+        // Refresh provider info
+        await loadWhatsAppStatus();
+        alert('ספק WhatsApp נשמר בהצלחה!');
+      } else {
+        alert('שגיאה בשמירת הספק: ' + (response.error || 'שגיאה לא ידועה'));
+      }
+    } catch (error: any) {
+      console.error('Error saving provider:', error);
+      alert('שגיאה בשמירת הספק: ' + (error.message || 'שגיאה לא ידועה'));
+    } finally {
+      setSavingProvider(false);
+    }
+  };
+
   // Function to save prompt - ✅ עכשיו שומר גם calls_prompt כדי לא לדרוס אותו!
   const savePrompt = async () => {
     if (!editingPrompt.trim()) return;
@@ -561,7 +590,10 @@ export function WhatsAppPage() {
                   name="provider"
                   value="baileys"
                   checked={selectedProvider === 'baileys'}
-                  onChange={(e) => setSelectedProvider(e.target.value as 'baileys')}
+                  onChange={(e) => {
+                    setSelectedProvider(e.target.value as 'baileys');
+                    setProviderChanged(true);
+                  }}
                   className="ml-2"
                   data-testid="radio-baileys"
                 />
@@ -580,7 +612,10 @@ export function WhatsAppPage() {
                   name="provider"
                   value="meta"
                   checked={selectedProvider === 'meta'}
-                  onChange={(e) => setSelectedProvider(e.target.value as 'meta')}
+                  onChange={(e) => {
+                    setSelectedProvider(e.target.value as 'meta');
+                    setProviderChanged(true);
+                  }}
                   className="ml-2"
                   data-testid="radio-meta"
                 />
@@ -590,6 +625,23 @@ export function WhatsAppPage() {
                 </div>
               </label>
             </div>
+
+            {/* Save Provider Button */}
+            {providerChanged && (
+              <Button 
+                onClick={saveProvider} 
+                disabled={savingProvider}
+                className="w-full bg-green-600 hover:bg-green-700"
+                data-testid="button-save-provider"
+              >
+                {savingProvider ? (
+                  <RefreshCw className="h-4 w-4 ml-2 animate-spin" />
+                ) : (
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                )}
+                {savingProvider ? "שומר..." : "שמור שינוי ספק"}
+              </Button>
+            )}
 
             <div className="p-3 bg-slate-50 rounded-lg">
               <p className="text-sm text-slate-600">

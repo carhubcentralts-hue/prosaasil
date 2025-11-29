@@ -1151,6 +1151,53 @@ def whatsapp_test():
 
 
 # ============================================================================
+# 🔵 WhatsApp Provider Update Endpoint
+# ============================================================================
+
+@whatsapp_bp.route('/provider', methods=['PUT'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def update_provider():
+    """
+    Update WhatsApp provider for the current business
+    
+    Body: { "provider": "baileys" | "meta" }
+    """
+    from server.routes_crm import get_business_id
+    
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+    
+    business = Business.query.get(business_id)
+    if not business:
+        return jsonify({"success": False, "error": "business_not_found"}), 404
+    
+    data = request.get_json(force=True)
+    provider = data.get('provider')
+    
+    if provider not in ('baileys', 'meta'):
+        return jsonify({"success": False, "error": "invalid_provider"}), 400
+    
+    try:
+        business.whatsapp_provider = provider
+        db.session.commit()
+        
+        log.info(f"[WHATSAPP] Updated provider to '{provider}' for business_id={business_id}")
+        
+        return jsonify({
+            "success": True,
+            "provider": provider,
+            "message": f"ספק WhatsApp עודכן ל-{provider}"
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"[WHATSAPP] Error updating provider: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ============================================================================
 # 🔵 WhatsApp Provider Info Endpoint
 # ============================================================================
 

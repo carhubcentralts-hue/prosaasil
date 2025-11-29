@@ -385,3 +385,36 @@ def update_transcript(call_sid):
         db.session.rollback()
         log.error(f"Error updating transcript: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@calls_bp.route("/api/calls/<call_sid>", methods=["DELETE"])
+@require_api_auth(["admin", "owner", "system_admin"])
+def delete_call(call_sid):
+    """מחיקת שיחה - רק למנהלים"""
+    try:
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"success": False, "error": "Business ID required"}), 400
+        
+        call = Call.query.filter(
+            Call.call_sid == call_sid,
+            Call.business_id == business_id
+        ).first()
+        
+        if not call:
+            return jsonify({"success": False, "error": "Call not found"}), 404
+        
+        db.session.delete(call)
+        db.session.commit()
+        
+        log.info(f"Deleted call {call_sid} for business {business_id}")
+        
+        return jsonify({
+            "success": True,
+            "message": "שיחה נמחקה בהצלחה"
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error deleting call: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
