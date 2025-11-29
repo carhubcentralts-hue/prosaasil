@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle } from 'lucide-react';
+import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle, Trash2, Loader2 } from 'lucide-react';
 import { useNotifications } from '../../shared/contexts/NotificationContext';
 import { http } from '../../services/http';
 
@@ -73,6 +73,8 @@ export function CrmPage() {
   const [loading, setLoading] = useState(true);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [editingTask, setEditingTask] = useState<CRMTask | null>(null);
+  const [deletingCompleted, setDeletingCompleted] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [taskForm, setTaskForm] = useState({
     note: '',
     description: '',
@@ -191,6 +193,40 @@ export function CrmPage() {
       reminder_type: 'general',
       lead_id: ''
     });
+  };
+
+  const handleDeleteCompletedTasks = async () => {
+    const completedTasks = getCompletedTasks();
+    if (completedTasks.length === 0) return;
+    
+    setDeletingCompleted(true);
+    try {
+      let deleted = 0;
+      let failed = 0;
+      
+      for (const task of completedTasks) {
+        try {
+          await http.delete(`/api/reminders/${task.id}`);
+          deleted++;
+        } catch (err) {
+          console.error(`Failed to delete task ${task.id}:`, err);
+          failed++;
+        }
+      }
+      
+      if (failed > 0) {
+        alert(`נמחקו ${deleted} משימות, ${failed} נכשלו`);
+      }
+      
+      loadData();
+      refreshNotifications();
+    } catch (error: any) {
+      console.error('Error deleting completed tasks:', error);
+      alert(`שגיאה במחיקת משימות: ${error.message || 'שגיאה לא ידועה'}`);
+    } finally {
+      setDeletingCompleted(false);
+      setShowDeleteConfirm(false);
+    }
   };
 
   const getPendingTasks = () => {
@@ -394,10 +430,31 @@ export function CrmPage() {
 
               {/* Completed Column */}
               <div className="flex flex-col">
-                <div className="flex items-center gap-2 mb-4">
-                  <CheckCircle className="w-5 h-5 text-green-500" />
-                  <h3 className="font-semibold text-gray-900">הושלם</h3>
-                  <Badge>{getCompletedTasks().length}</Badge>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                    <h3 className="font-semibold text-gray-900">הושלם</h3>
+                    <Badge>{getCompletedTasks().length}</Badge>
+                  </div>
+                  {getCompletedTasks().length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                      disabled={deletingCompleted}
+                      data-testid="button-delete-completed"
+                    >
+                      {deletingCompleted ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Trash2 className="w-4 h-4 ml-1" />
+                          מחק הכל
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
                 
                 <div className="flex-1 space-y-3 overflow-y-auto">
@@ -572,6 +629,58 @@ export function CrmPage() {
                     {editingTask ? 'עדכן משימה' : 'צור משימה'}
                   </Button>
                 </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" dir="rtl">
+          <Card className="w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <Trash2 className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">מחיקת משימות שהושלמו</h3>
+                  <p className="text-sm text-gray-500">פעולה זו לא ניתנת לביטול</p>
+                </div>
+              </div>
+              
+              <p className="text-gray-700 mb-6">
+                האם אתה בטוח שברצונך למחוק את כל {getCompletedTasks().length} המשימות שהושלמו?
+              </p>
+              
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deletingCompleted}
+                  data-testid="button-cancel-delete"
+                >
+                  ביטול
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={handleDeleteCompletedTasks}
+                  disabled={deletingCompleted}
+                  data-testid="button-confirm-delete"
+                >
+                  {deletingCompleted ? (
+                    <>
+                      <Loader2 className="w-4 h-4 ml-1 animate-spin" />
+                      מוחק...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 ml-1" />
+                      מחק הכל
+                    </>
+                  )}
+                </Button>
               </div>
             </div>
           </Card>
