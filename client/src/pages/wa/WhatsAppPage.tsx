@@ -110,7 +110,7 @@ export function WhatsAppPage() {
     connected: false,
     configured: false
   });
-  const [selectedProvider, setSelectedProvider] = useState<'twilio' | 'baileys' | 'meta'>('baileys');
+  const [selectedProvider, setSelectedProvider] = useState<'baileys' | 'meta'>('baileys');
   const [providerInfo, setProviderInfo] = useState<any>(null);
   const [qrCode, setQrCode] = useState<string>('');
   const [showQR, setShowQR] = useState(false);
@@ -1036,11 +1036,11 @@ export function WhatsAppPage() {
                 </label>
                 <select
                   value={selectedProvider}
-                  onChange={(e) => setSelectedProvider(e.target.value as 'twilio' | 'baileys')}
+                  onChange={(e) => setSelectedProvider(e.target.value as 'baileys' | 'meta')}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md"
                 >
-                  <option value="twilio">Twilio WhatsApp Business API</option>
                   <option value="baileys">Baileys (WhatsApp Web)</option>
+                  <option value="meta">WhatsApp Business Cloud API (Meta)</option>
                 </select>
               </div>
               
