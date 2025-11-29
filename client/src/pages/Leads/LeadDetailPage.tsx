@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
@@ -7,7 +7,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
-import { Lead, LeadActivity, LeadReminder, LeadCall, LeadConversation, LeadAppointment } from './types';
+import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
 import { useStatuses, LeadStatus } from '../../features/statuses/hooks';
@@ -189,21 +189,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     }
   };
 
-  const conversations = useMemo<LeadConversation[]>(() => {
-    return activities
-      .filter(activity => 
-        activity.type === 'whatsapp_sent' || activity.type === 'whatsapp_received'
-      )
-      .map(activity => ({
-        id: activity.id,
-        lead_id: activity.lead_id,
-        platform: 'whatsapp' as const,
-        direction: activity.type === 'whatsapp_received' ? 'incoming' : 'outgoing',
-        message: (activity.payload && typeof activity.payload === 'object' && activity.payload.message) ? activity.payload.message : '',
-        created_at: activity.at,
-        read: true
-      }));
-  }, [activities]);
 
 
   if (loading) {
@@ -468,7 +453,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
             saveLead={saveLead}
           />
         )}
-        {activeTab === 'conversation' && <ConversationTab conversations={conversations} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
+        {activeTab === 'conversation' && <ConversationTab phone={lead.phone_e164} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
@@ -721,11 +706,60 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
   );
 }
 
-function ConversationTab({ conversations, onOpenWhatsApp }: { conversations: LeadConversation[]; onOpenWhatsApp: () => void }) {
+interface WhatsAppMessage {
+  id: number;
+  body: string;
+  direction: 'in' | 'out';
+  created_at: string;
+  status?: string;
+}
+
+function ConversationTab({ phone, onOpenWhatsApp }: { phone?: string; onOpenWhatsApp: () => void }) {
+  const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (phone) {
+      fetchMessages();
+    } else {
+      setLoading(false);
+    }
+  }, [phone]);
+
+  const fetchMessages = async () => {
+    if (!phone) return;
+    
+    try {
+      setLoading(true);
+      const cleanPhone = phone.replace(/[^0-9+]/g, '');
+      const response = await http.get<{ messages: WhatsAppMessage[] }>(`/api/whatsapp/messages/${encodeURIComponent(cleanPhone)}`);
+      setMessages(response.messages || []);
+      setError(null);
+    } catch (err) {
+      console.error('Failed to fetch WhatsApp messages:', err);
+      setError('שגיאה בטעינת הודעות');
+      setMessages([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card className="p-4 sm:p-6">
+        <div className="text-center py-8">
+          <Loader2 className="w-8 h-8 animate-spin text-green-500 mx-auto mb-4" />
+          <p className="text-sm text-gray-500">טוען הודעות...</p>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900">היסטוריית שיחות</h3>
+        <h3 className="text-lg font-medium text-gray-900">היסטוריית וואטסאפ</h3>
         <Button 
           onClick={onOpenWhatsApp} 
           size="sm"
@@ -736,10 +770,15 @@ function ConversationTab({ conversations, onOpenWhatsApp }: { conversations: Lea
           פתח וואטסאפ
         </Button>
       </div>
-      {conversations.length === 0 ? (
+      {error && (
+        <div className="bg-red-50 text-red-700 p-3 rounded-lg mb-4 text-sm">
+          {error}
+        </div>
+      )}
+      {messages.length === 0 ? (
         <div className="text-center py-8">
           <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-sm text-gray-500 mb-4">אין שיחות</p>
+          <p className="text-sm text-gray-500 mb-4">אין שיחות וואטסאפ</p>
           <Button 
             onClick={onOpenWhatsApp}
             size="sm"
@@ -749,19 +788,19 @@ function ConversationTab({ conversations, onOpenWhatsApp }: { conversations: Lea
           </Button>
         </div>
       ) : (
-        <div className="space-y-4">
-          {conversations.map((conversation) => (
-            <div key={conversation.id} className={`flex ${conversation.direction === 'outgoing' ? 'justify-end' : 'justify-start'}`}>
+        <div className="space-y-3 max-h-[500px] overflow-y-auto">
+          {messages.map((msg) => (
+            <div key={msg.id} className={`flex ${msg.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-xs sm:max-w-sm lg:max-w-md px-4 py-2 rounded-lg ${
-                conversation.direction === 'outgoing' 
-                  ? 'bg-blue-500 text-white' 
+                msg.direction === 'out' 
+                  ? 'bg-green-500 text-white' 
                   : 'bg-gray-100 text-gray-900'
               }`}>
-                <p className="text-sm">{conversation.message}</p>
+                <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
                 <p className={`text-xs mt-1 ${
-                  conversation.direction === 'outgoing' ? 'text-blue-100' : 'text-gray-500'
+                  msg.direction === 'out' ? 'text-green-100' : 'text-gray-500'
                 }`}>
-                  {formatDate(conversation.created_at)}
+                  {formatDate(msg.created_at)}
                 </p>
               </div>
             </div>
