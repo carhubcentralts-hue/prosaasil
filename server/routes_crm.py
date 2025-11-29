@@ -96,7 +96,7 @@ def get_business_id():
         return g.user.get("business_id")
 
 @crm_bp.get("/api/crm/threads")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_threads():
     """Get communication threads (WhatsApp conversations) as JSON"""
     try:
@@ -174,7 +174,7 @@ def api_threads():
         return jsonify({"error": str(e), "threads": []}), 500
 
 @crm_bp.get("/api/crm/threads/<thread_id>/messages")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_thread_messages(thread_id):
     """Get messages for a specific thread as JSON"""
     try:
@@ -206,7 +206,7 @@ def api_thread_messages(thread_id):
         return jsonify({"error": str(e), "messages": []}), 500
 
 @crm_bp.get("/api/crm/threads/<thread_id>/summary")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_thread_summary(thread_id):
     """Get AI summary of conversation thread"""
     try:
@@ -248,7 +248,7 @@ def api_thread_summary(thread_id):
         return jsonify({"summary": "לא ניתן לסכם", "error": str(e)}), 500
 
 @crm_bp.get("/api/crm/customers")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_customers():
     """Get customers for CRM management"""
     try:
@@ -293,7 +293,7 @@ def api_customers():
         return f'<div class="text-center text-red-500 py-8">שגיאה: {str(e)}</div>'
 
 @crm_bp.get("/api/calls/active")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_active_calls():
     """Get active calls"""
     try:
@@ -329,7 +329,7 @@ def api_active_calls():
         return f'<div class="text-center text-red-500 py-4">שגיאה: {str(e)}</div>'
 
 @crm_bp.get("/api/calls/history")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_call_history():
     """Get call history"""
     try:
@@ -370,7 +370,7 @@ def api_call_history():
 # === PAYMENT ENDPOINTS ===
 
 @crm_bp.get("/api/crm/payments")
-@require_api_auth(["admin", "superadmin", "business"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def get_payments():
     """Get all payments for current business"""
     try:
@@ -397,7 +397,7 @@ def get_payments():
         return jsonify({"error": f"Failed to fetch payments: {str(e)}"}), 500
 
 @crm_bp.get("/api/crm/contracts") 
-@require_api_auth(["admin", "superadmin", "business"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def get_contracts():
     """Get all contracts for current business"""
     try:
@@ -435,7 +435,7 @@ def get_contracts():
         return jsonify({"error": f"Failed to fetch contracts: {str(e)}"}), 500
 
 @crm_bp.post("/api/crm/contracts")
-@require_api_auth(["admin", "superadmin", "business"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def create_contract():
     """Create a new contract"""
     try:
@@ -494,7 +494,7 @@ def create_contract():
         return jsonify({"error": "Failed to create contract"}), 500
 
 @crm_bp.post("/api/crm/payments/create")
-@require_api_auth(["admin", "superadmin", "business"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def payments_create():
     """Multi-tenant payment creation with PayPal/Tranzila support"""
     try:
@@ -646,7 +646,7 @@ def tranzila_fail():
 # === INVOICE & CONTRACT ENDPOINTS ===
 
 @crm_bp.get("/api/crm/invoices/<invoice_number>")
-@require_api_auth(["admin", "superadmin", "business"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def get_invoice(invoice_number):
     """Download invoice PDF"""
     try:
@@ -660,7 +660,7 @@ def get_invoice(invoice_number):
         return jsonify({"error": "Invoice download failed"}), 500
 
 @crm_bp.post("/api/crm/contracts/sign")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def contract_sign():
     """Digital contract signature"""
     try:
@@ -716,7 +716,7 @@ def contract_sign():
         return jsonify({"error": "Contract signing failed"}), 500
 
 @crm_bp.get("/api/crm/deals")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def list_deals():
     """רשימת דילים עם RBAC"""
     try:
@@ -736,7 +736,7 @@ def list_deals():
         return jsonify({"error": "Failed to fetch deals"}), 500
 
 @crm_bp.post("/api/crm/deals")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def create_deal():
     """יצירת דיל חדש"""
     try:
@@ -779,7 +779,7 @@ def create_deal():
 # === SEARCH API ===
 
 @crm_bp.get("/api/search")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def global_search():
     """חיפוש גלובלי במערכת - לידים, שיחות, פגישות, לקוחות"""
     try:
@@ -891,7 +891,7 @@ def global_search():
 # === CRM TASKS API ===
 
 @crm_bp.get("/api/crm/tasks")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def get_crm_tasks():
     """Get all CRM tasks for the current business"""
     try:
@@ -955,7 +955,7 @@ def get_crm_tasks():
         return jsonify({"error": "Failed to get tasks"}), 500
 
 @crm_bp.post("/api/crm/tasks")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def create_crm_task():
     """Create a new CRM task"""
     try:
@@ -1008,7 +1008,7 @@ def create_crm_task():
         return jsonify({"error": "Failed to create task"}), 500
 
 @crm_bp.put("/api/crm/tasks/<int:task_id>")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def update_crm_task(task_id):
     """Update a CRM task"""
     try:
@@ -1070,7 +1070,7 @@ def update_crm_task(task_id):
         return jsonify({"error": "Failed to update task"}), 500
 
 @crm_bp.delete("/api/crm/tasks/<int:task_id>")
-@require_api_auth(["admin", "superadmin", "business", "agent"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def delete_crm_task(task_id):
     """Delete a CRM task"""
     try:
