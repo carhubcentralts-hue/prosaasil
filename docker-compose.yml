@@ -58,6 +58,8 @@ services:
       - "3300:3300"
     env_file:
       - .env
+    environment:
+      FLASK_BASE_URL: ${FLASK_BASE_URL}
 
   n8n:
     image: n8nio/n8n:latest
