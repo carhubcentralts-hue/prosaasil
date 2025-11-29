@@ -26,6 +26,8 @@ export interface Lead {
   last_contact_at?: string;
   full_name?: string;
   display_phone?: string;
+  whatsapp_last_summary?: string;
+  whatsapp_last_summary_at?: string;
 }
 
 export interface LeadReminder {

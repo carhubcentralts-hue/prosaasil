@@ -44,8 +44,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     first_name: '',
     last_name: '',
     phone_e164: '',
-    email: '',
-    notes: ''
+    email: ''
   });
   
   // Status management - use shared hook for consistent statuses
@@ -142,8 +141,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         first_name: lead.first_name || '',
         last_name: lead.last_name || '',
         phone_e164: lead.phone_e164 || '',
-        email: lead.email || '',
-        notes: lead.notes || ''
+        email: lead.email || ''
       });
       setIsEditing(true);
     }
@@ -155,8 +153,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       first_name: '',
       last_name: '',
       phone_e164: '',
-      email: '',
-      notes: ''
+      email: ''
     });
   };
 
@@ -516,14 +513,12 @@ interface OverviewTabProps {
     last_name: string;
     phone_e164: string;
     email: string;
-    notes: string;
   };
   setEditForm: React.Dispatch<React.SetStateAction<{
     first_name: string;
     last_name: string;
     phone_e164: string;
     email: string;
-    notes: string;
   }>>;
   startEditing: () => void;
   cancelEditing: () => void;
@@ -616,15 +611,6 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
                   data-testid="input-email"
                 />
               </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
-                <textarea
-                  value={editForm.notes}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
-                  className="w-full p-2 border rounded-lg text-sm min-h-[80px] resize-y"
-                  data-testid="input-notes"
-                />
-              </div>
             </div>
           ) : (
             <>
@@ -655,10 +641,18 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
                 </div>
               </div>
               
-              {lead.notes && (
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
-                  <p className="text-sm text-gray-900 whitespace-pre-wrap">{lead.notes}</p>
+              {lead.whatsapp_last_summary && (
+                <div className="mt-4 bg-green-50 p-4 rounded-lg border border-green-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MessageSquare className="w-4 h-4 text-green-600" />
+                    <label className="block text-sm font-medium text-green-800">סיכום שיחת וואטסאפ אחרונה</label>
+                    {lead.whatsapp_last_summary_at && (
+                      <span className="text-xs text-green-600 mr-auto">
+                        {formatDate(lead.whatsapp_last_summary_at)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-green-900 whitespace-pre-wrap" data-testid="text-whatsapp-summary">{lead.whatsapp_last_summary}</p>
                 </div>
               )}
             </>
