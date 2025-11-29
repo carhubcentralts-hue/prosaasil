@@ -133,12 +133,16 @@ export function WhatsAppPage() {
   // Provider save state
   const [savingProvider, setSavingProvider] = useState(false);
   const [providerChanged, setProviderChanged] = useState(false);
+  
+  // Active chats counter (BUILD 162)
+  const [activeChatsCount, setActiveChatsCount] = useState(0);
 
   // Load initial data
   useEffect(() => {
     loadWhatsAppStatus();
     loadThreads();
     loadPrompts();
+    loadActiveChats();
   }, []);
 
   // Poll messages for selected thread and load AI state
@@ -242,6 +246,18 @@ export function WhatsAppPage() {
       }
     } catch (error) {
       console.error('Error loading WhatsApp status:', error);
+    }
+  };
+
+  // BUILD 162: Load active chats count
+  const loadActiveChats = async () => {
+    try {
+      const response = await http.get<{success: boolean; count: number; chats: any[]}>('/api/whatsapp/active-chats');
+      if (response.success) {
+        setActiveChatsCount(response.count);
+      }
+    } catch (error) {
+      console.error('Error loading active chats:', error);
     }
   };
 
@@ -662,6 +678,24 @@ export function WhatsAppPage() {
                   {providerInfo.description}
                 </p>
               )}
+              {/* BUILD 162: Active chats counter */}
+              <p className="text-sm text-slate-600 mt-2 flex items-center">
+                <strong>שיחות פעילות:</strong>
+                <Badge 
+                  variant={activeChatsCount > 0 ? "success" : "secondary"} 
+                  className="mr-2"
+                  data-testid="status-active-chats"
+                >
+                  {activeChatsCount}
+                </Badge>
+                <button 
+                  onClick={loadActiveChats}
+                  className="text-blue-600 hover:text-blue-800 text-xs mr-2"
+                  data-testid="button-refresh-active-chats"
+                >
+                  <RefreshCw className="h-3 w-3 inline" />
+                </button>
+              </p>
             </div>
 
             {/* Baileys-specific controls */}
