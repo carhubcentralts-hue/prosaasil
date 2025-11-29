@@ -986,3 +986,197 @@ def whatsapp_status_webhook():
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+# ============================================================================
+# 🔵 Meta WhatsApp Cloud API Webhook
+# ============================================================================
+
+META_WA_VERIFY_TOKEN = os.getenv("META_WA_VERIFY_TOKEN")
+
+@whatsapp_bp.route('/webhook/meta', methods=['GET', 'POST'])
+@csrf.exempt
+def meta_webhook():
+    """
+    Meta WhatsApp Cloud API Webhook
+    
+    GET: Webhook verification (Meta sends challenge)
+    POST: Incoming messages from Meta WhatsApp Cloud API
+    """
+    if request.method == 'GET':
+        mode = request.args.get('hub.mode')
+        token = request.args.get('hub.verify_token')
+        challenge = request.args.get('hub.challenge')
+        
+        log.info(f"[META-WA-WEBHOOK] Verification request: mode={mode}")
+        
+        if mode == 'subscribe' and token and token == META_WA_VERIFY_TOKEN:
+            log.info("[META-WA-WEBHOOK] ✅ Webhook verified successfully")
+            return challenge, 200
+        
+        log.warning("[META-WA-WEBHOOK] ❌ Webhook verification failed")
+        return "Forbidden", 403
+    
+    try:
+        data = request.get_json(silent=True) or {}
+        log.info(f"[META-WA-WEBHOOK] Received payload: {str(data)[:200]}...")
+        
+        entries = data.get('entry', [])
+        if not entries:
+            return "OK", 200
+        
+        for entry in entries:
+            changes = entry.get('changes', [])
+            for change in changes:
+                value = change.get('value', {})
+                
+                metadata = value.get('metadata', {})
+                phone_number_id = metadata.get('phone_number_id')
+                display_phone = metadata.get('display_phone_number')
+                
+                messages = value.get('messages', [])
+                for msg in messages:
+                    from_number = msg.get('from', '')
+                    msg_type = msg.get('type', 'text')
+                    
+                    if msg_type == 'text':
+                        body = msg.get('text', {}).get('body', '')
+                    elif msg_type in ['image', 'video', 'audio', 'document']:
+                        media = msg.get(msg_type, {})
+                        body = media.get('caption', f'[{msg_type.upper()}]')
+                    else:
+                        body = f'[{msg_type.upper()}]'
+                    
+                    if not from_number or not body:
+                        continue
+                    
+                    from server.services.business_resolver import resolve_business_by_meta_phone
+                    business_id = resolve_business_by_meta_phone(display_phone or phone_number_id)
+                    
+                    if not business_id:
+                        log.warning(f"[META-WA-WEBHOOK] No business found for phone_number_id={phone_number_id}")
+                        continue
+                    
+                    business = Business.query.get(business_id)
+                    if not business:
+                        log.warning(f"[META-WA-WEBHOOK] Business {business_id} not found in DB")
+                        continue
+                    
+                    log.info(f"[META-WA-WEBHOOK] Processing message from {from_number} for business {business.name}")
+                    
+                    from server.services.whatsapp_gateway import handle_incoming_whatsapp_message
+                    result = handle_incoming_whatsapp_message(
+                        provider="meta",
+                        business=business,
+                        from_number=from_number,
+                        to_number=display_phone or phone_number_id,
+                        body=body,
+                        raw_payload=msg,
+                        message_type=msg_type
+                    )
+                    
+                    if result.get('ai_enabled', False):
+                        _process_meta_ai_response(business, from_number, body)
+        
+        return "OK", 200
+        
+    except Exception as e:
+        log.error(f"[META-WA-WEBHOOK] Error processing: {e}")
+        import traceback
+        traceback.print_exc()
+        return "OK", 200
+
+
+def _process_meta_ai_response(business, from_number: str, user_message: str):
+    """Generate and send AI response for Meta WhatsApp message"""
+    try:
+        from server.services.ai_service import get_ai_response
+        from server.services.whatsapp_gateway import send_whatsapp_message
+        
+        response_text = get_ai_response(
+            business_id=business.id,
+            user_message=user_message,
+            channel='whatsapp'
+        )
+        
+        if response_text:
+            send_whatsapp_message(business, from_number, response_text)
+            log.info(f"[META-WA-WEBHOOK] AI response sent to {from_number[:8]}...")
+    except Exception as e:
+        log.error(f"[META-WA-WEBHOOK] AI response failed: {e}")
+
+
+# ============================================================================
+# 🔵 WhatsApp Test Endpoint (Unified Gateway)
+# ============================================================================
+
+@whatsapp_bp.route('/test', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def whatsapp_test():
+    """
+    Send a test WhatsApp message via the unified gateway
+    
+    Uses the business's configured whatsapp_provider (baileys or meta)
+    """
+    from server.routes_crm import get_business_id
+    from server.services.whatsapp_gateway import send_whatsapp_message
+    
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+    
+    business = Business.query.get(business_id)
+    if not business:
+        return jsonify({"success": False, "error": "business_not_found"}), 404
+    
+    data = request.get_json(force=True)
+    to = data.get('to')
+    text = data.get('text', 'היי, זו הודעת בדיקה מ-ProSaaS')
+    
+    if not to:
+        return jsonify({"success": False, "error": "missing_to"}), 400
+    
+    tenant_id = f"business_{business_id}"
+    
+    result = send_whatsapp_message(business, to, text, tenant_id=tenant_id)
+    
+    success = result.get('status') == 'sent'
+    return jsonify({
+        "success": success,
+        "provider": result.get('provider'),
+        "message_id": result.get('message_id') or result.get('sid'),
+        "error": result.get('error') if not success else None
+    }), 200 if success else 500
+
+
+# ============================================================================
+# 🔵 WhatsApp Provider Info Endpoint
+# ============================================================================
+
+@whatsapp_bp.route('/provider-info', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_provider_info():
+    """
+    Get WhatsApp provider information for the current business
+    
+    Returns provider type, connection status, and configuration
+    """
+    from server.routes_crm import get_business_id
+    from server.services.whatsapp_gateway import get_whatsapp_provider_info
+    
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+    
+    business = Business.query.get(business_id)
+    if not business:
+        return jsonify({"success": False, "error": "business_not_found"}), 404
+    
+    info = get_whatsapp_provider_info(business)
+    
+    return jsonify({
+        "success": True,
+        **info
+    }), 200

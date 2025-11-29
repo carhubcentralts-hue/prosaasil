@@ -238,3 +238,61 @@ def delete_business_channel(channel_id: int) -> bool:
     
     log.info(f"🗑️ Deleted channel {channel.channel_type}:{channel.identifier}")
     return True
+
+
+def resolve_business_by_meta_phone(phone_number_id: str) -> Optional[int]:
+    """
+    Resolve business_id from Meta WhatsApp phone_number_id or display_phone_number
+    
+    This is used when receiving webhooks from Meta WhatsApp Cloud API.
+    We look up the business by:
+    1. Checking BusinessContactChannel for 'meta_whatsapp' channel type
+    2. Checking Business.whatsapp_number field
+    3. Fallback: Check if phone matches any business with whatsapp_provider='meta'
+    
+    Args:
+        phone_number_id: Meta's phone_number_id or display_phone_number
+    
+    Returns:
+        business_id or None if not found
+    """
+    if not phone_number_id:
+        log.warning("[META-RESOLVER] Empty phone_number_id")
+        return None
+    
+    identifier = str(phone_number_id).strip()
+    
+    channel = BusinessContactChannel.query.filter_by(
+        channel_type='meta_whatsapp',
+        identifier=identifier
+    ).first()
+    
+    if channel:
+        log.info(f"✅ [META-RESOLVER] Channel match: {identifier} → business_id={channel.business_id}")
+        return channel.business_id
+    
+    normalized = _normalize_identifier(identifier)
+    if normalized.startswith('+'):
+        businesses = Business.query.filter_by(
+            is_active=True,
+            whatsapp_provider='meta'
+        ).all()
+        
+        for biz in businesses:
+            biz_wa_norm = _normalize_identifier(biz.whatsapp_number) if biz.whatsapp_number else ""
+            if normalized == biz_wa_norm:
+                log.info(f"✅ [META-RESOLVER] WhatsApp number match: {identifier} → business_id={biz.id}")
+                return biz.id
+    
+    meta_business = Business.query.filter_by(
+        is_active=True,
+        whatsapp_provider='meta',
+        whatsapp_enabled=True
+    ).first()
+    
+    if meta_business:
+        log.info(f"⚠️ [META-RESOLVER] Fallback to first Meta business: {identifier} → business_id={meta_business.id}")
+        return meta_business.id
+    
+    log.warning(f"❌ [META-RESOLVER] No business found for Meta phone: {identifier}")
+    return None

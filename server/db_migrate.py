@@ -590,6 +590,13 @@ def apply_migrations():
         migrations_applied.append("create_whatsapp_conversation_state_table")
         log.info("✅ Applied migration 24: create_whatsapp_conversation_state_table - AI toggle per conversation")
     
+    # Migration 25: Add whatsapp_provider column to business table (Meta Cloud API support)
+    if check_table_exists('business') and not check_column_exists('business', 'whatsapp_provider'):
+        from sqlalchemy import text
+        db.session.execute(text("ALTER TABLE business ADD COLUMN whatsapp_provider VARCHAR(32) DEFAULT 'baileys'"))
+        migrations_applied.append("add_business_whatsapp_provider")
+        log.info("✅ Applied migration 25: add_business_whatsapp_provider - Meta Cloud API support")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

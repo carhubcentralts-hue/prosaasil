@@ -42,7 +42,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 ## Feature Specifications
 - **Call Logging**: Comprehensive tracking.
 - **Conversation Memory**: Full history for contextual AI responses.
-- **WhatsApp Integration**: Supports Twilio and Baileys.
+- **WhatsApp Integration**: Supports Baileys (WhatsApp Web) and Meta Cloud API. Per-business provider selection.
 - **Intelligent Lead Collection**: Automated capture, creation, and deduplication.
 - **Calendar & Meeting Scheduling**: AI checks real-time availability.
 - **Customizable AI Assistant**: Customizable names, introductions, and greetings.
@@ -65,6 +65,63 @@ ProSaaS implements a multi-tenant architecture with strict data isolation. It in
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
 - **n8n**: Workflow automation platform for custom automations.
+
+---
+
+# BUILD 161 - Meta WhatsApp Cloud API Integration
+
+**Date**: November 29, 2025
+
+## Overview
+Added parallel support for Meta WhatsApp Cloud API alongside existing Baileys integration. Each business can now choose between:
+- **Baileys (WhatsApp Web)** - QR code based connection (existing)
+- **Meta Cloud API** - Official WhatsApp Business Cloud API
+
+## New Files Created
+- `server/services/meta_whatsapp_client.py` - Meta Cloud API client
+- `server/services/whatsapp_gateway.py` - Unified gateway for all WhatsApp providers
+
+## Backend Changes
+
+### 1. Business Model
+- Added `whatsapp_provider` column (VARCHAR(32), default: 'baileys')
+- Migration 25 in `db_migrate.py` handles column addition
+
+### 2. WhatsApp Gateway (`server/services/whatsapp_gateway.py`)
+- `get_business_whatsapp_provider(business)` - Get provider for a business
+- `send_whatsapp_message(business, to, text)` - Unified send via correct provider
+- `handle_incoming_whatsapp_message(...)` - Unified incoming handler
+
+### 3. Meta Cloud API Client (`server/services/meta_whatsapp_client.py`)
+- `send_text()`, `send_media()`, `send_template()` methods
+- Uses env vars: `META_WA_ACCESS_TOKEN`, `META_WA_PHONE_NUMBER_ID`
+
+### 4. Routes (`server/routes_whatsapp.py`)
+- `/api/whatsapp/webhook/meta` - Meta webhook (GET for verification, POST for messages)
+- `/api/whatsapp/test` - Unified test endpoint
+- `/api/whatsapp/provider-info` - Get provider info for frontend
+
+### 5. Business Resolver
+- Added `resolve_business_by_meta_phone()` for Meta webhook business resolution
+
+## Frontend Changes
+- Updated `WhatsAppPage.tsx` with Meta provider option
+- Shows Meta info panel instead of QR code when Meta is selected
+- Added test message button for Meta provider
+
+## Environment Variables for Meta (set manually on server)
+```
+META_WA_ACCESS_TOKEN=<your-access-token>
+META_WA_PHONE_NUMBER_ID=<your-phone-number-id>
+META_WA_WABA_ID=<your-waba-id>
+META_WA_VERIFY_TOKEN=<your-webhook-verify-token>
+```
+
+## Deployment Notes
+1. Pull latest code
+2. Migration runs automatically on startup (RUN_MIGRATIONS_ON_START=1)
+3. Set Meta env vars if using Meta Cloud API
+4. Configure Meta webhook URL: `https://prosaas.pro/api/whatsapp/webhook/meta`
 
 ---
 

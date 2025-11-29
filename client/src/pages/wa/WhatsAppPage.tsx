@@ -110,7 +110,8 @@ export function WhatsAppPage() {
     connected: false,
     configured: false
   });
-  const [selectedProvider, setSelectedProvider] = useState<'twilio' | 'baileys'>('twilio');
+  const [selectedProvider, setSelectedProvider] = useState<'twilio' | 'baileys' | 'meta'>('baileys');
+  const [providerInfo, setProviderInfo] = useState<any>(null);
   const [qrCode, setQrCode] = useState<string>('');
   const [showQR, setShowQR] = useState(false);
   const [qrLoading, setQrLoading] = useState(false);
@@ -221,7 +222,20 @@ export function WhatsAppPage() {
     try {
       const response = await http.get<WhatsAppStatus>('/api/whatsapp/status');
       setWhatsappStatus(response);
-      // No auto-start - let user manually trigger with QR button
+      
+      // Load provider info to know which provider is configured
+      try {
+        const providerResponse = await http.get<any>('/api/whatsapp/provider-info');
+        if (providerResponse.success) {
+          setProviderInfo(providerResponse);
+          // Set the selected provider based on configured value
+          if (providerResponse.provider === 'meta' || providerResponse.provider === 'baileys') {
+            setSelectedProvider(providerResponse.provider);
+          }
+        }
+      } catch (providerError) {
+        console.warn('Error loading provider info:', providerError);
+      }
     } catch (error) {
       console.error('Error loading WhatsApp status:', error);
     }
@@ -539,26 +553,9 @@ export function WhatsAppPage() {
           </h2>
           
           <div className="space-y-4">
+            {/* Baileys (WhatsApp Web) - QR based */}
             <div className="flex items-center gap-4">
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="provider"
-                  value="twilio"
-                  checked={selectedProvider === 'twilio'}
-                  onChange={(e) => setSelectedProvider(e.target.value as 'twilio')}
-                  className="ml-2"
-                  data-testid="radio-twilio"
-                />
-                <div className="flex items-center">
-                  <Smartphone className="h-4 w-4 ml-2" />
-                  Twilio WhatsApp Business API
-                </div>
-              </label>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <label className="flex items-center">
+              <label className="flex items-center cursor-pointer">
                 <input
                   type="radio"
                   name="provider"
@@ -571,6 +568,25 @@ export function WhatsAppPage() {
                 <div className="flex items-center">
                   <QrCode className="h-4 w-4 ml-2" />
                   Baileys (WhatsApp Web)
+                </div>
+              </label>
+            </div>
+            
+            {/* Meta WhatsApp Cloud API */}
+            <div className="flex items-center gap-4">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  name="provider"
+                  value="meta"
+                  checked={selectedProvider === 'meta'}
+                  onChange={(e) => setSelectedProvider(e.target.value as 'meta')}
+                  className="ml-2"
+                  data-testid="radio-meta"
+                />
+                <div className="flex items-center">
+                  <Smartphone className="h-4 w-4 ml-2" />
+                  WhatsApp Business Cloud API (Meta)
                 </div>
               </label>
             </div>
@@ -587,10 +603,16 @@ export function WhatsAppPage() {
                 </Badge>
               </p>
               <p className="text-sm text-slate-600 mt-1">
-                <strong>ספק נוכחי:</strong> {whatsappStatus.provider}
+                <strong>ספק נוכחי:</strong> {providerInfo?.provider || whatsappStatus.provider}
               </p>
+              {providerInfo?.description && (
+                <p className="text-sm text-slate-500 mt-1">
+                  {providerInfo.description}
+                </p>
+              )}
             </div>
 
+            {/* Baileys-specific controls */}
             {selectedProvider === 'baileys' && (
               <div className="space-y-3">
                 <Button 
@@ -615,6 +637,52 @@ export function WhatsAppPage() {
                 >
                   <RefreshCw className="h-4 w-4 ml-2" />
                   נתק חיבור מלא
+                </Button>
+              </div>
+            )}
+            
+            {/* Meta-specific info */}
+            {selectedProvider === 'meta' && (
+              <div className="space-y-3">
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h3 className="font-medium text-blue-800 mb-2">WhatsApp Business Cloud API</h3>
+                  <p className="text-sm text-blue-700">
+                    עסק זה משתמש ב-WhatsApp Business Cloud API הרשמי של Meta.
+                    <br />
+                    מספר WhatsApp Business מוגדר על ידי מנהל המערכת.
+                  </p>
+                  {providerInfo?.configured === false && (
+                    <p className="text-sm text-amber-600 mt-2">
+                      ⚠️ API לא מוגדר לחלוטין - יש לפנות למנהל המערכת
+                    </p>
+                  )}
+                </div>
+                
+                <Button 
+                  variant="outline"
+                  onClick={async () => {
+                    const phone = prompt('הכנס מספר טלפון לבדיקה (כולל קידומת מדינה):');
+                    if (phone) {
+                      try {
+                        const response = await http.post<any>('/api/whatsapp/test', {
+                          to: phone,
+                          text: 'היי, זו הודעת בדיקה מ-ProSaaS 🚀'
+                        });
+                        if (response.success) {
+                          alert('✅ הודעת בדיקה נשלחה בהצלחה!');
+                        } else {
+                          alert('❌ שגיאה: ' + (response.error || 'שגיאה לא ידועה'));
+                        }
+                      } catch (err: any) {
+                        alert('❌ שגיאה בשליחה: ' + err.message);
+                      }
+                    }
+                  }}
+                  className="w-full"
+                  data-testid="button-test-meta"
+                >
+                  <Send className="h-4 w-4 ml-2" />
+                  שלח הודעת בדיקה
                 </Button>
               </div>
             )}

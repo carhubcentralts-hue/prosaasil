@@ -16,6 +16,7 @@ class Business(db.Model):
     whatsapp_greeting = db.Column(db.Text)
     system_prompt = db.Column(db.Text)
     whatsapp_enabled = db.Column(db.Boolean, default=False)
+    whatsapp_provider = db.Column(db.String(32), default="baileys")  # "baileys" | "meta" - WhatsApp provider choice
     phone_permissions = db.Column(db.Boolean, default=True)
     whatsapp_permissions = db.Column(db.Boolean, default=True)
     is_active = db.Column(db.Boolean, default=True)
