@@ -190,7 +190,7 @@ def handle_incoming_whatsapp_message(
         wa_msg.to_number = from_clean
         wa_msg.body = body
         wa_msg.message_type = message_type
-        wa_msg.direction = 'inbound'
+        wa_msg.direction = 'in'
         wa_msg.provider = provider
         wa_msg.status = 'received'
         wa_msg.media_url = media_url
@@ -203,6 +203,18 @@ def handle_incoming_whatsapp_message(
         logger.error(f"[WA-GATEWAY] Failed to save message: {e}")
         db.session.rollback()
         return {"status": "error", "error": str(e)}
+    
+    try:
+        from server.services.whatsapp_session_service import update_session_activity
+        session = update_session_activity(
+            business_id=business_id,
+            customer_wa_id=from_clean,
+            direction="in",
+            provider=provider
+        )
+        logger.info(f"[WA-GATEWAY] Updated session id={session.id if session else 'N/A'}")
+    except Exception as e:
+        logger.error(f"[WA-GATEWAY] Session tracking failed: {e}")
     
     from server.routes_whatsapp import is_ai_active_for_conversation
     ai_enabled = is_ai_active_for_conversation(business_id, from_clean)

@@ -1227,3 +1227,53 @@ def get_provider_info():
         "success": True,
         **info
     }), 200
+
+
+# ============================================================================
+# 🔵 BUILD 162: Active Chats / Session Tracking Endpoints
+# ============================================================================
+
+@whatsapp_bp.route('/active-chats', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_active_chats():
+    """
+    Get list of active WhatsApp conversations
+    
+    Returns count and list of open sessions
+    """
+    from server.routes_crm import get_business_id
+    from server.services.whatsapp_session_service import get_active_chats_count, get_active_chats as get_chats_list
+    
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+    
+    count = get_active_chats_count(business_id)
+    chats = get_chats_list(business_id, limit=50)
+    
+    return jsonify({
+        "success": True,
+        "count": count,
+        "chats": chats
+    }), 200
+
+
+@whatsapp_bp.route('/process-stale-sessions', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin'])
+def trigger_stale_session_processing():
+    """
+    Manually trigger stale session processing (for testing/admin)
+    
+    Finds sessions inactive > 15 minutes and generates summaries
+    """
+    from server.services.whatsapp_session_service import process_stale_sessions
+    
+    processed = process_stale_sessions()
+    
+    return jsonify({
+        "success": True,
+        "processed": processed,
+        "message": f"Processed {processed} stale sessions"
+    }), 200
