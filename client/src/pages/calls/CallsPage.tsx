@@ -435,10 +435,17 @@ export function CallsPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">חיפוש</label>
             <input
-              type="text"
+              type="search"
+              inputMode="search"
+              autoComplete="off"
               placeholder="חפש לפי שם, טלפון או תוכן..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                }
+              }}
               className="w-full px-3 py-2 border border-slate-300 rounded-md"
               data-testid="input-search"
             />

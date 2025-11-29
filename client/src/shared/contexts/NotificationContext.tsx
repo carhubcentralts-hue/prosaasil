@@ -136,8 +136,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // Mark notification as complete (set completed_at on reminder)
   const markAsComplete = useCallback(async (notificationId: string) => {
     try {
-      // Notifications are based on reminders - complete the reminder
-      await http.patch(`/api/reminders/${notificationId}/complete`, {});
+      // Notifications are based on reminders - complete the reminder using PATCH with completed: true
+      await http.patch(`/api/reminders/${notificationId}`, { completed: true });
       
       // Remove from local state and update count from the new filtered list
       setNotifications(prev => {
