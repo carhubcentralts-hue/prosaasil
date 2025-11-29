@@ -690,6 +690,36 @@ export function WhatsAppPage() {
                   <RefreshCw className="h-4 w-4 ml-2" />
                   נתק חיבור מלא
                 </Button>
+                
+                {/* Test message button for Baileys */}
+                {whatsappStatus.connected && (
+                  <Button 
+                    variant="outline"
+                    onClick={async () => {
+                      const phone = prompt('הכנס מספר טלפון לבדיקה (כולל קידומת מדינה, לדוגמה: 972501234567):');
+                      if (phone) {
+                        try {
+                          const response = await http.post<any>('/api/whatsapp/test', {
+                            to: phone,
+                            text: 'היי, זו הודעת בדיקה מ-ProSaaS 🚀'
+                          });
+                          if (response.success) {
+                            alert('✅ הודעת בדיקה נשלחה בהצלחה!');
+                          } else {
+                            alert('❌ שגיאה: ' + (response.error || 'שגיאה לא ידועה'));
+                          }
+                        } catch (err: any) {
+                          alert('❌ שגיאה בשליחה: ' + err.message);
+                        }
+                      }
+                    }}
+                    className="w-full"
+                    data-testid="button-test-baileys"
+                  >
+                    <Send className="h-4 w-4 ml-2" />
+                    שלח הודעת בדיקה
+                  </Button>
+                )}
               </div>
             )}
             
