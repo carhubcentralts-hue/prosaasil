@@ -940,4 +940,13 @@ def create_app():
     except Exception as e:
         print(f"⚠️ Recording cleanup scheduler setup failed (non-critical): {e}")
     
+    # 📱 BUILD 162: WhatsApp session processor (15-min auto-summary)
+    try:
+        print("\n📱 Starting WhatsApp session processor...")
+        from server.services.whatsapp_session_service import start_session_processor
+        start_session_processor()
+        print("✅ WhatsApp session processor started (15-min inactivity auto-summary)")
+    except Exception as e:
+        print(f"⚠️ WhatsApp session processor setup failed (non-critical): {e}")
+    
     return app

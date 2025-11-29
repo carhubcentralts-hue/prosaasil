@@ -9,6 +9,8 @@ This service tracks WhatsApp conversation sessions:
 4. Links sessions to leads when available
 """
 import logging
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from server.db import db
@@ -17,6 +19,10 @@ from server.models_sql import WhatsAppConversation, WhatsAppMessage, Lead
 logger = logging.getLogger(__name__)
 
 INACTIVITY_MINUTES = 15
+CHECK_INTERVAL_SECONDS = 300  # Check every 5 minutes
+
+_session_processor_started = False
+_session_processor_lock = threading.Lock()
 
 
 def get_or_create_session(
@@ -354,3 +360,51 @@ def process_stale_sessions():
     logger.info(f"[WA-SESSION] Processed {processed} stale sessions")
     
     return processed
+
+
+def _session_processor_loop():
+    """Background thread loop that processes stale sessions every 5 minutes"""
+    logger.info("[WA-SESSION] Background processor thread started")
+    
+    time.sleep(60)
+    
+    while True:
+        try:
+            from server.app_factory import get_process_app
+            app = get_process_app()
+            
+            with app.app_context():
+                processed = process_stale_sessions()
+                if processed > 0:
+                    logger.info(f"[WA-SESSION] Background job: processed {processed} sessions")
+        except Exception as e:
+            logger.error(f"[WA-SESSION] Background processor error: {e}")
+        
+        time.sleep(CHECK_INTERVAL_SECONDS)
+
+
+def start_session_processor():
+    """Start the background session processor thread
+    
+    This should be called once when the application starts.
+    It will start a daemon thread that processes stale sessions
+    every 5 minutes.
+    """
+    global _session_processor_started
+    
+    with _session_processor_lock:
+        if _session_processor_started:
+            logger.info("[WA-SESSION] Background processor already started")
+            return False
+        
+        processor_thread = threading.Thread(
+            target=_session_processor_loop,
+            daemon=True,
+            name="WhatsAppSessionProcessor"
+        )
+        processor_thread.start()
+        
+        _session_processor_started = True
+        logger.info("[WA-SESSION] Background processor thread started successfully")
+        
+        return True
