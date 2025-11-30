@@ -24,7 +24,7 @@
 ### 3. Core Features Implementation
 - [ ] **Lead Auto-Creation**: Phone calls create Customer records automatically
 - [ ] **WhatsApp Integration**: Baileys service connects and manages WhatsApp
-- [ ] **Call Recording**: Twilio calls are recorded and transcribed
+- [ ] **Call Recordin**: Twilio calls are recorded and transcribed
 - [ ] **Prompt Management**: AI prompts save with proper rollback handling
 - [ ] **Hebrew Support**: All text displays properly in Hebrew
 
