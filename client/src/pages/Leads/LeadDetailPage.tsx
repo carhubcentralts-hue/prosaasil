@@ -453,7 +453,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
             saveLead={saveLead}
           />
         )}
-        {activeTab === 'conversation' && <ConversationTab phone={lead.phone_e164} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
+        {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
@@ -706,60 +706,13 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
   );
 }
 
-interface WhatsAppMessage {
-  id: number;
-  body: string;
-  direction: 'in' | 'out';
-  created_at: string;
-  status?: string;
-}
-
-function ConversationTab({ phone, onOpenWhatsApp }: { phone?: string; onOpenWhatsApp: () => void }) {
-  const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (phone) {
-      fetchMessages();
-    } else {
-      setLoading(false);
-    }
-  }, [phone]);
-
-  const fetchMessages = async () => {
-    if (!phone) return;
-    
-    try {
-      setLoading(true);
-      const cleanPhone = phone.replace(/[^0-9+]/g, '');
-      const response = await http.get<{ messages: WhatsAppMessage[] }>(`/api/whatsapp/messages/${encodeURIComponent(cleanPhone)}`);
-      setMessages(response.messages || []);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to fetch WhatsApp messages:', err);
-      setError('שגיאה בטעינת הודעות');
-      setMessages([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <Card className="p-4 sm:p-6">
-        <div className="text-center py-8">
-          <Loader2 className="w-8 h-8 animate-spin text-green-500 mx-auto mb-4" />
-          <p className="text-sm text-gray-500">טוען הודעות...</p>
-        </div>
-      </Card>
-    );
-  }
-
+function ConversationTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsApp: () => void }) {
+  const hasSummary = !!lead.whatsapp_last_summary;
+  
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-medium text-gray-900">היסטוריית וואטסאפ</h3>
+        <h3 className="text-lg font-medium text-gray-900">סיכום שיחת וואטסאפ</h3>
         <Button 
           onClick={onOpenWhatsApp} 
           size="sm"
@@ -767,44 +720,46 @@ function ConversationTab({ phone, onOpenWhatsApp }: { phone?: string; onOpenWhat
           data-testid="button-open-whatsapp-chat"
         >
           <MessageSquare className="w-4 h-4 mr-2" />
-          פתח וואטסאפ
+          פתח שיחה
         </Button>
       </div>
-      {error && (
-        <div className="bg-red-50 text-red-700 p-3 rounded-lg mb-4 text-sm">
-          {error}
+      
+      {hasSummary ? (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+              <MessageSquare className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-green-800">סיכום שיחה אחרון</span>
+                {lead.whatsapp_last_summary_at && (
+                  <span className="text-xs text-green-600">
+                    {formatDate(lead.whatsapp_last_summary_at)}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                {lead.whatsapp_last_summary}
+              </p>
+            </div>
+          </div>
         </div>
-      )}
-      {messages.length === 0 ? (
+      ) : (
         <div className="text-center py-8">
           <MessageSquare className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-sm text-gray-500 mb-4">אין שיחות וואטסאפ</p>
+          <p className="text-sm text-gray-500 mb-2">אין סיכום שיחה עדיין</p>
+          <p className="text-xs text-gray-400 mb-4">
+            סיכום נוצר אוטומטית אחרי 15 דקות ללא פעילות מהלקוח
+          </p>
           <Button 
             onClick={onOpenWhatsApp}
             size="sm"
             className="bg-green-500 hover:bg-green-600 text-white"
           >
+            <MessageSquare className="w-4 h-4 mr-2" />
             התחל שיחה
           </Button>
-        </div>
-      ) : (
-        <div className="space-y-3 max-h-[500px] overflow-y-auto">
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.direction === 'out' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-xs sm:max-w-sm lg:max-w-md px-4 py-2 rounded-lg ${
-                msg.direction === 'out' 
-                  ? 'bg-green-500 text-white' 
-                  : 'bg-gray-100 text-gray-900'
-              }`}>
-                <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
-                <p className={`text-xs mt-1 ${
-                  msg.direction === 'out' ? 'text-green-100' : 'text-gray-500'
-                }`}>
-                  {formatDate(msg.created_at)}
-                </p>
-              </div>
-            </div>
-          ))}
         </div>
       )}
     </Card>
