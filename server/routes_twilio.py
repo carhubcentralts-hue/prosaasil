@@ -439,6 +439,12 @@ def incoming_call():
     status_emoji = "✅" if response_time_ms < 1500 else "⚠️"
     print(f"{status_emoji} incoming_call: {response_time_ms}ms - {call_sid[:16]}")
     
+    # 🔥 DEBUG: Log exact TwiML being sent
+    twiml_str = str(vr)
+    print(f"🔥 TWIML_HOST={host}")
+    print(f"🔥 TWIML_WS=wss://{host}/ws/twilio-media")
+    print(f"🔥 TWIML_FULL={twiml_str[:500]}")
+    
     return _twiml(vr)
 
 @csrf.exempt
