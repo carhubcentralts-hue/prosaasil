@@ -272,10 +272,17 @@ def incoming_call_preview():
     """
     call_sid = "CA_PREVIEW_" + str(int(time.time()))
     
-    # בנה host נכון
+    # בנה host נכון - PUBLIC_HOST מקבל עדיפות ראשונה!
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-    replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
-    host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
+    if public_host:
+        host = public_host
+    else:
+        host = (
+            request.headers.get("X-Forwarded-Host") or 
+            os.environ.get('REPLIT_DEV_DOMAIN') or 
+            os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 
+            request.host
+        ).split(",")[0].strip()
     
     # ✅ BUILD 155: Dynamic phone from first active business only
     from server.models_sql import Business
@@ -388,10 +395,18 @@ def incoming_call():
             print(f"⚠️ Failed to create call_log immediately: {e}")
             db.session.rollback()
     
-    # בנה host נכון (בלי https://)
+    # בנה host נכון - PUBLIC_HOST מקבל עדיפות ראשונה!
     public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
-    replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
-    host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
+    if public_host:
+        host = public_host
+    else:
+        # Fallback chain for development
+        host = (
+            request.headers.get("X-Forwarded-Host") or 
+            os.environ.get('REPLIT_DEV_DOMAIN') or 
+            os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 
+            request.host
+        ).split(",")[0].strip()
     
     # ✅ Twilio SDK - Simplified for Error 12100 fix
     vr = VoiceResponse()
