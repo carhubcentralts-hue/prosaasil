@@ -1303,3 +1303,40 @@ def trigger_stale_session_processing():
         "processed": processed,
         "message": f"Processed {processed} stale sessions"
     }), 200
+
+
+@whatsapp_bp.route('/summaries', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_whatsapp_summaries():
+    """
+    Get all WhatsApp conversation summaries for the business
+    
+    Returns list of leads with their last WhatsApp summary
+    """
+    from server.routes_crm import get_business_id
+    
+    business_id = get_business_id()
+    if not business_id:
+        return jsonify({"success": False, "error": "no_business_id"}), 400
+    
+    leads = Lead.query.filter(
+        Lead.tenant_id == int(business_id),
+        Lead.whatsapp_last_summary.isnot(None),
+        Lead.whatsapp_last_summary != ''
+    ).order_by(Lead.whatsapp_last_summary_at.desc()).limit(50).all()
+    
+    summaries = []
+    for lead in leads:
+        summaries.append({
+            "id": lead.id,
+            "lead_name": lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "לקוח לא ידוע",
+            "phone": lead.phone_e164 or lead.phone or "",
+            "summary": lead.whatsapp_last_summary,
+            "summary_at": lead.whatsapp_last_summary_at.isoformat() if lead.whatsapp_last_summary_at else None
+        })
+    
+    return jsonify({
+        "success": True,
+        "summaries": summaries
+    }), 200

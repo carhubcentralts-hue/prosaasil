@@ -136,6 +136,10 @@ export function WhatsAppPage() {
   
   // Active chats counter (BUILD 162)
   const [activeChatsCount, setActiveChatsCount] = useState(0);
+  
+  // WhatsApp summaries state
+  const [summaries, setSummaries] = useState<{id: number; lead_name: string; phone: string; summary: string; summary_at: string}[]>([]);
+  const [loadingSummaries, setLoadingSummaries] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -143,6 +147,7 @@ export function WhatsAppPage() {
     loadThreads();
     loadPrompts();
     loadActiveChats();
+    loadSummaries();
   }, []);
 
   // Poll messages for selected thread and load AI state
@@ -258,6 +263,21 @@ export function WhatsAppPage() {
       }
     } catch (error) {
       console.error('Error loading active chats:', error);
+    }
+  };
+  
+  // Load WhatsApp summaries
+  const loadSummaries = async () => {
+    try {
+      setLoadingSummaries(true);
+      const response = await http.get<{success: boolean; summaries: any[]}>('/api/whatsapp/summaries');
+      if (response.success && response.summaries) {
+        setSummaries(response.summaries);
+      }
+    } catch (error) {
+      console.error('Error loading summaries:', error);
+    } finally {
+      setLoadingSummaries(false);
     }
   };
 
@@ -800,6 +820,58 @@ export function WhatsAppPage() {
           </div>
         </Card>
       </div>
+      
+      {/* WhatsApp Summaries Card */}
+      <Card className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center">
+            <MessageSquare className="h-5 w-5 ml-2 text-green-600" />
+            סיכומי שיחות WhatsApp
+          </h2>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={loadSummaries}
+            disabled={loadingSummaries}
+            data-testid="button-refresh-summaries"
+          >
+            <RefreshCw className={`h-4 w-4 ml-2 ${loadingSummaries ? 'animate-spin' : ''}`} />
+            רענן
+          </Button>
+        </div>
+        
+        {loadingSummaries ? (
+          <div className="text-center py-6">
+            <RefreshCw className="h-6 w-6 animate-spin mx-auto text-slate-400" />
+            <p className="text-sm text-slate-500 mt-2">טוען סיכומים...</p>
+          </div>
+        ) : summaries.length === 0 ? (
+          <div className="text-center py-6 text-slate-500">
+            <MessageSquare className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+            <p className="text-sm">אין סיכומי שיחות עדיין</p>
+            <p className="text-xs mt-1">סיכום נוצר אוטומטית אחרי 15 דקות ללא פעילות מהלקוח</p>
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-64 overflow-y-auto">
+            {summaries.map((summary) => (
+              <div key={summary.id} className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <p className="font-medium text-slate-900">{summary.lead_name || 'לקוח לא ידוע'}</p>
+                    <p className="text-xs text-slate-500">{summary.phone}</p>
+                  </div>
+                  <span className="text-xs text-green-600">
+                    {summary.summary_at ? new Date(summary.summary_at).toLocaleDateString('he-IL', { 
+                      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' 
+                    }) : ''}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-700">{summary.summary}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Conversations List */}
