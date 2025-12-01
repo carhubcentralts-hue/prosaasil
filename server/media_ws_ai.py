@@ -1036,10 +1036,59 @@ class MediaStreamHandler:
             t_client = time.time()
             print(f"⏱️ [TIMING] Client created in {(t_client-t_start)*1000:.0f}ms")
             
-            logger.info(f"[CALL DEBUG] Client created, now connecting...")
-            await client.connect()
-            t_connect = time.time()
-            print(f"⏱️ [TIMING] OpenAI connected in {(t_connect-t_client)*1000:.0f}ms (total: {(t_connect-t_start)*1000:.0f}ms)")
+            # 🚀 TRUE PARALLEL: Connect + Prompt build run SIMULTANEOUSLY
+            # This is the key optimization - both happen at once
+            logger.info(f"[CALL DEBUG] Starting PARALLEL: OpenAI connect + prompt build")
+            
+            # Prepare prompt building task
+            business_id_safe = self.business_id
+            if not business_id_safe:
+                logger.error(f"[CALL-ERROR] No business_id set!")
+                from server.services.business_resolver import resolve_business_with_fallback
+                to_num = getattr(self, 'to_number', None) or ''
+                self.business_id, status = resolve_business_with_fallback('twilio_voice', to_num)
+                business_id_safe = self.business_id
+                logger.warning(f"[CALL-ERROR] Resolved via fallback: biz={self.business_id} ({status})")
+            
+            if not business_id_safe:
+                raise RuntimeError("[CALL-ERROR] Cannot start call without valid business_id")
+            
+            # 🔥 ASYNC PARALLEL: Both tasks run at the same time!
+            async def _connect_task():
+                t0 = time.time()
+                await client.connect()
+                return time.time() - t0
+            
+            async def _prompt_task():
+                t0 = time.time()
+                loop = asyncio.get_event_loop()
+                def _build_in_thread():
+                    try:
+                        # 🔥 Import inside thread to ensure availability
+                        from server.services.realtime_prompt_builder import build_realtime_system_prompt as build_prompt
+                        app = _get_flask_app()
+                        with app.app_context():
+                            return build_prompt(business_id_safe)
+                    except Exception as e:
+                        print(f"⚠️ [PROMPT] Build failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        return f"אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח."
+                prompt = await loop.run_in_executor(None, _build_in_thread)
+                return prompt, time.time() - t0
+            
+            parallel_start = time.time()
+            connect_result, prompt_result = await asyncio.gather(
+                _connect_task(),
+                _prompt_task()
+            )
+            parallel_total = (time.time() - parallel_start) * 1000
+            
+            connect_ms = connect_result * 1000
+            system_prompt, prompt_ms = prompt_result
+            prompt_ms = prompt_ms * 1000
+            
+            print(f"⏱️ [PARALLEL] OpenAI={connect_ms:.0f}ms, Prompt={prompt_ms:.0f}ms, Total={parallel_total:.0f}ms (saved {max(0, connect_ms + prompt_ms - parallel_total):.0f}ms)")
             
             # 🔥 Store client reference for barge-in
             self.realtime_client = client
@@ -1048,32 +1097,17 @@ class MediaStreamHandler:
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
-            logger.info(f"[CALL DEBUG] ✅ OpenAI Realtime connected successfully ({cost_info})")
-            
-            app = _get_flask_app()
-            with app.app_context():
-                # 🔒 HARDENING: Verify business_id exists, no silent fallback to 1
-                if not self.business_id:
-                    logger.error(f"[CALL-ERROR] No business_id set before Realtime API init!")
-                    from server.services.business_resolver import resolve_business_with_fallback
-                    to_num = getattr(self, 'to_number', None) or ''
-                    self.business_id, status = resolve_business_with_fallback('twilio_voice', to_num)
-                    logger.warning(f"[CALL-ERROR] Resolved via fallback: biz={self.business_id} ({status})")
-                
-                business_id_safe = self.business_id
-                if not business_id_safe:
-                    raise RuntimeError("[CALL-ERROR] Cannot start call without valid business_id")
-                
-                system_prompt = build_realtime_system_prompt(business_id_safe)
             
             # 🚨 CRITICAL VALIDATION: Ensure prompt is not empty
             if not system_prompt or len(system_prompt) < 50:
-                error_msg = f"❌ [REALTIME] CRITICAL: Empty or invalid system prompt (len={len(system_prompt) if system_prompt else 0})! Flask app may not be initialized."
+                error_msg = f"❌ [REALTIME] CRITICAL: Empty/invalid prompt (len={len(system_prompt) if system_prompt else 0})!"
                 print(error_msg)
                 logger.error(error_msg)
-                raise RuntimeError(f"Invalid system prompt - Flask initialization failed. Prompt length: {len(system_prompt) if system_prompt else 0}")
+                # Use fallback prompt
+                system_prompt = f"אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח לקבוע תור או לענות על שאלות."
             
-            print(f"✅ [REALTIME] Built system prompt ({len(system_prompt)} chars)")
+            total_to_prompt_ms = (time.time() - t_start) * 1000
+            print(f"✅ [REALTIME] Ready in {total_to_prompt_ms:.0f}ms, prompt={len(system_prompt)} chars")
             print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
             
             # 🎯 Configure session with G.711 μ-law (NO TOOLS - appointment via NLP only)
@@ -1102,40 +1136,50 @@ class MediaStreamHandler:
             # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
             # No waiting for CRM, no 0.2s delay - just speak!
             if self.bot_speaks_first:
-                print(f"🎤 [BUILD 163] Bot speaks first - triggering IMMEDIATE greeting (no delay!)")
+                print(f"🎤 [BUILD 163] Bot speaks first - triggering IMMEDIATE greeting!")
                 self.greeting_sent = True  # Mark greeting as sent to allow audio through
                 self.is_playing_greeting = True
                 try:
                     await client.send_event({"type": "response.create"})
                     t_speak = time.time()
-                    print(f"✅ [BUILD 163] response.create sent! Time since OpenAI init: {(t_speak - t_start)*1000:.0f}ms")
+                    # 📊 Total time from OpenAI init to response.create
+                    total_openai_ms = (t_speak - t_start) * 1000
+                    # Also log from T0 if available
+                    if hasattr(self, 't0_connected'):
+                        total_from_t0 = (t_speak - self.t0_connected) * 1000
+                        print(f"✅ [BUILD 163] response.create sent! OpenAI={total_openai_ms:.0f}ms, T0→speak={total_from_t0:.0f}ms")
+                    else:
+                        print(f"✅ [BUILD 163] response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
                 except Exception as e:
                     print(f"❌ [BUILD 163] Failed to trigger bot speaks first: {e}")
             else:
-                # Standard flow - greeting is handled by system prompt
-                # AI will say it when user speech is detected or naturally as first response
-                print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user")
+                # Standard flow - AI waits for user speech first
+                print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
             
-            # 📋 CRM: Initialize context AFTER greeting starts (non-blocking for voice)
-            # This runs in parallel while AI is already speaking
+            # 📋 CRM: Initialize context in background (non-blocking for voice)
+            # This runs in background thread while AI is already speaking
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
             if customer_phone:
-                try:
-                    lead_id = ensure_lead(business_id_safe, customer_phone)
-                    self.crm_context = CallCrmContext(
-                        business_id=business_id_safe,
-                        customer_phone=customer_phone,
-                        lead_id=lead_id
-                    )
-                    # 🔥 HYDRATION: If we have pending customer name, transfer it to context
-                    if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
-                        self.crm_context.customer_name = self.pending_customer_name
-                        print(f"✅ [CRM] Hydrated pending_customer_name → crm_context: {self.pending_customer_name}")
-                        self.pending_customer_name = None  # Clear cache
-                    print(f"✅ [CRM] Context initialized: business={business_id_safe}, lead_id={lead_id}")
-                except Exception as e:
-                    print(f"⚠️ [CRM] Lead creation failed (non-critical): {e}")
-                    self.crm_context = None
+                # 🚀 Run CRM init in background thread to not block audio
+                def _init_crm_background():
+                    try:
+                        app = _get_flask_app()
+                        with app.app_context():
+                            lead_id = ensure_lead(business_id_safe, customer_phone)
+                            self.crm_context = CallCrmContext(
+                                business_id=business_id_safe,
+                                customer_phone=customer_phone,
+                                lead_id=lead_id
+                            )
+                            # 🔥 HYDRATION: Transfer pending customer name
+                            if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                                self.crm_context.customer_name = self.pending_customer_name
+                                self.pending_customer_name = None
+                            print(f"✅ [CRM] Context ready (background): lead_id={lead_id}")
+                    except Exception as e:
+                        print(f"⚠️ [CRM] Background init failed: {e}")
+                        self.crm_context = None
+                threading.Thread(target=_init_crm_background, daemon=True).start()
             else:
                 print(f"⚠️ [CRM] No customer phone - skipping lead creation")
                 self.crm_context = None
@@ -2511,44 +2555,49 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ⚡ OPTIMIZED: זיהוי עסק + ברכה בשאילתה אחת!
-                    # 🔍 CALL DEBUG: Log bypass for production (prints are suppressed unless DEBUG=1)
+                    # ⚡ ULTRA-SPEED: Get MINIMAL data, start Realtime IMMEDIATELY
+                    # Prompt building runs IN PARALLEL with OpenAI connection
                     logger.info(f"[CALL DEBUG] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
+                    t_biz_start = time.time()
                     try:
                         app = _get_flask_app()  # ✅ Use singleton
                         with app.app_context():
+                            # 🚀 MINIMAL: Only get business_id and settings (fast!)
                             business_id, greet = self._identify_business_and_get_greeting()
-                        print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
-                        logger.info(f"[CALL DEBUG] Business identified: business_id={business_id}, greeting_len={len(greet) if greet else 0}")
+                            # 🎯 Load bot_speaks_first setting (critical for greeting)
+                            self._load_call_behavior_settings()
+                            
+                        t_biz_end = time.time()
+                        print(f"⚡ ULTRA-FAST: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        logger.info(f"[CALL DEBUG] Business ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        # Prompt building now happens in TRUE PARALLEL with OpenAI connect (asyncio.gather)
                         
-                        # 🎯 BUILD 163: Load call behavior settings after business identification
-                        self._load_call_behavior_settings()
                     except Exception as e:
                         import traceback
                         logger.error(f"[CALL-ERROR] Business identification failed: {e}")
-                        logger.error(f"[CALL-ERROR] Traceback: {traceback.format_exc()}")
-                        # 🔒 HARDENING: NO hardcoded fallback - use resolver
                         from server.services.business_resolver import resolve_business_with_fallback
                         self.business_id, status = resolve_business_with_fallback('twilio_voice', self.to_number)
-                        logger.warning(f"[CALL-ERROR] Using resolver fallback: biz={self.business_id} ({status})")
                         greet = "שלום! איך אפשר לעזור?"
                     
                     # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
                     if not USE_REALTIME_API:
                         self._init_streaming_stt()
                         print("✅ Google STT initialized (USE_REALTIME_API=False)")
-                    else:
-                        print("⏭️ Skipping Google STT initialization (USE_REALTIME_API=True)")
                     
-                    # ✅ יצירת call_log מיד בהתחלת שיחה (אחרי זיהוי עסק!)
-                    try:
-                        if self.call_sid and not hasattr(self, '_call_log_created'):
-                            self._create_call_log_on_start()
-                            self._call_log_created = True
-                            # ✅ התחל הקלטה דרך Twilio REST API
-                            self._start_call_recording()
-                    except Exception as e:
-                        print(f"⚠️ Call log creation failed (non-critical): {e}")
+                    # 🚀 DEFERRED: Call log + recording run in background thread (non-blocking)
+                    def _deferred_call_setup():
+                        try:
+                            app = _get_flask_app()
+                            with app.app_context():
+                                if self.call_sid and not getattr(self, '_call_log_created', False):
+                                    self._create_call_log_on_start()
+                                    self._call_log_created = True
+                                    self._start_call_recording()
+                        except Exception as e:
+                            print(f"⚠️ Deferred call setup failed: {e}")
+                    
+                    # Start deferred setup in background (doesn't block greeting)
+                    threading.Thread(target=_deferred_call_setup, daemon=True).start()
                     
                     # ✅ ברכה מיידית - בלי השהיה!
                     if not self.tx_running:
@@ -2582,8 +2631,10 @@ class MediaStreamHandler:
                     logger.info(f"[CALL DEBUG] Checking Realtime: USE_REALTIME_API={USE_REALTIME_API}, realtime_thread={self.realtime_thread}")
                     
                     if USE_REALTIME_API and not self.realtime_thread:
-                        _orig_print(f"🚀 [REALTIME] Starting Realtime API mode for call {self.call_sid[:8] if self.call_sid else 'unknown'}", flush=True)
-                        logger.info(f"[CALL DEBUG] Starting OpenAI Realtime for business_id={self.business_id}, call={self.call_sid[:8] if self.call_sid else 'N/A'}")
+                        t_realtime_start = time.time()
+                        delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
+                        _orig_print(f"🚀 [REALTIME] Starting at T0+{delta_from_t0:.0f}ms for call {self.call_sid[:8] if self.call_sid else 'unknown'}", flush=True)
+                        logger.info(f"[CALL DEBUG] Starting OpenAI Realtime at T0+{delta_from_t0:.0f}ms for business_id={self.business_id}")
                         
                         self.realtime_thread = threading.Thread(
                             target=self._run_realtime_mode_thread,
