@@ -4644,8 +4644,10 @@ class MediaStreamHandler:
                 return False
         
         # ✅ CLEAR goodbye words (standalone = hangup)
+        # 🛡️ ONLY unambiguous farewell phrases - NOT mid-conversation phrases!
         clear_goodbye_words = [
-            "להתראות", "ביי", "ביי ביי", "bye", "bye bye", "goodbye"
+            "להתראות", "ביי", "ביי ביי", "bye", "bye bye", "goodbye",
+            "יאללה ביי", "יאללה להתראות"
         ]
         
         has_clear_goodbye = any(word in text_lower for word in clear_goodbye_words)
