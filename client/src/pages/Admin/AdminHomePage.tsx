@@ -86,6 +86,18 @@ function ProviderStatusCard({ providerStatus }: { providerStatus?: any }) {
 
 
 function RecentActivityCard({ recentActivity }: { recentActivity?: any[] }) {
+  const navigate = useNavigate();
+
+  const handleActivityClick = (activity: any) => {
+    if (activity.type === 'call') {
+      navigate('/app/calls');
+    } else if (activity.type === 'whatsapp') {
+      navigate('/app/whatsapp');
+    } else {
+      navigate('/app/overview');
+    }
+  };
+
   if (!recentActivity) {
     return (
       <Card className="p-6">
@@ -110,19 +122,31 @@ function RecentActivityCard({ recentActivity }: { recentActivity?: any[] }) {
       
       <div className="space-y-3">
         {recentActivity.length > 0 ? recentActivity.map((activity) => (
-          <div key={activity.id} className="flex items-start p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
+          <div 
+            key={activity.id} 
+            className="flex items-start p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+            onClick={() => handleActivityClick(activity)}
+            data-testid={`activity-item-${activity.id}`}
+          >
             <div className={cn(
-              'w-3 h-3 rounded-full mt-2 ml-3',
+              'w-3 h-3 rounded-full mt-2 ml-3 flex-shrink-0',
               activity.type === 'call' ? 'bg-blue-500' : 'bg-green-500'
             )} />
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-900">{activity.tenant}</span>
-                <span className="text-xs text-slate-500 tabular-nums">{activity.time}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium text-slate-900 truncate">{activity.tenant}</span>
+                <span className="text-xs text-slate-500 tabular-nums flex-shrink-0">{activity.time}</span>
               </div>
-              <p className="text-sm text-slate-600 mt-1">{activity.preview}</p>
+              <p className="text-sm text-slate-600 mt-1 break-words">{activity.preview}</p>
             </div>
-            <button className="btn-ghost text-xs px-2 py-1">
+            <button 
+              className="btn-ghost text-xs px-3 py-1.5 mr-2 flex-shrink-0 hover:bg-blue-100 hover:text-blue-700 rounded-lg transition-colors"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleActivityClick(activity);
+              }}
+              data-testid={`button-open-activity-${activity.id}`}
+            >
               פתח
             </button>
           </div>
@@ -136,7 +160,11 @@ function RecentActivityCard({ recentActivity }: { recentActivity?: any[] }) {
       
       {recentActivity.length > 0 && (
         <div className="mt-4 text-center">
-          <button className="btn-ghost text-sm">
+          <button 
+            className="btn-ghost text-sm hover:bg-slate-100 px-4 py-2 rounded-lg transition-colors"
+            onClick={() => navigate('/app/overview')}
+            data-testid="button-view-more-activity"
+          >
             ראה עוד פעילות
           </button>
         </div>
