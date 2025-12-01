@@ -128,6 +128,17 @@ class BusinessSettings(db.Model):
     min_notice_min = db.Column(db.Integer, default=0)  # Minimum notice time in minutes before appointment
     require_phone_before_booking = db.Column(db.Boolean, default=True)  # 🔥 Require phone number before booking
     
+    # 🔥 BUILD 163: Monday.com integration
+    monday_webhook_url = db.Column(db.String(512), nullable=True)  # Monday webhook URL
+    send_call_transcripts_to_monday = db.Column(db.Boolean, default=False)  # Auto-send transcripts to Monday
+    
+    # 🔥 BUILD 163: Auto hang-up settings
+    auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected
+    auto_end_on_goodbye = db.Column(db.Boolean, default=False)  # Hang up when customer says goodbye
+    
+    # 🔥 BUILD 163: Bot speaks first setting
+    bot_speaks_first = db.Column(db.Boolean, default=False)  # Bot plays greeting before listening
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

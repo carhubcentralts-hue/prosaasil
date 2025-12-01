@@ -634,6 +634,38 @@ def apply_migrations():
         migrations_applied.append("add_leads_whatsapp_summary")
         log.info("✅ Applied migration 27: add_leads_whatsapp_summary - WhatsApp session summary on leads")
     
+    # Migration 28: BUILD 163 - Monday.com integration + Auto-hangup + Bot speaks first
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        # Monday.com integration fields
+        if not check_column_exists('business_settings', 'monday_webhook_url'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN monday_webhook_url VARCHAR(512)"))
+            migrations_applied.append("add_monday_webhook_url")
+            log.info("✅ Applied migration 28a: add_monday_webhook_url")
+        
+        if not check_column_exists('business_settings', 'send_call_transcripts_to_monday'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN send_call_transcripts_to_monday BOOLEAN DEFAULT FALSE"))
+            migrations_applied.append("add_send_call_transcripts_to_monday")
+            log.info("✅ Applied migration 28b: add_send_call_transcripts_to_monday")
+        
+        # Auto hang-up fields
+        if not check_column_exists('business_settings', 'auto_end_after_lead_capture'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN auto_end_after_lead_capture BOOLEAN DEFAULT FALSE"))
+            migrations_applied.append("add_auto_end_after_lead_capture")
+            log.info("✅ Applied migration 28c: add_auto_end_after_lead_capture")
+        
+        if not check_column_exists('business_settings', 'auto_end_on_goodbye'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN auto_end_on_goodbye BOOLEAN DEFAULT FALSE"))
+            migrations_applied.append("add_auto_end_on_goodbye")
+            log.info("✅ Applied migration 28d: add_auto_end_on_goodbye")
+        
+        # Bot speaks first field
+        if not check_column_exists('business_settings', 'bot_speaks_first'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN bot_speaks_first BOOLEAN DEFAULT FALSE"))
+            migrations_applied.append("add_bot_speaks_first")
+            log.info("✅ Applied migration 28e: add_bot_speaks_first")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

@@ -718,7 +718,15 @@ def get_current_business():
             "allow_24_7": settings.allow_24_7 if settings else False,
             "booking_window_days": settings.booking_window_days if settings else 30,
             "min_notice_min": settings.min_notice_min if settings else 0,
-            "opening_hours_json": settings.opening_hours_json if settings else None
+            "opening_hours_json": settings.opening_hours_json if settings else None,
+            # 🔥 BUILD 163: Monday.com integration
+            "monday_webhook_url": settings.monday_webhook_url if settings else None,
+            "send_call_transcripts_to_monday": settings.send_call_transcripts_to_monday if settings else False,
+            # 🔥 BUILD 163: Auto hang-up settings
+            "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if settings else False,
+            "auto_end_on_goodbye": settings.auto_end_on_goodbye if settings else False,
+            # 🔥 BUILD 163: Bot speaks first
+            "bot_speaks_first": settings.bot_speaks_first if settings else False
         })
         
     except Exception as e:
@@ -791,6 +799,22 @@ def update_current_business_settings():
         if 'opening_hours_json' in data:
             settings.opening_hours_json = data['opening_hours_json']
             appointment_settings_changed = True
+        
+        # 🔥 BUILD 163: Monday.com integration settings
+        if 'monday_webhook_url' in data:
+            settings.monday_webhook_url = data['monday_webhook_url'] or None
+        if 'send_call_transcripts_to_monday' in data:
+            settings.send_call_transcripts_to_monday = bool(data['send_call_transcripts_to_monday'])
+        
+        # 🔥 BUILD 163: Auto hang-up settings
+        if 'auto_end_after_lead_capture' in data:
+            settings.auto_end_after_lead_capture = bool(data['auto_end_after_lead_capture'])
+        if 'auto_end_on_goodbye' in data:
+            settings.auto_end_on_goodbye = bool(data['auto_end_on_goodbye'])
+        
+        # 🔥 BUILD 163: Bot speaks first setting
+        if 'bot_speaks_first' in data:
+            settings.bot_speaks_first = bool(data['bot_speaks_first'])
             
         # Track who updated
         user_email = session.get('al_user', {}).get('email', 'Unknown')
