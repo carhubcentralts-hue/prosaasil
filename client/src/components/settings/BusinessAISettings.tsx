@@ -4,7 +4,10 @@ import {
   MessageSquare, 
   Save, 
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Timer,
+  Brain,
+  User
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
@@ -18,12 +21,20 @@ interface PromptData {
   version: number;
 }
 
+interface CallControlSettings {
+  silence_timeout_sec: number;
+  silence_max_warnings: number;
+  smart_hangup_enabled: boolean;
+  required_lead_fields: string[];
+}
+
 export function BusinessAISettings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<{ calls: boolean; whatsapp: boolean }>({
+  const [saving, setSaving] = useState<{ calls: boolean; whatsapp: boolean; callControl: boolean }>({
     calls: false,
-    whatsapp: false
+    whatsapp: false,
+    callControl: false
   });
   const [prompts, setPrompts] = useState<PromptData>({
     calls_prompt: '',
@@ -33,6 +44,12 @@ export function BusinessAISettings() {
     last_updated: '',
     version: 1
   });
+  const [callControl, setCallControl] = useState<CallControlSettings>({
+    silence_timeout_sec: 15,
+    silence_max_warnings: 2,
+    smart_hangup_enabled: true,
+    required_lead_fields: ['name', 'phone']
+  });
   const [businessName, setBusinessName] = useState<string>('');
 
   // Load prompts and business info
@@ -41,14 +58,28 @@ export function BusinessAISettings() {
       try {
         setLoading(true);
         
-        // Load business info and prompts
+        // Load business info, prompts, and call control settings
         const [businessData, promptsData] = await Promise.all([
-          http.get<{ name: string }>(`/api/business/current`),
+          http.get<{ 
+            name: string;
+            silence_timeout_sec?: number;
+            silence_max_warnings?: number;
+            smart_hangup_enabled?: boolean;
+            required_lead_fields?: string[];
+          }>(`/api/business/current`),
           http.get<PromptData>(`/api/business/current/prompt`)
         ]);
         
         setBusinessName(businessData.name);
         setPrompts(promptsData);
+        
+        // Set call control settings from business data
+        setCallControl({
+          silence_timeout_sec: businessData.silence_timeout_sec ?? 15,
+          silence_max_warnings: businessData.silence_max_warnings ?? 2,
+          smart_hangup_enabled: businessData.smart_hangup_enabled ?? true,
+          required_lead_fields: businessData.required_lead_fields ?? ['name', 'phone']
+        });
         
         console.log('✅ Loaded AI prompts:', promptsData);
       } catch (err) {
@@ -101,6 +132,39 @@ export function BusinessAISettings() {
     } finally {
       setSaving(prev => ({ ...prev, [channel]: false }));
     }
+  };
+
+  // Save call control settings
+  const saveCallControl = async () => {
+    setSaving(prev => ({ ...prev, callControl: true }));
+    
+    try {
+      await http.put(`/api/business/current/settings`, {
+        silence_timeout_sec: callControl.silence_timeout_sec,
+        silence_max_warnings: callControl.silence_max_warnings,
+        smart_hangup_enabled: callControl.smart_hangup_enabled,
+        required_lead_fields: callControl.required_lead_fields
+      });
+      
+      alert('✅ הגדרות שליטת שיחה נשמרו בהצלחה!');
+    } catch (err) {
+      console.error('❌ Failed to save call control settings:', err);
+      alert('שגיאה בשמירת הגדרות שליטת שיחה');
+    } finally {
+      setSaving(prev => ({ ...prev, callControl: false }));
+    }
+  };
+
+  // Toggle required field
+  const toggleRequiredField = (field: string) => {
+    setCallControl(prev => {
+      const fields = prev.required_lead_fields;
+      if (fields.includes(field)) {
+        return { ...prev, required_lead_fields: fields.filter(f => f !== field) };
+      } else {
+        return { ...prev, required_lead_fields: [...fields, field] };
+      }
+    });
   };
 
   if (loading) {
@@ -263,6 +327,155 @@ export function BusinessAISettings() {
                 <Save className="h-4 w-4" />
               )}
               {saving.whatsapp ? 'שומר...' : 'שמור פרומפט WhatsApp'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Smart Call Control Settings - Step 2 Spec */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+            <Brain className="h-5 w-5 text-purple-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">הגדרות שליטת שיחה חכמה</h3>
+            <p className="text-sm text-slate-500">הגדרות סיום שיחה וטיפול בשקט מבוסס AI</p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {/* Smart Hangup Toggle */}
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+            <div>
+              <h4 className="font-medium text-slate-900">סיום שיחה חכם מבוסס AI</h4>
+              <p className="text-sm text-slate-600 mt-1">
+                ה-AI מחליט מתי לסיים שיחה על בסיס הקשר השיחה, לא על מילות מפתח בודדות כמו "לא צריך"
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={callControl.smart_hangup_enabled}
+                onChange={(e) => setCallControl(prev => ({ ...prev, smart_hangup_enabled: e.target.checked }))}
+                className="sr-only peer"
+                data-testid="checkbox-smart-hangup"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+          </div>
+
+          {/* Silence Timeout */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                <Timer className="inline-block w-4 h-4 ml-1" />
+                זמן שקט לפני שאילת "אתה עדיין שם?"
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="5"
+                  max="30"
+                  value={callControl.silence_timeout_sec}
+                  onChange={(e) => setCallControl(prev => ({ ...prev, silence_timeout_sec: parseInt(e.target.value) }))}
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  data-testid="slider-silence-timeout"
+                />
+                <span className="text-sm font-medium text-slate-700 min-w-[60px] text-center">
+                  {callControl.silence_timeout_sec} שניות
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                אחרי כמה שניות של שקט ה-AI שואל אם הלקוח עדיין בקו
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                מספר אזהרות שקט לפני סיום
+              </label>
+              <select
+                value={callControl.silence_max_warnings}
+                onChange={(e) => setCallControl(prev => ({ ...prev, silence_max_warnings: parseInt(e.target.value) }))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                data-testid="select-silence-warnings"
+              >
+                <option value="1">אזהרה 1 - סיום מהיר</option>
+                <option value="2">2 אזהרות - מאוזן (מומלץ)</option>
+                <option value="3">3 אזהרות - סבלני</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                כמה פעמים לשאול "אתה שם?" לפני סיום השיחה בנימוס
+              </p>
+            </div>
+          </div>
+
+          {/* Required Lead Fields */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-3">
+              <User className="inline-block w-4 h-4 ml-1" />
+              פרטים נדרשים לאיסוף מהליד
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: 'name', label: 'שם מלא' },
+                { key: 'phone', label: 'טלפון' },
+                { key: 'email', label: 'אימייל' },
+                { key: 'service_type', label: 'סוג שירות' },
+                { key: 'preferred_time', label: 'זמן מועדף' },
+                { key: 'notes', label: 'הערות' }
+              ].map(field => (
+                <button
+                  key={field.key}
+                  type="button"
+                  onClick={() => toggleRequiredField(field.key)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    callControl.required_lead_fields.includes(field.key)
+                      ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
+                      : 'bg-slate-100 text-slate-600 border-2 border-transparent hover:bg-slate-200'
+                  }`}
+                  data-testid={`toggle-field-${field.key}`}
+                >
+                  {callControl.required_lead_fields.includes(field.key) ? '✓ ' : ''}{field.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              ה-AI יאסוף את הפרטים האלה לפני שמאפשר סיום שיחה. לחץ לבחירה/ביטול.
+            </p>
+          </div>
+
+          {/* Info box about how it works */}
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-purple-600 flex-shrink-0 mt-0.5" />
+              <div className="text-purple-800">
+                <p className="font-medium">איך זה עובד?</p>
+                <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
+                  <li>ה-AI מנתח את כל השיחה כדי להבין אם הלקוח באמת רוצה לסיים</li>
+                  <li>לא מסיים שיחה רק בגלל "לא תודה" או "אין צורך" בודד</li>
+                  <li>מוודא שכל הפרטים הנדרשים נאספו לפני סיום</li>
+                  <li>מזהה שקט ממושך ושואל בנימוס אם הלקוח עדיין בקו</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <div className="flex justify-end pt-4 border-t border-slate-200">
+            <button
+              onClick={saveCallControl}
+              disabled={saving.callControl}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              data-testid="button-save-call-control"
+            >
+              {saving.callControl ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {saving.callControl ? 'שומר...' : 'שמור הגדרות שליטת שיחה'}
             </button>
           </div>
         </div>
