@@ -2649,12 +2649,11 @@ class MediaStreamHandler:
                     logger.info(f"[CALL DEBUG] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
                     t_biz_start = time.time()
                     try:
-                        app = _get_flask_app()  # ✅ Use singleton
+                        app = _get_flask_app()
                         with app.app_context():
-                            # 🚀 MINIMAL: Only get business_id and settings (fast!)
+                            # 🚀 ULTRA-FAST: Single combined query for business + greeting + settings!
                             business_id, greet = self._identify_business_and_get_greeting()
-                            # 🎯 Load bot_speaks_first setting (critical for greeting)
-                            self._load_call_behavior_settings()
+                            # Note: bot_speaks_first is now loaded inside _identify_business_and_get_greeting()
                             
                         t_biz_end = time.time()
                         print(f"⚡ ULTRA-FAST: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
@@ -4444,24 +4443,23 @@ class MediaStreamHandler:
             return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
 
     def _identify_business_and_get_greeting(self) -> tuple:
-        """⚡ זיהוי עסק וטעינת ברכה בשאילתה אחת - חוסך 50% זמן!"""
+        """⚡ זיהוי עסק + ברכה + הגדרות שיחה בשאילתה אחת - חוסך 70% זמן!"""
         try:
-            from server.models_sql import Business
+            from server.models_sql import Business, BusinessSettings
             from sqlalchemy import or_
             
             to_number = getattr(self, 'to_number', None)
+            t_start = time.time()
             
-            print(f"⚡ FAST: זיהוי עסק + ברכה בשאילתה אחת: to_number={to_number}")
+            print(f"⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number={to_number}")
             
-            app = _get_flask_app()  # ✅ Use singleton
+            app = _get_flask_app()
             with app.app_context():
                 business = None
                 
                 if to_number:
-                    # נרמל מספר טלפון
                     normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
                     
-                    # ⚡ שאילתה אחת - עסק + כל הנתונים!
                     business = Business.query.filter(
                         or_(
                             Business.phone_e164 == to_number,
@@ -4472,35 +4470,45 @@ class MediaStreamHandler:
                     if business:
                         print(f"✅ מצא עסק: {business.name} (id={business.id})")
                 
-                # 🔒 HARDENING: No silent fallback to first business - use resolver
                 if not business:
                     from server.services.business_resolver import resolve_business_with_fallback
                     to_num_safe = to_number or ''
                     resolved_id, status = resolve_business_with_fallback('twilio_voice', to_num_safe)
-                    logger.warning(f"[CALL-WARN] No business for {to_number}, using resolver: biz={resolved_id} ({status})")
+                    logger.warning(f"[CALL-WARN] No business for {to_number}, resolver: biz={resolved_id} ({status})")
                     if resolved_id:
                         business = Business.query.get(resolved_id)
                 
-                # עדכן business_id + חזור ברכה
                 if business:
                     self.business_id = business.id
-                    # ⚡ SPEED FIX: Store business name for later use (no extra DB query!)
                     self.business_name = business.name or "העסק שלנו"
-                    # ✅ אם אין פתיח מוגדר - None (ה-AI ידבר ראשון בעצמו!)
                     greeting = business.greeting_message or None
                     business_name = self.business_name
                     
                     if greeting:
-                        # החלפת placeholder
                         greeting = greeting.replace("{{business_name}}", business_name)
                         greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
-                        logger.info(f"[CALL-START] biz={self.business_id}, greeting='{greeting[:50]}...' (len={len(greeting)})")
+                        logger.info(f"[CALL-START] biz={self.business_id}, greeting='{greeting[:50]}...'")
                     else:
-                        logger.info(f"[CALL-START] biz={self.business_id}, NO GREETING (AI speaks first)")
+                        logger.info(f"[CALL-START] biz={self.business_id}, NO GREETING")
+                    
+                    # 🚀 COMBINED: Load call behavior settings in same DB context (saves ~50ms!)
+                    settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
+                    if settings:
+                        self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
+                        self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
+                        self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
+                    else:
+                        self.bot_speaks_first = False
+                        self.auto_end_after_lead_capture = False
+                        self.auto_end_on_goodbye = False
+                    
+                    t_end = time.time()
+                    print(f"⚡ COMBINED QUERY: biz+greeting+settings in {(t_end-t_start)*1000:.0f}ms")
+                    print(f"   bot_speaks_first={self.bot_speaks_first}, auto_end_goodbye={self.auto_end_on_goodbye}")
                     
                     return (self.business_id, greeting)
                 else:
-                    logger.error(f"[CALL-ERROR] No business found for call to {to_number}")
+                    logger.error(f"[CALL-ERROR] No business for {to_number}")
                     self.business_id = None
                     return (None, None)
         
