@@ -4526,40 +4526,63 @@ class MediaStreamHandler:
 
     def _check_goodbye_phrases(self, text: str) -> bool:
         """
-        🎯 BUILD 163: Check if text contains goodbye phrases
+        🎯 BUILD 163 REFINED: Check if text contains CLEAR goodbye phrases
+        
+        Logic:
+        - "תודה" alone = NOT goodbye (could be mid-conversation thanks)
+        - "ביי/להתראות" alone = goodbye
+        - "תודה" + "ביי/להתראות" = goodbye
+        - "היי" = NOT goodbye (don't confuse with "ביי")
         
         Args:
             text: User or AI transcribed text to check
             
         Returns:
-            True if goodbye phrase detected
+            True if CLEAR goodbye phrase detected
         """
         text_lower = text.lower().strip()
         
-        goodbye_phrases_hebrew = [
-            "תודה", "תודה רבה", "תודה לך", 
-            "להתראות", "ביי", "ביי ביי", "שלום",
-            "אין צורך", "זהו", "זהו תודה", "הכל ברור",
-            "יופי תודה", "מצוין תודה", "סבבה תודה",
-            "אוקיי תודה", "בסדר תודה", "יום טוב",
-            "לילה טוב", "ערב טוב", "צהריים טובים"
+        # 🛡️ FILTER: Exclude greetings that sound like goodbye
+        greeting_words = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
+        for greeting in greeting_words:
+            if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
+                print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
+                return False
+        
+        # ✅ CLEAR goodbye words (standalone = hangup)
+        clear_goodbye_words = [
+            "להתראות", "ביי", "ביי ביי", "bye", "bye bye", "goodbye"
         ]
         
-        goodbye_phrases_english = [
-            "bye", "bye bye", "goodbye", "good bye",
-            "thanks", "thank you", "that's all", "thats all",
-            "no need", "i'm done", "im done", "we're done",
-            "have a good", "have a nice", "take care"
+        has_clear_goodbye = any(word in text_lower for word in clear_goodbye_words)
+        
+        # If we have a clear goodbye word, that's enough
+        if has_clear_goodbye:
+            print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
+            return True
+        
+        # ✅ Combined phrases (תודה + closing = hangup)
+        combined_goodbye_phrases = [
+            "זהו תודה", "יופי תודה", "מצוין תודה", "סבבה תודה",
+            "אוקיי תודה", "בסדר תודה", "תודה וביי", "תודה להתראות",
+            "תודה רבה וביי", "תודה רבה להתראות",
+            "that's all", "thats all", "i'm done", "im done", 
+            "we're done", "have a good", "have a nice", "take care"
         ]
         
-        for phrase in goodbye_phrases_hebrew:
+        for phrase in combined_goodbye_phrases:
             if phrase in text_lower:
+                print(f"[GOODBYE CHECK] Combined phrase detected: '{phrase}' in '{text_lower[:30]}...'")
                 return True
         
-        for phrase in goodbye_phrases_english:
-            if phrase in text_lower:
-                return True
+        # ✅ Final check: "תודה" at end of sentence with no continuation expected
+        # Only if it's very short (like "תודה זהו" or just wrapping up)
+        if len(text_lower) < 15 and "תודה" in text_lower and ("זהו" in text_lower or "סיימנו" in text_lower):
+            print(f"[GOODBYE CHECK] Short closing detected: '{text_lower}'")
+            return True
         
+        # 🚫 "תודה" alone is NOT goodbye
+        print(f"[GOODBYE CHECK] No clear goodbye: '{text_lower[:30]}...'")
         return False
 
     def _check_lead_captured(self) -> bool:
