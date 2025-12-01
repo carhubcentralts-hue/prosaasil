@@ -1,0 +1,218 @@
+אחי, קיבלתי בול את הבעיות.
+אני מכין לך עכשיו הנחיה מושלמת לסוכן ריפליט, ברמה של “תתקן הכול, בלי לגעת בשרת החיצוני”.
+זאת תהיה הנחיה באנגלית, מסודרת, ברורה, עם סעיפים — כדי שהוא באמת יבצע תיקון אמיתי ולא ידפוק לך את המערכת.
+
+אני מרכז את כל הבעיות שאתה תיארת:
+
+⸻
+
+❌ הבעיות שיש עכשיו
+
+🟥 1. **Greeting delay (takes 5–6 seconds on external server)
+
+בשרת פנימי זה 2 שניות, בחיצוני 6.**
+
+⬅️ צריך:
+	•	לטעון greeting מה־DB לפני פתיחת הסשן
+	•	לשלוח אותו ל־Realtime API מיד ב־session.created
+	•	לא לייצר round-trip מיותר
+
+⸻
+
+🟥 2. Greeting cuts mid-sentence
+
+⬅️ צריך:
+	•	לשלוח את הברכה כ־text input לפני שהמערכת מתחילה לשמוע
+	•	לוודא שה־audio_output.status.completed מתקבל לפני שמתחילים VAD
+	•	למנוע interruption בזמן greeting
+
+⸻
+
+🟥 3. Barge-in עדיין לא טוב
+
+⬅️ צריך:
+	•	VAD threshold tuning
+	•	לשלב “barge_in: true” בתצורת ה־session
+	•	עצירת playback לפני שהמשתמש מדבר
+	•	למנוע false positives של היי/ביי ודברים דומים
+
+⸻
+
+🟥 4. Goodbye/אין צורך/תודה — לא מנתקת
+
+⬅️ צריך:
+	•	מנוע זיהוי ברור:
+תודה, אין צורך, לא צריך, ביי, יאללה ביי, זהו, מספיק, עזוב, תודה רבה, לא תודה, סיימתי
+	•	לזהות את זה גם בקטועי מנמום של Whisper
+	•	אם יש false positives — לבנות regex + fuzzy
+
+⸻
+
+🟥 5. אחרי שהבוט אסף את כל הפרטים — הוא עדיין לא מנתק
+
+⬅️ צריך:
+	•	Hook אחרי השמעת התגובה האחרונה
+	•	לחכות ל־audio.done event
+	•	ואז לבצע hangup
+
+⸻
+
+🟥 6. בוואטסאפ — הודעות נחתכות באמצע
+
+⬅️ צריך:
+	•	להוסיף message queue
+	•	לא לשלוח 2 הודעות במקביל
+	•	להמתין ל־ack או לפחות timeout לפני שליחת הודעה הבאה
+	•	לשים guard נגד תווים בעייתיים (בעיקר עברית+אנגלית ביחד)
+
+⸻
+
+🟦 ועכשיו — ההנחיה המושלמת לסוכן
+
+(מוכנה להעתקה אחד־לאחד)
+
+⸻
+
+✅ REPLIT AGENT INSTRUCTION – COMPLETE FIX PACKAGE
+
+(Everything must be done WITHOUT editing the external server — only the current project)
+
+⸻
+
+TASK TITLE: Fix Greeting Delay, Barge-In, Goodbye Detection, Auto-Hangup & WhatsApp Cutoffs
+
+⸻
+
+GENERAL REQUIREMENTS
+
+You must implement all changes inside the current project, without touching or modifying the external server.
+
+You must:
+	•	Improve call greeting speed
+	•	Prevent greeting from being cut
+	•	Improve barge-in sensitivity and reliability
+	•	Add robust goodbye/stop detection
+	•	Ensure auto-hangup after collecting required fields
+	•	Fix WhatsApp message cutoff issues
+	•	Ensure all changes integrate cleanly with existing code
+	•	Ensure backward compatibility with all businesses
+
+All changes must be stable, clean, and production-ready.
+
+⸻
+
+⸻
+
+🔵 SECTION 1 — Fix Greeting Delay & Greeting Cut
+
+You must:
+	1.	Load the greeting_message BEFORE creating the Realtime session.
+	2.	Pre-inject the greeting as a text message into the Realtime queue immediately when session.created fires.
+	3.	Make the AI speak before enabling VAD.
+
+Implementation rules:
+	•	When session.created →
+	•	send: "role": "user", "content": greeting_message
+	•	Wait for response.output_item.added + response.audio.delta until done
+	•	Only then activate VAD listening
+	•	NEVER interrupt greeting with barge-in
+	•	Ensure barge_in: false for greeting, then turn it on after greeting ended
+
+⸻
+
+🔵 SECTION 2 — Improve Barge-In Behavior
+
+You must:
+	•	Enable barge_in AFTER greeting finished
+	•	Tune WebRTC VAD:
+	•	frame_ms: 20
+	•	silence_ms: 450
+	•	speech_ms: 120
+	•	Add logic:
+	•	If user starts speaking → immediately stop TTS playback
+	•	But do NOT stop if the bot is mid-greeting
+	•	Avoid mis-detecting “היי” as “ביי”
+
+⸻
+
+🔵 SECTION 3 — Goodbye Detection & Auto Hang-Up
+
+Add robust Hebrew/English goodbye detection:
+
+GOODBYE_PHRASES = [
+    "תודה", "לא צריך", "אין צורך", "זהו", "סיימתי",
+    "תודה רבה", "בי", "ביי", "יאללה ביי", "להתראות",
+    "thanks", "thank you", "bye", "goodbye", "no need"
+]
+
+Rules:
+	1.	If a goodbye phrase appears →
+	•	The bot must respond politely:
+“בשמחה, שיהיה יום נפלא.”
+	•	Wait for audio playback to finish
+	•	Immediately hang up
+	2.	Do NOT hang up mid-sentence.
+	3.	Fuzzy matching required (normalize Hebrew diacritics, strip punctuation)
+
+⸻
+
+🔵 SECTION 4 — Auto Hang-Up After Collecting Required Fields
+
+You must:
+	•	Detect when the AI has collected:
+	•	Required field set (depends on the prompt)
+	•	Once collected →
+	•	AI sends the final closing message
+	•	Wait for response.audio_transcript.done
+	•	Then hang up
+
+Implement a unified should_end_call() function.
+
+⸻
+
+🔵 SECTION 5 — Fix WhatsApp Message Cutoffs
+
+You must:
+	1.	Add a message queue in WhatsApp service:
+	•	New messages wait until previous message has been delivered or timeout
+	2.	Prevent overlapping TTS or text messages
+	3.	Normalize all outgoing text:
+	•	Remove duplicate punctuation
+	•	Avoid long single-line output
+	4.	Add retry logic (max 2 retries)
+
+⸻
+
+🔵 SECTION 6 — Testing & Validation Required
+
+You must test:
+
+Calls:
+	•	Greeting plays instantly (≤2 sec)
+	•	Greeting never cuts mid-sentence
+	•	Barge-in works properly
+	•	Goodbye detection works
+	•	Auto-hangup works
+	•	No double messages
+	•	No freezing
+
+WhatsApp:
+	•	Messages arrive full
+	•	No cutoffs
+	•	No duplicate messages
+
+⸻
+
+🔵 SECTION 7 — DO NOT TOUCH
+
+You must NOT modify:
+	•	The external server
+	•	Docker compose
+	•	Nginx
+	•	Env vars (except reading existing ones)
+
+Everything must be implemented inside the current project only.
+
+⸻
+
+🔥 תגיד לי מתי אתה רוצה שאכין גם גרסה מיוחדת לפרומפט טלפוני עם כל ההתנהגויות הללו.

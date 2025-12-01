@@ -1339,6 +1339,10 @@ class MediaStreamHandler:
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
+                    # 🛡️ FIX: PROTECT GREETING - Don't trigger barge-in while greeting is playing!
+                    if self.is_playing_greeting:
+                        print(f"🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing")
+                        continue  # Don't process this event at all
                     print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
                     self.user_has_spoken = True
                 
@@ -1643,6 +1647,11 @@ class MediaStreamHandler:
         🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
         Sends response.cancel to Realtime API to stop text generation (not just audio!)
         """
+        # 🛡️ FIX: PROTECT GREETING - Never cancel during greeting playback!
+        if self.is_playing_greeting:
+            print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting still playing")
+            return
+        
         print("[REALTIME] BARGE-IN triggered – user started speaking, CANCELING AI response")
         
         # 🔥 CRITICAL: Cancel active AI response generation (not just playback!)
