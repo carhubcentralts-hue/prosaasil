@@ -832,7 +832,7 @@ class MediaStreamHandler:
         # 🎯 BUILD 163: Call behavior settings (loaded from BusinessSettings)
         self.bot_speaks_first = False  # If True, bot plays greeting before listening
         self.auto_end_after_lead_capture = False  # If True, hang up after lead details collected
-        self.auto_end_on_goodbye = True  # 🔥 DEFAULT TRUE: Always detect goodbye and disconnect politely
+        self.auto_end_on_goodbye = False  # If True, hang up when customer says goodbye
         self.lead_captured = False  # Tracks if all required lead info is collected
         self.goodbye_detected = False  # Tracks if goodbye phrase detected
         self.pending_hangup = False  # Signals that call should end after current TTS
@@ -1464,9 +1464,12 @@ class MediaStreamHandler:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # When audio finishes and we were in greeting mode, unset the flag
                     if self.is_playing_greeting:
-                        print("[GREETING] Audio generation done - clearing greeting flag")
+                        print("[GREETING] Greeting audio finished - enabling barge-in for future AI responses")
                         self.is_playing_greeting = False
+                        # 🎯 FIX: Enable barge-in after greeting completes
+                        # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
+                        # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
                         print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
                     
@@ -1515,31 +1518,35 @@ class MediaStreamHandler:
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
+                        # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
+                        # Removing this call to prevent loop (NLP should only analyze user input)
                         
-                        # 🎯 SMART HANGUP: Detect when BOT says goodbye/completion phrases
-                        # Check FIRST if this transcript contains end-of-conversation phrases
+                        # 🎯 BUILD 163: Check for auto hang-up after AI finishes speaking
+                        if self.pending_hangup and not self.hangup_triggered:
+                            print(f"📞 [BUILD 163] Pending hangup detected after AI response - triggering hang-up")
+                            # Use thread to avoid blocking async loop
+                            import threading
+                            threading.Thread(
+                                target=self._trigger_auto_hangup,
+                                args=("AI finished speaking with pending hangup",),
+                                daemon=True
+                            ).start()
+                        
+                        # 🎯 BUILD 163: Detect goodbye phrases in AI transcript
+                        # 🔥 PROTECTION: Only detect goodbye if enough time passed since greeting
+                        # ONLY applies if greeting was actually played (greeting_completed_at is not None)
                         can_detect_goodbye = True
                         if self.greeting_completed_at is not None:
                             elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
                             if elapsed_ms < self.min_call_duration_after_greeting_ms:
                                 can_detect_goodbye = False
                                 print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
+                        # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
                         
-                        # Check if AI just said something that ends the conversation
                         if self.auto_end_on_goodbye and can_detect_goodbye and self._check_goodbye_phrases(transcript):
-                            print(f"👋 [SMART HANGUP] AI said goodbye phrase - will disconnect after audio finishes")
+                            print(f"👋 [BUILD 163] AI said goodbye - marking pending hangup")
                             self.goodbye_detected = True
                             self.pending_hangup = True
-                        
-                        # 🔥 IMMEDIATE HANGUP: If pending (from previous or current), disconnect now
-                        if self.pending_hangup and not self.hangup_triggered:
-                            print(f"📞 [SMART HANGUP] Triggering polite disconnect...")
-                            import threading
-                            threading.Thread(
-                                target=self._trigger_auto_hangup,
-                                args=("AI finished speaking - polite disconnect",),
-                                daemon=True
-                            ).start()
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
@@ -1706,7 +1713,7 @@ class MediaStreamHandler:
         🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
         Sends response.cancel to Realtime API to stop text generation (not just audio!)
         """
-        # 🛡️ Simple protection: Don't barge-in while greeting is actively being received
+        # 🛡️ FIX: PROTECT GREETING - Never cancel during greeting playback!
         if self.is_playing_greeting:
             print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting still playing")
             return
@@ -2360,7 +2367,7 @@ class MediaStreamHandler:
         """
         🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
         
-        🔥 CRITICAL FIX: Pre-buffer audio to prevent gaps during OpenAI chunk delays
+        🔥 CRITICAL FIX: Split OpenAI chunks (12KB+) into Twilio frames (160 bytes) + 20ms pacing
         """
         print(f"📤 [REALTIME] Audio output bridge started")
         
@@ -2374,37 +2381,19 @@ class MediaStreamHandler:
         FRAME_DURATION_MS = 20  # Each frame is 20ms of audio
         chunk_count = 0
         
-        # 🔥 PRE-BUFFER: Accumulate frames before starting transmission
-        # This prevents gaps when OpenAI has brief pauses between chunks
-        PRE_BUFFER_FRAMES = 25  # 25 frames = 500ms of buffered audio
-        pre_buffer = []  # List of ready Twilio frames
-        buffering_complete = False
-        
         # 🔥 FIX: Rolling buffer for incomplete frames (prevents audio doubling!)
         audio_buffer = b''  # Buffer to accumulate sub-160-byte frames
         
-        import base64
-        
         while not self.realtime_stop_flag:
             try:
-                # 🔥 FIX: Use longer timeout during buffering phase, shorter during playback
-                timeout = 0.5 if not buffering_complete else 0.05
-                audio_b64 = self.realtime_audio_out_queue.get(timeout=timeout)
+                audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
                 
                 if audio_b64 is None:
                     print(f"📤 [REALTIME] Stop signal received")
-                    # 🔥 Flush any remaining buffered frames before stopping
-                    if pre_buffer:
-                        print(f"📤 [REALTIME] Flushing {len(pre_buffer)} pre-buffered frames")
-                        for frame in pre_buffer:
-                            try:
-                                self.tx_q.put(frame, timeout=0.1)
-                                self.realtime_tx_frames += 1
-                            except:
-                                pass
                     break
                 
                 # Decode OpenAI chunk
+                import base64
                 chunk_bytes = base64.b64decode(audio_b64)
                 chunk_count += 1
                 self.realtime_tx_bytes += len(chunk_bytes)
@@ -2418,6 +2407,10 @@ class MediaStreamHandler:
                 if not self.stream_sid:
                     print(f"❌ [REALTIME] No streamSid available! Skipping chunk.")
                     continue
+                
+                # 🔥 CRITICAL FIX: Use rolling buffer to combine sub-160-byte frames
+                # OpenAI sends variable chunk sizes (80-160 bytes)
+                # We MUST NOT pad with silence (doubles duration!) - buffer and combine instead!
                 
                 # Add chunk to buffer
                 audio_buffer += chunk_bytes
@@ -2439,51 +2432,21 @@ class MediaStreamHandler:
                         }
                     }
                     
-                    # 🔥 PRE-BUFFER LOGIC: Buffer first, then start streaming
-                    if not buffering_complete:
-                        pre_buffer.append(twilio_frame)
-                        if len(pre_buffer) >= PRE_BUFFER_FRAMES:
-                            # Buffer full - start streaming!
-                            print(f"🚀 [AUDIO] Pre-buffer full ({PRE_BUFFER_FRAMES} frames = {PRE_BUFFER_FRAMES * 20}ms) - starting playback!")
-                            buffering_complete = True
-                            # Flush all buffered frames to tx_q
-                            for buffered_frame in pre_buffer:
-                                try:
-                                    self.tx_q.put(buffered_frame, timeout=0.1)
-                                    self.realtime_tx_frames += 1
-                                except queue.Full:
-                                    print(f"⚠️ [AUDIO] tx_q full during buffer flush")
-                            pre_buffer.clear()
-                    else:
-                        # Normal streaming mode - send directly
-                        try:
-                            self.tx_q.put(twilio_frame, timeout=0.1)  # 🔥 BLOCKING put with timeout
-                            self.realtime_tx_frames += 1
-                            
-                            # Log first few frames for verification
-                            if self.realtime_tx_frames <= 3:
-                                first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
-                                print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}")
-                            
-                        except queue.Full:
-                            print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
-                        except Exception as e:
-                            print(f"❌ [AUDIO] Error enqueueing: {e}")
+                    try:
+                        self.tx_q.put_nowait(twilio_frame)
+                        self.realtime_tx_frames += 1
+                        
+                        # Log first few frames for verification
+                        if self.realtime_tx_frames <= 3:
+                            first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
+                            print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}, buffer={len(audio_buffer)}")
+                        
+                    except queue.Full:
+                        print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
+                    except Exception as e:
+                        print(f"❌ [AUDIO] Error enqueueing: {e}")
                     
             except queue.Empty:
-                # 🔥 FIX: If buffering and queue empty, flush what we have (response might be short)
-                if not buffering_complete and pre_buffer:
-                    # OpenAI finished sending but we haven't started playback yet
-                    # Flush whatever we have
-                    print(f"📤 [AUDIO] Queue empty during buffering - flushing {len(pre_buffer)} frames early")
-                    buffering_complete = True
-                    for buffered_frame in pre_buffer:
-                        try:
-                            self.tx_q.put(buffered_frame, timeout=0.1)
-                            self.realtime_tx_frames += 1
-                        except:
-                            pass
-                    pre_buffer.clear()
                 continue
             except Exception as e:
                 print(f"❌ [REALTIME] Audio output bridge error: {e}")
@@ -4703,8 +4666,6 @@ class MediaStreamHandler:
         """
         🎯 BUILD 163: Trigger automatic call hang-up via Twilio REST API
         
-        🔥 POLITE HANGUP: Wait for audio to finish playing before disconnecting!
-        
         Args:
             reason: Why the call is being hung up (for logging)
         """
@@ -4735,34 +4696,6 @@ class MediaStreamHandler:
             print(f"❌ [BUILD 163] No call_sid - cannot hang up")
             return
         
-        # 🔥 POLITE HANGUP: Wait for audio queues to drain before disconnecting
-        # This ensures the AI's goodbye message plays completely
-        print(f"⏳ [POLITE HANGUP] Waiting for audio queues to drain...")
-        
-        max_wait_seconds = 5.0  # Maximum wait time for audio to finish
-        wait_start = time.time()
-        
-        while (time.time() - wait_start) < max_wait_seconds:
-            # Check both audio queues
-            realtime_queue_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
-            tx_queue_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
-            total_queued = realtime_queue_size + tx_queue_size
-            
-            if total_queued == 0:
-                print(f"✅ [POLITE HANGUP] Audio queues empty - ready to disconnect")
-                break
-            
-            # Log progress every 500ms
-            elapsed = (time.time() - wait_start) * 1000
-            if int(elapsed) % 500 < 50:  # Log roughly every 500ms
-                print(f"⏳ [POLITE HANGUP] Waiting... {total_queued} frames remaining ({realtime_queue_size}+{tx_queue_size})")
-            
-            time.sleep(0.05)  # Check every 50ms
-        
-        # Add a small grace period for Twilio to play the last frames
-        time.sleep(0.3)  # 300ms grace period
-        print(f"✅ [POLITE HANGUP] Grace period complete - disconnecting now")
-        
         try:
             import os
             from twilio.rest import Client
@@ -4788,20 +4721,19 @@ class MediaStreamHandler:
 
     def _check_goodbye_phrases(self, text: str) -> bool:
         """
-        🎯 BUILD 163 SMART: Check if text indicates conversation completion
+        🎯 BUILD 163 STRICT: Check if text contains CLEAR goodbye phrases
         
-        Detects:
-        1. Clear goodbye words ("ביי", "להתראות", "bye")
-        2. AI completion phrases ("מישהו יחזור אליך", "סיימנו")
-        3. Polite closings ("תודה וביי", "תודה להתראות")
+        Logic:
+        - ONLY "ביי/להתראות" and combinations trigger hangup
+        - "תודה" alone = NOT goodbye
+        - "אין צורך/לא צריך" = NOT goodbye (continues conversation)
+        - "היי כבי/היי ביי" = IGNORE (not goodbye!)
         
-        Does NOT trigger on:
-        - "תודה" alone (conversation continues)
-        - "היי כבי/היי ביי" (sound-alike greetings)
-        - Greetings without goodbye
-        
+        Args:
+            text: User or AI transcribed text to check
+            
         Returns:
-            True if conversation should end
+            True if CLEAR goodbye phrase detected
         """
         text_lower = text.lower().strip()
         
@@ -4820,6 +4752,7 @@ class MediaStreamHandler:
                 return False
         
         # ✅ CLEAR goodbye words - ONLY these trigger hangup!
+        # Must contain "ביי" or "להתראות" or English equivalents
         clear_goodbye_words = [
             "להתראות", "ביי", "bye", "bye bye", "goodbye",
             "יאללה ביי", "יאללה להתראות"
@@ -4831,48 +4764,10 @@ class MediaStreamHandler:
             print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
             return True
         
-        # ✅ AI COMPLETION PHRASES - when BOT says conversation is done
-        ai_completion_phrases = [
-            # Callback promises
-            "מישהו יחזור אליך",
-            "נציג יחזור אליך", 
-            "ניצור איתך קשר",
-            "נחזור אליך",
-            "יחזרו אליך",
-            # Information collected
-            "לקחתי את כל הפרטים",
-            "קיבלתי את כל הפרטים",
-            "רשמתי את הפרטים",
-            "קיבלתי את הפרטים",
-            "יש לי את כל הפרטים",
-            # Completion phrases
-            "סיימנו",
-            "זה הכל",
-            "זה הכל בינתיים",
-            # Farewell phrases
-            "יום נעים",
-            "יום טוב",
-            "לילה טוב",
-            "שבת שלום",
-            "ערב נעים",
-            "בוקר נעים",
-            # Combined closure phrases
-            "תודה שהתקשרת",
-            "תודה על הפנייה",
-            "נשמח לעזור",
-        ]
-        
-        for phrase in ai_completion_phrases:
-            if phrase in text_lower:
-                print(f"[GOODBYE CHECK] AI completion phrase: '{phrase}'")
-                return True
-        
-        # ✅ Combined phrases with goodbye
+        # ✅ Combined phrases with goodbye words
         combined_goodbye_phrases = [
             "תודה וביי", "תודה להתראות",
-            "תודה רבה וביי", "תודה רבה להתראות",
-            "תודה רבה יום נעים",
-            "תודה יום טוב",
+            "תודה רבה וביי", "תודה רבה להתראות"
         ]
         
         for phrase in combined_goodbye_phrases:
