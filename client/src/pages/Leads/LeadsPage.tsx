@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
@@ -51,6 +51,7 @@ const getStatusDotColor = (tailwindClass: string): string => {
 export default function LeadsPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
@@ -62,6 +63,14 @@ export default function LeadsPage() {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   
+  // Debounce search input for better performance (150ms delay)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+  
   // Load dynamic statuses
   const { statuses, refreshStatuses } = useStatuses();
 
@@ -70,13 +79,13 @@ export default function LeadsPage() {
     refreshStatuses();
   }, [refreshStatuses]);
 
-  // Memoize filters to prevent infinite loop
+  // Memoize filters using debounced search to prevent excessive API calls
   const filters = useMemo(() => ({
-    search: searchQuery,
+    search: debouncedSearch,
     status: selectedStatus === 'all' ? undefined : selectedStatus,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-  }), [searchQuery, selectedStatus, dateFrom, dateTo]);
+  }), [debouncedSearch, selectedStatus, dateFrom, dateTo]);
 
   const {
     leads,
@@ -328,9 +337,9 @@ export default function LeadsPage() {
   };
 
   return (
-    <main className="container mx-auto px-2 sm:px-4 pb-24 pt-2 max-w-full" dir="rtl">
-      {/* Header - sticky top */}
-      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur -mx-2 sm:-mx-4 px-2 sm:px-4 py-3 mb-6">
+    <main className="container mx-auto px-2 sm:px-4 pb-24 max-w-full" dir="rtl">
+      {/* Header - sticky at absolute top with no gap */}
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-sm shadow-sm -mx-2 sm:-mx-4 px-2 sm:px-4 pt-3 pb-3 mb-4 border-b border-gray-100">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="text-center sm:text-right">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
