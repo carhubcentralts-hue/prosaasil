@@ -783,15 +783,15 @@ Be friendly and professional."""
         
         # 🔥 BUILD 115: Dynamic max_tokens per channel
         # Phone/calls: 60 tokens (15 words) - prevents queue overflow
-        # WhatsApp: 120 tokens (30 words) - allows slightly longer text responses
+        # WhatsApp: 800 tokens (~200-250 Hebrew words) - allows full detailed responses without truncation
         if channel == "whatsapp":
             model_settings = ModelSettings(
                 temperature=0.15,
-                max_tokens=120,  # 🔥 WhatsApp: 120 tokens for text conversations
+                max_tokens=800,  # 🔥 WhatsApp: 800 tokens for complete responses without mid-sentence cuts
                 tool_choice="auto",
                 parallel_tool_calls=True
             )
-            logger.info(f"📱 WhatsApp channel: using max_tokens=120")
+            logger.info(f"📱 WhatsApp channel: using max_tokens=800")
         else:
             model_settings = AGENT_MODEL_SETTINGS  # Phone: 60 tokens (global default)
             logger.info(f"📞 Phone channel: using max_tokens=60")
