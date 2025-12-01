@@ -1068,12 +1068,36 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
             
-            # 🚀 PHASE 1: Configure with MINIMAL greeting prompt for instant response
+            # 🚀 PHASE 1: Load greeting from DB FAST and configure
             # This allows greeting to start in ~1-2 seconds instead of 10+
-            greeting_prompt = """אתה נציג טלפוני ידידותי. ברך את הלקוח בעברית בקצרה, הזדהה כנציג העסק, ושאל במה תוכל לעזור. משפט אחד או שניים בלבד."""
+            t_before_greeting = time.time()
+            
+            # Load greeting from DB (fast - single query)
+            def _load_greeting_sync():
+                try:
+                    from server.services.realtime_prompt_builder import get_greeting_prompt_fast
+                    app = _get_flask_app()
+                    with app.app_context():
+                        return get_greeting_prompt_fast(business_id_safe)
+                except Exception as e:
+                    print(f"⚠️ [PHASE 1] Greeting load failed: {e}")
+                    return ("שלום! איך אפשר לעזור?", "העסק")
+            
+            loop = asyncio.get_event_loop()
+            greeting_text, biz_name = await loop.run_in_executor(None, _load_greeting_sync)
+            greeting_load_ms = (time.time() - t_before_greeting) * 1000
+            print(f"⏱️ [PHASE 1] Greeting loaded in {greeting_load_ms:.0f}ms: '{greeting_text[:50]}...'")
+            
+            # Build greeting-only prompt with the actual greeting
+            greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
+
+🎤 ברכה (אמור בדיוק!):
+"{greeting_text}"
+
+חוקים: קצר מאוד (1-2 משפטים). אם הלקוח שותק - שתוק."""
             
             t_before_config = time.time()
-            logger.info(f"[CALL DEBUG] PHASE 1: Configure with minimal greeting prompt...")
+            logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice="shimmer",
