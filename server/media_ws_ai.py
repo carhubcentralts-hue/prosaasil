@@ -1455,23 +1455,17 @@ class MediaStreamHandler:
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
                     
-                    # 🔥 FIX: Clear audio queue to prevent background noise (residual frames)
-                    frames_cleared = 0
-                    try:
-                        while True:
-                            try:
-                                self.realtime_audio_out_queue.get_nowait()
-                                frames_cleared += 1
-                            except queue.Empty:
-                                break
-                    except:
-                        pass
-                    if frames_cleared > 0:
-                        print(f"🧹 [AUDIO] Cleared {frames_cleared} residual frames from queue (prevents background noise)")
+                    # 🔥🔥 CRITICAL FIX: Do NOT clear audio queue here!
+                    # The queue may still have audio chunks that need to be sent to Twilio.
+                    # Clearing prematurely causes greeting/response truncation!
+                    # Let the audio bridge naturally drain the queue.
+                    queue_size = self.realtime_audio_out_queue.qsize()
+                    if queue_size > 0:
+                        print(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (NO TRUNCATION)")
+                    
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
                     self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
-                    pass
                 
                 elif event_type == "response.audio_transcript.done":
                     transcript = event.get("transcript", "")
