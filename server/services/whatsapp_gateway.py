@@ -169,6 +169,9 @@ def handle_incoming_whatsapp_message(
     
     from_clean = from_number.replace("@s.whatsapp.net", "").replace("+", "").strip()
     
+    # 🔥 FIX: Initialize was_created before try block to prevent unbound error
+    was_created = None
+    
     try:
         from server.services.customer_intelligence import CustomerIntelligence
         
@@ -222,7 +225,7 @@ def handle_incoming_whatsapp_message(
     return {
         "status": "success",
         "message_id": wa_msg.id,
-        "customer_created": was_created if 'was_created' in dir() else None,
+        "customer_created": was_created,  # Now properly initialized before try block
         "ai_enabled": ai_enabled,
         "provider": provider
     }

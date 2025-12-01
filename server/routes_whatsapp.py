@@ -169,12 +169,11 @@ def set_ai_state():
             state.ai_active = active
             state.updated_by = user_id
         else:
-            state = WhatsAppConversationState(
-                business_id=business_id,
-                phone=phone,
-                ai_active=active,
-                updated_by=user_id
-            )
+            state = WhatsAppConversationState()
+            state.business_id = business_id
+            state.phone = phone
+            state.ai_active = active
+            state.updated_by = user_id
             db.session.add(state)
         
         db.session.commit()
@@ -739,29 +738,51 @@ def send_manual_message():
             return {"ok": False, "error": "no_business_id"}, 400
         tenant_id = f"business_{business_id}"
         
-        wa_service = get_whatsapp_service(tenant_id=tenant_id)
+        try:
+            wa_service = get_whatsapp_service(tenant_id=tenant_id)
+        except Exception as e:
+            log.error(f"[WA-SEND] Failed to get WhatsApp service: {e}")
+            return {"ok": False, "error": f"whatsapp_service_unavailable: {str(e)}"}, 503
         
         # התאמת פורמט המספר (אם נדרש)
         formatted_number = to_number
         if '@' not in formatted_number:
             formatted_number = f"{to_number}@s.whatsapp.net"
         
-        send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
+        try:
+            send_result = wa_service.send_message(formatted_number, message, tenant_id=tenant_id)
+        except Exception as e:
+            log.error(f"[WA-SEND] Send message failed: {e}")
+            return {"ok": False, "error": f"send_failed: {str(e)}"}, 500
+        
+        if not send_result:
+            return {"ok": False, "error": "empty_response_from_provider"}, 500
         
         if send_result.get('status') == 'sent':
             # שמירת ההודעה בבסיס הנתונים
-            wa_msg = WhatsAppMessage()
-            wa_msg.business_id = business_id
-            wa_msg.to_number = to_number.replace('@s.whatsapp.net', '')
-            wa_msg.body = message
-            wa_msg.message_type = 'text'
-            wa_msg.direction = 'outbound'
-            wa_msg.provider = send_result.get('provider', 'unknown')
-            wa_msg.provider_message_id = send_result.get('sid')
-            wa_msg.status = 'sent'
-            
-            db.session.add(wa_msg)
-            db.session.commit()
+            try:
+                wa_msg = WhatsAppMessage()
+                wa_msg.business_id = business_id
+                wa_msg.to_number = to_number.replace('@s.whatsapp.net', '')
+                wa_msg.body = message
+                wa_msg.message_type = 'text'
+                wa_msg.direction = 'outbound'
+                wa_msg.provider = send_result.get('provider', 'unknown')
+                wa_msg.provider_message_id = send_result.get('sid')
+                wa_msg.status = 'sent'
+                
+                db.session.add(wa_msg)
+                db.session.commit()
+            except Exception as db_error:
+                log.error(f"[WA-SEND] DB save failed (message was sent): {db_error}")
+                db.session.rollback()
+                # Message was sent even if DB failed - still return success
+                return {
+                    "ok": True, 
+                    "message_id": None,
+                    "provider": send_result.get('provider'),
+                    "warning": "message_sent_but_db_save_failed"
+                }
             
             return {
                 "ok": True, 
@@ -769,12 +790,18 @@ def send_manual_message():
                 "provider": send_result.get('provider')
             }
         else:
+            error_msg = send_result.get('error', 'send_failed')
+            log.error(f"[WA-SEND] Provider returned error: {error_msg}")
             return {
                 "ok": False, 
-                "error": send_result.get('error', 'send_failed')
+                "error": error_msg
             }, 500
             
     except Exception as e:
+        log.error(f"[WA-SEND] Unexpected error: {e}")
+        import traceback
+        log.error(f"[WA-SEND] Traceback: {traceback.format_exc()}")
+        db.session.rollback()  # 🔥 FIX: Always rollback on error to prevent session poisoning
         return {"ok": False, "error": str(e)}, 500
 
 
@@ -911,17 +938,16 @@ def _create_whatsapp_disconnect_notification(business_id: int):
         owner = User.query.filter_by(business_id=business_id, role='owner').first()
         
         # Create the notification reminder
-        reminder = LeadReminder(
-            tenant_id=business_id,
-            lead_id=None,  # System notification - not related to a lead
-            due_at=datetime.utcnow(),  # Due immediately
-            note="חיבור הווטסאפ נותק - יש להיכנס להגדרות ולחבר מחדש",
-            description="חיבור הווטסאפ לעסק נותק. יש להיכנס להגדרות WhatsApp ולסרוק את קוד ה-QR מחדש כדי להתחבר.",
-            channel='ui',
-            priority='high',
-            reminder_type='system_whatsapp_disconnect',
-            created_by=owner.id if owner else None
-        )
+        reminder = LeadReminder()
+        reminder.tenant_id = business_id
+        reminder.lead_id = None  # System notification - not related to a lead
+        reminder.due_at = datetime.utcnow()  # Due immediately
+        reminder.note = "חיבור הווטסאפ נותק - יש להיכנס להגדרות ולחבר מחדש"
+        reminder.description = "חיבור הווטסאפ לעסק נותק. יש להיכנס להגדרות WhatsApp ולסרוק את קוד ה-QR מחדש כדי להתחבר."
+        reminder.channel = 'ui'
+        reminder.priority = 'high'
+        reminder.reminder_type = 'system_whatsapp_disconnect'
+        reminder.created_by = owner.id if owner else None
         
         db.session.add(reminder)
         db.session.commit()

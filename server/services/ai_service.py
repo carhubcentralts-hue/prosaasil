@@ -1596,3 +1596,22 @@ def generate_ai_response(message: str, business_id: int = None,
     """פונקציה עזר לקריאה מהירה לשירות AI - לפי ערוץ"""
     return get_ai_service().generate_response(message, business_id, context, channel, is_first_turn)
 
+# 🔥 FIX: Alias for routes_whatsapp.py compatibility
+def get_ai_response(business_id: int, user_message: str, channel: str = "whatsapp") -> Optional[str]:
+    """Wrapper function for WhatsApp AI responses - alias for generate_ai_response
+    
+    Returns:
+        str: AI response text, or None if generation fails (caller should handle None)
+    """
+    try:
+        response = generate_ai_response(user_message, business_id, None, channel)
+        if response:
+            return response
+        logger.warning(f"[AI_SERVICE] get_ai_response returned empty response")
+        return None
+    except Exception as e:
+        logger.error(f"[AI_SERVICE] get_ai_response error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
