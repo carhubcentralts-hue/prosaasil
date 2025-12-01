@@ -687,7 +687,7 @@ def exit_impersonation():
 
 # Business current info route
 @biz_mgmt_bp.route('/api/business/current', methods=['GET'])
-@require_api_auth(['business', 'admin', 'manager'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business'])
 def get_current_business():
     """Get current business details for authenticated user"""
     try:
@@ -735,7 +735,7 @@ def get_current_business():
 
 @biz_mgmt_bp.route('/api/business/current/settings', methods=['PUT'])
 @csrf.exempt  # ✅ Exempt from CSRF for authenticated API
-@require_api_auth(['business', 'admin', 'manager'])
+@require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business'])
 def update_current_business_settings():
     """Update current business settings"""
     try:
@@ -846,9 +846,14 @@ def update_current_business_settings():
         })
         
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
         logger.error(f"Error updating business settings: {e}")
+        logger.error(f"Traceback: {error_trace}")
+        print(f"❌ Settings save error: {e}")
+        print(f"❌ Traceback: {error_trace}")
         db.session.rollback()
-        return jsonify({"error": "Internal server error"}), 500
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 
 # ===== FAQ MANAGEMENT ROUTES =====
