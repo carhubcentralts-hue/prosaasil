@@ -72,15 +72,19 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setActivities(response.activity || []);
       setReminders(response.reminders || []);
       
-      // Fetch calls for this lead by phone number
+      // Immediately hide loading state - lead is loaded
+      setLoading(false);
+      
+      // Fetch calls and appointments in parallel (non-blocking)
       if (response.phone_e164) {
-        await fetchCalls(response.phone_e164);
-        await fetchAppointments(response.phone_e164);
+        Promise.all([
+          fetchCalls(response.phone_e164),
+          fetchAppointments(response.phone_e164)
+        ]).catch(console.error);
       }
     } catch (err) {
       console.error('Failed to fetch lead:', err);
       setError('שגיאה בטעינת פרטי הליד');
-    } finally {
       setLoading(false);
     }
   };
@@ -276,8 +280,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-[env(safe-area-inset-top)] z-10">
+      {/* Header - sticky at top for both mobile and desktop */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Desktop Header */}
           <div className="hidden sm:flex items-center justify-between h-16">

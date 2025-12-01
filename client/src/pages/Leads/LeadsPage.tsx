@@ -330,7 +330,7 @@ export default function LeadsPage() {
   return (
     <main className="container mx-auto px-2 sm:px-4 pb-24 pt-2 max-w-full" dir="rtl">
       {/* Header - sticky top */}
-      <div className="sticky top-[env(safe-area-inset-top)] z-30 bg-white/80 backdrop-blur -mx-2 sm:-mx-4 px-2 sm:px-4 py-3 mb-6">
+      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur -mx-2 sm:-mx-4 px-2 sm:px-4 py-3 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="text-center sm:text-right">
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">לידים</h1>
