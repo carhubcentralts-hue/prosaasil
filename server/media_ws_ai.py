@@ -838,6 +838,7 @@ class MediaStreamHandler:
         self.pending_hangup = False  # Signals that call should end after current TTS
         self.hangup_triggered = False  # Prevents multiple hangup attempts
         self.greeting_completed_at = None  # 🔥 PROTECTION: Timestamp when greeting finished
+        self.greeting_playback_end_ts = None  # 🔥 FIX: Timestamp when greeting audio will finish playing (queue drain)
         self.min_call_duration_after_greeting_ms = 3000  # 🔥 PROTECTION: Don't hangup for 3s after greeting
 
     def _init_streaming_stt(self):
@@ -1464,8 +1465,23 @@ class MediaStreamHandler:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # When audio finishes and we were in greeting mode, unset the flag
                     if self.is_playing_greeting:
-                        print("[GREETING] Greeting audio finished - enabling barge-in for future AI responses")
-                        self.is_playing_greeting = False
+                        # 🔥 FIX: Calculate playback protection window based on queued audio
+                        # Each frame = 20ms. Wait for all queued audio + 500ms buffer
+                        out_queue_size = self.realtime_audio_out_queue.qsize()
+                        tx_queue_size = self.tx_q.qsize()
+                        total_queued = out_queue_size + tx_queue_size
+                        playback_ms = (total_queued * 20) + 500  # Queued frames + 500ms safety buffer
+                        
+                        print(f"[GREETING] Audio generation done - {total_queued} frames queued ({playback_ms}ms playback protection)")
+                        
+                        # 🔥 CRITICAL: Keep is_playing_greeting=True until audio drains!
+                        # Set a timestamp for when playback will be complete
+                        self.greeting_playback_end_ts = time.time() + (playback_ms / 1000.0)
+                        print(f"🛡️ [GREETING] Playback protection active until T+{playback_ms}ms")
+                        
+                        # Note: is_playing_greeting will be cleared by the check below when time passes
+                        # For now, keep it True to protect against immediate barge-in
+                        
                         # 🎯 FIX: Enable barge-in after greeting completes
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
@@ -1713,9 +1729,24 @@ class MediaStreamHandler:
         🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
         Sends response.cancel to Realtime API to stop text generation (not just audio!)
         """
-        # 🛡️ FIX: PROTECT GREETING - Never cancel during greeting playback!
+        # 🛡️ FIX: PROTECT GREETING - Multi-layer protection
+        # Step 1: Check if playback protection window has expired
+        if self.greeting_playback_end_ts:
+            if time.time() >= self.greeting_playback_end_ts:
+                # Protection expired - clear all greeting flags
+                if self.is_playing_greeting:
+                    print(f"✅ [GREETING] Playback protection expired - clearing greeting flag")
+                self.is_playing_greeting = False
+                self.greeting_playback_end_ts = None
+            else:
+                # Still in protection window
+                remaining_ms = (self.greeting_playback_end_ts - time.time()) * 1000
+                print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - audio still draining ({remaining_ms:.0f}ms remaining)")
+                return
+        
+        # Step 2: Check if greeting is still playing (flag without timestamp = still receiving audio)
         if self.is_playing_greeting:
-            print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting still playing")
+            print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting flag still active")
             return
         
         print("[REALTIME] BARGE-IN triggered – user started speaking, CANCELING AI response")
