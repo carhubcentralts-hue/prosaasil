@@ -812,6 +812,7 @@ class MediaStreamHandler:
         self.last_barge_in_ts = None  # Last time barge-in was triggered
         self.current_user_voice_start_ts = None  # When current user voice started
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
+        self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -1441,8 +1442,11 @@ class MediaStreamHandler:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # When audio finishes and we were in greeting mode, unset the flag
                     if self.is_playing_greeting:
-                        print("[GREETING] Greeting audio finished")
+                        print("[GREETING] Greeting audio finished - enabling barge-in for future AI responses")
                         self.is_playing_greeting = False
+                        # 🎯 FIX: Enable barge-in after greeting completes
+                        # Use dedicated flag instead of user_has_spoken to preserve guards
+                        self.barge_in_enabled_after_greeting = True
                     
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
@@ -1564,6 +1568,15 @@ class MediaStreamHandler:
                                 print(f"👋 [BUILD 163] User said goodbye - marking pending hangup")
                                 self.goodbye_detected = True
                                 self.pending_hangup = True
+                                
+                                # 🎯 FIX: For "no need" phrases, tell AI to say polite closing
+                                no_need_phrases = ["אין צורך", "לא צריך", "עזוב", "אין לי צורך"]
+                                is_no_need = any(phrase in transcript.lower() for phrase in no_need_phrases)
+                                if is_no_need:
+                                    print(f"👋 [BUILD 163] 'No need' phrase detected - sending polite closing instruction to AI")
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        "הלקוח אמר שאין לו צורך. סיים בנימוס קצר ביותר (2-3 מילים בלבד, כמו 'בסדר, תודה שהתקשרת')."
+                                    ))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         if self.auto_end_after_lead_capture and not self.pending_hangup and not self.lead_captured:
@@ -2773,10 +2786,12 @@ class MediaStreamHandler:
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
                         
-                        # Only allow barge-in if AI is speaking AND user has spoken before
+                        # Only allow barge-in if AI is speaking
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
-                            # Don't barge-in before user has ever spoken – avoids cutting greeting due to noise
-                            if not self.user_has_spoken:
+                            # 🎯 FIX: Allow barge-in if user has spoken OR greeting finished
+                            # This enables users to interrupt AI follow-up after greeting
+                            can_barge = self.user_has_spoken or self.barge_in_enabled_after_greeting
+                            if not can_barge:
                                 self.barge_in_voice_frames = 0  # Reset counter
                                 continue
                             
