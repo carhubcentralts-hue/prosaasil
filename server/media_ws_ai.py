@@ -1036,9 +1036,10 @@ class MediaStreamHandler:
             t_client = time.time()
             print(f"⏱️ [TIMING] Client created in {(t_client-t_start)*1000:.0f}ms")
             
-            # 🚀 TRUE PARALLEL: Connect + Prompt build run SIMULTANEOUSLY
-            # This is the key optimization - both happen at once
-            logger.info(f"[CALL DEBUG] Starting PARALLEL: OpenAI connect + prompt build")
+            # 🚀 2-PHASE APPROACH: Fast greeting first, full prompt update later
+            # Phase 1: Connect + minimal greeting = ~1-2 seconds
+            # Phase 2: Build full prompt in background + session.update
+            logger.info(f"[CALL DEBUG] Starting 2-PHASE: fast greeting, then full prompt")
             
             # Prepare prompt building task
             business_id_safe = self.business_id
@@ -1053,56 +1054,11 @@ class MediaStreamHandler:
             if not business_id_safe:
                 raise RuntimeError("[CALL-ERROR] Cannot start call without valid business_id")
             
-            # 🔥 ASYNC PARALLEL: Both tasks run at the same time!
-            async def _connect_task():
-                t0 = time.time()
-                await client.connect()
-                return time.time() - t0
-            
-            async def _prompt_task():
-                t0 = time.time()
-                loop = asyncio.get_event_loop()
-                FALLBACK_PROMPT = "אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח."
-                
-                def _build_in_thread():
-                    try:
-                        # 🔥 Import inside thread to ensure availability in executor
-                        from server.services.realtime_prompt_builder import build_realtime_system_prompt as build_prompt
-                        app = _get_flask_app()
-                        with app.app_context():
-                            prompt = build_prompt(business_id_safe)
-                            if prompt and len(prompt) > 100:
-                                print(f"✅ [PROMPT] Built successfully: {len(prompt)} chars for business={business_id_safe}")
-                                return prompt
-                            else:
-                                logger.error(f"❌ [PROMPT] Too short: {len(prompt) if prompt else 0} chars")
-                                return FALLBACK_PROMPT
-                    except ImportError as e:
-                        logger.error(f"❌ [PROMPT] IMPORT ERROR: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        return FALLBACK_PROMPT
-                    except Exception as e:
-                        logger.error(f"❌ [PROMPT] Build failed: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        return FALLBACK_PROMPT
-                
-                prompt = await loop.run_in_executor(None, _build_in_thread)
-                return prompt, time.time() - t0
-            
-            parallel_start = time.time()
-            connect_result, prompt_result = await asyncio.gather(
-                _connect_task(),
-                _prompt_task()
-            )
-            parallel_total = (time.time() - parallel_start) * 1000
-            
-            connect_ms = connect_result * 1000
-            system_prompt, prompt_ms = prompt_result
-            prompt_ms = prompt_ms * 1000
-            
-            print(f"⏱️ [PARALLEL] OpenAI={connect_ms:.0f}ms, Prompt={prompt_ms:.0f}ms, Total={parallel_total:.0f}ms (saved {max(0, connect_ms + prompt_ms - parallel_total):.0f}ms)")
+            # 🔥 PHASE 1: Connect immediately with minimal greeting prompt
+            t_connect_start = time.time()
+            await client.connect()
+            connect_ms = (time.time() - t_connect_start) * 1000
+            print(f"⏱️ [PHASE 1] OpenAI connected in {connect_ms:.0f}ms")
             
             # 🔥 Store client reference for barge-in
             self.realtime_client = client
@@ -1112,42 +1068,27 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
             
-            # 🚨 CRITICAL VALIDATION: Ensure prompt is business-specific (not fallback)
-            FALLBACK_MARKER = "אתה נציג טלפוני של העסק. עונה בעברית"
-            is_fallback = system_prompt and FALLBACK_MARKER in system_prompt and len(system_prompt) < 150
+            # 🚀 PHASE 1: Configure with MINIMAL greeting prompt for instant response
+            # This allows greeting to start in ~1-2 seconds instead of 10+
+            greeting_prompt = """אתה נציג טלפוני ידידותי. ברך את הלקוח בעברית בקצרה, הזדהה כנציג העסק, ושאל במה תוכל לעזור. משפט אחד או שניים בלבד."""
             
-            if not system_prompt or len(system_prompt) < 50:
-                error_msg = f"❌ [REALTIME] CRITICAL: Empty/invalid prompt (len={len(system_prompt) if system_prompt else 0})!"
-                print(error_msg)
-                logger.error(error_msg)
-                system_prompt = f"אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח לקבוע תור או לענות על שאלות."
-                is_fallback = True
-            
-            if is_fallback:
-                logger.warning(f"⚠️ [REALTIME] Using FALLBACK prompt for business={self.business_id} - business-specific prompt failed!")
-                print(f"⚠️ [REALTIME] FALLBACK PROMPT ACTIVE - Check prompt builder logs!")
-            
-            total_to_prompt_ms = (time.time() - t_start) * 1000
-            print(f"✅ [REALTIME] Ready in {total_to_prompt_ms:.0f}ms, prompt={len(system_prompt)} chars")
-            print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
-            
-            # 🎯 Configure session with G.711 μ-law (NO TOOLS - appointment via NLP only)
             t_before_config = time.time()
-            logger.info(f"[CALL DEBUG] Configuring Realtime session...")
+            logger.info(f"[CALL DEBUG] PHASE 1: Configure with minimal greeting prompt...")
             await client.configure_session(
-                instructions=system_prompt,
-                voice="shimmer",  # ✅ Best for Hebrew: clear, natural, feminine voice
-                input_audio_format="g711_ulaw",   # Twilio → OpenAI: μ-law 8kHz
-                output_audio_format="g711_ulaw",  # OpenAI → Twilio: μ-law 8kHz
+                instructions=greeting_prompt,
+                voice="shimmer",
+                input_audio_format="g711_ulaw",
+                output_audio_format="g711_ulaw",
                 vad_threshold=0.6,
-                silence_duration_ms=600,  # 💰 OPTIMIZED: Faster detection = less audio input minutes
-                temperature=0.6,  # 🔥 MINIMUM VALUE: OpenAI Realtime requires >= 0.6
-                max_tokens=300  # 🎯 BALANCED: ~280-320 tokens for natural but brief responses (Agent 3 spec)
+                silence_duration_ms=600,
+                temperature=0.6,
+                max_tokens=100  # Short greeting only
             )
             t_after_config = time.time()
-            print(f"⏱️ [TIMING] Session configured in {(t_after_config-t_before_config)*1000:.0f}ms (total since start: {(t_after_config-t_start)*1000:.0f}ms)")
-            print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.6, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
-            logger.info(f"[CALL DEBUG] ✅ Realtime session configured - ready to speak!")
+            config_ms = (t_after_config - t_before_config) * 1000
+            total_ms = (t_after_config - t_start) * 1000
+            print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
+            print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready for immediate speech")
             
             # 🚀 Start audio/text bridges FIRST (before CRM)
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
@@ -1176,6 +1117,48 @@ class MediaStreamHandler:
             else:
                 # Standard flow - AI waits for user speech first
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
+            
+            # 🚀 PHASE 2: Build full prompt in background and update session
+            # This runs while greeting is already playing - no blocking!
+            async def _update_session_with_full_prompt():
+                try:
+                    loop = asyncio.get_event_loop()
+                    
+                    def _build_in_thread():
+                        try:
+                            from server.services.realtime_prompt_builder import build_realtime_system_prompt as build_prompt
+                            app = _get_flask_app()
+                            with app.app_context():
+                                prompt = build_prompt(business_id_safe)
+                                if prompt and len(prompt) > 100:
+                                    return prompt
+                                return None
+                        except Exception as e:
+                            print(f"⚠️ [PHASE 2] Prompt build failed: {e}")
+                            return None
+                    
+                    full_prompt = await loop.run_in_executor(None, _build_in_thread)
+                    
+                    if full_prompt:
+                        # Wait a moment for greeting to start playing
+                        await asyncio.sleep(0.5)
+                        
+                        # Update session with full prompt (session.update event)
+                        await client.send_event({
+                            "type": "session.update",
+                            "session": {
+                                "instructions": full_prompt,
+                                "max_response_output_tokens": 300
+                            }
+                        })
+                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars")
+                    else:
+                        print(f"⚠️ [PHASE 2] Keeping minimal prompt - full prompt build failed")
+                except Exception as e:
+                    print(f"⚠️ [PHASE 2] Session update error: {e}")
+            
+            # Start prompt update in background (non-blocking)
+            asyncio.create_task(_update_session_with_full_prompt())
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
