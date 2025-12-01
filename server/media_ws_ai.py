@@ -2398,7 +2398,7 @@ class MediaStreamHandler:
         """
         🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
         
-        🔥 CRITICAL FIX: Split OpenAI chunks (12KB+) into Twilio frames (160 bytes) + 20ms pacing
+        🔥 CRITICAL FIX: Pre-buffer audio to prevent gaps during OpenAI chunk delays
         """
         print(f"📤 [REALTIME] Audio output bridge started")
         
@@ -2412,19 +2412,37 @@ class MediaStreamHandler:
         FRAME_DURATION_MS = 20  # Each frame is 20ms of audio
         chunk_count = 0
         
+        # 🔥 PRE-BUFFER: Accumulate frames before starting transmission
+        # This prevents gaps when OpenAI has brief pauses between chunks
+        PRE_BUFFER_FRAMES = 25  # 25 frames = 500ms of buffered audio
+        pre_buffer = []  # List of ready Twilio frames
+        buffering_complete = False
+        
         # 🔥 FIX: Rolling buffer for incomplete frames (prevents audio doubling!)
         audio_buffer = b''  # Buffer to accumulate sub-160-byte frames
         
+        import base64
+        
         while not self.realtime_stop_flag:
             try:
-                audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
+                # 🔥 FIX: Use longer timeout during buffering phase, shorter during playback
+                timeout = 0.5 if not buffering_complete else 0.05
+                audio_b64 = self.realtime_audio_out_queue.get(timeout=timeout)
                 
                 if audio_b64 is None:
                     print(f"📤 [REALTIME] Stop signal received")
+                    # 🔥 Flush any remaining buffered frames before stopping
+                    if pre_buffer:
+                        print(f"📤 [REALTIME] Flushing {len(pre_buffer)} pre-buffered frames")
+                        for frame in pre_buffer:
+                            try:
+                                self.tx_q.put(frame, timeout=0.1)
+                                self.realtime_tx_frames += 1
+                            except:
+                                pass
                     break
                 
                 # Decode OpenAI chunk
-                import base64
                 chunk_bytes = base64.b64decode(audio_b64)
                 chunk_count += 1
                 self.realtime_tx_bytes += len(chunk_bytes)
@@ -2438,10 +2456,6 @@ class MediaStreamHandler:
                 if not self.stream_sid:
                     print(f"❌ [REALTIME] No streamSid available! Skipping chunk.")
                     continue
-                
-                # 🔥 CRITICAL FIX: Use rolling buffer to combine sub-160-byte frames
-                # OpenAI sends variable chunk sizes (80-160 bytes)
-                # We MUST NOT pad with silence (doubles duration!) - buffer and combine instead!
                 
                 # Add chunk to buffer
                 audio_buffer += chunk_bytes
@@ -2463,21 +2477,51 @@ class MediaStreamHandler:
                         }
                     }
                     
-                    try:
-                        self.tx_q.put_nowait(twilio_frame)
-                        self.realtime_tx_frames += 1
-                        
-                        # Log first few frames for verification
-                        if self.realtime_tx_frames <= 3:
-                            first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
-                            print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}, buffer={len(audio_buffer)}")
-                        
-                    except queue.Full:
-                        print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
-                    except Exception as e:
-                        print(f"❌ [AUDIO] Error enqueueing: {e}")
+                    # 🔥 PRE-BUFFER LOGIC: Buffer first, then start streaming
+                    if not buffering_complete:
+                        pre_buffer.append(twilio_frame)
+                        if len(pre_buffer) >= PRE_BUFFER_FRAMES:
+                            # Buffer full - start streaming!
+                            print(f"🚀 [AUDIO] Pre-buffer full ({PRE_BUFFER_FRAMES} frames = {PRE_BUFFER_FRAMES * 20}ms) - starting playback!")
+                            buffering_complete = True
+                            # Flush all buffered frames to tx_q
+                            for buffered_frame in pre_buffer:
+                                try:
+                                    self.tx_q.put(buffered_frame, timeout=0.1)
+                                    self.realtime_tx_frames += 1
+                                except queue.Full:
+                                    print(f"⚠️ [AUDIO] tx_q full during buffer flush")
+                            pre_buffer.clear()
+                    else:
+                        # Normal streaming mode - send directly
+                        try:
+                            self.tx_q.put(twilio_frame, timeout=0.1)  # 🔥 BLOCKING put with timeout
+                            self.realtime_tx_frames += 1
+                            
+                            # Log first few frames for verification
+                            if self.realtime_tx_frames <= 3:
+                                first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
+                                print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}")
+                            
+                        except queue.Full:
+                            print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
+                        except Exception as e:
+                            print(f"❌ [AUDIO] Error enqueueing: {e}")
                     
             except queue.Empty:
+                # 🔥 FIX: If buffering and queue empty, flush what we have (response might be short)
+                if not buffering_complete and pre_buffer:
+                    # OpenAI finished sending but we haven't started playback yet
+                    # Flush whatever we have
+                    print(f"📤 [AUDIO] Queue empty during buffering - flushing {len(pre_buffer)} frames early")
+                    buffering_complete = True
+                    for buffered_frame in pre_buffer:
+                        try:
+                            self.tx_q.put(buffered_frame, timeout=0.1)
+                            self.realtime_tx_frames += 1
+                        except:
+                            pass
+                    pre_buffer.clear()
                 continue
             except Exception as e:
                 print(f"❌ [REALTIME] Audio output bridge error: {e}")
