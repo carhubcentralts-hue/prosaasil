@@ -804,13 +804,14 @@ class MediaStreamHandler:
         self.last_user_turn_id = None  # Last user conversation item ID
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
-        self.min_ai_talk_guard_ms = 400  # 🎯 AGENT 3: Grace period after AI starts speaking (400ms spec)
-        self.barge_in_rms_threshold = 150.0  # 🎯 AGENT 3: Lower threshold for reliable Hebrew speech detection (~180-220 RMS)
-        self.min_voice_duration_ms = 400  # 🎯 AGENT 3: 400-500ms minimum voice duration to detect speech
-        self.barge_in_min_ms = 400  # 🎯 AGENT 3: Minimum continuous speech for barge-in (~400ms)
-        self.barge_in_cooldown_ms = 800  # Cooldown between barge-in events (ms)
+        self.min_ai_talk_guard_ms = 120  # 🎯 FAST BARGE-IN: 120ms grace period (was 400ms)
+        self.barge_in_rms_threshold = 200.0  # 🎯 TUNED: RMS > 200 for reliable Hebrew speech
+        self.min_voice_duration_ms = 180  # 🎯 TUNED: 180ms continuous speech for barge-in
+        self.barge_in_min_ms = 180  # 🎯 TUNED: Match min_voice_duration_ms
+        self.barge_in_cooldown_ms = 500  # Faster cooldown for responsive interruption
         self.last_barge_in_ts = None  # Last time barge-in was triggered
         self.current_user_voice_start_ts = None  # When current user voice started
+        self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -2760,7 +2761,7 @@ class MediaStreamHandler:
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
                     
-                    # 🎯 SIMPLIFIED BARGE-IN for Realtime API
+                    # 🎯 IMPROVED BARGE-IN for Realtime API (180ms continuous @ RMS > 200)
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         # 🔍 DEBUG: Log AI speaking state every 50 frames (~1 second)
                         if not hasattr(self, '_barge_in_debug_counter'):
@@ -2770,38 +2771,48 @@ class MediaStreamHandler:
                         if self._barge_in_debug_counter % 50 == 0:
                             print(f"🔍 [BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
-                                  f"rms={rms:.0f}")
+                                  f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
                         
                         # Only allow barge-in if AI is speaking AND user has spoken before
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
                             # Don't barge-in before user has ever spoken – avoids cutting greeting due to noise
                             if not self.user_has_spoken:
-                                print(f"⏸️ [BARGE-IN] Blocked - user hasn't spoken yet")
+                                self.barge_in_voice_frames = 0  # Reset counter
+                                continue
+                            
+                            # 🛡️ PROTECT GREETING: Never barge-in during greeting!
+                            if self.is_playing_greeting:
+                                self.barge_in_voice_frames = 0  # Reset counter
                                 continue
                             
                             current_time = time.monotonic()
                             time_since_tts_start = current_time - self.speaking_start_ts if hasattr(self, 'speaking_start_ts') and self.speaking_start_ts else 999
                             
-                            # Grace period to ignore our own TTS echo
-                            grace_period = 0.35  # ~350ms
+                            # 🎯 TUNED: 120ms grace period to avoid TTS echo (was 350ms)
+                            grace_period = 0.12  # 120ms grace period
                             if time_since_tts_start < grace_period:
-                                if rms >= 150:  # Only log if there's actual voice
-                                    print(f"⏳ [BARGE-IN] Grace period - {time_since_tts_start*1000:.0f}ms/{grace_period*1000:.0f}ms (rms={rms:.0f})")
+                                self.barge_in_voice_frames = 0  # Reset during grace
                                 continue
                             
-                            # Use calibrated VAD/speech threshold if available, otherwise a sane default
-                            speech_threshold = getattr(self, "speech_threshold", None) or \
-                                             getattr(self, "vad_threshold", None) or 900
+                            # 🎯 TUNED: RMS > 200 threshold for Hebrew speech
+                            speech_threshold = self.barge_in_rms_threshold  # 200.0
                             
-                            # If this frame looks like real speech above the threshold – trigger barge-in
+                            # 🎯 TUNED: Count continuous voice frames (180ms = ~9 frames @ 20ms each)
                             if rms >= speech_threshold:
-                                print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= threshold={speech_threshold:.0f}, AI speaking={self.is_ai_speaking_event.is_set()}")
-                                logger.info(f"[BARGE-IN] User speech detected while AI speaking "
-                                          f"(rms={rms:.1f}, threshold={speech_threshold:.1f})")
-                                self._handle_realtime_barge_in()
-                                continue
-                            elif rms >= 150:  # Voice detected but below threshold
-                                print(f"🎙️ [BARGE-IN] Voice detected but below threshold: rms={rms:.0f} < {speech_threshold:.0f}")
+                                self.barge_in_voice_frames += 1
+                                # 🎯 180ms continuous = ~9 frames @ 20ms/frame
+                                frames_for_180ms = 9
+                                if self.barge_in_voice_frames >= frames_for_180ms:
+                                    print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= {speech_threshold:.0f}, "
+                                          f"continuous={self.barge_in_voice_frames} frames (180ms+)")
+                                    logger.info(f"[BARGE-IN] User speech detected while AI speaking "
+                                              f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
+                                    self._handle_realtime_barge_in()
+                                    self.barge_in_voice_frames = 0  # Reset after trigger
+                                    continue
+                            else:
+                                # Voice dropped below threshold - reset counter
+                                self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 2)
                     
                     # 🎯 AGENT 3 VAD: Calibrate ONLY on true background noise (RMS < 120)
                     if not self.is_calibrated:
@@ -4633,6 +4644,8 @@ class MediaStreamHandler:
         - "ביי/להתראות" alone = goodbye
         - "תודה" + "ביי/להתראות" = goodbye
         - "היי" = NOT goodbye (don't confuse with "ביי")
+        - "היי כבי/היי ביי" = IGNORE (not goodbye!)
+        - "אין צורך/לא צריך" = polite closing then hangup
         
         Args:
             text: User or AI transcribed text to check
@@ -4642,6 +4655,14 @@ class MediaStreamHandler:
         """
         text_lower = text.lower().strip()
         
+        # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
+        # User might be saying "hey guy" or similar - don't hang up!
+        ignore_phrases = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
+        for ignore in ignore_phrases:
+            if ignore in text_lower:
+                print(f"[GOODBYE CHECK] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
+                return False
+        
         # 🛡️ FILTER: Exclude greetings that sound like goodbye
         greeting_words = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
         for greeting in greeting_words:
@@ -4649,10 +4670,17 @@ class MediaStreamHandler:
                 print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
         
+        # ✅ "NO NEED" phrases - user wants to end politely
+        no_need_phrases = ["אין צורך", "לא צריך", "עזוב", "אין לי צורך"]
+        for phrase in no_need_phrases:
+            if phrase in text_lower:
+                print(f"[GOODBYE CHECK] 'No need' phrase detected - polite closing: '{phrase}'")
+                return True
+        
         # ✅ CLEAR goodbye words (standalone = hangup)
         # 🛡️ ONLY unambiguous farewell phrases - NOT mid-conversation phrases!
         clear_goodbye_words = [
-            "להתראות", "ביי", "ביי ביי", "bye", "bye bye", "goodbye",
+            "להתראות", "ביי", "bye", "bye bye", "goodbye",
             "יאללה ביי", "יאללה להתראות"
         ]
         
