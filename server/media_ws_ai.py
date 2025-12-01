@@ -834,6 +834,8 @@ class MediaStreamHandler:
         self.goodbye_detected = False  # Tracks if goodbye phrase detected
         self.pending_hangup = False  # Signals that call should end after current TTS
         self.hangup_triggered = False  # Prevents multiple hangup attempts
+        self.greeting_completed_at = None  # 🔥 PROTECTION: Timestamp when greeting finished
+        self.min_call_duration_after_greeting_ms = 3000  # 🔥 PROTECTION: Don't hangup for 3s after greeting
 
     def _init_streaming_stt(self):
         """
@@ -1447,6 +1449,9 @@ class MediaStreamHandler:
                         # 🎯 FIX: Enable barge-in after greeting completes
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
+                        # 🔥 PROTECTION: Mark greeting completion time for hangup protection
+                        self.greeting_completed_at = time.time()
+                        print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
                     
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
@@ -1508,7 +1513,17 @@ class MediaStreamHandler:
                             ).start()
                         
                         # 🎯 BUILD 163: Detect goodbye phrases in AI transcript
-                        if self.auto_end_on_goodbye and self._check_goodbye_phrases(transcript):
+                        # 🔥 PROTECTION: Only detect goodbye if enough time passed since greeting
+                        # ONLY applies if greeting was actually played (greeting_completed_at is not None)
+                        can_detect_goodbye = True
+                        if self.greeting_completed_at is not None:
+                            elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
+                            if elapsed_ms < self.min_call_duration_after_greeting_ms:
+                                can_detect_goodbye = False
+                                print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
+                        # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
+                        
+                        if self.auto_end_on_goodbye and can_detect_goodbye and self._check_goodbye_phrases(transcript):
                             print(f"👋 [BUILD 163] AI said goodbye - marking pending hangup")
                             self.goodbye_detected = True
                             self.pending_hangup = True
@@ -1558,7 +1573,17 @@ class MediaStreamHandler:
                         
                         # 🎯 BUILD 163: Detect goodbye phrases in user transcript
                         # ONLY "ביי/להתראות" trigger hangup - NOT "אין צורך/לא צריך"
-                        if self.auto_end_on_goodbye and not self.pending_hangup:
+                        # 🔥 PROTECTION: Only detect goodbye if enough time passed since greeting
+                        # ONLY applies if greeting was actually played (greeting_completed_at is not None)
+                        can_detect_goodbye = True
+                        if self.greeting_completed_at is not None:
+                            elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
+                            if elapsed_ms < self.min_call_duration_after_greeting_ms:
+                                can_detect_goodbye = False
+                                print(f"🛡️ [PROTECTION] Ignoring user goodbye - only {elapsed_ms:.0f}ms since greeting")
+                        # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
+                        
+                        if self.auto_end_on_goodbye and not self.pending_hangup and can_detect_goodbye:
                             if self._check_goodbye_phrases(transcript):
                                 print(f"👋 [BUILD 163] User said goodbye - marking pending hangup")
                                 self.goodbye_detected = True
@@ -1580,11 +1605,28 @@ class MediaStreamHandler:
                     # 🔒 Clear locks on error to prevent permanent stall
                     self.response_pending_event.clear()
                     self.active_response_id = None
+                    # 🔥 CRITICAL: Reset greeting state on error to prevent hangup block
+                    if self.is_playing_greeting:
+                        print(f"🛡️ [ERROR CLEANUP] Resetting is_playing_greeting due to error")
+                        self.is_playing_greeting = False
+                        self.greeting_completed_at = time.time()  # Mark greeting as done
                 
         except Exception as e:
             print(f"❌ [REALTIME] Audio receiver error: {e}")
             import traceback
             traceback.print_exc()
+            # 🔥 CRITICAL: Reset greeting state on exception to prevent hangup block
+            if self.is_playing_greeting:
+                print(f"🛡️ [EXCEPTION CLEANUP] Resetting is_playing_greeting due to exception")
+                self.is_playing_greeting = False
+                self.greeting_completed_at = time.time()
+        
+        # 🔥 CRITICAL: Always reset greeting state when receiver ends
+        if self.is_playing_greeting:
+            print(f"🛡️ [EXIT CLEANUP] Resetting is_playing_greeting on receiver exit")
+            self.is_playing_greeting = False
+            if self.greeting_completed_at is None:
+                self.greeting_completed_at = time.time()
         
         print(f"📥 [REALTIME] Audio receiver ended")
     
@@ -4605,6 +4647,22 @@ class MediaStreamHandler:
         if self.hangup_triggered:
             print(f"⚠️ [BUILD 163] Hangup already triggered - skipping")
             return
+        
+        # 🔥🔥 CRITICAL PROTECTION: Don't hangup during greeting
+        if self.is_playing_greeting:
+            print(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing!")
+            self.pending_hangup = False  # Clear pending hangup
+            return
+        
+        # 🔥 PROTECTION: Don't hangup within 3 seconds of greeting completion
+        # ONLY applies if greeting was actually played (greeting_completed_at is set)
+        if self.greeting_completed_at is not None:
+            elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
+            if elapsed_ms < self.min_call_duration_after_greeting_ms:
+                print(f"🛡️ [PROTECTION] BLOCKING hangup - only {elapsed_ms:.0f}ms since greeting (need {self.min_call_duration_after_greeting_ms}ms)")
+                self.pending_hangup = False  # Clear pending hangup
+                return
+        # Note: If greeting_completed_at is None (no greeting was played), allow hangup normally
         
         self.hangup_triggered = True
         print(f"📞 [BUILD 163] Auto hang-up triggered: {reason}")
