@@ -823,6 +823,15 @@ class MediaStreamHandler:
         
         # 🔒 Response collision prevention - thread-safe optimistic lock
         self.response_pending_event = threading.Event()  # Thread-safe flag
+        
+        # 🎯 BUILD 163: Call behavior settings (loaded from BusinessSettings)
+        self.bot_speaks_first = False  # If True, bot plays greeting before listening
+        self.auto_end_after_lead_capture = False  # If True, hang up after lead details collected
+        self.auto_end_on_goodbye = False  # If True, hang up when customer says goodbye
+        self.lead_captured = False  # Tracks if all required lead info is collected
+        self.goodbye_detected = False  # Tracks if goodbye phrase detected
+        self.pending_hangup = False  # Signals that call should end after current TTS
+        self.hangup_triggered = False  # Prevents multiple hangup attempts
 
     def _init_streaming_stt(self):
         """
@@ -1103,9 +1112,20 @@ class MediaStreamHandler:
             # ⏰ Wait for bridges to be ready before sending greeting
             await asyncio.sleep(0.2)  # 200ms for bridge initialization
             
-            # Greeting is now handled by system prompt (in realtime_prompt_builder.py)
-            # AI will say it when user speech is detected or naturally as first response
-            # Do NOT send automatic responses
+            # 🎯 BUILD 163: Bot speaks first - trigger immediate AI response
+            if self.bot_speaks_first:
+                print(f"🎤 [BUILD 163] Bot speaks first enabled - triggering immediate greeting")
+                self.greeting_sent = True  # Mark greeting as sent to allow audio through
+                self.is_playing_greeting = True
+                try:
+                    await client.send_event({"type": "response.create"})
+                    print(f"✅ [BUILD 163] Bot speaks first - response.create sent!")
+                except Exception as e:
+                    print(f"❌ [BUILD 163] Failed to trigger bot speaks first: {e}")
+            else:
+                # Standard flow - greeting is handled by system prompt
+                # AI will say it when user speech is detected or naturally as first response
+                print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user")
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             
@@ -1377,6 +1397,23 @@ class MediaStreamHandler:
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
                         # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
                         # Removing this call to prevent loop (NLP should only analyze user input)
+                        
+                        # 🎯 BUILD 163: Check for auto hang-up after AI finishes speaking
+                        if self.pending_hangup and not self.hangup_triggered:
+                            print(f"📞 [BUILD 163] Pending hangup detected after AI response - triggering hang-up")
+                            # Use thread to avoid blocking async loop
+                            import threading
+                            threading.Thread(
+                                target=self._trigger_auto_hangup,
+                                args=("AI finished speaking with pending hangup",),
+                                daemon=True
+                            ).start()
+                        
+                        # 🎯 BUILD 163: Detect goodbye phrases in AI transcript
+                        if self.auto_end_on_goodbye and self._check_goodbye_phrases(transcript):
+                            print(f"👋 [BUILD 163] AI said goodbye - marking pending hangup")
+                            self.goodbye_detected = True
+                            self.pending_hangup = True
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
@@ -1420,6 +1457,21 @@ class MediaStreamHandler:
                             # Check for appointment confirmation after user speaks
                             print(f"🔍 [DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                             self._check_appointment_confirmation(transcript)
+                        
+                        # 🎯 BUILD 163: Detect goodbye phrases in user transcript
+                        if self.auto_end_on_goodbye and not self.pending_hangup:
+                            if self._check_goodbye_phrases(transcript):
+                                print(f"👋 [BUILD 163] User said goodbye - marking pending hangup")
+                                self.goodbye_detected = True
+                                self.pending_hangup = True
+                        
+                        # 🎯 BUILD 163: Check if all lead info is captured
+                        if self.auto_end_after_lead_capture and not self.pending_hangup and not self.lead_captured:
+                            if self._check_lead_captured():
+                                print(f"✅ [BUILD 163] Lead fully captured - marking pending hangup")
+                                self.lead_captured = True
+                                self.pending_hangup = True
+                    
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                 
@@ -2455,6 +2507,9 @@ class MediaStreamHandler:
                             business_id, greet = self._identify_business_and_get_greeting()
                         print(f"⚡ FAST: business_id={business_id}, greeting loaded in single query!")
                         logger.info(f"[CALL DEBUG] Business identified: business_id={business_id}, greeting_len={len(greet) if greet else 0}")
+                        
+                        # 🎯 BUILD 163: Load call behavior settings after business identification
+                        self._load_call_behavior_settings()
                     except Exception as e:
                         import traceback
                         logger.error(f"[CALL-ERROR] Business identification failed: {e}")
@@ -4380,6 +4435,139 @@ class MediaStreamHandler:
             print(f"❌ Error loading business greeting: {e}")
             print(f"❌ Traceback: {traceback.format_exc()}")
             return None
+
+    def _load_call_behavior_settings(self):
+        """
+        🎯 BUILD 163: Load call behavior settings from BusinessSettings
+        - bot_speaks_first: Bot plays greeting before listening
+        - auto_end_after_lead_capture: Hang up after all lead details collected
+        - auto_end_on_goodbye: Hang up when customer says goodbye
+        """
+        if not self.business_id:
+            print(f"⚠️ [BUILD 163] No business_id - using default call behavior settings")
+            return
+        
+        try:
+            from server.models_sql import BusinessSettings
+            
+            app = _get_flask_app()
+            with app.app_context():
+                settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
+                
+                if settings:
+                    self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
+                    self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
+                    self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
+                    
+                    print(f"✅ [BUILD 163] Call behavior loaded for business {self.business_id}:")
+                    print(f"   bot_speaks_first={self.bot_speaks_first}")
+                    print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}")
+                    print(f"   auto_end_on_goodbye={self.auto_end_on_goodbye}")
+                else:
+                    print(f"⚠️ [BUILD 163] No BusinessSettings for business {self.business_id} - using defaults")
+        except Exception as e:
+            print(f"❌ [BUILD 163] Error loading call behavior settings: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _trigger_auto_hangup(self, reason: str):
+        """
+        🎯 BUILD 163: Trigger automatic call hang-up via Twilio REST API
+        
+        Args:
+            reason: Why the call is being hung up (for logging)
+        """
+        if self.hangup_triggered:
+            print(f"⚠️ [BUILD 163] Hangup already triggered - skipping")
+            return
+        
+        self.hangup_triggered = True
+        print(f"📞 [BUILD 163] Auto hang-up triggered: {reason}")
+        
+        if not self.call_sid:
+            print(f"❌ [BUILD 163] No call_sid - cannot hang up")
+            return
+        
+        try:
+            import os
+            from twilio.rest import Client
+            
+            account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+            auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+            
+            if not account_sid or not auth_token:
+                print(f"❌ [BUILD 163] Missing Twilio credentials - cannot hang up")
+                return
+            
+            client = Client(account_sid, auth_token)
+            
+            client.calls(self.call_sid).update(status='completed')
+            
+            print(f"✅ [BUILD 163] Call {self.call_sid[:8]}... hung up successfully: {reason}")
+            logger.info(f"[BUILD 163] Auto hang-up: call={self.call_sid[:8]}, reason={reason}")
+            
+        except Exception as e:
+            print(f"❌ [BUILD 163] Failed to hang up call: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _check_goodbye_phrases(self, text: str) -> bool:
+        """
+        🎯 BUILD 163: Check if text contains goodbye phrases
+        
+        Args:
+            text: User or AI transcribed text to check
+            
+        Returns:
+            True if goodbye phrase detected
+        """
+        text_lower = text.lower().strip()
+        
+        goodbye_phrases_hebrew = [
+            "תודה", "תודה רבה", "תודה לך", 
+            "להתראות", "ביי", "ביי ביי", "שלום",
+            "אין צורך", "זהו", "זהו תודה", "הכל ברור",
+            "יופי תודה", "מצוין תודה", "סבבה תודה",
+            "אוקיי תודה", "בסדר תודה", "יום טוב",
+            "לילה טוב", "ערב טוב", "צהריים טובים"
+        ]
+        
+        goodbye_phrases_english = [
+            "bye", "bye bye", "goodbye", "good bye",
+            "thanks", "thank you", "that's all", "thats all",
+            "no need", "i'm done", "im done", "we're done",
+            "have a good", "have a nice", "take care"
+        ]
+        
+        for phrase in goodbye_phrases_hebrew:
+            if phrase in text_lower:
+                return True
+        
+        for phrase in goodbye_phrases_english:
+            if phrase in text_lower:
+                return True
+        
+        return False
+
+    def _check_lead_captured(self) -> bool:
+        """
+        🎯 BUILD 163: Check if all required lead information has been collected
+        
+        Returns:
+            True if lead has name and phone (minimum required fields)
+        """
+        crm_context = getattr(self, 'crm_context', None)
+        if not crm_context:
+            return False
+        
+        has_name = bool(crm_context.customer_name)
+        has_phone = bool(crm_context.customer_phone)
+        
+        if has_name and has_phone:
+            print(f"✅ [BUILD 163] Lead captured: name={crm_context.customer_name}, phone={crm_context.customer_phone}")
+            return True
+        
+        return False
 
     def _process_dtmf_skip(self):
         """
