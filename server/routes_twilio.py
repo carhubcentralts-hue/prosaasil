@@ -286,12 +286,9 @@ def incoming_call_preview():
     
     vr = VoiceResponse()
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
-    stream = connect.stream(
-        url=f"wss://{host}/ws/twilio-media",
-        status_callback=f"https://{host}/webhook/stream_status"
-    )
+    stream = connect.stream(url=f"wss://{host}/ws/twilio-media")
     stream.parameter(name="CallSid", value=call_sid)
-    stream.parameter(name="To", value=preview_to_number)  # ✅ BUILD 152: Dynamic from Business
+    stream.parameter(name="To", value=preview_to_number)
     
     return _twiml(vr)
 
@@ -396,30 +393,16 @@ def incoming_call():
     replit_domain = public_host or os.environ.get('REPLIT_DEV_DOMAIN') or os.environ.get('REPLIT_DOMAINS', '').split(',')[0]
     host = (request.headers.get("X-Forwarded-Host") or replit_domain or request.host).split(",")[0].strip()
     
-    # ✅ Twilio SDK
+    # ✅ Twilio SDK - Simplified for Error 12100 fix
     vr = VoiceResponse()
     
-    # ✅ Connect + Stream (לפי ההנחיות המדויקות)
+    # ✅ Connect + Stream - Minimal required parameters
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
-    stream = connect.stream(
-        url=f"wss://{host}/ws/twilio-media",
-        track="inbound_track",  # ✅ CRITICAL: track parameter
-        status_callback=f"https://{host}/webhook/stream_status",
-        status_callback_event="start mark stop"  # ✅ CRITICAL: status events
-    )
+    stream = connect.stream(url=f"wss://{host}/ws/twilio-media")
     
-    # ✅ CRITICAL: הוסף Parameters עם CallSid + To (חובה!)
+    # ✅ CRITICAL: Parameters with CallSid + To
     stream.parameter(name="CallSid", value=call_sid)
-    stream.parameter(name="To", value=to_number)  # ✅ CRITICAL: שלח To ל-WebSocket!
-    
-    # ✅ BUILD 90: Add Record fallback (if stream fails, recording still works!)
-    vr.record(
-        play_beep=False,
-        timeout=4,
-        max_length=300,
-        transcribe=False,
-        action=f"https://{host}/webhook/handle_recording"
-    )
+    stream.parameter(name="To", value=to_number or "unknown")
     
     # === יצירה אוטומטית של ליד (ברקע) ===
     if from_number:
