@@ -832,13 +832,12 @@ class MediaStreamHandler:
         # 🎯 BUILD 163: Call behavior settings (loaded from BusinessSettings)
         self.bot_speaks_first = False  # If True, bot plays greeting before listening
         self.auto_end_after_lead_capture = False  # If True, hang up after lead details collected
-        self.auto_end_on_goodbye = False  # If True, hang up when customer says goodbye
+        self.auto_end_on_goodbye = True  # 🔥 DEFAULT TRUE: Always detect goodbye and disconnect politely
         self.lead_captured = False  # Tracks if all required lead info is collected
         self.goodbye_detected = False  # Tracks if goodbye phrase detected
         self.pending_hangup = False  # Signals that call should end after current TTS
         self.hangup_triggered = False  # Prevents multiple hangup attempts
         self.greeting_completed_at = None  # 🔥 PROTECTION: Timestamp when greeting finished
-        self.greeting_playback_end_ts = None  # 🔥 FIX: Timestamp when greeting audio will finish playing (queue drain)
         self.min_call_duration_after_greeting_ms = 3000  # 🔥 PROTECTION: Don't hangup for 3s after greeting
 
     def _init_streaming_stt(self):
@@ -1465,27 +1464,9 @@ class MediaStreamHandler:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # When audio finishes and we were in greeting mode, unset the flag
                     if self.is_playing_greeting:
-                        # 🔥 FIX: Calculate playback protection window based on queued audio
-                        # Each frame = 20ms. Wait for all queued audio + 500ms buffer
-                        out_queue_size = self.realtime_audio_out_queue.qsize()
-                        tx_queue_size = self.tx_q.qsize()
-                        total_queued = out_queue_size + tx_queue_size
-                        playback_ms = (total_queued * 20) + 500  # Queued frames + 500ms safety buffer
-                        
-                        print(f"[GREETING] Audio generation done - {total_queued} frames queued ({playback_ms}ms playback protection)")
-                        
-                        # 🔥 CRITICAL: Keep is_playing_greeting=True until audio drains!
-                        # Set a timestamp for when playback will be complete
-                        self.greeting_playback_end_ts = time.time() + (playback_ms / 1000.0)
-                        print(f"🛡️ [GREETING] Playback protection active until T+{playback_ms}ms")
-                        
-                        # Note: is_playing_greeting will be cleared by the check below when time passes
-                        # For now, keep it True to protect against immediate barge-in
-                        
-                        # 🎯 FIX: Enable barge-in after greeting completes
-                        # Use dedicated flag instead of user_has_spoken to preserve guards
+                        print("[GREETING] Audio generation done - clearing greeting flag")
+                        self.is_playing_greeting = False
                         self.barge_in_enabled_after_greeting = True
-                        # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
                         print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
                     
@@ -1729,24 +1710,9 @@ class MediaStreamHandler:
         🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
         Sends response.cancel to Realtime API to stop text generation (not just audio!)
         """
-        # 🛡️ FIX: PROTECT GREETING - Multi-layer protection
-        # Step 1: Check if playback protection window has expired
-        if self.greeting_playback_end_ts:
-            if time.time() >= self.greeting_playback_end_ts:
-                # Protection expired - clear all greeting flags
-                if self.is_playing_greeting:
-                    print(f"✅ [GREETING] Playback protection expired - clearing greeting flag")
-                self.is_playing_greeting = False
-                self.greeting_playback_end_ts = None
-            else:
-                # Still in protection window
-                remaining_ms = (self.greeting_playback_end_ts - time.time()) * 1000
-                print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - audio still draining ({remaining_ms:.0f}ms remaining)")
-                return
-        
-        # Step 2: Check if greeting is still playing (flag without timestamp = still receiving audio)
+        # 🛡️ Simple protection: Don't barge-in while greeting is actively being received
         if self.is_playing_greeting:
-            print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting flag still active")
+            print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting still playing")
             return
         
         print("[REALTIME] BARGE-IN triggered – user started speaking, CANCELING AI response")
@@ -4741,6 +4707,8 @@ class MediaStreamHandler:
         """
         🎯 BUILD 163: Trigger automatic call hang-up via Twilio REST API
         
+        🔥 POLITE HANGUP: Wait for audio to finish playing before disconnecting!
+        
         Args:
             reason: Why the call is being hung up (for logging)
         """
@@ -4771,6 +4739,34 @@ class MediaStreamHandler:
             print(f"❌ [BUILD 163] No call_sid - cannot hang up")
             return
         
+        # 🔥 POLITE HANGUP: Wait for audio queues to drain before disconnecting
+        # This ensures the AI's goodbye message plays completely
+        print(f"⏳ [POLITE HANGUP] Waiting for audio queues to drain...")
+        
+        max_wait_seconds = 5.0  # Maximum wait time for audio to finish
+        wait_start = time.time()
+        
+        while (time.time() - wait_start) < max_wait_seconds:
+            # Check both audio queues
+            realtime_queue_size = self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 0
+            tx_queue_size = self.tx_q.qsize() if hasattr(self, 'tx_q') else 0
+            total_queued = realtime_queue_size + tx_queue_size
+            
+            if total_queued == 0:
+                print(f"✅ [POLITE HANGUP] Audio queues empty - ready to disconnect")
+                break
+            
+            # Log progress every 500ms
+            elapsed = (time.time() - wait_start) * 1000
+            if int(elapsed) % 500 < 50:  # Log roughly every 500ms
+                print(f"⏳ [POLITE HANGUP] Waiting... {total_queued} frames remaining ({realtime_queue_size}+{tx_queue_size})")
+            
+            time.sleep(0.05)  # Check every 50ms
+        
+        # Add a small grace period for Twilio to play the last frames
+        time.sleep(0.3)  # 300ms grace period
+        print(f"✅ [POLITE HANGUP] Grace period complete - disconnecting now")
+        
         try:
             import os
             from twilio.rest import Client
@@ -4796,19 +4792,20 @@ class MediaStreamHandler:
 
     def _check_goodbye_phrases(self, text: str) -> bool:
         """
-        🎯 BUILD 163 STRICT: Check if text contains CLEAR goodbye phrases
+        🎯 BUILD 163 SMART: Check if text indicates conversation completion
         
-        Logic:
-        - ONLY "ביי/להתראות" and combinations trigger hangup
-        - "תודה" alone = NOT goodbye
-        - "אין צורך/לא צריך" = NOT goodbye (continues conversation)
-        - "היי כבי/היי ביי" = IGNORE (not goodbye!)
+        Detects:
+        1. Clear goodbye words ("ביי", "להתראות", "bye")
+        2. AI completion phrases ("מישהו יחזור אליך", "סיימנו")
+        3. Polite closings ("תודה וביי", "תודה להתראות")
         
-        Args:
-            text: User or AI transcribed text to check
-            
+        Does NOT trigger on:
+        - "תודה" alone (conversation continues)
+        - "היי כבי/היי ביי" (sound-alike greetings)
+        - Greetings without goodbye
+        
         Returns:
-            True if CLEAR goodbye phrase detected
+            True if conversation should end
         """
         text_lower = text.lower().strip()
         
@@ -4827,7 +4824,6 @@ class MediaStreamHandler:
                 return False
         
         # ✅ CLEAR goodbye words - ONLY these trigger hangup!
-        # Must contain "ביי" or "להתראות" or English equivalents
         clear_goodbye_words = [
             "להתראות", "ביי", "bye", "bye bye", "goodbye",
             "יאללה ביי", "יאללה להתראות"
@@ -4839,10 +4835,31 @@ class MediaStreamHandler:
             print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
             return True
         
-        # ✅ Combined phrases with goodbye words
+        # ✅ AI COMPLETION PHRASES - when AI says conversation is done
+        ai_completion_phrases = [
+            "מישהו יחזור אליך",
+            "נציג יחזור אליך",
+            "ניצור איתך קשר",
+            "נחזור אליך",
+            "סיימנו",
+            "זה הכל",
+            "יום נעים",
+            "יום טוב",
+            "לילה טוב",
+            "שבת שלום",
+        ]
+        
+        for phrase in ai_completion_phrases:
+            if phrase in text_lower:
+                print(f"[GOODBYE CHECK] AI completion phrase: '{phrase}'")
+                return True
+        
+        # ✅ Combined phrases with goodbye
         combined_goodbye_phrases = [
             "תודה וביי", "תודה להתראות",
-            "תודה רבה וביי", "תודה רבה להתראות"
+            "תודה רבה וביי", "תודה רבה להתראות",
+            "תודה רבה יום נעים",
+            "תודה יום טוב",
         ]
         
         for phrase in combined_goodbye_phrases:
