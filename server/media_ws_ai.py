@@ -1062,18 +1062,32 @@ class MediaStreamHandler:
             async def _prompt_task():
                 t0 = time.time()
                 loop = asyncio.get_event_loop()
+                FALLBACK_PROMPT = "אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח."
+                
                 def _build_in_thread():
                     try:
-                        # 🔥 Import inside thread to ensure availability
+                        # 🔥 Import inside thread to ensure availability in executor
                         from server.services.realtime_prompt_builder import build_realtime_system_prompt as build_prompt
                         app = _get_flask_app()
                         with app.app_context():
-                            return build_prompt(business_id_safe)
-                    except Exception as e:
-                        print(f"⚠️ [PROMPT] Build failed: {e}")
+                            prompt = build_prompt(business_id_safe)
+                            if prompt and len(prompt) > 100:
+                                print(f"✅ [PROMPT] Built successfully: {len(prompt)} chars for business={business_id_safe}")
+                                return prompt
+                            else:
+                                logger.error(f"❌ [PROMPT] Too short: {len(prompt) if prompt else 0} chars")
+                                return FALLBACK_PROMPT
+                    except ImportError as e:
+                        logger.error(f"❌ [PROMPT] IMPORT ERROR: {e}")
                         import traceback
                         traceback.print_exc()
-                        return f"אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח."
+                        return FALLBACK_PROMPT
+                    except Exception as e:
+                        logger.error(f"❌ [PROMPT] Build failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        return FALLBACK_PROMPT
+                
                 prompt = await loop.run_in_executor(None, _build_in_thread)
                 return prompt, time.time() - t0
             
@@ -1098,13 +1112,20 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
             
-            # 🚨 CRITICAL VALIDATION: Ensure prompt is not empty
+            # 🚨 CRITICAL VALIDATION: Ensure prompt is business-specific (not fallback)
+            FALLBACK_MARKER = "אתה נציג טלפוני של העסק. עונה בעברית"
+            is_fallback = system_prompt and FALLBACK_MARKER in system_prompt and len(system_prompt) < 150
+            
             if not system_prompt or len(system_prompt) < 50:
                 error_msg = f"❌ [REALTIME] CRITICAL: Empty/invalid prompt (len={len(system_prompt) if system_prompt else 0})!"
                 print(error_msg)
                 logger.error(error_msg)
-                # Use fallback prompt
                 system_prompt = f"אתה נציג טלפוני של העסק. עונה בעברית, קצר וברור. עזור ללקוח לקבוע תור או לענות על שאלות."
+                is_fallback = True
+            
+            if is_fallback:
+                logger.warning(f"⚠️ [REALTIME] Using FALLBACK prompt for business={self.business_id} - business-specific prompt failed!")
+                print(f"⚠️ [REALTIME] FALLBACK PROMPT ACTIVE - Check prompt builder logs!")
             
             total_to_prompt_ms = (time.time() - t_start) * 1000
             print(f"✅ [REALTIME] Ready in {total_to_prompt_ms:.0f}ms, prompt={len(system_prompt)} chars")
