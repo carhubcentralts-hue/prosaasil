@@ -1515,35 +1515,31 @@ class MediaStreamHandler:
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
-                        # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
-                        # Removing this call to prevent loop (NLP should only analyze user input)
                         
-                        # 🎯 BUILD 163: Check for auto hang-up after AI finishes speaking
-                        if self.pending_hangup and not self.hangup_triggered:
-                            print(f"📞 [BUILD 163] Pending hangup detected after AI response - triggering hang-up")
-                            # Use thread to avoid blocking async loop
-                            import threading
-                            threading.Thread(
-                                target=self._trigger_auto_hangup,
-                                args=("AI finished speaking with pending hangup",),
-                                daemon=True
-                            ).start()
-                        
-                        # 🎯 BUILD 163: Detect goodbye phrases in AI transcript
-                        # 🔥 PROTECTION: Only detect goodbye if enough time passed since greeting
-                        # ONLY applies if greeting was actually played (greeting_completed_at is not None)
+                        # 🎯 SMART HANGUP: Detect when BOT says goodbye/completion phrases
+                        # Check FIRST if this transcript contains end-of-conversation phrases
                         can_detect_goodbye = True
                         if self.greeting_completed_at is not None:
                             elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
                             if elapsed_ms < self.min_call_duration_after_greeting_ms:
                                 can_detect_goodbye = False
                                 print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
-                        # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
                         
+                        # Check if AI just said something that ends the conversation
                         if self.auto_end_on_goodbye and can_detect_goodbye and self._check_goodbye_phrases(transcript):
-                            print(f"👋 [BUILD 163] AI said goodbye - marking pending hangup")
+                            print(f"👋 [SMART HANGUP] AI said goodbye phrase - will disconnect after audio finishes")
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                        
+                        # 🔥 IMMEDIATE HANGUP: If pending (from previous or current), disconnect now
+                        if self.pending_hangup and not self.hangup_triggered:
+                            print(f"📞 [SMART HANGUP] Triggering polite disconnect...")
+                            import threading
+                            threading.Thread(
+                                target=self._trigger_auto_hangup,
+                                args=("AI finished speaking - polite disconnect",),
+                                daemon=True
+                            ).start()
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
@@ -4835,18 +4831,35 @@ class MediaStreamHandler:
             print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
             return True
         
-        # ✅ AI COMPLETION PHRASES - when AI says conversation is done
+        # ✅ AI COMPLETION PHRASES - when BOT says conversation is done
         ai_completion_phrases = [
+            # Callback promises
             "מישהו יחזור אליך",
-            "נציג יחזור אליך",
+            "נציג יחזור אליך", 
             "ניצור איתך קשר",
             "נחזור אליך",
+            "יחזרו אליך",
+            # Information collected
+            "לקחתי את כל הפרטים",
+            "קיבלתי את כל הפרטים",
+            "רשמתי את הפרטים",
+            "קיבלתי את הפרטים",
+            "יש לי את כל הפרטים",
+            # Completion phrases
             "סיימנו",
             "זה הכל",
+            "זה הכל בינתיים",
+            # Farewell phrases
             "יום נעים",
             "יום טוב",
             "לילה טוב",
             "שבת שלום",
+            "ערב נעים",
+            "בוקר נעים",
+            # Combined closure phrases
+            "תודה שהתקשרת",
+            "תודה על הפנייה",
+            "נשמח לעזור",
         ]
         
         for phrase in ai_completion_phrases:
