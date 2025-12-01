@@ -1563,20 +1563,12 @@ class MediaStreamHandler:
                             self._check_appointment_confirmation(transcript)
                         
                         # 🎯 BUILD 163: Detect goodbye phrases in user transcript
+                        # ONLY "ביי/להתראות" trigger hangup - NOT "אין צורך/לא צריך"
                         if self.auto_end_on_goodbye and not self.pending_hangup:
                             if self._check_goodbye_phrases(transcript):
                                 print(f"👋 [BUILD 163] User said goodbye - marking pending hangup")
                                 self.goodbye_detected = True
                                 self.pending_hangup = True
-                                
-                                # 🎯 FIX: For "no need" phrases, tell AI to say polite closing
-                                no_need_phrases = ["אין צורך", "לא צריך", "עזוב", "אין לי צורך"]
-                                is_no_need = any(phrase in transcript.lower() for phrase in no_need_phrases)
-                                if is_no_need:
-                                    print(f"👋 [BUILD 163] 'No need' phrase detected - sending polite closing instruction to AI")
-                                    asyncio.create_task(self._send_server_event_to_ai(
-                                        "הלקוח אמר שאין לו צורך. סיים בנימוס קצר ביותר (2-3 מילים בלבד, כמו 'בסדר, תודה שהתקשרת')."
-                                    ))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         if self.auto_end_after_lead_capture and not self.pending_hangup and not self.lead_captured:
