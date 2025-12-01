@@ -1030,10 +1030,16 @@ class MediaStreamHandler:
         self._ai_speech_start = None  # Track AI speech duration
         
         try:
+            t_start = time.time()
             logger.info(f"[CALL DEBUG] Creating OpenAI Realtime client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
+            t_client = time.time()
+            print(f"⏱️ [TIMING] Client created in {(t_client-t_start)*1000:.0f}ms")
+            
             logger.info(f"[CALL DEBUG] Client created, now connecting...")
             await client.connect()
+            t_connect = time.time()
+            print(f"⏱️ [TIMING] OpenAI connected in {(t_connect-t_client)*1000:.0f}ms (total: {(t_connect-t_start)*1000:.0f}ms)")
             
             # 🔥 Store client reference for barge-in
             self.realtime_client = client
@@ -1071,6 +1077,7 @@ class MediaStreamHandler:
             print(f"📝 [REALTIME] Prompt preview: {system_prompt[:200]}...")
             
             # 🎯 Configure session with G.711 μ-law (NO TOOLS - appointment via NLP only)
+            t_before_config = time.time()
             logger.info(f"[CALL DEBUG] Configuring Realtime session...")
             await client.configure_session(
                 instructions=system_prompt,
@@ -1082,50 +1089,56 @@ class MediaStreamHandler:
                 temperature=0.6,  # 🔥 MINIMUM VALUE: OpenAI Realtime requires >= 0.6
                 max_tokens=300  # 🎯 BALANCED: ~280-320 tokens for natural but brief responses (Agent 3 spec)
             )
+            t_after_config = time.time()
+            print(f"⏱️ [TIMING] Session configured in {(t_after_config-t_before_config)*1000:.0f}ms (total since start: {(t_after_config-t_start)*1000:.0f}ms)")
             print(f"✅ [REALTIME] Session configured: voice=shimmer, temp=0.6, silence=600ms, format=g711_ulaw, NO TOOLS (appointment via NLP)")
             logger.info(f"[CALL DEBUG] ✅ Realtime session configured - ready to speak!")
             
-            # 📋 CRM: Initialize context and ensure lead exists
-            customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
-            if customer_phone:
-                lead_id = ensure_lead(business_id_safe, customer_phone)
-                self.crm_context = CallCrmContext(
-                    business_id=business_id_safe,
-                    customer_phone=customer_phone,
-                    lead_id=lead_id
-                )
-                # 🔥 HYDRATION: If we have pending customer name, transfer it to context
-                if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
-                    self.crm_context.customer_name = self.pending_customer_name
-                    print(f"✅ [CRM] Hydrated pending_customer_name → crm_context: {self.pending_customer_name}")
-                    self.pending_customer_name = None  # Clear cache
-                print(f"✅ [CRM] Context initialized: business={business_id_safe}, lead_id={lead_id}")
-            else:
-                print(f"⚠️ [CRM] No customer phone - skipping lead creation")
-                self.crm_context = None
-            
-            # 🚀 Start audio/text bridges
+            # 🚀 Start audio/text bridges FIRST (before CRM)
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             
-            # ⏰ Wait for bridges to be ready before sending greeting
-            await asyncio.sleep(0.2)  # 200ms for bridge initialization
-            
-            # 🎯 BUILD 163: Bot speaks first - trigger immediate AI response
+            # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
+            # No waiting for CRM, no 0.2s delay - just speak!
             if self.bot_speaks_first:
-                print(f"🎤 [BUILD 163] Bot speaks first enabled - triggering immediate greeting")
+                print(f"🎤 [BUILD 163] Bot speaks first - triggering IMMEDIATE greeting (no delay!)")
                 self.greeting_sent = True  # Mark greeting as sent to allow audio through
                 self.is_playing_greeting = True
                 try:
                     await client.send_event({"type": "response.create"})
-                    print(f"✅ [BUILD 163] Bot speaks first - response.create sent!")
+                    t_speak = time.time()
+                    print(f"✅ [BUILD 163] response.create sent! Time since OpenAI init: {(t_speak - t_start)*1000:.0f}ms")
                 except Exception as e:
                     print(f"❌ [BUILD 163] Failed to trigger bot speaks first: {e}")
             else:
                 # Standard flow - greeting is handled by system prompt
                 # AI will say it when user speech is detected or naturally as first response
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user")
+            
+            # 📋 CRM: Initialize context AFTER greeting starts (non-blocking for voice)
+            # This runs in parallel while AI is already speaking
+            customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
+            if customer_phone:
+                try:
+                    lead_id = ensure_lead(business_id_safe, customer_phone)
+                    self.crm_context = CallCrmContext(
+                        business_id=business_id_safe,
+                        customer_phone=customer_phone,
+                        lead_id=lead_id
+                    )
+                    # 🔥 HYDRATION: If we have pending customer name, transfer it to context
+                    if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
+                        self.crm_context.customer_name = self.pending_customer_name
+                        print(f"✅ [CRM] Hydrated pending_customer_name → crm_context: {self.pending_customer_name}")
+                        self.pending_customer_name = None  # Clear cache
+                    print(f"✅ [CRM] Context initialized: business={business_id_safe}, lead_id={lead_id}")
+                except Exception as e:
+                    print(f"⚠️ [CRM] Lead creation failed (non-critical): {e}")
+                    self.crm_context = None
+            else:
+                print(f"⚠️ [CRM] No customer phone - skipping lead creation")
+                self.crm_context = None
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
             
