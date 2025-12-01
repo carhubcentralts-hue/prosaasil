@@ -2760,7 +2760,7 @@ class MediaStreamHandler:
                     # Note: Realtime thread was already started above (BEFORE DB query)
                     
                     # 🎵 GOOGLE TTS: Send greeting via Google TTS if NOT using Realtime
-                    elif not self.greeting_sent and not USE_REALTIME_API:
+                    if not self.greeting_sent and not USE_REALTIME_API:
                         self.t1_greeting_start = time.time()  # ⚡ [T1] Greeting start
                         print(f"🎯 [T1={self.t1_greeting_start:.3f}] SENDING IMMEDIATE GREETING! (Δ={(self.t1_greeting_start - self.t0_connected)*1000:.0f}ms from T0)")
                         try:
