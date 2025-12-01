@@ -1329,6 +1329,12 @@ class MediaStreamHandler:
                 if not event_type.endswith(".delta") and not event_type.startswith("session"):
                     print(f"[REALTIME] event: {event_type}")
                 
+                # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
+                # This prevents the GUARD from blocking AI response audio
+                if event_type == "input_audio_buffer.speech_started":
+                    print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
+                    self.user_has_spoken = True
+                
                 # 🔥 Track response ID for barge-in cancellation
                 if event_type == "response.created":
                     response_id = event.get("response", {}).get("id")
