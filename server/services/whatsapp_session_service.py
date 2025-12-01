@@ -250,13 +250,19 @@ def get_session_messages(session: WhatsAppConversation) -> list:
         List of message dicts with direction and body
     """
     if not session.started_at:
+        logger.warning(f"[WA-SESSION] No started_at for session {session.id}")
         return []
     
+    # 🔥 FIX: Query messages by to_number matching customer's number
+    # Note: to_number stores the customer's phone for both directions
     messages = WhatsAppMessage.query.filter(
         WhatsAppMessage.business_id == session.business_id,
         WhatsAppMessage.to_number == session.customer_wa_id,
         WhatsAppMessage.created_at >= session.started_at
     ).order_by(WhatsAppMessage.created_at.asc()).all()
+    
+    # 🔥 DEBUG: Log message count for troubleshooting
+    logger.info(f"[WA-SESSION] Found {len(messages)} messages for session {session.id} (customer={session.customer_wa_id[:8]}...)")
     
     result = []
     for m in messages:
@@ -365,20 +371,33 @@ def process_stale_sessions():
 def _session_processor_loop():
     """Background thread loop that processes stale sessions every 5 minutes"""
     logger.info("[WA-SESSION] Background processor thread started")
+    print("[WA-SESSION] 📱 Background processor thread started - checking every 5 minutes")
     
+    # Wait 60 seconds after startup before first check
     time.sleep(60)
     
+    iteration = 0
     while True:
+        iteration += 1
         try:
             from server.app_factory import get_process_app
             app = get_process_app()
             
             with app.app_context():
+                # 🔥 DEBUG: Log every check for troubleshooting
+                stale_count = len(get_stale_sessions())
+                print(f"[WA-SESSION] 📱 Check #{iteration}: Found {stale_count} stale sessions to process")
+                logger.info(f"[WA-SESSION] Check #{iteration}: Found {stale_count} stale sessions")
+                
                 processed = process_stale_sessions()
                 if processed > 0:
+                    print(f"[WA-SESSION] ✅ Processed {processed} stale sessions with AI summaries")
                     logger.info(f"[WA-SESSION] Background job: processed {processed} sessions")
         except Exception as e:
+            print(f"[WA-SESSION] ❌ Background processor error: {e}")
             logger.error(f"[WA-SESSION] Background processor error: {e}")
+            import traceback
+            traceback.print_exc()
         
         time.sleep(CHECK_INTERVAL_SECONDS)
 

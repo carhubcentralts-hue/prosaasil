@@ -222,7 +222,8 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
 
       // Send to API
       const response = await http.post<{
-        success: boolean;
+        ok: boolean;
+        success?: boolean;
         message_id?: string;
         error?: string;
       }>('/api/whatsapp/send', {
@@ -232,7 +233,8 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
         provider: selectedProvider
       });
 
-      if (response.success) {
+      // 🔥 FIX: Backend returns 'ok', frontend was checking 'success' - check both!
+      if (response.ok || response.success) {
         // Update optimistic message with real data
         setMessages(prev => 
           prev.map(msg => 
