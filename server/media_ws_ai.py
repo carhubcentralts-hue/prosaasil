@@ -4652,15 +4652,13 @@ class MediaStreamHandler:
 
     def _check_goodbye_phrases(self, text: str) -> bool:
         """
-        🎯 BUILD 163 REFINED: Check if text contains CLEAR goodbye phrases
+        🎯 BUILD 163 STRICT: Check if text contains CLEAR goodbye phrases
         
         Logic:
-        - "תודה" alone = NOT goodbye (could be mid-conversation thanks)
-        - "ביי/להתראות" alone = goodbye
-        - "תודה" + "ביי/להתראות" = goodbye
-        - "היי" = NOT goodbye (don't confuse with "ביי")
+        - ONLY "ביי/להתראות" and combinations trigger hangup
+        - "תודה" alone = NOT goodbye
+        - "אין צורך/לא צריך" = NOT goodbye (continues conversation)
         - "היי כבי/היי ביי" = IGNORE (not goodbye!)
-        - "אין צורך/לא צריך" = polite closing then hangup
         
         Args:
             text: User or AI transcribed text to check
@@ -4671,7 +4669,6 @@ class MediaStreamHandler:
         text_lower = text.lower().strip()
         
         # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
-        # User might be saying "hey guy" or similar - don't hang up!
         ignore_phrases = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
         for ignore in ignore_phrases:
             if ignore in text_lower:
@@ -4685,15 +4682,8 @@ class MediaStreamHandler:
                 print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
         
-        # ✅ "NO NEED" phrases - user wants to end politely
-        no_need_phrases = ["אין צורך", "לא צריך", "עזוב", "אין לי צורך"]
-        for phrase in no_need_phrases:
-            if phrase in text_lower:
-                print(f"[GOODBYE CHECK] 'No need' phrase detected - polite closing: '{phrase}'")
-                return True
-        
-        # ✅ CLEAR goodbye words (standalone = hangup)
-        # 🛡️ ONLY unambiguous farewell phrases - NOT mid-conversation phrases!
+        # ✅ CLEAR goodbye words - ONLY these trigger hangup!
+        # Must contain "ביי" or "להתראות" or English equivalents
         clear_goodbye_words = [
             "להתראות", "ביי", "bye", "bye bye", "goodbye",
             "יאללה ביי", "יאללה להתראות"
@@ -4701,33 +4691,23 @@ class MediaStreamHandler:
         
         has_clear_goodbye = any(word in text_lower for word in clear_goodbye_words)
         
-        # If we have a clear goodbye word, that's enough
         if has_clear_goodbye:
             print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
             return True
         
-        # ✅ Combined phrases (תודה + closing = hangup)
+        # ✅ Combined phrases with goodbye words
         combined_goodbye_phrases = [
-            "זהו תודה", "יופי תודה", "מצוין תודה", "סבבה תודה",
-            "אוקיי תודה", "בסדר תודה", "תודה וביי", "תודה להתראות",
-            "תודה רבה וביי", "תודה רבה להתראות",
-            "that's all", "thats all", "i'm done", "im done", 
-            "we're done", "have a good", "have a nice", "take care"
+            "תודה וביי", "תודה להתראות",
+            "תודה רבה וביי", "תודה רבה להתראות"
         ]
         
         for phrase in combined_goodbye_phrases:
             if phrase in text_lower:
-                print(f"[GOODBYE CHECK] Combined phrase detected: '{phrase}' in '{text_lower[:30]}...'")
+                print(f"[GOODBYE CHECK] Combined goodbye phrase: '{phrase}'")
                 return True
         
-        # ✅ Final check: "תודה" at end of sentence with no continuation expected
-        # Only if it's very short (like "תודה זהו" or just wrapping up)
-        if len(text_lower) < 15 and "תודה" in text_lower and ("זהו" in text_lower or "סיימנו" in text_lower):
-            print(f"[GOODBYE CHECK] Short closing detected: '{text_lower}'")
-            return True
-        
-        # 🚫 "תודה" alone is NOT goodbye
-        print(f"[GOODBYE CHECK] No clear goodbye: '{text_lower[:30]}...'")
+        # 🚫 Everything else is NOT goodbye (including "תודה", "אין צורך", "לא צריך")
+        print(f"[GOODBYE CHECK] No goodbye phrase: '{text_lower[:30]}...'")
         return False
 
     def _check_lead_captured(self) -> bool:
