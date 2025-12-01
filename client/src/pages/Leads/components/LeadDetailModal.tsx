@@ -8,6 +8,7 @@ import { Lead, LeadStatus, LeadSource, LeadReminder, LeadActivity, UpdateLeadReq
 import { http } from '../../../services/http';
 import { formatDate } from '../../../shared/utils/format';
 import { useStatuses, LeadStatus as DynamicStatus } from '../../../features/statuses/hooks';
+import { getStatusLabel } from '../../../shared/utils/status';
 
 interface LeadDetailModalProps {
   lead: Lead;
@@ -44,12 +45,6 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
       refreshStatuses();
     }
   }, [isOpen, refreshStatuses]);
-  
-  // Helper to get status label
-  const getStatusLabel = (statusName: string) => {
-    const found = dynamicStatuses.find(s => s.name === statusName);
-    return found?.label || statusName;
-  };
 
   // Initialize form data when lead changes
   useEffect(() => {
@@ -220,7 +215,7 @@ export default function LeadDetailModal({ lead, isOpen, onClose, onUpdate }: Lea
               </h2>
               <div className="flex items-center gap-2 mt-1">
                 <Badge className="text-xs">
-                  {getStatusLabel(lead.status)}
+                  {getStatusLabel(lead.status, dynamicStatuses)}
                 </Badge>
                 <Badge variant="neutral" className="text-xs">
                   {SOURCES.find(s => s.key === lead.source)?.label}

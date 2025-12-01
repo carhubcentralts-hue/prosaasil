@@ -14,38 +14,12 @@ import { useLeads } from './hooks/useLeads';
 import { Lead, LeadStatus } from './types';
 import { useStatuses } from '../../features/statuses/hooks';
 import { http } from '../../services/http';
-
-// Dynamic statuses loaded from API
+import { getStatusColor, getStatusLabel, getStatusDotColor } from '../../shared/utils/status';
 
 // Safe value helper function as per guidelines
 const safe = (val: any, dash: string = '—'): string => {
   if (val === null || val === undefined || val === '') return dash;
   return String(val);
-};
-
-// Helper to extract dot color from Tailwind class
-const getStatusDotColor = (tailwindClass: string): string => {
-  const colorMap: Record<string, string> = {
-    'bg-blue-100': '#3B82F6',     // blue-500
-    'bg-yellow-100': '#F59E0B',   // yellow-500 (amber)
-    'bg-purple-100': '#8B5CF6',   // purple-500
-    'bg-green-100': '#22C55E',    // green-500
-    'bg-emerald-100': '#10B981',  // emerald-500
-    'bg-red-100': '#EF4444',      // red-500
-    'bg-gray-100': '#6B7280',     // gray-500
-    'bg-orange-100': '#F97316',   // orange-500
-    'bg-pink-100': '#EC4899',     // pink-500
-    'bg-indigo-100': '#6366F1',   // indigo-500
-    'bg-teal-100': '#14B8A6',     // teal-500
-    'bg-cyan-100': '#06B6D4',     // cyan-500
-  };
-  
-  for (const [key, color] of Object.entries(colorMap)) {
-    if (tailwindClass.includes(key)) {
-      return color;
-    }
-  }
-  return '#6B7280'; // default gray
 };
 
 export default function LeadsPage() {
@@ -214,46 +188,6 @@ export default function LeadsPage() {
     
     // פתיחת אפליקציית הטלפון
     window.location.href = `tel:${phone}`;
-  };
-
-  const getStatusColor = (status: LeadStatus): string => {
-    const normalizedStatus = status.toLowerCase();
-    const foundStatus = statuses.find(s => s.name.toLowerCase() === normalizedStatus);
-    if (foundStatus) {
-      return foundStatus.color;
-    }
-    
-    const fallbackColors: Record<string, string> = {
-      'new': 'bg-blue-100 text-blue-800',
-      'attempting': 'bg-yellow-100 text-yellow-800',
-      'contacted': 'bg-purple-100 text-purple-800',
-      'qualified': 'bg-green-100 text-green-800',
-      'won': 'bg-emerald-100 text-emerald-800',
-      'lost': 'bg-red-100 text-red-800',
-      'unqualified': 'bg-gray-100 text-gray-800',
-    };
-    
-    return fallbackColors[normalizedStatus] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getStatusLabel = (status: LeadStatus): string => {
-    const normalizedStatus = status.toLowerCase();
-    const foundStatus = statuses.find(s => s.name.toLowerCase() === normalizedStatus);
-    if (foundStatus) {
-      return foundStatus.label;
-    }
-    
-    const fallbackLabels: Record<string, string> = {
-      'new': 'חדש',
-      'attempting': 'מנסה ליצור קשר',
-      'contacted': 'יצרנו קשר',
-      'qualified': 'מתאים',
-      'won': 'נצחנו',
-      'lost': 'איבדנו',
-      'unqualified': 'לא מתאים',
-    };
-    
-    return fallbackLabels[normalizedStatus] || status;
   };
 
   const handleDeleteLead = async (leadId: number, leadName: string) => {
@@ -588,7 +522,7 @@ export default function LeadsPage() {
                     ) : (
                       <div className="relative group flex items-center gap-2">
                         <div 
-                          className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 hover:scale-105 text-xs px-3 py-1.5 transition-all duration-200 hover:ring-2 hover:ring-blue-400 hover:shadow-md rounded-full inline-flex items-center gap-1.5 font-medium`}
+                          className={`${getStatusColor(lead.status, statuses)} cursor-pointer hover:opacity-80 hover:scale-105 text-xs px-3 py-1.5 transition-all duration-200 hover:ring-2 hover:ring-blue-400 hover:shadow-md rounded-full inline-flex items-center gap-1.5 font-medium`}
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -601,9 +535,9 @@ export default function LeadsPage() {
                         >
                           <span 
                             className="w-2 h-2 rounded-full flex-shrink-0" 
-                            style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status)) }}
+                            style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status, statuses)) }}
                           />
-                          {getStatusLabel(lead.status)}
+                          {getStatusLabel(lead.status, statuses)}
                           <Edit className="w-3 h-3 opacity-70" />
                         </div>
                         <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none shadow-lg">
@@ -951,7 +885,7 @@ export default function LeadsPage() {
                         <div className="relative group">
                           <div className="flex items-center gap-2">
                             <div 
-                              className={`${getStatusColor(lead.status)} cursor-pointer hover:opacity-80 text-xs px-3 py-2 transition-all duration-200 rounded-full inline-flex items-center gap-1.5 font-medium`}
+                              className={`${getStatusColor(lead.status, statuses)} cursor-pointer hover:opacity-80 text-xs px-3 py-2 transition-all duration-200 rounded-full inline-flex items-center gap-1.5 font-medium`}
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -964,9 +898,9 @@ export default function LeadsPage() {
                             >
                               <span 
                                 className="w-2 h-2 rounded-full flex-shrink-0" 
-                                style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status)) }}
+                                style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status, statuses)) }}
                               />
-                              {getStatusLabel(lead.status)}
+                              {getStatusLabel(lead.status, statuses)}
                             </div>
                             <span className="text-xs text-gray-400">לחץ לעריכה</span>
                           </div>

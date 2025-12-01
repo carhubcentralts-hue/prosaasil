@@ -11,6 +11,7 @@ import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './t
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
 import { useStatuses, LeadStatus } from '../../features/statuses/hooks';
+import { getStatusColor, getStatusLabel } from '../../shared/utils/status';
 
 interface LeadDetailPageProps {}
 
@@ -225,29 +226,18 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     );
   }
 
-  // Use dynamic statuses from the shared hook - no more hardcoded labels!
-  const getStatusLabel = (status: string): string => {
-    const found = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
-    return found?.label || status;
-  };
-
-  const getStatusColor = (status: string): string => {
-    const found = statuses.find(s => s.name.toLowerCase() === status.toLowerCase());
-    return found?.color || 'bg-gray-100 text-gray-800';
-  };
-
   const StatusDropdown = () => (
     <div className="relative">
       <button
         onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
         disabled={statusSaving}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${getStatusColor(lead.status)} hover:opacity-80 transition-opacity`}
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${getStatusColor(lead.status, statuses)} hover:opacity-80 transition-opacity`}
         data-testid="status-dropdown-trigger"
       >
         {statusSaving ? (
           <Loader2 className="w-3 h-3 animate-spin" />
         ) : null}
-        {getStatusLabel(lead.status)}
+        {getStatusLabel(lead.status, statuses)}
         <ChevronDown className="w-3 h-3" />
       </button>
       
