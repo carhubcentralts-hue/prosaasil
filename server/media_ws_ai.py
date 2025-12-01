@@ -1068,31 +1068,35 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
             
-            # 🚀 PHASE 1: Load greeting from DB FAST and configure
-            # This allows greeting to start in ~1-2 seconds instead of 10+
+            # 🚀 PHASE 1: Use ALREADY LOADED greeting (ZERO DB queries!)
+            # Greeting + business name were loaded in sync context
             t_before_greeting = time.time()
             
-            # Load greeting from DB (fast - single query)
-            def _load_greeting_sync():
-                try:
-                    from server.services.realtime_prompt_builder import get_greeting_prompt_fast
-                    app = _get_flask_app()
-                    with app.app_context():
-                        return get_greeting_prompt_fast(business_id_safe)
-                except Exception as e:
-                    print(f"⚠️ [PHASE 1] Greeting load failed: {e}")
-                    return ("שלום! איך אפשר לעזור?", "העסק")
+            # ⚡ SPEED FIX: Use pre-loaded data - NO DB QUERIES!
+            # ✅ IMPORTANT: Don't fallback if greeting_text is None - AI should improvise!
+            greeting_text = getattr(self, 'greeting_text', None)
+            biz_name = getattr(self, 'business_name', None) or "העסק"
+            has_custom_greeting = greeting_text is not None and len(greeting_text.strip()) > 0
             
-            loop = asyncio.get_event_loop()
-            greeting_text, biz_name = await loop.run_in_executor(None, _load_greeting_sync)
             greeting_load_ms = (time.time() - t_before_greeting) * 1000
-            print(f"⏱️ [PHASE 1] Greeting loaded in {greeting_load_ms:.0f}ms: '{greeting_text[:50]}...'")
+            if has_custom_greeting:
+                print(f"⏱️ [PHASE 1] Using PRE-LOADED greeting in {greeting_load_ms:.0f}ms: '{greeting_text[:50]}...'")
+            else:
+                print(f"⏱️ [PHASE 1] No custom greeting - AI will improvise (biz='{biz_name}')")
             
-            # Build greeting-only prompt with the actual greeting
-            greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
+            # Build greeting-only prompt with the actual greeting (or improvise instruction)
+            if has_custom_greeting:
+                greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
 
 🎤 ברכה (אמור בדיוק!):
 "{greeting_text}"
+
+חוקים: קצר מאוד (1-2 משפטים). אם הלקוח שותק - שתוק."""
+            else:
+                # No custom greeting - AI should improvise a brief intro
+                greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
+
+🎤 פתיחה: הזדהה בקצרה כנציג של {biz_name} ושאל במה תוכל לעזור.
 
 חוקים: קצר מאוד (1-2 משפטים). אם הלקוח שותק - שתוק."""
             
@@ -4426,9 +4430,11 @@ class MediaStreamHandler:
                 # עדכן business_id + חזור ברכה
                 if business:
                     self.business_id = business.id
+                    # ⚡ SPEED FIX: Store business name for later use (no extra DB query!)
+                    self.business_name = business.name or "העסק שלנו"
                     # ✅ אם אין פתיח מוגדר - None (ה-AI ידבר ראשון בעצמו!)
                     greeting = business.greeting_message or None
-                    business_name = business.name or "העסק שלנו"
+                    business_name = self.business_name
                     
                     if greeting:
                         # החלפת placeholder
