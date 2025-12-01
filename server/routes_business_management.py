@@ -726,7 +726,12 @@ def get_current_business():
             "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if settings else False,
             "auto_end_on_goodbye": settings.auto_end_on_goodbye if settings else False,
             # 🔥 BUILD 163: Bot speaks first
-            "bot_speaks_first": settings.bot_speaks_first if settings else False
+            "bot_speaks_first": settings.bot_speaks_first if settings else False,
+            # 🔥 BUILD 164: Smart Call Control Settings
+            "silence_timeout_sec": settings.silence_timeout_sec if settings else 15,
+            "silence_max_warnings": settings.silence_max_warnings if settings else 2,
+            "smart_hangup_enabled": settings.smart_hangup_enabled if settings else True,
+            "required_lead_fields": settings.required_lead_fields if settings else ["name", "phone"]
         })
         
     except Exception as e:
@@ -815,6 +820,16 @@ def update_current_business_settings():
         # 🔥 BUILD 163: Bot speaks first setting
         if 'bot_speaks_first' in data:
             settings.bot_speaks_first = bool(data['bot_speaks_first'])
+        
+        # 🔥 BUILD 164: Smart Call Control Settings
+        if 'silence_timeout_sec' in data:
+            settings.silence_timeout_sec = int(data['silence_timeout_sec'])
+        if 'silence_max_warnings' in data:
+            settings.silence_max_warnings = int(data['silence_max_warnings'])
+        if 'smart_hangup_enabled' in data:
+            settings.smart_hangup_enabled = bool(data['smart_hangup_enabled'])
+        if 'required_lead_fields' in data:
+            settings.required_lead_fields = data['required_lead_fields']
             
         # Track who updated
         user_email = session.get('al_user', {}).get('email', 'Unknown')
