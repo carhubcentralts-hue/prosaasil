@@ -802,6 +802,9 @@ class MediaStreamHandler:
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
         self.ai_speaking_start_ts = None  # 🔥 FIX: When AI STARTED speaking (for grace period)
         self.last_user_turn_id = None  # Last user conversation item ID
+        
+        # 🚀 PARALLEL STARTUP: Event to signal business info is ready
+        self.business_info_ready_event = threading.Event()  # Signal when DB query completes
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
         self.min_ai_talk_guard_ms = 120  # 🎯 FAST BARGE-IN: 120ms grace period (was 400ms)
@@ -977,6 +980,27 @@ class MediaStreamHandler:
         
         return text
 
+    def _set_safe_business_defaults(self, force_greeting=False):
+        """🔥 SAFETY: Set ONLY MISSING fields with safe defaults. Never overwrite valid data."""
+        # Only set if attribute doesn't exist or is explicitly None
+        if not hasattr(self, 'business_id') or self.business_id is None:
+            self.business_id = 1
+            print(f"🔒 [DEFAULTS] Set fallback business_id=1")
+        if not hasattr(self, 'business_name') or self.business_name is None:
+            self.business_name = "העסק"
+        if not hasattr(self, 'bot_speaks_first'):
+            self.bot_speaks_first = True
+        if not hasattr(self, 'auto_end_after_lead_capture'):
+            self.auto_end_after_lead_capture = False
+        if not hasattr(self, 'auto_end_on_goodbye'):
+            self.auto_end_on_goodbye = False
+        if not hasattr(self, 'greeting_text'):
+            self.greeting_text = None
+        # Force bot_speaks_first on error/timeout paths
+        if force_greeting:
+            self.bot_speaks_first = True
+            print(f"🔒 [DEFAULTS] Forced bot_speaks_first=True for greeting")
+
     def _run_realtime_mode_thread(self):
         """
         🚀 OpenAI Realtime API Mode - Runs in dedicated thread with asyncio loop
@@ -1011,82 +1035,78 @@ class MediaStreamHandler:
     
     async def _run_realtime_mode_async(self):
         """
-        🚀 OpenAI Realtime API - Async main loop
+        🚀 OpenAI Realtime API - Async main loop with PARALLEL startup
         
         Handles bidirectional audio streaming:
-        1. Receive audio from Twilio (via queue) → send to Realtime API
-        2. Receive audio from Realtime API → send to Twilio (via queue)
-        3. Handle text events, tool calls, and conversation state
+        1. Connect to OpenAI IMMEDIATELY (parallel with DB query)
+        2. Wait for business info from main thread
+        3. Configure session and trigger greeting
+        4. Stream audio bidirectionally
         """
         from server.services.openai_realtime_client import OpenAIRealtimeClient
         from server.services.realtime_prompt_builder import build_realtime_system_prompt
         
-        _orig_print(f"🚀 [REALTIME] Async loop starting for business_id={self.business_id}", flush=True)
-        logger.info(f"[CALL DEBUG] Connecting to OpenAI Realtime for business_id={self.business_id}")
+        _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
         
         client = None
-        call_start_time = time.time()  # 💰 Track call duration for cost estimation
+        call_start_time = time.time()
         
-        # 💰 Cost tracking: Track actual audio chunks for accurate billing
-        self.realtime_audio_in_chunks = 0  # User audio chunks received
-        self.realtime_audio_out_chunks = 0  # AI audio chunks sent
-        self._user_speech_start = None  # Track user speech duration
-        self._ai_speech_start = None  # Track AI speech duration
+        self.realtime_audio_in_chunks = 0
+        self.realtime_audio_out_chunks = 0
+        self._user_speech_start = None
+        self._ai_speech_start = None
         
         try:
             t_start = time.time()
-            logger.info(f"[CALL DEBUG] Creating OpenAI Realtime client with model={OPENAI_REALTIME_MODEL}")
+            
+            # 🚀 PARALLEL STEP 1: Connect to OpenAI IMMEDIATELY (don't wait for DB!)
+            logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             t_client = time.time()
-            print(f"⏱️ [TIMING] Client created in {(t_client-t_start)*1000:.0f}ms")
+            print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
-            # 🚀 2-PHASE APPROACH: Fast greeting first, full prompt update later
-            # Phase 1: Connect + minimal greeting = ~1-2 seconds
-            # Phase 2: Build full prompt in background + session.update
-            logger.info(f"[CALL DEBUG] Starting 2-PHASE: fast greeting, then full prompt")
-            
-            # Prepare prompt building task
-            business_id_safe = self.business_id
-            if not business_id_safe:
-                logger.error(f"[CALL-ERROR] No business_id set!")
-                from server.services.business_resolver import resolve_business_with_fallback
-                to_num = getattr(self, 'to_number', None) or ''
-                self.business_id, status = resolve_business_with_fallback('twilio_voice', to_num)
-                business_id_safe = self.business_id
-                logger.warning(f"[CALL-ERROR] Resolved via fallback: biz={self.business_id} ({status})")
-            
-            if not business_id_safe:
-                raise RuntimeError("[CALL-ERROR] Cannot start call without valid business_id")
-            
-            # 🔥 PHASE 1: Connect immediately with minimal greeting prompt
             t_connect_start = time.time()
             await client.connect()
             connect_ms = (time.time() - t_connect_start) * 1000
-            print(f"⏱️ [PHASE 1] OpenAI connected in {connect_ms:.0f}ms")
+            t_connected = time.time()
+            print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
-            # 🔥 Store client reference for barge-in
             self.realtime_client = client
             
-            # 💰 Log model selection for cost tracking
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
             
-            # 🚀 PHASE 1: Use ALREADY LOADED greeting (ZERO DB queries!)
-            # Greeting + business name were loaded in sync context
-            t_before_greeting = time.time()
+            # 🚀 PARALLEL STEP 2: Wait for business info from main thread (max 2s)
+            print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
             
-            # ⚡ SPEED FIX: Use pre-loaded data - NO DB QUERIES!
-            # ✅ IMPORTANT: Don't fallback if greeting_text is None - AI should improvise!
+            # Use asyncio to wait for the threading.Event
+            loop = asyncio.get_event_loop()
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: self.business_info_ready_event.wait(2.0)),
+                    timeout=3.0
+                )
+                t_ready = time.time()
+                wait_ms = (t_ready - t_connected) * 1000
+                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
+            except asyncio.TimeoutError:
+                print(f"⚠️ [PARALLEL] Timeout waiting for business info - using defaults")
+                # Use helper with force_greeting=True to ensure greeting fires
+                self._set_safe_business_defaults(force_greeting=True)
+            
+            # Now we have business info - get the greeting
+            t_before_greeting = time.time()
             greeting_text = getattr(self, 'greeting_text', None)
             biz_name = getattr(self, 'business_name', None) or "העסק"
-            has_custom_greeting = greeting_text is not None and len(greeting_text.strip()) > 0
+            # business_id should be set by now (either from DB or defaults)
+            business_id_safe = self.business_id if self.business_id is not None else 1
+            has_custom_greeting = greeting_text is not None and len(str(greeting_text).strip()) > 0
             
-            greeting_load_ms = (time.time() - t_before_greeting) * 1000
             if has_custom_greeting:
-                print(f"⏱️ [PHASE 1] Using PRE-LOADED greeting in {greeting_load_ms:.0f}ms: '{greeting_text[:50]}...'")
+                print(f"⏱️ [PARALLEL] Using greeting: '{greeting_text[:50]}...'")
             else:
-                print(f"⏱️ [PHASE 1] No custom greeting - AI will improvise (biz='{biz_name}')")
+                print(f"⏱️ [PARALLEL] No custom greeting - AI will improvise (biz='{biz_name}')")
             
             # Build greeting-only prompt with the actual greeting (or improvise instruction)
             if has_custom_greeting:
@@ -2644,28 +2664,54 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
                     
-                    # ⚡ ULTRA-SPEED: Get MINIMAL data, start Realtime IMMEDIATELY
-                    # Prompt building runs IN PARALLEL with OpenAI connection
+                    # 🚀 PARALLEL STARTUP: Start OpenAI connection AND DB query simultaneously!
                     logger.info(f"[CALL DEBUG] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
+                    
+                    # 🔥 STEP 1: Start OpenAI thread IMMEDIATELY (connects while DB runs)
+                    if USE_REALTIME_API and not self.realtime_thread:
+                        t_realtime_start = time.time()
+                        delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
+                        _orig_print(f"🚀 [PARALLEL] Starting OpenAI at T0+{delta_from_t0:.0f}ms (BEFORE DB query!)", flush=True)
+                        
+                        self.realtime_thread = threading.Thread(
+                            target=self._run_realtime_mode_thread,
+                            daemon=True
+                        )
+                        self.realtime_thread.start()
+                        self.background_threads.append(self.realtime_thread)
+                        
+                        realtime_out_thread = threading.Thread(
+                            target=self._realtime_audio_out_loop,
+                            daemon=True
+                        )
+                        realtime_out_thread.start()
+                        self.background_threads.append(realtime_out_thread)
+                    
+                    # 🔥 STEP 2: DB query runs IN PARALLEL with OpenAI connection
                     t_biz_start = time.time()
                     try:
                         app = _get_flask_app()
                         with app.app_context():
-                            # 🚀 ULTRA-FAST: Single combined query for business + greeting + settings!
                             business_id, greet = self._identify_business_and_get_greeting()
-                            # Note: bot_speaks_first is now loaded inside _identify_business_and_get_greeting()
                             
                         t_biz_end = time.time()
-                        print(f"⚡ ULTRA-FAST: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        print(f"⚡ DB QUERY: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         logger.info(f"[CALL DEBUG] Business ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
-                        # Prompt building now happens in TRUE PARALLEL with OpenAI connect (asyncio.gather)
+                        
+                        # 🔥 SAFETY: Only set defaults if fields are truly None (preserve valid 0 or empty)
+                        if self.business_id is None:
+                            self.business_id = 1
+                            self.business_name = "העסק"
+                            print(f"🔒 [DEFAULTS] No business_id from DB - using fallback=1")
+                        if not hasattr(self, 'bot_speaks_first'):
+                            self.bot_speaks_first = True
                         
                     except Exception as e:
                         import traceback
                         logger.error(f"[CALL-ERROR] Business identification failed: {e}")
-                        from server.services.business_resolver import resolve_business_with_fallback
-                        self.business_id, status = resolve_business_with_fallback('twilio_voice', self.to_number)
-                        greet = "שלום! איך אפשר לעזור?"
+                        # Use helper with force_greeting=True to ensure greeting fires
+                        self._set_safe_business_defaults(force_greeting=True)
+                        greet = None  # AI will improvise
                     
                     # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
                     if not USE_REALTIME_API:
@@ -2692,55 +2738,26 @@ class MediaStreamHandler:
                         self.tx_running = True
                         self.tx_thread.start()
                     
-                    # ⚡ FIX: Store greeting for Realtime thread (avoid race condition with queue)
+                    # 🔥 STEP 3: Store greeting and signal event (OpenAI thread is waiting!)
                     if not self.greeting_sent and USE_REALTIME_API:
                         self.t1_greeting_start = time.time()
                         if greet:
-                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME START!")
-                            # Store greeting as instance variable instead of queue (more reliable)
+                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] STORING GREETING FOR REALTIME!")
                             self.greeting_text = greet
-                            # ⚡ DON'T reset greeting_sent here - it's set in the async loop
                             if not hasattr(self, 'greeting_sent'):
                                 self.greeting_sent = False
-                            # 🔍 DEBUG: Log FULL greeting to detect truncation
-                            print(f"✅ [REALTIME] Greeting stored (FULL): '{greet}' (len={len(greet)})")
-                            print(f"✅ [REALTIME] Greeting stored (PREVIEW): '{greet[:50]}...'")
+                            print(f"✅ [REALTIME] Greeting stored: '{greet[:50]}...' (len={len(greet)})")
                         else:
-                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first dynamically!")
+                            print(f"🎯 [T1={self.t1_greeting_start:.3f}] NO GREETING - AI will speak first!")
                             self.greeting_text = None
-                            # ✅ FIX: Set greeting_sent=True so GUARD doesn't block AI's first response
-                            # When there's no pre-configured greeting, the AI's first utterance IS the greeting
                             self.greeting_sent = True
-                            print(f"✅ [REALTIME] greeting_sent=True (AI will generate greeting dynamically)")
                     
-                    # 🚀 REALTIME API: Start Realtime mode AFTER greeting is queued
-                    # 🔥 CRITICAL: Force print to bypass DEBUG override
-                    _orig_print(f"🎯 [CALL DEBUG] Checking Realtime: USE_REALTIME_API={USE_REALTIME_API}, realtime_thread={self.realtime_thread}", flush=True)
-                    logger.info(f"[CALL DEBUG] Checking Realtime: USE_REALTIME_API={USE_REALTIME_API}, realtime_thread={self.realtime_thread}")
+                    # 🚀 SIGNAL: Tell OpenAI thread that business info is ready!
+                    total_startup_ms = (time.time() - self.t0_connected) * 1000
+                    print(f"🚀 [PARALLEL] Signaling business info ready at T0+{total_startup_ms:.0f}ms")
+                    self.business_info_ready_event.set()
                     
-                    if USE_REALTIME_API and not self.realtime_thread:
-                        t_realtime_start = time.time()
-                        delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
-                        _orig_print(f"🚀 [REALTIME] Starting at T0+{delta_from_t0:.0f}ms for call {self.call_sid[:8] if self.call_sid else 'unknown'}", flush=True)
-                        logger.info(f"[CALL DEBUG] Starting OpenAI Realtime at T0+{delta_from_t0:.0f}ms for business_id={self.business_id}")
-                        
-                        self.realtime_thread = threading.Thread(
-                            target=self._run_realtime_mode_thread,
-                            daemon=True
-                        )
-                        self.realtime_thread.start()
-                        self.background_threads.append(self.realtime_thread)
-                        
-                        realtime_out_thread = threading.Thread(
-                            target=self._realtime_audio_out_loop,
-                            daemon=True
-                        )
-                        realtime_out_thread.start()
-                        self.background_threads.append(realtime_out_thread)
-                        
-                        print(f"✅ [REALTIME] Threads started - greeting will be sent by async loop")
-                        logger.info(f"[CALL DEBUG] Realtime threads started successfully")
-                        # ❌ DON'T set greeting_sent=True here - let the async loop do it after actually sending!
+                    # Note: Realtime thread was already started above (BEFORE DB query)
                     
                     # 🎵 GOOGLE TTS: Send greeting via Google TTS if NOT using Realtime
                     elif not self.greeting_sent and not USE_REALTIME_API:
