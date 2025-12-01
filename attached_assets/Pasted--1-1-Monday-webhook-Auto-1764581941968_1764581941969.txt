@@ -1,0 +1,367 @@
+הבנתי לגמרי.
+הנה הנחיה אחת, מסודרת, באנגלית, להדבקה 1:1 לסוכן בריפליט. זה כולל Monday webhook + Auto hangup + Bot speaks first + Barge-in, עם כבוד מלא לפרויקט ולשרת החיצוני.
+
+⸻
+
+SYSTEM / PROJECT CONTEXT – READ FIRST, DO NOT CHANGE
+
+You are working on my ProSaaS AI Call Center + CRM project.
+
+Tech stack (already working in production):
+	•	Backend: Python (Flask/FastAPI style), Twilio voice calls (including Realtime / media stream), WhatsApp (Baileys + Meta Cloud), AI services.
+	•	Frontend: React + TypeScript (multi-tenant CRM, business settings, AI settings, WhatsApp, calls, etc.).
+	•	DB: Postgres (Neon) with existing migration system.
+	•	Deployment: Docker + docker-compose + nginx on an external server (Contabo) that pulls from this Git repo and runs docker compose there.
+
+Important:
+The code in this repo is already working in production. Your job is to extend it safely.
+
+⸻
+
+HARD RULES (DO NOT BREAK THESE)
+	1.	Do NOT touch deployment / infra files:
+	•	Do NOT edit: .env, docker-compose.yml, Dockerfile*, docker/nginx.conf, or any external server scripts.
+	•	Do NOT add new services to docker-compose.
+	2.	Do NOT modify anything in external server repos.
+Only change the current repo (the one you see in Replit). I will handle git push, git pull and docker compose on the external server myself.
+	3.	Do NOT break existing behavior:
+	•	Existing Twilio call flows must keep working.
+	•	Existing WhatsApp flows (Baileys + Meta) must keep working.
+	•	Existing CRM, settings pages, AI prompts, dashboards must continue working as they do now.
+	4.	New features must be:
+	•	Per-business configurable (feature flags / settings per business).
+	•	Off by default, so current businesses are not affected until they enable them.
+	•	Backwards compatible with current API responses (no field renames, only additions).
+
+At the end, the repo must build and run cleanly (backend + frontend) with no new errors.
+
+⸻
+
+GOAL
+
+Implement the following features in this repo:
+	1.	Monday.com webhook integration
+	•	Per-business fields in DB + UI.
+	•	When enabled, every completed call will send its full transcript and call metadata to a business-specific Monday webhook URL.
+	2.	Auto hang-up logic
+	•	Optional per-business flags to:
+	•	Hang up automatically once all required lead details are collected, OR
+	•	Hang up when the customer clearly says “bye / תודה / אין צורך / להיתראות”, etc.
+	3.	Bot speaks first (play greeting before listening)
+	•	Optional per-business flag: the bot says the greeting first, then starts listening.
+	4.	Improved barge-in behavior
+	•	Make barge-in more natural: interrupt TTS only when the user is clearly speaking, not on small noises.
+
+All of this must be done inside the existing architecture, without touching infra files.
+
+⸻
+
+1) Monday.com Webhook – Send Call Transcripts
+
+1.1 Backend model & settings API
+	1.	Locate the Business (or equivalent) model used for business-level settings.
+	•	This is the same model behind /api/business/current and /api/business/current/settings.
+	2.	Add these fields to the business/settings model (names must be exactly):
+
+	•	monday_webhook_url – nullable string.
+	•	send_call_transcripts_to_monday – boolean, default False.
+
+	3.	Add a DB migration using the existing migration mechanism (for example db_migrate.py or Alembic scripts):
+
+	•	Add the two columns with safe defaults (NULL for URL, False for the flag).
+	•	Do NOT drop or alter existing columns.
+
+	4.	Update the API that returns current business settings, e.g.:
+
+	•	GET /api/business/current
+	•	GET /api/business/current/settings
+
+Make sure the JSON response includes:
+
+{
+  "monday_webhook_url": "... or null ...",
+  "send_call_transcripts_to_monday": true/false,
+  ...
+}
+
+	5.	Update the settings update endpoint (likely PUT /api/business/current/settings) to:
+
+	•	Accept monday_webhook_url (string, may be empty).
+	•	Accept send_call_transcripts_to_monday (boolean).
+	•	Save them on the business/settings model.
+	•	Keep all existing behavior for other fields.
+
+⸻
+
+1.2 Monday webhook service
+
+Create or extend a dedicated service module, e.g.
+server/services/monday_webhook_service.py:
+
+Implement:
+
+import logging
+import requests
+
+logger = logging.getLogger(__name__)
+
+def send_call_transcript_to_monday(*, business, call, transcript: str) -> None:
+    """
+    If the business enabled Monday integration, send a JSON payload with call
+    details + transcript to the configured monday_webhook_url.
+
+    This function must NEVER break the main call flow. If it fails,
+    log a warning and return.
+    """
+
+Behavior:
+	•	Read business.monday_webhook_url and business.send_call_transcripts_to_monday.
+	•	If URL is empty/None or flag is False → return immediately.
+	•	Otherwise send a POST with JSON, for example:
+
+{
+  "source": "prosaas_call_center",
+  "business_id": ...,
+  "business_name": "...",
+  "call_id": ...,
+  "call_sid": "...",
+  "direction": "inbound" | "outbound",
+  "from_number": "...",
+  "to_number": "...",
+  "started_at": "ISO8601",
+  "ended_at": "ISO8601",
+  "duration_sec": 123,
+  "transcript": "full call transcript text"
+}
+
+	•	Wrap requests.post in try/except:
+	•	Log logger.warning on errors.
+	•	Do NOT raise exceptions.
+
+⸻
+
+1.3 Hook into call finalization
+	1.	Locate the code that finalizes a call and stores the final transcript.
+This is usually in a route or service like routes_calls.py, call_processing, or a background job that processes recordings.
+	2.	After the final transcript is:
+
+	•	Assembled (all segments / messages joined).
+	•	Saved to DB.
+	•	Committed (if using a transaction).
+
+Add a call:
+
+from server.services.monday_webhook_service import send_call_transcript_to_monday
+
+send_call_transcript_to_monday(
+    business=call.business,  # or however you access the related business
+    call=call,
+    transcript=final_transcript_text,  # use the actual full text
+)
+
+Wrap this call in a try/except if necessary so it never breaks the main flow.
+
+⸻
+
+2) UI – Monday Integration Section in System Settings
+
+Goal: in the System Settings → Business tab (where business name, phone, email are), add a section:
+	•	“אינטגרציה עם Monday.com”
+	•	Text input: Monday Webhook URL
+	•	Checkbox: “שלח תמלולי שיחות אוטומטית ל-Monday”
+
+Steps:
+	1.	Open the React settings page, e.g. client/src/pages/settings/SettingsPage.tsx (the one you already use for business settings, appointments, integrations, etc.).
+	2.	Extend the BusinessSettings TypeScript interface to include:
+
+monday_webhook_url?: string | null;
+send_call_transcripts_to_monday?: boolean;
+
+	3.	In the useQuery that loads /api/business/current:
+
+	•	Map the backend fields into the businessSettings state.
+	•	Make sure default values are safe:
+	•	monday_webhook_url → empty string if missing.
+	•	send_call_transcripts_to_monday → false if missing.
+
+	4.	In the Business tab UI, under the existing “Business details” card, add another Card:
+
+	•	Title: “אינטגרציה עם Monday.com”.
+	•	Inside:
+	•	<input> (dir=“ltr”) bound to businessSettings.monday_webhook_url.
+	•	<input type="checkbox"> bound to businessSettings.send_call_transcripts_to_monday.
+	•	Short helper text in Hebrew explaining that if this is enabled, every completed call transcript will be sent to Monday.
+
+	5.	When clicking the global “שמור הגדרות” button for the Business tab:
+
+	•	Ensure the PUT /api/business/current/settings payload includes:
+	•	monday_webhook_url
+	•	send_call_transcripts_to_monday
+together with the existing fields.
+
+⸻
+
+3) Auto Hang-Up Logic
+
+3.1 Business settings
+
+Add two boolean fields on the business/settings model:
+	•	auto_end_after_lead_capture – default False.
+	•	auto_end_on_goodbye – default False.
+
+Expose them in:
+	•	GET /api/business/current / settings
+	•	PUT /api/business/current/settings
+
+Add them to the Settings UI (Business or AI tab) as checkboxes, e.g.:
+	•	“נתק שיחה אוטומטית אחרי קבלת כל פרטי הליד”
+	•	“נתק שיחה כשלקוח אומר ביי / תודה / אין צורך”
+
+3.2 Call logic
+	1.	Find the AI call session code (Twilio realtime/media stream handler) that:
+
+	•	Receives user speech.
+	•	Transcribes it.
+	•	Sends context to the AI model.
+	•	Streams TTS back.
+
+	2.	In the call session state, maintain:
+
+self.lead_captured = False
+self.goodbye_detected = False
+self.pending_hangup = False
+
+	3.	After each user utterance (transcribed text), update these flags:
+
+	•	If you already track required lead fields (name, phone, service, date, etc.) and they are all present → self.lead_captured = True.
+	•	If the user text contains clear goodbye expressions (Hebrew + simple English), like:
+	•	“תודה”, “תודה רבה”, “אין צורך”, “זהו”, “ביי”, “להתראות”
+	•	“thanks”, “that’s all”, “no need”, “bye”
+→ self.goodbye_detected = True.
+
+	4.	After generating the bot’s next response:
+
+	•	If business.auto_end_after_lead_capture is True and self.lead_captured is True:
+	•	Mark self.pending_hangup = True.
+	•	Else if business.auto_end_on_goodbye is True and self.goodbye_detected is True:
+	•	Mark self.pending_hangup = True.
+
+	5.	When the final TTS chunk of that response has been sent:
+
+	•	If self.pending_hangup is True:
+	•	Use the existing Twilio integration to end the call cleanly:
+	•	For TwiML: send <Hangup/> or end the flow.
+	•	For realtime/media-stream: call the Twilio REST API to update the call status to completed, or send the official disconnect message.
+	•	Ensure you only do this once.
+
+⸻
+
+4) Bot Speaks First (Greeting Before Listening)
+
+4.1 Setting
+
+Add a boolean field:
+	•	bot_speaks_first (or play_greeting_before_listening), default False.
+
+Expose it via the same business/AI settings APIs.
+In the AI calls settings UI (where you configure the call greeting text), add a checkbox:
+	•	Label (Hebrew): “הבוט מדבר ראשון (ניגון הודעת פתיחה לפני שמקשיבים ללקוח)”.
+
+4.2 Call flow
+	1.	On call start, when the AI session is created:
+
+	•	Read business.bot_speaks_first (or similar).
+	•	Read the greeting_message already used for calls.
+
+	2.	If bot_speaks_first is True:
+
+	•	Immediately enqueue a bot TTS message with the greeting as the first turn.
+	•	Do not start user speech recognition until greeting TTS is started.
+(You may allow barge-in during the greeting if barge-in is enabled, see next section.)
+
+	3.	If bot_speaks_first is False:
+
+	•	Keep the current “user speaks first” behavior exactly as today.
+
+⸻
+
+5) Improve Barge-In Behavior
+
+Goal: user must be able to interrupt the bot naturally, but we don’t want to cut off TTS for small noises.
+
+5.1 Locate current barge-in code
+
+Search in the backend for:
+	•	barge, barge_in, interrupt_tts, VAD, speech_threshold, RMS, etc.
+
+Identify:
+	•	Where the system knows the bot is speaking (TTS in progress).
+	•	Where incoming audio from the user is evaluated for barge-in.
+
+5.2 Improve logic (keep API unchanged)
+
+Add/adjust:
+	1.	Clear flags in the session:
+
+self.bot_speaking = True/False
+self.user_turn_open = True/False
+
+	2.	While self.bot_speaking is True and incoming audio frames from the user arrive:
+
+	•	Compute average RMS/energy over a short sliding window.
+	•	Consider it a valid barge-in only if:
+	•	RMS is above a BARGE_IN_SPEECH_THRESHOLD, and
+	•	This condition is sustained for at least 250–300 ms.
+
+	3.	On valid barge-in:
+
+	•	Stop/flush current TTS stream (if API exists for that).
+	•	Set self.bot_speaking = False, self.user_turn_open = True.
+	•	Start or continue STT for that user utterance.
+
+	4.	Define constants at the top of the file, commented:
+
+BASE_SPEECH_THRESHOLD = ...
+BARGE_IN_SPEECH_THRESHOLD = BASE_SPEECH_THRESHOLD * 1.2
+BARGE_IN_MIN_MS = 250
+
+	5.	If the call is in pending_hangup state (from section 3), you can either disable barge-in or handle carefully to avoid weird “extra turns” after the bot has already indicated conversation is over.
+
+Do not change any external API; only adjust internal logic.
+
+⸻
+
+6) FINAL CHECKLIST (BEFORE YOU STOP)
+	1.	Backend:
+	•	All migrations run successfully locally.
+	•	/api/business/current and /api/business/current/settings work and include the new fields without breaking old ones.
+	•	Calls complete successfully as before.
+	•	When Monday integration is enabled and webhook URL is set, each completed call sends one HTTP POST to the Monday URL with the JSON payload.
+	2.	Frontend:
+	•	Settings page loads properly.
+	•	Business tab shows:
+	•	Monday Webhook URL input.
+	•	“send transcripts to Monday” checkbox.
+	•	AI/Call behavior settings show:
+	•	Auto end after lead capture.
+	•	Auto end on goodbye.
+	•	Bot speaks first.
+	•	Settings can be changed and saved, and the new values persist after reload.
+	3.	Calls:
+	•	With all new flags disabled → behavior is exactly as it was before.
+	•	With Monday enabled + webhook present → new call transcript is sent.
+	•	With auto-end flags enabled → call ends automatically in the correct scenarios.
+	•	With bot-speaks-first enabled → greeting plays immediately on call start.
+	•	Barge-in still works and feels more natural.
+	4.	Do NOT touch:
+	•	.env
+	•	docker-compose.yml
+	•	Dockerfile*
+	•	docker/nginx.conf
+	•	Any external server repository.
+
+I (the user) will handle git add/commit/push and the git pull + docker compose on the external server.
+
+⸻
+
+🧷 Paste this entire instruction block into the Replit AI agent as-is.
