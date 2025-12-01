@@ -139,6 +139,12 @@ class BusinessSettings(db.Model):
     # 🔥 BUILD 163: Bot speaks first setting
     bot_speaks_first = db.Column(db.Boolean, default=False)  # Bot plays greeting before listening
     
+    # 🔥 BUILD 164: Smart Call Control Settings (Step 2 Spec)
+    silence_timeout_sec = db.Column(db.Integer, default=15)  # Seconds of silence before asking "are you there?"
+    silence_max_warnings = db.Column(db.Integer, default=2)  # Max warnings before polite hangup
+    smart_hangup_enabled = db.Column(db.Boolean, default=True)  # AI decides hangup based on context, not keywords
+    required_lead_fields = db.Column(db.JSON, nullable=True)  # ["name", "phone", "service_type", "preferred_time"]
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
