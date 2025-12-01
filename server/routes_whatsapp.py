@@ -1315,6 +1315,7 @@ def get_whatsapp_summaries():
     Returns list of leads with their last WhatsApp summary
     """
     from server.routes_crm import get_business_id
+    from server.models_sql import Lead
     
     business_id = get_business_id()
     if not business_id:
