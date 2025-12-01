@@ -57,6 +57,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const [reminders, setReminders] = useState<LeadReminder[]>([]);
   const [calls, setCalls] = useState<LeadCall[]>([]);
   const [appointments, setAppointments] = useState<LeadAppointment[]>([]);
+  const [loadingCalls, setLoadingCalls] = useState(false);
+  const [loadingAppointments, setLoadingAppointments] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -75,12 +77,10 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       // Immediately hide loading state - lead is loaded
       setLoading(false);
       
-      // Fetch calls and appointments in parallel (non-blocking)
+      // Fire calls and appointments fetches independently (each has its own error handling)
       if (response.phone_e164) {
-        Promise.all([
-          fetchCalls(response.phone_e164),
-          fetchAppointments(response.phone_e164)
-        ]).catch(console.error);
+        fetchCalls(response.phone_e164);
+        fetchAppointments(response.phone_e164);
       }
     } catch (err) {
       console.error('Failed to fetch lead:', err);
@@ -91,6 +91,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
 
   const fetchCalls = async (phone: string) => {
     try {
+      setLoadingCalls(true);
       const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?search=${encodeURIComponent(phone)}`);
       if (response.success && response.calls) {
         const leadCalls: LeadCall[] = response.calls.map((call: any) => ({
@@ -109,11 +110,14 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     } catch (err) {
       console.error('Failed to fetch calls:', err);
       setCalls([]);
+    } finally {
+      setLoadingCalls(false);
     }
   };
 
   const fetchAppointments = async (phone: string) => {
     try {
+      setLoadingAppointments(true);
       const response = await http.get<{ appointments: any[] }>(`/api/calendar/appointments?search=${encodeURIComponent(phone)}`);
       if (response.appointments) {
         const leadAppointments: LeadAppointment[] = response.appointments.map((appt: any) => ({
@@ -131,6 +135,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     } catch (err) {
       console.error('Failed to fetch appointments:', err);
       setAppointments([]);
+    } finally {
+      setLoadingAppointments(false);
     }
   };
 
@@ -458,8 +464,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           />
         )}
         {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
-        {activeTab === 'calls' && <CallsTab calls={calls} />}
-        {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} />}
+        {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} />}
+        {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
       </div>
@@ -770,11 +776,16 @@ function ConversationTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsApp:
   );
 }
 
-function CallsTab({ calls }: { calls: LeadCall[] }) {
+function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) {
   return (
     <Card className="p-4 sm:p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">היסטוריית שיחות טלפון</h3>
-      {calls.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <span className="text-sm text-gray-500 mr-2">טוען שיחות...</span>
+        </div>
+      ) : calls.length === 0 ? (
         <p className="text-sm text-gray-500">אין שיחות טלפון</p>
       ) : (
         <div className="space-y-4">
@@ -808,7 +819,7 @@ function CallsTab({ calls }: { calls: LeadCall[] }) {
   );
 }
 
-function AppointmentsTab({ appointments }: { appointments: LeadAppointment[] }) {
+function AppointmentsTab({ appointments, loading }: { appointments: LeadAppointment[]; loading?: boolean }) {
   const formatDateTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleString('he-IL', {
@@ -835,7 +846,12 @@ function AppointmentsTab({ appointments }: { appointments: LeadAppointment[] }) 
   return (
     <Card className="p-4 sm:p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">פגישות</h3>
-      {appointments.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <span className="text-sm text-gray-500 mr-2">טוען פגישות...</span>
+        </div>
+      ) : appointments.length === 0 ? (
         <div className="text-center py-8">
           <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
           <p className="text-sm text-gray-500">אין פגישות</p>

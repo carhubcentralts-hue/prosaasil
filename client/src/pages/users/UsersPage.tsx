@@ -108,14 +108,15 @@ export function UsersPage() {
     try {
       setLoading(true);
       
-      // First get current user info to determine role and business
-      const meRes = await http.get('/api/auth/me').catch(() => null) as any;
+      // Load user info and users list in parallel for faster page load
+      const [meRes, usersRes] = await Promise.all([
+        http.get('/api/auth/me').catch(() => null) as Promise<any>,
+        http.get('/api/admin/users').catch(() => []) as Promise<any>
+      ]);
+      
       const currentRole = meRes?.user?.role || meRes?.role;
       const currentBusinessId = meRes?.user?.business_id || meRes?.business_id;
       const currentBusinessName = meRes?.user?.business_name || meRes?.business_name;
-      
-      // Load users list
-      const usersRes = await http.get('/api/admin/users').catch(() => []) as any;
       
       if (Array.isArray(usersRes)) {
         const mappedUsers = usersRes.map((u: any) => ({

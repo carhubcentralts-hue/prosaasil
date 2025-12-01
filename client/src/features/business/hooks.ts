@@ -58,6 +58,7 @@ export const useBusinessDashboard = () => {
     
     if (user && tenant) {  // Only fetch when we have auth state
       console.log('🔄 Auth state changed, re-fetching dashboard data...', { impersonating, tenant: tenant.name });
+      // Fire both in parallel (each handles its own errors and loading state)
       fetchStats();
       fetchActivity();
     } else {

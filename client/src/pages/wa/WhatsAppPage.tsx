@@ -141,7 +141,7 @@ export function WhatsAppPage() {
   const [summaries, setSummaries] = useState<{id: number; lead_name: string; phone: string; summary: string; summary_at: string}[]>([]);
   const [loadingSummaries, setLoadingSummaries] = useState(false);
 
-  // Load initial data
+  // Load initial data - fire all in parallel (each handles its own errors)
   useEffect(() => {
     loadWhatsAppStatus();
     loadThreads();

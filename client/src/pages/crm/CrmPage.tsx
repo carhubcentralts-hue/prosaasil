@@ -86,6 +86,7 @@ export function CrmPage() {
   });
 
   useEffect(() => {
+    // Fire both requests in parallel (each handles its own errors)
     loadData();
     loadLeads();
   }, []);
