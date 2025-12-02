@@ -630,17 +630,20 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 114: VAD OPTIMIZED FOR SPEED (Streaming STT enabled, ≤2s latency target)
+# ⚡ BUILD 164B: BALANCED NOISE FILTERING - Filter noise but allow quiet speech
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
-VAD_RMS = int(os.getenv("VAD_RMS", "65"))                   # ✅ פחות רגיש לרעשים - מפחית קטיעות שגויות
-# 🔥 DEPRECATED (Phase 2N): Old BARGE_IN var - now using ENABLE_BARGE_IN (default=false)
-# BARGE_IN = os.getenv("BARGE_IN", "true").lower() == "true"
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "120"))  # 🔥 Phase 2D: 120ms - ultra-aggressive for ≤2s response
+VAD_RMS = int(os.getenv("VAD_RMS", "150"))                  # 🔥 BUILD 164B: 150 - balanced threshold
+# 🔥 BALANCED NOISE THRESHOLDS - filter noise while allowing normal speech (180-500 RMS typical)
+RMS_SILENCE_THRESHOLD = 120      # Below this = pure noise only (was 350, too high)
+MIN_SPEECH_RMS = 200             # Speech detection threshold (was 600, too high - speech is 180-500)
+MIN_SPEECH_DURATION_MS = 220     # 220ms continuous speech for detection (was 280)
+NOISE_HOLD_MS = 150              # Grace period for noise tolerance
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 164B: 150ms (balanced)
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","40"))  # ✅ 40 frames = ≈800ms קול רציף נדרש לקטיעה
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","11"))  # 🔥 BUILD 164B: 11 frames = ≈220ms continuous speech
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -716,9 +719,9 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        # 🎯 AGENT 3 HEBREW: VAD = noise + 80, capped at 175 (detects 180-220 RMS speech)
-        self.noise_floor = 80.0          # רמת רעש (calibrated from RMS<120 frames)
-        self.vad_threshold = 170.0        # סף VAD (Hebrew: noise+80, max 175)
+        # 🔥 BUILD 164B: BALANCED noise thresholds
+        self.noise_floor = 80.0          # Baseline noise (will be calibrated)
+        self.vad_threshold = MIN_SPEECH_RMS  # 200 RMS minimum for speech detection
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
         self.mark_pending = False        # האם ממתינים לסימון TTS
@@ -807,11 +810,11 @@ class MediaStreamHandler:
         self.business_info_ready_event = threading.Event()  # Signal when DB query completes
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
-        self.min_ai_talk_guard_ms = 120  # 🎯 FAST BARGE-IN: 120ms grace period (was 400ms)
-        self.barge_in_rms_threshold = 200.0  # 🎯 TUNED: RMS > 200 for reliable Hebrew speech
-        self.min_voice_duration_ms = 180  # 🎯 TUNED: 180ms continuous speech for barge-in
-        self.barge_in_min_ms = 180  # 🎯 TUNED: Match min_voice_duration_ms
-        self.barge_in_cooldown_ms = 500  # Faster cooldown for responsive interruption
+        self.min_ai_talk_guard_ms = 150  # 🔥 BUILD 164B: 150ms grace period
+        self.barge_in_rms_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 164B: RMS > 200 for reliable speech
+        self.min_voice_duration_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: 220ms continuous speech
+        self.barge_in_min_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: Match min_voice_duration_ms
+        self.barge_in_cooldown_ms = 500  # 🔥 BUILD 164B: Standard cooldown
         self.last_barge_in_ts = None  # Last time barge-in was triggered
         self.current_user_voice_start_ts = None  # When current user voice started
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
@@ -2960,7 +2963,7 @@ class MediaStreamHandler:
                     # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
                     rms = audioop.rms(pcm16, 2)
                     
-                    # 🎯 IMPROVED BARGE-IN for Realtime API (180ms continuous @ RMS > 200)
+                    # 🔥 BUILD 164B: BALANCED BARGE-IN - Filter noise while allowing speech
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         # 🔍 DEBUG: Log AI speaking state every 50 frames (~1 second)
                         if not hasattr(self, '_barge_in_debug_counter'):
@@ -2972,84 +2975,84 @@ class MediaStreamHandler:
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
                         
+                        # 🔥 BUILD 164B: NOISE GATE - Ignore pure noise (RMS < 120)
+                        if rms < RMS_SILENCE_THRESHOLD:  # 120 - low enough to catch soft speech
+                            # Pure noise - don't count for barge-in
+                            self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 1)
+                            continue
+                        
                         # Only allow barge-in if AI is speaking
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
                             # 🎯 FIX: Allow barge-in if user has spoken OR greeting finished
-                            # This enables users to interrupt AI follow-up after greeting
                             can_barge = self.user_has_spoken or self.barge_in_enabled_after_greeting
                             if not can_barge:
-                                self.barge_in_voice_frames = 0  # Reset counter
+                                self.barge_in_voice_frames = 0
                                 continue
                             
                             # 🛡️ PROTECT GREETING: Never barge-in during greeting!
                             if self.is_playing_greeting:
-                                self.barge_in_voice_frames = 0  # Reset counter
+                                self.barge_in_voice_frames = 0
                                 continue
                             
                             current_time = time.monotonic()
                             time_since_tts_start = current_time - self.speaking_start_ts if hasattr(self, 'speaking_start_ts') and self.speaking_start_ts else 999
                             
-                            # 🎯 TUNED: 120ms grace period to avoid TTS echo (was 350ms)
-                            grace_period = 0.12  # 120ms grace period
+                            # 🔥 BUILD 164B: 150ms grace period
+                            grace_period = 0.15  # 150ms grace period
                             if time_since_tts_start < grace_period:
-                                self.barge_in_voice_frames = 0  # Reset during grace
+                                self.barge_in_voice_frames = 0
                                 continue
                             
-                            # 🎯 TUNED: RMS > 200 threshold for Hebrew speech
-                            speech_threshold = self.barge_in_rms_threshold  # 200.0
+                            # 🔥 BUILD 164B: RMS > 200 for speech detection (typical speech is 180-500)
+                            speech_threshold = MIN_SPEECH_RMS  # 200
                             
-                            # 🎯 TUNED: Count continuous voice frames (180ms = ~9 frames @ 20ms each)
+                            # 🔥 BUILD 164B: Require 220ms continuous speech (~11 frames @ 20ms)
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
-                                # 🎯 180ms continuous = ~9 frames @ 20ms/frame
-                                frames_for_180ms = 9
-                                if self.barge_in_voice_frames >= frames_for_180ms:
+                                # 220ms continuous = ~11 frames @ 20ms/frame
+                                frames_for_220ms = 11
+                                if self.barge_in_voice_frames >= frames_for_220ms:
                                     print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= {speech_threshold:.0f}, "
-                                          f"continuous={self.barge_in_voice_frames} frames (180ms+)")
+                                          f"continuous={self.barge_in_voice_frames} frames (220ms+)")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
                                               f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
                                     self._handle_realtime_barge_in()
-                                    self.barge_in_voice_frames = 0  # Reset after trigger
+                                    self.barge_in_voice_frames = 0
                                     continue
                             else:
-                                # Voice dropped below threshold - reset counter
+                                # Voice dropped below threshold - gradual reset
                                 self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 2)
                     
-                    # 🎯 AGENT 3 VAD: Calibrate ONLY on true background noise (RMS < 120)
+                    # 🔥 BUILD 164B: VAD Calibration with balanced thresholds
                     if not self.is_calibrated:
                         # Track total attempts (timeout after 4 seconds)
                         total_frames = getattr(self, '_total_calibration_attempts', 0) + 1
                         self._total_calibration_attempts = total_frames
                         
-                        # Only calibrate on VERY quiet frames (RMS < 120) - excludes all speech!
-                        # Speech onset is typically 180+ RMS, so this is pure background noise
-                        if rms < 120:
+                        # Calibrate on frames below 120 RMS - pure background noise
+                        if rms < RMS_SILENCE_THRESHOLD:  # 120
                             self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
                             self.calibration_frames += 1
                         
                         # Complete calibration after 40 quiet frames OR 4 seconds timeout
                         if self.calibration_frames >= 40 or total_frames >= 200:
-                            # 🎯 AGENT 3 HEBREW FIX: threshold = noise + 80, capped at 175
-                            # Ensures Hebrew speech (180-220 RMS) always detected
-                            # margin: 80 RMS prevents noise false triggers
                             if self.calibration_frames < 10:
-                                self.vad_threshold = 170.0  # Default baseline for Hebrew
-                                logger.warning(f"🎛️ [VAD VERIFICATION] TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
-                                print(f"🎛️ VAD TIMEOUT - using Hebrew baseline threshold=170 (got only {self.calibration_frames} quiet frames)")
+                                self.vad_threshold = 180.0  # Hebrew speech baseline
+                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=180")
+                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=180")
                             else:
-                                # Calibrated: noise + 80, capped at 175 to guarantee detection
-                                # Typical: noise ~80-110 → threshold ~160-175 (catches 180+ RMS)
-                                self.vad_threshold = min(175.0, self.noise_floor + 80.0)
-                                logger.info(f"✅ [VAD VERIFICATION] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames}")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}, quiet_frames={self.calibration_frames})")
+                                # Adaptive: noise + 100, capped at 200 for quiet speakers
+                                self.vad_threshold = min(200.0, self.noise_floor + 100.0)
+                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
+                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
                             self.is_calibrated = True
                     
-                    # 🎯 Simple voice detection: RMS > threshold
+                    # 🔥 BUILD 164B: Voice detection with balanced threshold
                     if self.is_calibrated:
                         is_strong_voice = rms > self.vad_threshold
                     else:
-                        # Before calibration - use Hebrew baseline (170 RMS)
-                        is_strong_voice = rms > 170.0
+                        # Before calibration - use 180 RMS baseline (Hebrew speech)
+                        is_strong_voice = rms > 180.0
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
@@ -4233,35 +4236,39 @@ class MediaStreamHandler:
             duration = len(pcm16_8k) / (2 * 8000)
             print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # ⚡ BUILD 113: RELAXED validation - allow quieter speech for better transcription
+            # 🔥 BUILD 164B: BALANCED NOISE GATE - Filter noise, allow quiet speech
             
-            # 1. Basic amplitude check - RELAXED threshold (favor accuracy over noise rejection)
-            if max_amplitude < 50:  # Lowered from 60 - allow quieter speech
-                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 50)")
+            # 1. Basic amplitude check - balanced threshold
+            if max_amplitude < 100:  # Back to reasonable threshold for quiet speech
+                print(f"🚫 STT_BLOCKED: Audio too quiet (max_amplitude={max_amplitude} < 100)")
                 return ""
             
-            # 2. RMS energy check - RELAXED
-            if rms < 30:  # Lowered from 40 - allow quieter audio
-                print(f"🚫 STT_BLOCKED: Audio energy too low (rms={rms} < 30)")
+            # 2. RMS energy check - balanced (typical speech is 180-500)
+            if rms < 80:  # Allow soft speech while filtering pure noise
+                print(f"🚫 STT_BLOCKED: Audio below noise threshold (rms={rms} < 80)")
                 return ""
             
-            # 3. Duration check
-            if duration < 0.15:  # Too short to be meaningful
-                print(f"🚫 STT_BLOCKED: Audio too short ({duration:.2f}s < 0.15s)")
+            # 3. Duration check - slightly longer minimum
+            if duration < 0.18:  # 180ms minimum for meaningful audio
+                print(f"🚫 STT_BLOCKED: Audio too short ({duration:.2f}s < 0.18s)")
                 return ""
             
-            # 4. ✅ Advanced checks with variance/ZCR - INFORMATIONAL + BLOCKING
+            # 4. 🔥 BUILD 164B: BALANCED noise detection with variance/ZCR
             try:
                 import numpy as np
                 pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
                 energy_variance = np.var(pcm_array.astype(np.float32))
                 zero_crossings = np.sum(np.diff(np.sign(pcm_array)) != 0) / len(pcm_array)
                 
-                # ✅ Block pure silence, DTMF, and carrier tones
-                # Pure silence/monotonic: low variance AND low ZCR
-                # DTMF tone: very low ZCR (pure sine wave)
-                if (energy_variance < 200000 and zero_crossings < 0.02) or (zero_crossings < 0.005):
-                    print(f"🚫 STT_BLOCKED: Non-speech audio (variance={energy_variance}, zcr={zero_crossings:.3f})")
+                # Block pure silence and monotonic sounds (DTMF tones, carrier noise)
+                # But allow normal speech variance (200k+)
+                if energy_variance < 200000:  # Back to balanced threshold
+                    print(f"🚫 STT_BLOCKED: Low energy variance - likely noise (variance={energy_variance:.0f})")
+                    return ""
+                
+                # Block DTMF tones (very low ZCR) but allow speech
+                if zero_crossings < 0.01 or zero_crossings > 0.3:  # Relaxed range
+                    print(f"🚫 STT_BLOCKED: Abnormal ZCR - likely noise/tone (zcr={zero_crossings:.3f})")
                     return ""
                 
                 print(f"✅ AUDIO_VALIDATED: amp={max_amplitude}, rms={rms}, var={int(energy_variance)}, zcr={zero_crossings:.3f}")
@@ -4372,25 +4379,25 @@ class MediaStreamHandler:
             duration = len(pcm16_8k) / (2 * 8000)
             print(f"📊 AUDIO_VALIDATION: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # ✅ STRICT validation - אסור ל-Whisper להמציא דברים!
-            if max_amplitude < 200 or rms < 120:  # הרבה יותר חמור!
-                print("🚫 WHISPER_BLOCKED: Audio too weak - preventing fabrication")
-                return ""  # פשוט אל תתן ל-Whisper להמציא!
+            # 🔥 BUILD 164B: BALANCED noise gate for Whisper
+            if max_amplitude < 200 or rms < 120:  # Balanced thresholds - allow quiet speech
+                print(f"🚫 WHISPER_BLOCKED: Audio too weak (amp={max_amplitude}<200, rms={rms}<120)")
+                return ""  # Don't let Whisper hallucinate!
             
-            if duration < 0.3:  # פחות מ-300ms
+            if duration < 0.3:  # Less than 300ms
                 print("🚫 WHISPER_BLOCKED: Audio too short - likely noise")
                 return ""
             
-            # ✅ בדיקת שיווי אנרגיה - האם יש דיבור אמיתי?
+            # Check for monotonic energy (noise vs speech)
             try:
                 import numpy as np
                 pcm_array = np.frombuffer(pcm16_8k, dtype=np.int16)
                 energy_variance = np.var(pcm_array.astype(np.float32))
-                if energy_variance < 1000000:  # אנרגיה מונוטונית = רעש
-                    print(f"🚫 WHISPER_BLOCKED: Low energy variance ({energy_variance}) - likely background noise")
+                if energy_variance < 1000000:  # Balanced threshold
+                    print(f"🚫 WHISPER_BLOCKED: Low energy variance ({energy_variance:.0f}) - background noise")
                     return ""
             except:
-                pass  # אם נכשל בבדיקה - המשך
+                pass  # If check fails - continue
             
             from server.services.lazy_services import get_openai_client
             client = get_openai_client()
@@ -4457,10 +4464,30 @@ class MediaStreamHandler:
                         print(f"🚫 WHISPER_ENGLISH_PHRASE: Found '{hallucination}' in '{result}' - blocking")
                         return ""
             
-            # ✅ בדיקת מילים חשודות ש-Whisper אוהב להמציא
-            suspicious_words = ["תודה", "נהדר", "נהדרת", "מעולה", "בראבו"] 
-            if len(result.split()) == 1 and any(word in result for word in suspicious_words):
-                print(f"🚫 WHISPER_FABRICATION_DETECTED: Suspicious single word '{result}' - blocking")
+            # 🔥 BUILD 164: ENHANCED anti-hallucination for Whisper
+            # Block ultra-short results (likely noise transcription)
+            if len(result) <= 1:
+                print(f"🚫 WHISPER_TOO_SHORT: Result '{result}' - blocking")
+                return ""
+            
+            # Block common noise hallucinations (Hebrew + English)
+            noise_hallucinations = [
+                "uh", "eh", "mmm", "hmm", "אה", "הממ", "אמ", "הא",
+                ".", "..", "...", "-", "—", " "
+            ]
+            if result.lower().strip() in noise_hallucinations:
+                print(f"🚫 WHISPER_NOISE_HALLUCINATION: '{result}' - blocking")
+                return ""
+            
+            # Block suspicious single Hebrew words that Whisper invents from noise
+            suspicious_single_words = [
+                "תודה", "נהדר", "נהדרת", "מעולה", "בראבו",
+                "כן", "לא", "אוקיי", "טוב", "סבבה",
+                "שלום", "היי", "ביי", "בסדר"
+            ]
+            words = result.split()
+            if len(words) == 1 and result.strip() in suspicious_single_words:
+                print(f"🚫 WHISPER_SUSPICIOUS_SINGLE: '{result}' - likely fabrication")
                 return ""
             
             print(f"✅ WHISPER_VALIDATED_SUCCESS: '{result}'")
@@ -4471,71 +4498,9 @@ class MediaStreamHandler:
             return ""
     
     def _whisper_fallback(self, pcm16_8k: bytes) -> str:
-        """⚠️ DEPRECATED: Old Whisper fallback - עכשיו שימוש ב-validated version"""
-        try:
-            print(f"🔄 WHISPER_FALLBACK: Processing {len(pcm16_8k)} bytes")
-            
-            # Check if audio has actual content
-            import audioop
-            max_amplitude = audioop.max(pcm16_8k, 2)
-            rms = audioop.rms(pcm16_8k, 2)
-            print(f"📊 AUDIO_ANALYSIS: max_amplitude={max_amplitude}, rms={rms}")
-            
-            if max_amplitude < 100 or rms < 80:  # ✅ תיקון לעברית - thresholds נמוכים יותר
-                print("🔇 WHISPER_SKIP: Audio too quiet or likely noise (Hebrew optimized)")
-                return ""
-            
-            from server.services.lazy_services import get_openai_client
-            client = get_openai_client()
-            if not client:
-                print("❌ OpenAI client not available")
-                return ""
-            
-            # Resample to 16kHz for Whisper
-            pcm16_16k = audioop.ratecv(pcm16_8k, 2, 1, 8000, 16000, None)[0]
-            print(f"🔄 RESAMPLED: {len(pcm16_8k)} bytes @ 8kHz → {len(pcm16_16k)} bytes @ 16kHz")
-            
-            # Save as temporary WAV file
-            import tempfile, wave
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
-                with wave.open(temp_wav.name, 'wb') as wav_file:
-                    wav_file.setnchannels(1)
-                    wav_file.setsampwidth(2)
-                    wav_file.setframerate(16000)
-                    wav_file.writeframes(pcm16_16k)
-                
-                with open(temp_wav.name, 'rb') as audio_file:
-                    transcription = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        language="he",
-                        response_format="text", 
-                        temperature=0.2
-                    )
-                
-                hebrew_text = str(transcription).strip() if transcription else ""
-                
-                # 🛡️ BUILD 149: ENGLISH HALLUCINATION FILTER (refined - same as validated)
-                import re
-                import os
-                hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', hebrew_text))
-                english_chars = len(re.findall(r'[a-zA-Z]', hebrew_text))
-                
-                # Only block PURE English fabrications (no Hebrew at all)
-                if hebrew_chars == 0 and english_chars > 3:
-                    print(f"🚫 WHISPER_FALLBACK_PURE_ENGLISH: '{hebrew_text}' has no Hebrew - blocking")
-                    os.unlink(temp_wav.name)
-                    return ""
-                
-                print(f"✅ WHISPER_FALLBACK_SUCCESS: '{hebrew_text}'")
-                
-                # Clean up
-                os.unlink(temp_wav.name)
-                return hebrew_text
-                
-        except Exception as e:
-            print(f"❌ WHISPER_FALLBACK_ERROR: {e}")
-            return ""
+        """🔥 BUILD 164: REDIRECT to validated version for all Whisper calls"""
+        # Always use the validated version with aggressive noise filtering
+        return self._whisper_fallback_validated(pcm16_8k)
     
     def _load_business_prompts(self, channel: str = 'calls') -> str:
         """טוען פרומפטים מהדאטאבייס לפי עסק - לפי ההנחיות המדויקות"""
