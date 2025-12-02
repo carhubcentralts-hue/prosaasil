@@ -4580,14 +4580,10 @@ class MediaStreamHandler:
                         self.smart_hangup_enabled = getattr(settings, 'smart_hangup_enabled', True)
                         if self.smart_hangup_enabled is None:
                             self.smart_hangup_enabled = True
-                        # Load required lead fields from JSON or default to ['name', 'phone']
-                        required_fields_json = getattr(settings, 'required_lead_fields_json', None)
-                        if required_fields_json:
-                            try:
-                                import json
-                                self.required_lead_fields = json.loads(required_fields_json) if isinstance(required_fields_json, str) else required_fields_json
-                            except:
-                                self.required_lead_fields = ['name', 'phone']
+                        # Load required lead fields - JSON column returns list directly
+                        required_fields = getattr(settings, 'required_lead_fields', None)
+                        if required_fields and isinstance(required_fields, list):
+                            self.required_lead_fields = required_fields
                         else:
                             self.required_lead_fields = ['name', 'phone']
                     else:
@@ -4741,13 +4737,10 @@ class MediaStreamHandler:
                     self.smart_hangup_enabled = getattr(settings, 'smart_hangup_enabled', True)
                     if self.smart_hangup_enabled is None:
                         self.smart_hangup_enabled = True
-                    # Load required lead fields from JSON
-                    required_fields_json = getattr(settings, 'required_lead_fields_json', None)
-                    if required_fields_json:
-                        try:
-                            self.required_lead_fields = json.loads(required_fields_json) if isinstance(required_fields_json, str) else required_fields_json
-                        except:
-                            self.required_lead_fields = ['name', 'phone']
+                    # Load required lead fields - JSON column returns list directly
+                    required_fields = getattr(settings, 'required_lead_fields', None)
+                    if required_fields and isinstance(required_fields, list):
+                        self.required_lead_fields = required_fields
                     else:
                         self.required_lead_fields = ['name', 'phone']
                     
