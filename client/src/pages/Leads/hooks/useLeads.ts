@@ -40,7 +40,8 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
 
   // Stabilize filters dependency to prevent infinite loop
   const depKey = JSON.stringify(passedFilters || {});
-  const isAdmin = user?.role === 'system_admin' || user?.role === 'owner';
+  // Only system_admin uses admin endpoint - owners use regular /api/leads with their tenant
+  const isSystemAdmin = user?.role === 'system_admin';
   const filters = passedFilters || {};
 
   const fetchLeads = useCallback(async () => {
@@ -55,7 +56,7 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
       // Build query parameters - admin endpoint uses 'search', regular endpoint uses 'q'
       const params = new URLSearchParams();
       
-      if (filters.search) params.append(isAdmin ? 'search' : 'q', filters.search);
+      if (filters.search) params.append(isSystemAdmin ? 'search' : 'q', filters.search);
       if (filters.status) params.append('status', filters.status);
       if (filters.source) params.append('source', filters.source);
       if (filters.owner_user_id) params.append('owner_user_id', filters.owner_user_id.toString());
@@ -63,7 +64,7 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
       if (filters.pageSize) params.append('pageSize', filters.pageSize.toString());
 
       const queryString = params.toString();
-      const url = isAdmin 
+      const url = isSystemAdmin 
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
@@ -88,7 +89,7 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
     } finally {
       setLoading(false);
     }
-  }, [depKey, isAdmin]);
+  }, [depKey, isSystemAdmin]);
 
   const createLead = useCallback(async (leadData: Partial<CreateLeadRequest>): Promise<Lead> => {
     try {
@@ -176,10 +177,13 @@ export function useLeadStats(): UseLeadStatsResult {
       setLoading(true);
       setError(null);
       
-      // Use admin endpoint for admin/manager/superadmin roles
-      const isAdmin = user?.role === 'system_admin' || user?.role === 'owner';
-      if (!isAdmin) {
-        throw new Error('Admin access required');
+      // Admin stats endpoint is only for system_admin
+      const isSystemAdmin = user?.role === 'system_admin';
+      if (!isSystemAdmin) {
+        // For non-system-admin users, we skip fetching admin stats
+        setStats(null);
+        setLoading(false);
+        return;
       }
       
       const response = await http.get<LeadStats>('/api/admin/leads/stats');
