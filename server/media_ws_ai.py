@@ -1141,6 +1141,12 @@ class MediaStreamHandler:
             self._call_voice = call_voice  # Store for session.update reuse
             print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
             
+            # 🔥 FIX: Calculate max_tokens based on greeting length
+            # Long greetings (14 seconds = ~280 words in Hebrew) need 500+ tokens
+            greeting_length = len(greeting_text) if has_custom_greeting else 0
+            greeting_max_tokens = max(200, min(600, greeting_length // 2 + 150))  # Scale with greeting length
+            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars")
+            
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -1149,7 +1155,7 @@ class MediaStreamHandler:
                 vad_threshold=0.6,
                 silence_duration_ms=600,
                 temperature=0.6,
-                max_tokens=100  # Short greeting only
+                max_tokens=greeting_max_tokens  # 🔥 Dynamic based on greeting length!
             )
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
@@ -1596,8 +1602,24 @@ class MediaStreamHandler:
                                 print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
                         # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
                         
-                        if self.auto_end_on_goodbye and can_detect_goodbye and self._check_goodbye_phrases(transcript):
-                            print(f"👋 [BUILD 163] AI said goodbye - marking pending hangup")
+                        # 🔥 FIX: Also detect polite closing phrases (not just "ביי")
+                        ai_polite_closing_detected = self._check_goodbye_phrases(transcript) or self._check_polite_closing(transcript)
+                        
+                        # Set pending_hangup if:
+                        # 1. auto_end_on_goodbye is ON and AI said goodbye, OR
+                        # 2. lead_captured is True and AI said any closing phrase
+                        should_hangup = False
+                        if self.auto_end_on_goodbye and can_detect_goodbye and ai_polite_closing_detected:
+                            print(f"👋 [BUILD 163] AI said goodbye (auto_end_on_goodbye) - marking pending hangup")
+                            should_hangup = True
+                        elif self.lead_captured and ai_polite_closing_detected:
+                            print(f"👋 [BUILD 163] AI said closing (lead_captured) - marking pending hangup")
+                            should_hangup = True
+                        elif self.goodbye_detected and ai_polite_closing_detected:
+                            print(f"👋 [BUILD 163] AI responded to user goodbye - marking pending hangup")
+                            should_hangup = True
+                        
+                        if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
                 
@@ -1661,16 +1683,24 @@ class MediaStreamHandler:
                         
                         if self.auto_end_on_goodbye and not self.pending_hangup and can_detect_goodbye:
                             if self._check_goodbye_phrases(transcript):
-                                print(f"👋 [BUILD 163] User said goodbye - marking pending hangup")
+                                print(f"👋 [BUILD 163] User said goodbye - sending polite closing instruction to AI")
                                 self.goodbye_detected = True
-                                self.pending_hangup = True
+                                # 🔥 FIX: Send explicit instruction to AI to say polite goodbye
+                                # The AI will respond, and when it says closing phrase, pending_hangup will be set
+                                asyncio.create_task(self._send_server_event_to_ai(
+                                    "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
+                                ))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         if self.auto_end_after_lead_capture and not self.pending_hangup and not self.lead_captured:
                             if self._check_lead_captured():
-                                print(f"✅ [BUILD 163] Lead fully captured - marking pending hangup")
+                                print(f"✅ [BUILD 163] Lead fully captured - sending polite closing instruction")
                                 self.lead_captured = True
-                                self.pending_hangup = True
+                                # 🔥 FIX: Send instruction to AI to say polite closing, THEN hang up
+                                asyncio.create_task(self._send_server_event_to_ai(
+                                    "[SERVER] ✅ כל הפרטים נקלטו! סיים את השיחה בצורה מנומסת - הודה ללקוח ואמור להתראות."
+                                ))
+                                # pending_hangup will be set when AI says goodbye
                     
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
@@ -4922,6 +4952,40 @@ class MediaStreamHandler:
         
         # 🚫 Everything else is NOT goodbye (including "תודה", "אין צורך", "לא צריך")
         print(f"[GOODBYE CHECK] No goodbye phrase: '{text_lower[:30]}...'")
+        return False
+
+    def _check_polite_closing(self, text: str) -> bool:
+        """
+        🎯 Check if AI said polite closing phrases (for graceful call ending)
+        
+        These phrases indicate AI is ending the conversation politely:
+        - "תודה שהתקשרת" - Thank you for calling
+        - "יום נפלא/נעים" - Have a great day
+        - "נשמח לעזור שוב" - Happy to help again
+        - "נציג יחזור אליך" - A rep will call you back
+        
+        Args:
+            text: AI transcript to check
+            
+        Returns:
+            True if polite closing phrase detected
+        """
+        text_lower = text.lower().strip()
+        
+        polite_closing_phrases = [
+            "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
+            "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
+            "נשמח לעזור", "נשמח לעמוד לשירותך",
+            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר",
+            "שמח שיכולתי לעזור", "שמחתי לעזור",
+            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות"
+        ]
+        
+        for phrase in polite_closing_phrases:
+            if phrase in text_lower:
+                print(f"[POLITE CLOSING] Detected: '{phrase}'")
+                return True
+        
         return False
 
     def _extract_lead_fields_from_ai(self, ai_transcript: str):
