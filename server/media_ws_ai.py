@@ -4179,48 +4179,46 @@ class MediaStreamHandler:
         print("✅ GREETING_COMPLETE -> LISTEN STATE")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
-        """שליחת אודיו עם יכולת עצירה באמצע (BARGE-IN) - גרסה ישנה"""
+        """
+        ⚡ BUILD 168.1 FIX: שליחת אודיו דרך tx_q עם תזמון נכון
+        הבעיה הישנה: שלחנו ישירות ללא sleep, מה שהציף את Twilio וגרם לנפילות סאונד!
+        הפתרון: שליחה דרך tx_q שמנוהל ע"י _tx_loop עם תזמון מדויק של 20ms לפריים
+        """
         if not self.stream_sid or not pcm16_8k:
             return
             
         # CLEAR לפני שליחה
-        self._ws_send(json.dumps({"event":"clear","streamSid":self.stream_sid}))
+        self._tx_enqueue({"type": "clear"})
         
         mulaw = audioop.lin2ulaw(pcm16_8k, 2)
         FR = 160  # 20ms @ 8kHz
         frames_sent = 0
         total_frames = len(mulaw) // FR
         
-        # ⚡ Removed flooding log
+        # ⚡ Backpressure threshold - wait if queue is >90% full
+        HIGH_WATERMARK = 810  # 90% of maxsize=900
         
         for i in range(0, len(mulaw), FR):
-            # 🔒 REMOVED: Barge-in check removed - ALWAYS finish speaking!
-            # OLD CODE: if not self.speaking: break
-            # NEW: Never check, always send all frames!
-                
             chunk = mulaw[i:i+FR]
             if len(chunk) < FR:
-                # הגענו לסוף - זה תקין
-                break
+                chunk = chunk.ljust(FR, b'\x00')  # Pad last frame
                 
             payload = base64.b64encode(chunk).decode("ascii")
-            try:
-                self._ws_send(json.dumps({
-                    "event": "media",
-                    "streamSid": self.stream_sid,
-                    "media": {"payload": payload}
-                }))
-                self.tx += 1
-                frames_sent += 1
-                
-                # ⚡ Removed flooding logs - only log errors
-            except Exception as e:
-                print(f"❌ Error sending frame {frames_sent}: {e}")
-                break
+            
+            # 🔥 FIX: Backpressure - wait if queue is too full
+            while self.tx_q.qsize() > HIGH_WATERMARK and self.speaking:
+                time.sleep(0.005)  # 5ms backpressure wait
+            
+            # Enqueue frame via tx_q (paced by _tx_loop at 20ms/frame)
+            self._tx_enqueue({
+                "type": "media",
+                "payload": payload
+            })
+            frames_sent += 1
         
-        # ⚡ Only log interruptions (barge-in), not normal completions
-        if not self.speaking:
-            print(f"⚠️ Audio interrupted: {frames_sent}/{total_frames} frames sent")
+        # ⚡ Only log if there was an issue
+        if frames_sent < total_frames:
+            print(f"⚠️ Audio incomplete: {frames_sent}/{total_frames} frames sent")
 
     def _send_beep(self, ms: int):
         """צפצוף פשוט"""
