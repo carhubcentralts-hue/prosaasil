@@ -142,7 +142,7 @@ def create_business():
             business.whatsapp_number = data.get('whatsapp_number', data['phone_e164'])  # Default to same phone
             business.greeting_message = data.get('greeting_message', "שלום! איך אפשר לעזור?")
             business.whatsapp_greeting = data.get('whatsapp_greeting', "שלום! איך אפשר לעזור?")
-            business.system_prompt = data.get('system_prompt', f"אתה עוזר נדל\"ן מקצועי ב{{{{business_name}}}}. תפקידך לעזור ללקוחות למצוא נכסים.")  # ✅ עם placeholder!
+            business.system_prompt = data.get('system_prompt', f"אתה נציג שירות מקצועי ב{{{{business_name}}}}. עזור ללקוחות בצורה אדיבה ומקצועית.")  # ✅ כללי - לא מניח סוג עסק!
             business.voice_message = data.get('voice_message', f"שלום מ{{{{business_name}}}}")
             business.working_hours = data.get('working_hours', "08:00-18:00")
             business.phone_permissions = True

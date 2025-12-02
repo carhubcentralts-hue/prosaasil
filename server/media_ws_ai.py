@@ -4352,7 +4352,7 @@ class MediaStreamHandler:
                         model="whisper-1",
                         file=audio_file,
                         language="he",  # חייב עברית
-                        prompt="זוהי שיחת טלפון בעברית על נדלן. אם אין דיבור ברור - אל תנסה לנחש.",  # הנחיה חמורה!
+                        prompt="זוהי שיחת טלפון בעברית. תמלל רק דיבור ברור. אם אין דיבור ברור - החזר ריק.",  # הנחיה חמורה!
                         temperature=0.1  # נמוך מאוד - פחות יצירתיות
                     )
             
@@ -4497,8 +4497,8 @@ class MediaStreamHandler:
                     print(f"✅ שימוש בעסק fallback: business_id={self.business_id} ({status})")
                 
                 if not self.business_id:
-                    print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל")
-                    return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
+                    print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל כללי")
+                    return "אתה נציג שירות מקצועי. עזור ללקוח במה שהוא צריך בצורה אדיבה וידידותית."
                 
                 # טען פרומפט מ-BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
@@ -4528,12 +4528,12 @@ class MediaStreamHandler:
                 print(f"✅ טען פרומפט מטבלת businesses לעסק {self.business_id}")
                 return business.system_prompt
                 
-            print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל")
-            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם/עסק hardcoded
+            print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל כללי")
+            return "אתה נציג שירות מקצועי. עזור ללקוח במה שהוא צריך בצורה אדיבה וידידותית."
             
         except Exception as e:
             print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
-            return "אתה עוזר נדלן מקצועי. עזור ללקוח למצוא את הנכס המתאים."  # ✅ בלי שם hardcoded
+            return "אתה נציג שירות מקצועי. עזור ללקוח במה שהוא צריך בצורה אדיבה וידידותית."
 
     def _identify_business_and_get_greeting(self) -> tuple:
         """⚡ זיהוי עסק + ברכה + הגדרות שיחה בשאילתה אחת - חוסך 70% זמן!"""
@@ -4611,11 +4611,15 @@ class MediaStreamHandler:
                         self.smart_hangup_enabled = True
                         self.required_lead_fields = ['name', 'phone']
                     
+                    # 🔥 CRITICAL: Mark settings as loaded to prevent duplicate loading
+                    self._call_settings_loaded = True
+                    
                     t_end = time.time()
                     print(f"⚡ COMBINED QUERY: biz+greeting+settings in {(t_end-t_start)*1000:.0f}ms")
                     print(f"   bot_speaks_first={self.bot_speaks_first}, auto_end_goodbye={self.auto_end_on_goodbye}")
                     print(f"🔍 [SETTINGS LOADED] required_lead_fields={self.required_lead_fields}")
                     print(f"🔍 [SETTINGS LOADED] smart_hangup_enabled={self.smart_hangup_enabled}")
+                    print(f"🔍 [SETTINGS LOADED] _call_settings_loaded=True (prevents duplicate load)")
                     
                     return (self.business_id, greeting)
                 else:
@@ -4732,9 +4736,17 @@ class MediaStreamHandler:
         - silence_max_warnings: How many silence warnings before polite hangup
         - smart_hangup_enabled: AI-driven hangup based on context, not keywords
         - required_lead_fields: Which fields must be collected before allowing hangup
+        
+        🔥 BUILD FIX: Uses _call_settings_loaded flag to prevent duplicate loading
         """
         if not self.business_id:
             print(f"⚠️ [SMART CALL] No business_id - using default call behavior settings")
+            return
+        
+        # 🔥 CHECK: Were settings already loaded by _identify_business_and_get_greeting()?
+        if getattr(self, '_call_settings_loaded', False):
+            print(f"✅ [SMART CALL] Settings already loaded (_call_settings_loaded=True) - skipping duplicate load")
+            print(f"   Current: silence_timeout={self.silence_timeout_sec}s, required_fields={self.required_lead_fields}")
             return
         
         try:
@@ -4759,8 +4771,14 @@ class MediaStreamHandler:
                     required_fields = getattr(settings, 'required_lead_fields', None)
                     if required_fields and isinstance(required_fields, list):
                         self.required_lead_fields = required_fields
-                    else:
+                    # 🔥 FIX: Don't overwrite with default if DB has empty list - empty is valid!
+                    # Only use default if truly None/missing
+                    elif required_fields is None:
                         self.required_lead_fields = ['name', 'phone']
+                    # else: keep whatever was loaded before
+                    
+                    # 🔥 CRITICAL: Mark settings as loaded to prevent future duplicate loading
+                    self._call_settings_loaded = True
                     
                     print(f"✅ [SMART CALL] Call behavior loaded for business {self.business_id}:")
                     print(f"   bot_speaks_first={self.bot_speaks_first}")
@@ -4770,11 +4788,9 @@ class MediaStreamHandler:
                     print(f"   smart_hangup_enabled={self.smart_hangup_enabled}")
                     print(f"   required_lead_fields={self.required_lead_fields}")
                 else:
-                    print(f"⚠️ [SMART CALL] No BusinessSettings for business {self.business_id} - using defaults")
-                    self.silence_timeout_sec = 15
-                    self.silence_max_warnings = 2
-                    self.smart_hangup_enabled = True
-                    self.required_lead_fields = ['name', 'phone']
+                    # 🔥 FIX: Only set defaults if values weren't previously loaded
+                    print(f"⚠️ [SMART CALL] No BusinessSettings for business {self.business_id}")
+                    # Don't overwrite existing values - keep what __init__ set
         except Exception as e:
             print(f"❌ [SMART CALL] Error loading call behavior settings: {e}")
             import traceback

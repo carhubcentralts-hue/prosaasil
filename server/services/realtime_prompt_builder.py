@@ -14,24 +14,31 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
     """
     FAST greeting loader - minimal DB access for phase 1
     Returns (greeting_text, business_name)
+    
+    🔥 CRITICAL: All greetings must come from DB. No hardcoded fallbacks.
     """
     try:
         from server.models_sql import Business
         
         business = Business.query.get(business_id)
         if not business:
-            return ("שלום! איך אפשר לעזור?", "העסק")
+            logger.warning(f"⚠️ Business {business_id} not found - using minimal generic greeting")
+            return ("", "")  # Return empty - let AI handle naturally
         
-        business_name = business.name or "העסק"
+        business_name = business.name or ""
         greeting = business.greeting_message
         
         if greeting and greeting.strip():
-            return (greeting.strip(), business_name)
+            # Replace placeholder with actual business name
+            final_greeting = greeting.strip().replace("{{business_name}}", business_name).replace("{{BUSINESS_NAME}}", business_name)
+            logger.info(f"✅ [GREETING] Loaded from DB for business {business_id}: '{final_greeting[:50]}...'")
+            return (final_greeting, business_name)
         else:
-            return (f"שלום! ברוכים הבאים ל{business_name}. איך אפשר לעזור?", business_name)
+            logger.warning(f"⚠️ No greeting in DB for business {business_id} - AI will greet naturally")
+            return ("", business_name)  # Let AI greet based on prompt
     except Exception as e:
         logger.error(f"❌ Fast greeting load failed: {e}")
-        return ("שלום! איך אפשר לעזור?", "העסק")
+        return ("", "")  # Return empty - let AI handle naturally
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
@@ -146,8 +153,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
 
 
 def _get_fallback_prompt() -> str:
-    """Minimal fallback prompt"""
-    return """אתה נציג טלפוני מקצועי. עונה בעברית בקצרה. עזור ללקוח לקבוע תור או לענות על שאלות."""
+    """Minimal fallback prompt - generic, no business type assumptions"""
+    return """אתה נציג שירות מקצועי ואדיב. עונה בעברית בקצרה וברורה. עזור ללקוח במה שהוא צריך."""
 
 
 def _build_hours_description(policy) -> str:
@@ -194,6 +201,7 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
     """
     COMPACT critical rules - trimmed from 84 lines to ~25 lines
     Keeps only essential rules, removes duplicates
+    🔥 Enhanced with polite/human personality traits
     """
     
     # Default greeting if not provided
@@ -209,6 +217,12 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 
 {greeting_instruction}
 
+💬 אישיות - היה אנושי ואדיב:
+• דבר בחמימות וידידות, כמו נציג מקצועי שאכפת לו באמת
+• השתמש בביטויים אנושיים: "בטח!", "בשמחה", "מעולה", "אשמח לעזור"
+• הקשב והבן - אל תקפוץ לתשובה לפני שהלקוח סיים
+• אם הלקוח מתוסכל - הראה אמפתיה: "אני מבין", "סליחה על אי הנוחות"
+
 🎯 חוקים:
 1. ⚡ קצרנות: 1-2 משפטים בלבד! אל תסביר יותר מדי.
 2. 🤫 שקט: אם הלקוח שותק - שתוק גם אתה. אל תוסיף משפטים.
@@ -220,7 +234,7 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 5. 🔄 barge-in: אם הלקוח מתחיל לדבר - הפסק מיד!
 
 📨 הודעות [SERVER]:
-• "✅ פנוי!" → "פנוי! על איזה שם לרשום?"
-• "❌ תפוס" → הצע את החלופות שהשרת נתן
-• "✅ appointment_created" → "התור נרשם, נציג יחזור לאישור"
+• "✅ פנוי!" → "מעולה! פנוי! על איזה שם לרשום?"
+• "❌ תפוס" → הצע את החלופות שהשרת נתן בנימוס
+• "✅ appointment_created" → "נהדר! התור נרשם, נציג יחזור אלייך לאישור"
 """

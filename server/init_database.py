@@ -38,7 +38,7 @@ def initialize_production_database():
                 whatsapp_number="+972500000000",  # Default WhatsApp number
                 greeting_message="שלום! איך אפשר לעזור?",  # Default greeting
                 whatsapp_greeting="שלום! איך אפשר לעזור?",  # Default WhatsApp greeting
-                system_prompt="אתה עוזר נדל\"ן מקצועי ב{{business_name}}. תפקידך לעזור ללקוחות למצוא נכסים.",  # ✅ עם placeholder!
+                system_prompt="אתה נציג שירות מקצועי ב{{business_name}}. עזור ללקוחות בצורה אדיבה ומקצועית.",  # ✅ כללי - לא מניח סוג עסק!
                 voice_message="שלום מ{{business_name}}",  # ✅ עם placeholder!
                 is_active=True,
                 calls_enabled=True,
@@ -182,8 +182,8 @@ def initialize_production_database():
                 booking_window_days=30,  # Default: 30 days ahead
                 min_notice_min=0,  # Default: no minimum notice
                 ai_prompt=json.dumps({
-                    "calls": "אתה עוזר AI למכירות נדל\"ן. שמור על שיחה קצרה וממוקדת.",
-                    "whatsapp": "אתה עוזר AI למכירות נדל\"ן ב-WhatsApp. היה ידידותי ומקצועי."
+                    "calls": "אתה נציג שירות מקצועי ואדיב. שמור על שיחה קצרה וממוקדת. עזור ללקוח במה שהוא צריך.",
+                    "whatsapp": "אתה נציג שירות מקצועי ב-WhatsApp. היה ידידותי ומקצועי. עזור ללקוח במה שהוא צריך."
                 }),
                 working_hours="09:00-18:00",
                 voice_message=None
