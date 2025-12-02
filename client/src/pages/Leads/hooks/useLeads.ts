@@ -52,10 +52,10 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      // Build query parameters
+      // Build query parameters - admin endpoint uses 'search', regular endpoint uses 'q'
       const params = new URLSearchParams();
       
-      if (filters.search) params.append('search', filters.search);
+      if (filters.search) params.append(isAdmin ? 'search' : 'q', filters.search);
       if (filters.status) params.append('status', filters.status);
       if (filters.source) params.append('source', filters.source);
       if (filters.owner_user_id) params.append('owner_user_id', filters.owner_user_id.toString());

@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Users, 
@@ -79,11 +79,13 @@ function QuickActionsCard() {
   );
 }
 
-function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoading?: boolean }) {
+function RecentActivityCard({ activity, isLoading, timeFilter }: { activity?: any[], isLoading?: boolean, timeFilter?: 'today' | '7days' }) {
   const navigate = useNavigate();
 
   const handleOpenActivity = (item: any) => {
-    if (item.type === 'call') {
+    if (item.leadId) {
+      navigate(`/app/leads/${item.leadId}`);
+    } else if (item.type === 'call') {
       navigate('/app/calls');
     } else if (item.type === 'whatsapp') {
       navigate('/app/whatsapp');
@@ -91,6 +93,14 @@ function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoadi
       navigate('/app/leads');
     }
   };
+  
+  const filteredActivity = activity?.filter(item => {
+    if (!timeFilter || timeFilter === '7days') return true;
+    const itemDate = new Date(item.ts);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return itemDate >= today;
+  });
 
   if (isLoading) {
     return (
@@ -115,7 +125,7 @@ function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoadi
       </div>
       
       <div className="space-y-3">
-        {activity && activity.length > 0 ? activity.slice(0, 6).map((item, index) => {
+        {filteredActivity && filteredActivity.length > 0 ? filteredActivity.slice(0, 6).map((item, index) => {
           const time = new Date(item.ts).toLocaleTimeString('he-IL', { 
             hour: '2-digit', 
             minute: '2-digit' 
@@ -152,7 +162,7 @@ function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoadi
         )}
       </div>
       
-      {activity && activity.length > 0 && (
+      {filteredActivity && filteredActivity.length > 0 && (
         <div className="mt-4 text-center">
           <button 
             className="text-blue-600 hover:text-blue-800 text-sm font-medium"
@@ -168,6 +178,8 @@ function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoadi
 }
 
 export function BusinessHomePage() {
+  const [timeFilter, setTimeFilter] = useState<'today' | '7days'>('today');
+  
   // Fetch real dashboard data
   const { stats, isLoadingStats, statsError, activity, isLoadingActivity, activityError, refetch } = useBusinessDashboard();
 
@@ -189,8 +201,20 @@ export function BusinessHomePage() {
               })}
             </p>
             <div className="flex gap-2">
-              <button className="btn-secondary text-xs px-3 py-1">היום</button>
-              <button className="btn-ghost text-xs px-3 py-1">7 ימים</button>
+              <button 
+                className={`text-xs px-3 py-1 rounded-md transition-colors ${timeFilter === 'today' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                onClick={() => setTimeFilter('today')}
+                data-testid="filter-today"
+              >
+                היום
+              </button>
+              <button 
+                className={`text-xs px-3 py-1 rounded-md transition-colors ${timeFilter === '7days' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                onClick={() => setTimeFilter('7days')}
+                data-testid="filter-7days"
+              >
+                7 ימים
+              </button>
             </div>
           </div>
         </div>
@@ -217,8 +241,8 @@ export function BusinessHomePage() {
           </Card>
         )}
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        {/* KPI Cards - Removed monthly income and average call per user request */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
           <StatCard
             title="שיחות היום"
             value={isLoadingStats ? (
@@ -233,7 +257,7 @@ export function BusinessHomePage() {
             icon={<Phone className="h-6 w-6" />}
           />
           <StatCard
-            title="WhatsApp היום"
+            title="צ'אטים היום"
             value={isLoadingStats ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -242,11 +266,11 @@ export function BusinessHomePage() {
             ) : (
               stats?.whatsapp?.today || 0
             )}
-            subtitle={stats?.whatsapp?.last7d ? `${stats.whatsapp.last7d} ב-7 ימים` : undefined}
+            subtitle={stats?.whatsapp?.last7d ? `${stats.whatsapp.last7d} צ'אטים ב-7 ימים` : undefined}
             icon={<MessageCircle className="h-6 w-6" />}
           />
           <StatCard
-            title="הודעות שלא נקראו"
+            title="צ'אטים שלא נקראו"
             value={isLoadingStats ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -257,36 +281,6 @@ export function BusinessHomePage() {
             )}
             subtitle="WhatsApp"
             icon={<Bell className="h-6 w-6" />}
-          />
-          <StatCard
-            title="ממוצע שיחה"
-            value={isLoadingStats ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">טוען...</span>
-              </div>
-            ) : stats?.calls?.avgHandleSec ? (
-              `${Math.round(stats.calls.avgHandleSec)}s`
-            ) : (
-              'אין נתונים'
-            )}
-            subtitle="זמן טיפול ממוצע"
-            icon={<Clock className="h-6 w-6" />}
-          />
-          <StatCard
-            title="הכנסות החודש"
-            value={isLoadingStats ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">טוען...</span>
-              </div>
-            ) : stats?.revenue?.thisMonth ? (
-              `₪${stats.revenue.thisMonth.toLocaleString('he-IL')}`
-            ) : (
-              'אין נתונים'
-            )}
-            subtitle={stats?.revenue?.ytd ? `₪${stats.revenue.ytd.toLocaleString('he-IL')} השנה` : undefined}
-            icon={<TrendingUp className="h-6 w-6" />}
           />
         </div>
 
@@ -300,7 +294,7 @@ export function BusinessHomePage() {
         <QuickActionsCard />
 
         {/* Recent Activity */}
-        <RecentActivityCard activity={activity} isLoading={isLoadingActivity} />
+        <RecentActivityCard activity={activity} isLoading={isLoadingActivity} timeFilter={timeFilter} />
       </div>
     </div>
   );

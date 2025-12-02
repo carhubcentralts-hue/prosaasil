@@ -80,22 +80,25 @@ def dashboard_stats():
         # Real average handle time
         avg_handle_sec = 0
         
-        # BUILD 135: WhatsApp stats - FILTERED by tenant_id
-        whatsapp_today = WhatsAppMessage.query.filter(
+        # BUILD 156: WhatsApp stats - COUNT UNIQUE CHATS (not messages)
+        # Count distinct phone numbers that had conversations today
+        from sqlalchemy import func as sql_func
+        whatsapp_today = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
             WhatsAppMessage.business_id == tenant_id,
             db.func.date(WhatsAppMessage.created_at) == today
-        ).count()
+        ).scalar() or 0
         
-        whatsapp_last7d = WhatsAppMessage.query.filter(
+        # Count distinct phone numbers that had conversations in last 7 days
+        whatsapp_last7d = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
             WhatsAppMessage.business_id == tenant_id,
             WhatsAppMessage.created_at >= week_ago
-        ).count()
+        ).scalar() or 0
         
-        # BUILD 135: Real unread messages count - FILTERED by tenant_id
-        unread = WhatsAppMessage.query.filter_by(
-            business_id=tenant_id,
-            status='received'
-        ).count()
+        # BUILD 156: Count unique chats with unread messages (not individual messages)
+        unread = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
+            WhatsAppMessage.business_id == tenant_id,
+            WhatsAppMessage.status == 'received'
+        ).scalar() or 0
         
         # BUILD 135: Real revenue stats - FILTERED by tenant_id
         from sqlalchemy import func

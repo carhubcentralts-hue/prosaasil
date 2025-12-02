@@ -158,10 +158,9 @@ export default function LeadsPage() {
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
     try {
-      // 🔥 FIX: Use POST (not PUT) - same as LeadDetailPage - server only accepts POST
-      await http.post(`/api/leads/${leadId}/status`, { status: newStatus });
-      await refreshLeads();
       setEditingStatus(null);
+      await http.post(`/api/leads/${leadId}/status`, { status: newStatus });
+      await updateLead(leadId, { status: newStatus });
     } catch (error) {
       console.error('Failed to update lead status:', error);
       alert('שגיאה בעדכון הסטטוס');
@@ -617,17 +616,6 @@ export default function LeadsPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/app/leads/${lead.id}`);
-                        }}
-                        className="h-8 w-8 p-0 bg-gray-500 text-white hover:bg-gray-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
-                        data-testid={`button-edit-${lead.id}`}
-                        title="ערוך ליד"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
                           handleDeleteLead(lead.id, lead.name || lead.full_name || `${lead.first_name} ${lead.last_name}`);
                         }}
                         className="h-8 w-8 p-0 bg-red-500 text-white hover:bg-red-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
@@ -698,19 +686,6 @@ export default function LeadsPage() {
                           <Receipt className="w-3 h-3 ml-1" />
                           חשבונית
                         </Button> */}
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/app/leads/${lead.id}`);
-                          }}
-                          className="flex-1 h-7 px-2 text-xs text-gray-600 border-gray-200 hover:bg-gray-50"
-                          data-testid={`button-edit-mobile-${lead.id}`}
-                        >
-                          <Edit className="w-3 h-3 ml-1" />
-                          ערוך
-                        </Button>
                         <Button
                           size="sm"
                           variant="secondary"

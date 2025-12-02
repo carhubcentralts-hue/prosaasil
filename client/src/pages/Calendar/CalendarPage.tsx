@@ -30,7 +30,7 @@ interface Appointment {
   end_time: string;
   location?: string;
   status: 'scheduled' | 'confirmed' | 'paid' | 'unpaid' | 'cancelled';
-  appointment_type: 'viewing' | 'meeting' | 'signing' | 'call_followup';
+  appointment_type: 'viewing' | 'meeting' | 'signing' | 'call_followup' | 'phone_call';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   contact_name?: string;
   contact_phone?: string;
@@ -47,17 +47,18 @@ interface AppointmentForm {
   end_time: string;
   location: string;
   status: 'scheduled' | 'confirmed' | 'paid' | 'unpaid' | 'cancelled';
-  appointment_type: 'viewing' | 'meeting' | 'signing' | 'call_followup';
+  appointment_type: 'viewing' | 'meeting' | 'signing' | 'call_followup' | 'phone_call';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   contact_name: string;
   contact_phone: string;
 }
 
-const APPOINTMENT_TYPES = {
+const APPOINTMENT_TYPES: Record<string, { label: string; color: string }> = {
   viewing: { label: 'צפייה', color: 'bg-blue-100 text-blue-800' },
   meeting: { label: 'פגישה', color: 'bg-green-100 text-green-800' },
   signing: { label: 'חתימה', color: 'bg-purple-100 text-purple-800' },
-  call_followup: { label: 'מעקב שיחה', color: 'bg-orange-100 text-orange-800' }
+  call_followup: { label: 'מעקב שיחה', color: 'bg-orange-100 text-orange-800' },
+  phone_call: { label: 'שיחה טלפונית', color: 'bg-cyan-100 text-cyan-800' }
 };
 
 const STATUS_TYPES = {
@@ -157,11 +158,19 @@ export function CalendarPage() {
     setFilterDate('');
   };
 
-  // Get appointments for a specific date
+  // Get appointments for a specific date - use raw appointments, not filtered, to always show calendar dots
   const getAppointmentsForDate = (date: Date) => {
-    return filteredAppointments.filter(appointment => {
+    return appointments.filter(appointment => {
       const appointmentDate = new Date(appointment.start_time);
-      return appointmentDate.toDateString() === date.toDateString();
+      // Apply search and type/status filters but NOT date filter for calendar dots
+      const matchesSearch = !searchTerm || 
+        appointment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        appointment.contact_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
+      const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
+      
+      return appointmentDate.toDateString() === date.toDateString() && 
+             matchesSearch && matchesStatus && matchesType;
     });
   };
 
@@ -529,7 +538,11 @@ export function CalendarPage() {
               </button>
               <button
                 className="btn-ghost px-2 md:px-4 py-1 md:py-2 text-xs md:text-base"
-                onClick={() => setCurrentDate(new Date())}
+                onClick={() => {
+                  setCurrentDate(new Date());
+                  setSelectedDate(null);
+                  setFilterDate('');
+                }}
                 data-testid="button-today"
               >
                 היום
