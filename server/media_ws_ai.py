@@ -1134,9 +1134,15 @@ class MediaStreamHandler:
             
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
+            
+            # 🎯 VOICE CONSISTENCY: Set voice once at call start, never change
+            # Using 'shimmer' - stable voice for Hebrew TTS
+            call_voice = "shimmer"
+            print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
+            
             await client.configure_session(
                 instructions=greeting_prompt,
-                voice="shimmer",
+                voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
                 vad_threshold=0.6,
@@ -1148,7 +1154,7 @@ class MediaStreamHandler:
             config_ms = (t_after_config - t_before_config) * 1000
             total_ms = (t_after_config - t_start) * 1000
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
-            print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready for immediate speech")
+            print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
             # 🚀 Start audio/text bridges FIRST (before CRM)
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
@@ -1158,9 +1164,11 @@ class MediaStreamHandler:
             # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
             # No waiting for CRM, no 0.2s delay - just speak!
             if self.bot_speaks_first:
-                print(f"🎤 [BUILD 163] Bot speaks first - triggering IMMEDIATE greeting!")
+                greeting_start_ts = time.time()
+                print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
                 self.greeting_sent = True  # Mark greeting as sent to allow audio through
                 self.is_playing_greeting = True
+                self._greeting_start_ts = greeting_start_ts  # Store for duration logging
                 try:
                     await client.send_event({"type": "response.create"})
                     t_speak = time.time()
@@ -1222,14 +1230,17 @@ class MediaStreamHandler:
                         await asyncio.sleep(0.3)
                         
                         # Update session with full prompt (session.update event)
+                        # 🎯 VOICE CONSISTENCY: Do NOT change voice mid-call - only update instructions
+                        # OpenAI Realtime preserves voice setting if not specified in update
                         await client.send_event({
                             "type": "session.update",
                             "session": {
                                 "instructions": full_prompt,
                                 "max_response_output_tokens": 300
+                                # NOTE: voice parameter intentionally omitted to preserve initial voice
                             }
                         })
-                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars")
+                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars (voice preserved)")
                     else:
                         print(f"⚠️ [PHASE 2] Keeping minimal prompt - full prompt build failed")
                 except Exception as e:
@@ -1490,11 +1501,16 @@ class MediaStreamHandler:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # When audio finishes and we were in greeting mode, unset the flag
                     if self.is_playing_greeting:
-                        print("[GREETING] Greeting audio finished - enabling barge-in for future AI responses")
+                        greeting_end_ts = time.time()
+                        greeting_duration = 0
+                        if hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
+                            greeting_duration = (greeting_end_ts - self._greeting_start_ts) * 1000
+                        print(f"🎤 [GREETING] Greeting finished at {greeting_end_ts:.3f} (duration: {greeting_duration:.0f}ms)")
                         self.is_playing_greeting = False
                         # 🎯 FIX: Enable barge-in after greeting completes
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
+                        print(f"✅ [GREETING] Barge-in now ENABLED for rest of call")
                         # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
                         print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
@@ -4780,7 +4796,18 @@ class MediaStreamHandler:
         # Note: If greeting_completed_at is None (no greeting was played), allow hangup normally
         
         self.hangup_triggered = True
-        print(f"📞 [BUILD 163] Auto hang-up triggered: {reason}")
+        
+        # 🎯 SMART HANGUP: Detailed logging for debugging
+        print(f"📞 [SMART HANGUP] === CALL ENDING ===")
+        print(f"📞 [SMART HANGUP] Reason: {reason}")
+        print(f"📞 [SMART HANGUP] Lead captured: {self.lead_captured}")
+        print(f"📞 [SMART HANGUP] Goodbye detected: {self.goodbye_detected}")
+        print(f"📞 [SMART HANGUP] Lead state: {getattr(self, 'lead_capture_state', {})}")
+        print(f"📞 [SMART HANGUP] Required fields: {getattr(self, 'required_lead_fields', ['name', 'phone'])}")
+        crm = getattr(self, 'crm_context', None)
+        if crm:
+            print(f"📞 [SMART HANGUP] CRM: name={crm.customer_name}, phone={crm.customer_phone}")
+        print(f"📞 [SMART HANGUP] ===================")
         
         if not self.call_sid:
             print(f"❌ [BUILD 163] No call_sid - cannot hang up")

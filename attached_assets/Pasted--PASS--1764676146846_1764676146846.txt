@@ -1,0 +1,221 @@
+קח הנחיה אחת, מסודרת, באנגלית, להדביק לסוכן בריפליט. היא מניחה שהכול עובד כרגע, ורק צריך לעשות PASS אחרון, ללטש, ולתקן את הברכה, ה־voice, והניתוק החכם.
+
+⸻
+
+SYSTEM / ARCHITECT REVIEW – FINAL POLISH FOR CALLS + GREETING + SMART HANGUP
+(DO NOT TOUCH docker / external server infra)
+
+You are the code-level architect for the ProSaaS AI call center project.
+The system is already working; your job now is to do a final, careful pass and make the call experience as close as possible to “0 bugs”.
+
+Focus only on the existing codebase in this repo (Replit Git).
+Do NOT change Docker, docker-compose, nginx or any external server files.
+
+Your goals in this pass:
+
+⸻
+
+1. Greeting behavior – make it fast, clean and never cut
+
+1.1. Analyze current greeting flow
+	•	Find the full flow for inbound calls using OpenAI Realtime:
+	•	Twilio → WebSocket → Realtime session config → first AI response (greeting).
+	•	Locate:
+	•	Where greeting_message / greeting_text is loaded from DB/business settings.
+	•	Where the first AI response is triggered (usually response.create or similar).
+	•	Where session.update is called relative to greeting playback.
+	•	Any flags like is_playing_greeting, bot_speaks_first, barge_in_enabled_after_greeting.
+
+1.2. Fix greeting latency
+	•	Target: ~1–2 seconds from call connection until the greeting starts playing.
+	•	Ensure:
+	•	Greeting is loaded once per call (cached in memory for that call).
+	•	Session config + first response are sent as early as possible, without unnecessary sleeps / delays.
+	•	There is no extra 0.5s delay or similar timer that can be removed or reduced.
+
+If there is a deliberate delay before sending response.create for the greeting, reduce it to the minimum required for Realtime to be ready.
+
+1.3. Prevent greeting from being cut
+	•	Verify that:
+	•	We do not send a new session.update or conflicting config while the greeting is still playing.
+	•	Barge-in and VAD logic do not interrupt the greeting.
+
+Concretely:
+	•	Keep is_playing_greeting = True from the start of the greeting until we receive the corresponding response.audio_transcript.done (or an equivalent “response finished” event).
+	•	During is_playing_greeting == True:
+	•	Do not treat user audio as barge-in.
+	•	Do not cancel that response.
+	•	Only after the greeting fully ends:
+	•	Set is_playing_greeting = False.
+	•	Set barge_in_enabled_after_greeting = True to allow normal interruption for the rest of the call.
+
+Add clear logs:
+	•	When greeting starts (with timestamp)
+	•	When greeting ends (with timestamp)
+	•	When barge-in becomes enabled
+
+⸻
+
+2. Voice consistency – same TTS voice for whole call
+
+There is a bug where the bot’s voice changes between calls or during a call.
+
+2.1. Identify TTS configuration
+	•	Locate all places where:
+	•	Realtime voice is configured (voice, model, etc.)
+	•	Any fallback TTS is used (e.g. Google TTS, gTTS, other services).
+
+2.2. Make voice selection stable per call
+	•	Choose a single voice configuration for the whole call and enforce it:
+	•	If we use OpenAI Realtime TTS → make sure the voice parameter is set once at session config and never changed mid-call.
+	•	If there is fallback TTS → ensure it uses the same style/voice as much as possible and is not triggered randomly.
+
+Rules:
+	•	Do not randomly change voices between:
+	•	greeting vs. regular replies
+	•	AI answers vs. system messages
+	•	If you need to support future variants (e.g. different voices per business), implement it as:
+	•	business.tts_voice or similar
+	•	Chosen once at the start of the call, then used consistently.
+
+Add logs for debugging:
+	•	At call start: log which voice configuration is used (model + voice).
+	•	If any code tries to change the voice mid-call → either block it or log a clear warning.
+
+⸻
+
+3. Smart hangup – align with business prompt + be polite
+
+We already have:
+	•	required_lead_fields per business
+	•	lead_capture_state that tracks collected fields
+	•	_check_goodbye_phrases that:
+	•	does not treat “אין צורך” / “לא צריך” as goodbye.
+	•	Only treats real goodbye phrases (e.g. “ביי”, “להתראות”, “goodbye”, etc.) as end-of-call.
+
+Now refine the behavior so it is 100% natural:
+
+3.1. Use required_lead_fields dynamically
+	•	Confirm that _check_lead_captured():
+	•	Reads required_lead_fields from the business settings.
+	•	Only returns True when all those fields are present in lead_capture_state.
+	•	Do not hard-code name + phone anywhere.
+	•	Support at least:
+	•	name
+	•	phone
+	•	city
+	•	service_type
+	•	email
+	•	budget
+	•	notes
+	•	If a field is not required → do not block hangup just because it is missing.
+
+3.2. End-of-call logic (very important)
+
+Implement/verify the following end logic:
+
+We hang up only when:
+	1.	One of these conditions is true:
+	•	_check_lead_captured() == True (all required fields collected)
+	•	OR _check_goodbye_phrases(user_text) == True (real goodbye, not “אין צורך / לא צריך”)
+	•	OR the AI itself has produced its own closing message (based on the business prompt rules) and marked the conversation as complete.
+	2.	AND we are after an AI response that contains a polite closing sentence
+(for example: “תודה, שמחתי לעזור, נתראה בהמשך…” – according to each business prompt).
+	3.	AND the AI’s closing response has fully finished playing (we see response.audio_transcript.done for that response).
+
+In other words:
+	•	Never hang up mid-sentence.
+	•	Never hang up before the AI has said a proper closing line.
+	•	“לא צריך / אין צורך” should trigger:
+	•	A short, polite answer (e.g. “הכל טוב, אם תצטרך בעתיד אנחנו כאן”)
+	•	Then wait for a true goodbye or decision to end the call according to prompt+settings.
+	•	Goodbye phrases must be recognized only by _check_goodbye_phrases, with a clear, controlled list. Keep “היי”, “ביי” confusion out:
+	•	Treat “היי” as greeting, not as goodbye.
+	•	Treat “ביי”, “להתראות”, “goodbye”, “bye” as goodbye.
+
+Add logs around hangup:
+	•	Why the call is being ended (goodbye phrase / lead captured / AI decided).
+	•	Which fields are present in lead_capture_state.
+	•	Which required_lead_fields were configured.
+
+⸻
+
+4. Monday webhook – verify it is safe and robust
+
+We already have Monday.com webhook integration for call transcripts.
+Do not rewrite it; just verify it is safe and bug-free:
+	1.	Confirm:
+	•	If business.monday_webhook_url is empty or send_call_transcripts_to_monday is False → do nothing.
+	•	When enabled, after call finalization:
+	•	Build a clean JSON payload with:
+	•	business info (id, name)
+	•	call metadata (id/SID, started_at, ended_at, duration)
+	•	full transcript or high-quality summary
+	•	Send it with an HTTP POST to the configured URL.
+	•	Any exception when calling Monday:
+	•	Must not crash the call flow or application.
+	•	Log a warning with business id and error message.
+	2.	Make sure:
+	•	Monday integration does not slow down the call ending noticeably.
+	•	If needed, keep it in a background task / async fire-and-forget, but do not re-architect the whole system.
+
+⸻
+
+5. Regression checks – manual & code-level
+
+After you finish making changes:
+	1.	Run the backend locally and perform real test calls (in Hebrew):
+	•	Scenario A – Bot speaks first, normal flow
+	•	bot_speaks_first = True
+	•	Check:
+	•	Greeting starts fast (~1–2s).
+	•	Greeting is never cut.
+	•	After greeting, barge-in works normally.
+	•	Scenario B – “לא צריך תודה”
+	•	Say “לא צריך תודה”.
+	•	Expected:
+	•	The bot answers politely.
+	•	No instant hangup.
+	•	Call ends only on a real goodbye or according to settings.
+	•	Scenario C – Full lead collected
+	•	Business configured with required_lead_fields (e.g. ["name", "phone", "city"]).
+	•	Provide all of them.
+	•	The bot confirms details, says a closing sentence, then the call ends after the audio finishes.
+	•	Scenario D – Goodbye phrases
+	•	Say “טוב, תודה, ביי”.
+	•	The bot responds with a short closing reply, and only then the call ends smoothly.
+	2.	Verify Monday webhook:
+	•	For one test business with Monday enabled:
+	•	End a call and confirm:
+	•	HTTP POST is sent.
+	•	Payload includes the expected fields.
+	•	No unhandled exceptions in logs.
+	3.	Verify WhatsApp:
+	•	Confirm that no changes accidentally broke WhatsApp:
+	•	Incoming messages are fully processed.
+	•	Messages are not cut.
+	•	Greeting behavior for WhatsApp (first text) is intact.
+
+⸻
+
+6. Code quality & safety
+	•	Do not introduce large refactors.
+	•	Keep all changes minimal, focused, and well-commented.
+	•	Add small comments above critical sections:
+	•	Greeting protection
+	•	Smart hangup decisions
+	•	Lead capture checks
+	•	Monday webhook sending
+
+When you are done:
+	•	Run the full project (backend) and ensure there are no runtime errors.
+	•	Make a single, clean commit with a message like:
+
+chore(calls): stabilize greeting, voice and smart hangup + harden monday webhook
+
+Your end state:
+	•	Greeting starts fast and never gets cut.
+	•	Voice is stable for the entire call.
+	•	Hangup is always polite and aligned with business prompt + required_lead_fields.
+	•	Monday webhook is robust and does not break the system.
+	•	No regressions for WhatsApp or other existing features.
