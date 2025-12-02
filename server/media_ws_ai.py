@@ -611,13 +611,16 @@ VAD_RMS = int(os.getenv("VAD_RMS", "150"))                  # 🔥 BUILD 164B: 1
 # 🔥 CONFIGURABLE NOISE THRESHOLDS - filter noise while allowing normal speech (180-500 RMS typical)
 RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "120"))      # Below this = pure noise
 MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "200"))                    # Speech detection threshold
-MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "220"))    # Continuous speech for detection
+MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "700"))    # 🔥 BUILD 169: 700ms continuous speech for barge-in
 NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                      # Grace period for noise tolerance
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 164B: 150ms (balanced)
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","11"))  # 🔥 BUILD 164B: 11 frames = ≈220ms continuous speech
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","35"))  # 🔥 BUILD 169: 35 frames = ≈700ms continuous speech (20ms per frame)
+
+# 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge window for user messages
+STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "800"))  # Merge segments within 800ms
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -799,6 +802,17 @@ class MediaStreamHandler:
         self._max_consecutive_ai_responses = 3  # Block after 3 AI responses without user input
         self._last_user_transcript_ts = None
         self._loop_guard_engaged = False  # 🛑 When True, ALL AI audio is blocked
+        
+        # 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge multiple STT segments
+        self._stt_merge_buffer = []  # List of (timestamp, text) for merging
+        self._stt_last_segment_ts = 0  # Last STT segment timestamp
+        
+        # 🔥 BUILD 169: LOOP/MISHEARING PROTECTION - Track AI responses for repetition detection
+        self._last_ai_responses = []  # Last 3-5 AI responses for similarity check
+        self._mishearing_count = 0  # Count of consecutive misunderstandings
+        
+        # 🔥 BUILD 169: CALL SESSION LOGGING - Enhanced diagnostics
+        self._call_session_id = None  # Unique session ID for logging
         
         # 🔥 BUILD 166: NOISE GATE BYPASS during active speech detection
         # When OpenAI Realtime detects speech_started, we MUST send all audio until speech_stopped
@@ -1671,13 +1685,66 @@ class MediaStreamHandler:
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
-                        # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses
+                        # 🔥 BUILD 169: SEMANTIC LOOP DETECTION - Check if AI is repeating itself
+                        def _text_similarity(a, b):
+                            """Simple word overlap similarity (0-1)"""
+                            words_a = set(a.split())
+                            words_b = set(b.split())
+                            if not words_a or not words_b:
+                                return 0
+                            intersection = words_a & words_b
+                            union = words_a | words_b
+                            return len(intersection) / len(union) if union else 0
+                        
+                        # Track last AI responses for similarity check
+                        self._last_ai_responses.append(transcript)
+                        if len(self._last_ai_responses) > 5:
+                            self._last_ai_responses.pop(0)  # Keep only last 5
+                        
+                        # Check for semantic repetition (similarity > 70% with any of last 3 responses)
+                        is_repeating = False
+                        if len(self._last_ai_responses) >= 2:
+                            for prev_response in self._last_ai_responses[:-1]:
+                                similarity = _text_similarity(transcript, prev_response)
+                                if similarity > 0.70:
+                                    is_repeating = True
+                                    print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
+                                    break
+                        
+                        # 🔥 BUILD 169: MISHEARING DETECTION - Check for "I don't understand" patterns
+                        confusion_phrases = ["לא הבנתי", "לא שמעתי", "אפשר לחזור", "מה אמרת", "לא הצלחתי", "בבקשה חזור"]
+                        is_confused = any(phrase in transcript for phrase in confusion_phrases)
+                        if is_confused:
+                            self._mishearing_count += 1
+                            print(f"❓ [MISHEARING] AI confused ({self._mishearing_count} times): '{transcript[:50]}...'")
+                        else:
+                            self._mishearing_count = 0  # Reset on clear response
+                        
+                        # 🔥 BUILD 165 + 169: ENHANCED LOOP PREVENTION
                         self._consecutive_ai_responses += 1
-                        if self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
-                            print(f"⚠️ [LOOP GUARD] AI responded {self._consecutive_ai_responses} times without user input!")
+                        
+                        # Trigger loop guard if:
+                        # 1. Too many consecutive AI responses without user input, OR
+                        # 2. AI is semantically repeating itself, OR
+                        # 3. AI has been confused 3+ times in a row
+                        should_engage_guard = (
+                            self._consecutive_ai_responses >= self._max_consecutive_ai_responses or
+                            (is_repeating and self._consecutive_ai_responses >= 2) or
+                            self._mishearing_count >= 3
+                        )
+                        
+                        if should_engage_guard:
+                            guard_reason = "consecutive_responses" if self._consecutive_ai_responses >= self._max_consecutive_ai_responses else \
+                                          "semantic_repetition" if is_repeating else "mishearing_loop"
+                            print(f"⚠️ [LOOP GUARD] Triggered by {guard_reason}!")
                             print(f"🛑 [LOOP GUARD] BLOCKING further responses until user speaks!")
                             # 🛑 ENGAGE GUARD FIRST - before any other operations to prevent race conditions
                             self._loop_guard_engaged = True
+                            
+                            # Send clarification request to AI before blocking
+                            clarification_text = "[SERVER] זיהיתי שאתה חוזר על עצמך. אמור: 'לא שמעתי טוב, אפשר לחזור?' ותמתין בשקט."
+                            asyncio.create_task(self._send_server_event_to_ai(clarification_text))
+                            
                             # Cancel any pending response
                             if self.active_response_id and self.realtime_client:
                                 try:
@@ -1788,38 +1855,100 @@ class MediaStreamHandler:
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
+                    now_ms = time.time() * 1000
                     
-                    # 🔇 BUILD 168: IMPROVED NOISE/HALLUCINATION FILTER
-                    # Whisper sometimes hallucinates English words from Hebrew audio (e.g., "Bye" from עברית)
-                    chatter_words = ["thank you", "thanks", "bye", "bye bye", "goodbye", "ok", "okay", "sure", "got it", "yes", "no", "yeah", "nope", "hello", "hi", "hey"]
-                    text_lower = text.lower().strip()
-                    is_chatter = any(text_lower == word or text_lower.endswith(" " + word) for word in chatter_words)
+                    # 🔥 BUILD 169: ENHANCED NOISE/HALLUCINATION FILTER
+                    # 1. Allow short Hebrew words (כן, לא, רגע, שניה, etc.)
+                    # 2. Block English hallucinations
+                    # 3. Block gibberish (random consonants, repeated letters)
+                    
+                    # ✅ WHITELIST: Short Hebrew words that are VALID responses
+                    valid_short_hebrew = [
+                        "כן", "לא", "רגע", "שניה", "טוב", "מה", "איפה", "מתי", "למה", "איך",
+                        "כמה", "זה", "אני", "אתה", "את", "הוא", "היא", "בסדר", "תודה", "סליחה",
+                        "יופי", "נכון", "אוקיי", "שלום", "ביי", "להתראות", "מי", "בבקשה"
+                    ]
+                    
+                    text_stripped = text.strip()
+                    is_valid_short_hebrew = text_stripped in valid_short_hebrew
                     
                     # 🛡️ Check if text is PURE English (likely hallucination from Hebrew audio)
                     hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', text))
                     english_chars = len(re.findall(r'[a-zA-Z]', text))
                     
-                    # If pure English with no Hebrew - likely Whisper hallucination
-                    is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
-                    
                     # 🛡️ Block common Whisper hallucinations (pure English from Hebrew audio)
                     hallucination_phrases = [
                         "bye", "bye.", "bye!", "goodbye", "thank you", "thanks", "ok", "okay",
                         "yes", "no", "hello", "hi", "hey", "sure", "right", "yeah", "yep", "nope",
-                        "i see", "i know", "got it", "alright", "fine", "good", "great"
+                        "i see", "i know", "got it", "alright", "fine", "good", "great", "mm", "uh",
+                        "hmm", "um", "uh huh", "mhm"
                     ]
-                    is_hallucination = text_lower.strip('.!?') in hallucination_phrases
+                    text_lower = text.lower().strip('.!?')
+                    is_hallucination = text_lower in hallucination_phrases
                     
-                    if len(text) < 3 or all(ch in ".?!, " for ch in text) or is_chatter or is_hallucination:
-                        reason = "hallucination" if is_hallucination else ("chatter" if is_chatter else "too_short")
-                        print(f"[TRANSCRIPT FILTER] Ignoring {reason}: {repr(text)}")
+                    # 🔥 BUILD 169: Detect gibberish (random consonants, repeated letters)
+                    # E.g., "אאא", "ממממ", "שששש" = likely noise
+                    is_gibberish = False
+                    if hebrew_chars > 0:
+                        # Check for repeated letter patterns
+                        if len(set(text_stripped)) <= 2 and len(text_stripped) > 2:
+                            is_gibberish = True
+                        # Check for pure consonant clusters (no vowels in transliteration)
+                        elif len(text_stripped) > 3 and text_stripped == text_stripped[0] * len(text_stripped):
+                            is_gibberish = True
+                    
+                    # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
+                    is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
+                    
+                    # DECISION: Filter or pass?
+                    should_filter = False
+                    filter_reason = ""
+                    
+                    if is_valid_short_hebrew:
+                        # ✅ ALWAYS allow valid short Hebrew words
+                        should_filter = False
+                        print(f"✅ [NOISE FILTER] ALLOWED short Hebrew: '{text}'")
+                    elif is_hallucination:
+                        should_filter = True
+                        filter_reason = "hallucination"
+                    elif is_gibberish:
+                        should_filter = True
+                        filter_reason = "gibberish"
+                    elif len(text) < 2 or all(ch in ".?!, " for ch in text):
+                        should_filter = True
+                        filter_reason = "too_short_or_punctuation"
+                    elif is_pure_english:
+                        # Pure English in Hebrew call - suspicious but may be valid
+                        should_filter = True  # 🔥 Now filtering pure English
+                        filter_reason = "pure_english_hallucination"
+                    
+                    if should_filter:
+                        print(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
                         print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                         continue
                     
-                    # 🛡️ Warn if pure English (may be valid but suspicious)
-                    if is_pure_english:
-                        print(f"⚠️ [TRANSCRIPT] Pure English detected: {repr(text)} - may be hallucination but allowing")
+                    # ✅ PASSED FILTER
+                    print(f"[NOISE FILTER] ✅ ACCEPTED: '{text}' (hebrew={hebrew_chars}, english={english_chars})")
                     
+                    # 🔥 BUILD 169: SEGMENT MERGING - Merge segments within 800ms window
+                    if self._stt_last_segment_ts > 0:
+                        time_since_last = now_ms - self._stt_last_segment_ts
+                        if time_since_last < STT_MERGE_WINDOW_MS:
+                            # Merge with previous segment
+                            self._stt_merge_buffer.append(text)
+                            self._stt_last_segment_ts = now_ms
+                            print(f"📝 [SEGMENT MERGE] Buffering: '{text}' (wait {STT_MERGE_WINDOW_MS - time_since_last:.0f}ms for more)")
+                            continue  # Wait for more segments
+                    
+                    # Either first segment or timeout - process now
+                    if self._stt_merge_buffer:
+                        # Combine buffered segments with current
+                        self._stt_merge_buffer.append(text)
+                        text = " ".join(self._stt_merge_buffer)
+                        print(f"📝 [SEGMENT MERGE] Combined {len(self._stt_merge_buffer)} segments: '{text}'")
+                        self._stt_merge_buffer = []
+                    
+                    self._stt_last_segment_ts = now_ms
                     transcript = text
                     
                     # Mark that the user really spoke at least once
@@ -2806,9 +2935,13 @@ class MediaStreamHandler:
                     continue
 
                 if et == "start":
+                    # 🔥 BUILD 169: Generate unique session ID for logging
+                    import uuid
+                    self._call_session_id = f"SES-{uuid.uuid4().hex[:8]}"
+                    
                     # 🔥 CRITICAL: Force print to bypass DEBUG override
-                    _orig_print(f"🎯 [CALL DEBUG] START EVENT RECEIVED! call_sid will be extracted...", flush=True)
-                    logger.info("[CALL DEBUG] START EVENT RECEIVED - entering start handler")
+                    _orig_print(f"🎯 [CALL DEBUG] START EVENT RECEIVED! session={self._call_session_id}", flush=True)
+                    logger.info(f"[{self._call_session_id}] START EVENT RECEIVED - entering start handler")
                     
                     # תמיכה בשני פורמטים: Twilio אמיתי ובדיקות
                     if "start" in evt:
@@ -3516,6 +3649,13 @@ class MediaStreamHandler:
             import traceback
             traceback.print_exc()
         finally:
+            # 🔥 BUILD 169: Enhanced disconnect logging
+            session_id = getattr(self, '_call_session_id', 'N/A')
+            call_duration = time.time() - getattr(self, 'call_start_time', time.time())
+            business_id = getattr(self, 'business_id', 'N/A')
+            print(f"📞 [{session_id}] CALL ENDED - duration={call_duration:.1f}s, business_id={business_id}, rx={self.rx}, tx={self.tx}")
+            logger.info(f"[{session_id}] DISCONNECT - duration={call_duration:.1f}s, business={business_id}")
+            
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
             
