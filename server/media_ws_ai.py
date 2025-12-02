@@ -3010,7 +3010,8 @@ class MediaStreamHandler:
                     
                     # 🎯 SMART BARGE-IN: Enabled by default with intelligent state tracking
                     # Only trigger when AI is actively speaking (not just thinking)
-                    if ENABLE_BARGE_IN:
+                    # 🛡️ FIX: NEVER process barge-in during greeting playback!
+                    if ENABLE_BARGE_IN and not self.is_playing_greeting:
                         # ספירת פריימים רצופים של קול חזק בלבד
                         if is_strong_voice:
                             self.voice_in_row += 1
@@ -4613,6 +4614,8 @@ class MediaStreamHandler:
                     t_end = time.time()
                     print(f"⚡ COMBINED QUERY: biz+greeting+settings in {(t_end-t_start)*1000:.0f}ms")
                     print(f"   bot_speaks_first={self.bot_speaks_first}, auto_end_goodbye={self.auto_end_on_goodbye}")
+                    print(f"🔍 [SETTINGS LOADED] required_lead_fields={self.required_lead_fields}")
+                    print(f"🔍 [SETTINGS LOADED] smart_hangup_enabled={self.smart_hangup_enabled}")
                     
                     return (self.business_id, greeting)
                 else:
@@ -5058,8 +5061,10 @@ class MediaStreamHandler:
         """
         # Get required fields from business settings
         required_fields = getattr(self, 'required_lead_fields', None)
+        print(f"🔍 [DEBUG] _check_lead_captured: required_fields from self = {required_fields}")
         if not required_fields:
             required_fields = ['name', 'phone']  # Default for backward compatibility
+            print(f"⚠️ [DEBUG] Using default required_fields (no custom config found)")
         
         # Get current capture state
         lead_state = getattr(self, 'lead_capture_state', {})
