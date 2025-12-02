@@ -28,6 +28,10 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` with behavioral rules and server-side GPT-4o-mini NLP for appointment parsing and hallucination filtering.
 - **Hebrew-Optimized VAD**: Dynamic thresholding and simplified barge-in.
 - **Greeting System**: AI includes business-specific greetings.
+- **Mandatory Verification Gate (BUILD 168)**: AI must recite ALL collected field values before hangup is allowed. User must confirm with multilingual response (Hebrew/English/Arabic) before call can end.
+- **Dynamic Lead Field Prompts**: Verification prompts reference business-specific `required_lead_fields` from database.
+- **Whisper Hallucination Filter**: Blocks pure English words fabricated from Hebrew audio (e.g., "Bye", "Thank you").
+- **Multi-Language Support**: AI responds in Hebrew by default but switches to caller's language when requested.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
