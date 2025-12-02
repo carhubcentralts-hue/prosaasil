@@ -864,9 +864,9 @@ class MediaStreamHandler:
         # Updated by _update_lead_capture_state() from AI responses and DTMF
         self.lead_capture_state = {}  # e.g., {'name': 'דני', 'city': 'תל אביב', 'service_type': 'ניקיון'}
         
-        # 🛡️ BUILD 168: VERIFICATION BEFORE HANGUP
-        # AI must verify collected details before disconnecting
-        # BUILD 168: Verification is now prompt-only, no guard needed
+        # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
+        # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
+        self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
 
     def _init_streaming_stt(self):
         """
@@ -1712,23 +1712,27 @@ class MediaStreamHandler:
                         # 1. auto_end_on_goodbye is ON and AI said goodbye, OR
                         # 2. lead_captured is True and AI said any closing phrase
                         # 3. goodbye_detected is True and AI responded with closing
-                        # 🛡️ BUILD 168: VERIFICATION GATE - Check if AI asked to verify details
+                        # 🛡️ BUILD 168: VERIFICATION GATE - Must check verification_confirmed!
                         should_hangup = False
                         hangup_reason = ""
                         
-                        if self.auto_end_on_goodbye and can_detect_goodbye and ai_polite_closing_detected:
+                        # 🔥 BUILD 168: Only allow hangup if user explicitly confirmed OR said goodbye
+                        can_hangup_now = self.verification_confirmed or self.goodbye_detected
+                        
+                        if not can_hangup_now and ai_polite_closing_detected:
+                            print(f"🛡️ [BUILD 168] BLOCKING HANGUP - User hasn't confirmed details yet!")
+                            print(f"🛡️ [BUILD 168] verification_confirmed={self.verification_confirmed}, goodbye_detected={self.goodbye_detected}")
+                            # Don't set should_hangup - wait for user confirmation
+                        elif self.auto_end_on_goodbye and can_detect_goodbye and ai_polite_closing_detected and can_hangup_now:
                             hangup_reason = "auto_end_on_goodbye"
                             should_hangup = True
-                        elif self.lead_captured and ai_polite_closing_detected:
+                        elif self.lead_captured and ai_polite_closing_detected and can_hangup_now:
                             hangup_reason = "lead_captured"
                             should_hangup = True
                         elif self.goodbye_detected and ai_polite_closing_detected:
+                            # User said goodbye explicitly - always allow
                             hangup_reason = "user_goodbye_response"
                             should_hangup = True
-                        
-                        # 🔥 BUILD 168 FIX: NO GUARD! Verification is handled by system prompt only.
-                        # The AI naturally verifies details before saying goodbye.
-                        # No need to block or inject server messages.
                         
                         if should_hangup:
                             self.goodbye_detected = True
@@ -1793,6 +1797,19 @@ class MediaStreamHandler:
                     
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        
+                        # 🛡️ BUILD 168: Detect user confirmation words
+                        confirmation_words = ["כן", "נכון", "בדיוק", "כן כן", "yes", "correct", "exactly", "יופי", "מסכים", "בסדר"]
+                        transcript_lower = transcript.strip().lower()
+                        if any(word in transcript_lower for word in confirmation_words):
+                            print(f"✅ [BUILD 168] User CONFIRMED - verification_confirmed = True")
+                            self.verification_confirmed = True
+                        
+                        # 🛡️ BUILD 168: If user says correction words, reset verification
+                        correction_words = ["לא", "רגע", "שנייה", "לא נכון", "טעות", "תתקן", "לשנות"]
+                        if any(word in transcript_lower for word in correction_words):
+                            print(f"🔄 [BUILD 168] User wants CORRECTION - verification_confirmed = False")
+                            self.verification_confirmed = False
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
