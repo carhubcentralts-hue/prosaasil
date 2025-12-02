@@ -2,7 +2,7 @@
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -1730,15 +1730,36 @@ class MediaStreamHandler:
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
-                    # 🔇 Noise filter: ignore very short, punctuation-only, or mixed-language chatter
-                    chatter_words = ["thank you", "thanks", "bye", "bye bye", "goodbye", "ok", "okay", "sure", "got it", "yes", "no", "yeah", "nope"]
+                    # 🔇 BUILD 168: IMPROVED NOISE/HALLUCINATION FILTER
+                    # Whisper sometimes hallucinates English words from Hebrew audio (e.g., "Bye" from עברית)
+                    chatter_words = ["thank you", "thanks", "bye", "bye bye", "goodbye", "ok", "okay", "sure", "got it", "yes", "no", "yeah", "nope", "hello", "hi", "hey"]
                     text_lower = text.lower().strip()
                     is_chatter = any(text_lower == word or text_lower.endswith(" " + word) for word in chatter_words)
                     
-                    if len(text) < 3 or all(ch in ".?!, " for ch in text) or is_chatter:
-                        print(f"[TRANSCRIPT FILTER] Ignoring noise: {repr(text)} (chatter={is_chatter})")
+                    # 🛡️ Check if text is PURE English (likely hallucination from Hebrew audio)
+                    hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', text))
+                    english_chars = len(re.findall(r'[a-zA-Z]', text))
+                    
+                    # If pure English with no Hebrew - likely Whisper hallucination
+                    is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
+                    
+                    # 🛡️ Block common Whisper hallucinations (pure English from Hebrew audio)
+                    hallucination_phrases = [
+                        "bye", "bye.", "bye!", "goodbye", "thank you", "thanks", "ok", "okay",
+                        "yes", "no", "hello", "hi", "hey", "sure", "right", "yeah", "yep", "nope",
+                        "i see", "i know", "got it", "alright", "fine", "good", "great"
+                    ]
+                    is_hallucination = text_lower.strip('.!?') in hallucination_phrases
+                    
+                    if len(text) < 3 or all(ch in ".?!, " for ch in text) or is_chatter or is_hallucination:
+                        reason = "hallucination" if is_hallucination else ("chatter" if is_chatter else "too_short")
+                        print(f"[TRANSCRIPT FILTER] Ignoring {reason}: {repr(text)}")
                         print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
                         continue
+                    
+                    # 🛡️ Warn if pure English (may be valid but suspicious)
+                    if is_pure_english:
+                        print(f"⚠️ [TRANSCRIPT] Pure English detected: {repr(text)} - may be hallucination but allowing")
                     
                     transcript = text
                     
