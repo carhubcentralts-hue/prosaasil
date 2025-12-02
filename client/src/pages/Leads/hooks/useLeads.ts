@@ -40,7 +40,7 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
 
   // Stabilize filters dependency to prevent infinite loop
   const depKey = JSON.stringify(passedFilters || {});
-  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const isAdmin = user?.role === 'system_admin' || user?.role === 'owner';
   const filters = passedFilters || {};
 
   const fetchLeads = useCallback(async () => {
@@ -177,7 +177,7 @@ export function useLeadStats(): UseLeadStatsResult {
       setError(null);
       
       // Use admin endpoint for admin/manager/superadmin roles
-      const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+      const isAdmin = user?.role === 'system_admin' || user?.role === 'owner';
       if (!isAdmin) {
         throw new Error('Admin access required');
       }
