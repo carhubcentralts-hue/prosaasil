@@ -3,12 +3,13 @@
 CRM API routes for customer management, threads, and messages
 Implements RBAC with business scoping as per guidelines
 """
+import logging
 from flask import Blueprint, jsonify, request, g, send_file
 from server.auth_api import require_api_auth
 from server.models_sql import Business, Customer, WhatsAppMessage, CallLog, Deal, Payment, Invoice, Contract, PaymentGateway, CRMTask, Lead
 from server.db import db
 from datetime import datetime
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, text
 import os
 import base64
 import time
@@ -17,6 +18,8 @@ import requests
 import json
 from urllib.parse import urlencode
 from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 crm_bp = Blueprint("crm_bp", __name__)
 
@@ -186,13 +189,18 @@ def api_thread_messages(thread_id):
     try:
         business_id = get_business_id()
         
-        # Get messages where thread_id is either sender or receiver
+        # Normalize phone number to match different formats
+        thread_phone = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
+        phone_variants = [
+            thread_phone,
+            f"+{thread_phone}",
+            f"{thread_phone}@s.whatsapp.net"
+        ]
+        
+        # Get messages where to_number matches the thread phone
         messages = WhatsAppMessage.query.filter(
             WhatsAppMessage.business_id == business_id,
-            or_(
-                WhatsAppMessage.from_number == thread_id,
-                WhatsAppMessage.to_number == thread_id
-            )
+            WhatsAppMessage.to_number.in_(phone_variants)
         ).order_by(WhatsAppMessage.created_at.asc()).all()
         
         # Convert to JSON format
@@ -214,15 +222,26 @@ def api_thread_messages(thread_id):
 @crm_bp.get("/api/crm/threads/<thread_id>/summary")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_thread_summary(thread_id):
-    """Get AI summary of conversation thread"""
+    """Get AI summary of conversation thread - fixed to query both directions"""
     try:
         business_id = get_business_id()
         
-        # Get last 15 messages for context
-        messages = WhatsAppMessage.query.filter_by(
-            business_id=business_id,
-            to_number=thread_id
-        ).order_by(WhatsAppMessage.created_at.desc()).limit(15).all()
+        # Normalize phone number - remove @s.whatsapp.net suffix if present
+        thread_phone = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
+        
+        # Build list of possible phone formats to match
+        phone_variants = [
+            thread_phone,                          # 972501234567
+            f"+{thread_phone}",                    # +972501234567
+            f"{thread_phone}@s.whatsapp.net"       # 972501234567@s.whatsapp.net
+        ]
+        
+        # Get last 20 messages for context - search by to_number (customer phone)
+        # WhatsAppMessage uses to_number for the customer phone in both directions
+        messages = WhatsAppMessage.query.filter(
+            WhatsAppMessage.business_id == business_id,
+            WhatsAppMessage.to_number.in_(phone_variants)
+        ).order_by(WhatsAppMessage.created_at.desc()).limit(20).all()
         
         if not messages:
             return jsonify({"summary": "אין הודעות בשיחה"})
@@ -230,17 +249,26 @@ def api_thread_summary(thread_id):
         # Build conversation for AI
         conversation = []
         for msg in reversed(messages):
-            speaker = "לקוח" if msg.direction == "inbound" else "עוזר"  # ✅ עוזר!
-            conversation.append(f"{speaker}: {msg.body}")
+            # Determine direction: "in" = customer message, "out" = business message
+            is_inbound = msg.direction == "in" or msg.direction == "inbound"
+            speaker = "לקוח" if is_inbound else "עוזר"
+            if msg.body:  # Only add non-empty messages
+                conversation.append(f"{speaker}: {msg.body}")
+        
+        if not conversation:
+            return jsonify({"summary": "אין תוכן לסיכום"})
         
         # Call AI to summarize (fast!)
         from server.services.ai_service import generate_ai_response
         
-        summary_prompt = f"""סכם את השיחה הבאה ב-1-2 משפטים קצרים:
+        summary_prompt = f"""סכם את השיחה הבאה ב-2-3 משפטים קצרים:
 
 {chr(10).join(conversation)}
 
-תן סיכום קצר ומדויק של מה הלקוח רוצה ומה הסטטוס:"""
+תן סיכום ממוקד של:
+- מה הלקוח רוצה/צריך
+- מה סוכם או הוחלט
+- האם יש פעולות המשך נדרשות"""
         
         summary = generate_ai_response(
             message=summary_prompt,
@@ -249,8 +277,28 @@ def api_thread_summary(thread_id):
             channel='whatsapp'
         )
         
-        return jsonify({"summary": summary[:200]})  # Limit to 200 chars
+        # Also save summary to lead if linked
+        try:
+            lead = Lead.query.filter(
+                Lead.tenant_id == int(business_id),
+                or_(
+                    Lead.phone_e164 == thread_phone,
+                    Lead.phone_e164 == f"+{thread_phone}",
+                    Lead.phone_e164.like(f"%{thread_phone[-9:]}")  # Match last 9 digits
+                )
+            ).first()
+            
+            if lead and summary:
+                lead.whatsapp_last_summary = summary[:500]  # Limit to 500 chars
+                lead.whatsapp_last_summary_at = datetime.utcnow()
+                db.session.commit()
+                logger.info(f"[CRM] Updated lead {lead.id} with WhatsApp summary")
+        except Exception as e:
+            logger.warning(f"[CRM] Failed to save summary to lead: {e}")
+        
+        return jsonify({"summary": summary[:500]})  # Limit to 500 chars
     except Exception as e:
+        logger.error(f"[CRM] Thread summary error: {e}")
         return jsonify({"summary": "לא ניתן לסכם", "error": str(e)}), 500
 
 @crm_bp.get("/api/crm/customers")

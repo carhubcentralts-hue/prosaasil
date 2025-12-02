@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
@@ -21,7 +21,6 @@ const TABS = [
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
   { key: 'appointments', label: 'פגישות', icon: Calendar },
   { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
-  { key: 'activity', label: 'פעילות', icon: Activity },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -123,13 +122,18 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       if (response.appointments) {
         const leadAppointments: LeadAppointment[] = response.appointments.map((appt: any) => ({
           id: appt.id,
-          title: appt.title,
+          title: appt.title || '',
+          description: appt.description || '',
           start_time: appt.start_time,
           end_time: appt.end_time,
-          status: appt.status,
-          contact_name: appt.contact_name,
-          notes: appt.notes,
-          call_summary: appt.call_summary
+          location: appt.location || '',
+          status: appt.status || 'scheduled',
+          appointment_type: appt.appointment_type || 'meeting',
+          priority: appt.priority || 'medium',
+          contact_name: appt.contact_name || '',
+          contact_phone: appt.contact_phone || '',
+          notes: appt.notes || '',
+          call_summary: appt.call_summary || ''
         }));
         setAppointments(leadAppointments);
       }
@@ -457,7 +461,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
-        {activeTab === 'activity' && <ActivityTab activities={activities} />}
       </div>
 
       {/* WhatsApp Chat Modal */}
@@ -890,15 +893,39 @@ const APPOINTMENT_TYPES = {
   phone_call: { label: 'שיחה טלפונית', color: 'bg-cyan-100 text-cyan-800' }
 };
 
+const STATUS_TYPES = {
+  scheduled: { label: 'מתוכנן', color: 'bg-gray-100 text-gray-800' },
+  confirmed: { label: 'מאושר', color: 'bg-blue-100 text-blue-800' },
+  paid: { label: 'שילם', color: 'bg-green-100 text-green-800' },
+  unpaid: { label: 'לא שילם', color: 'bg-yellow-100 text-yellow-800' },
+  cancelled: { label: 'בוטל', color: 'bg-red-100 text-red-800' }
+};
+
+interface AppointmentFormData {
+  title: string;
+  appointment_type: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+  location: string;
+  contact_name: string;
+  contact_phone: string;
+}
+
 function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointments: LeadAppointment[]; loading?: boolean; lead?: Lead; onRefresh?: () => void }) {
   const [showModal, setShowModal] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState<LeadAppointment | null>(null);
   const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [formData, setFormData] = useState<AppointmentFormData>({
     title: '',
-    appointment_type: 'meeting' as string,
+    appointment_type: 'meeting',
     start_time: '',
     end_time: '',
-    notes: ''
+    status: 'scheduled',
+    location: '',
+    contact_name: '',
+    contact_phone: ''
   });
 
   const formatDateTime = (dateStr: string) => {
@@ -910,6 +937,17 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const formatDatetimeLocal = (isoString: string) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
   const getStatusBadge = (status: string) => {
@@ -924,7 +962,7 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
     return <Badge className={config.className}>{config.label}</Badge>;
   };
 
-  const handleCreateAppointment = async () => {
+  const handleSaveAppointment = async () => {
     if (!formData.title || !formData.start_time || !formData.end_time) {
       alert('נא למלא כותרת, תאריך התחלה ותאריך סיום');
       return;
@@ -932,44 +970,99 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
 
     try {
       setSaving(true);
-      await http.post('/api/calendar/appointments', {
+      
+      const dataToSend = {
         title: formData.title,
         appointment_type: formData.appointment_type,
-        start_time: formData.start_time,
-        end_time: formData.end_time,
-        notes: formData.notes,
-        contact_name: lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : '',
-        contact_phone: lead?.phone_e164 || '',
-        status: 'scheduled',
+        start_time: new Date(formData.start_time).toISOString(),
+        end_time: new Date(formData.end_time).toISOString(),
+        status: formData.status,
+        location: formData.location,
+        contact_name: formData.contact_name || (lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : ''),
+        contact_phone: formData.contact_phone || lead?.phone_e164 || '',
         priority: 'medium'
-      });
+      };
+
+      if (editingAppointment) {
+        await http.patch(`/api/calendar/appointments/${editingAppointment.id}`, dataToSend);
+      } else {
+        await http.post('/api/calendar/appointments', dataToSend);
+      }
       
-      setShowModal(false);
-      setFormData({ title: '', appointment_type: 'meeting', start_time: '', end_time: '', notes: '' });
+      closeModal();
       onRefresh?.();
     } catch (err) {
-      console.error('Error creating appointment:', err);
-      alert('שגיאה ביצירת הפגישה');
+      console.error('Error saving appointment:', err);
+      alert(editingAppointment ? 'שגיאה בעדכון הפגישה' : 'שגיאה ביצירת הפגישה');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteAppointment = async (appointmentId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק פגישה זו?')) return;
+    
+    try {
+      setDeleting(appointmentId);
+      await http.delete(`/api/calendar/appointments/${appointmentId}`);
+      onRefresh?.();
+    } catch (err) {
+      console.error('Error deleting appointment:', err);
+      alert('שגיאה במחיקת הפגישה');
+    } finally {
+      setDeleting(null);
     }
   };
 
   const openNewAppointment = () => {
     const now = new Date();
     now.setMinutes(Math.ceil(now.getMinutes() / 30) * 30);
-    const startTime = now.toISOString().slice(0, 16);
+    const startTime = formatDatetimeLocal(now.toISOString());
     now.setHours(now.getHours() + 1);
-    const endTime = now.toISOString().slice(0, 16);
+    const endTime = formatDatetimeLocal(now.toISOString());
     
+    setEditingAppointment(null);
     setFormData({
       title: lead ? `פגישה עם ${lead.first_name || ''} ${lead.last_name || ''}`.trim() : 'פגישה חדשה',
       appointment_type: 'meeting',
       start_time: startTime,
       end_time: endTime,
-      notes: ''
+      status: 'scheduled',
+      location: '',
+      contact_name: lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : '',
+      contact_phone: lead?.phone_e164 || ''
     });
     setShowModal(true);
+  };
+
+  const openEditAppointment = (appointment: LeadAppointment) => {
+    setEditingAppointment(appointment);
+    setFormData({
+      title: appointment.title,
+      appointment_type: (appointment as any).appointment_type || 'meeting',
+      start_time: formatDatetimeLocal(appointment.start_time),
+      end_time: formatDatetimeLocal(appointment.end_time),
+      status: appointment.status,
+      location: (appointment as any).location || '',
+      contact_name: appointment.contact_name || '',
+      contact_phone: (appointment as any).contact_phone || ''
+    });
+    setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingAppointment(null);
+    setFormData({
+      title: '',
+      appointment_type: 'meeting',
+      start_time: '',
+      end_time: '',
+      status: 'scheduled',
+      location: '',
+      contact_name: '',
+      contact_phone: ''
+    });
   };
 
   return (
@@ -988,18 +1081,20 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
 
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="appointment-modal">
-          <Card className="w-full max-w-md mx-4">
+          <Card className="w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium">תאם פגישה חדשה</h3>
-                <Button variant="ghost" size="sm" onClick={() => setShowModal(false)} data-testid="button-close-appointment-modal">
+                <h3 className="text-lg font-medium">
+                  {editingAppointment ? 'עריכת פגישה' : 'תאם פגישה חדשה'}
+                </h3>
+                <Button variant="ghost" size="sm" onClick={closeModal} data-testid="button-close-appointment-modal">
                   <X className="w-4 h-4" />
                 </Button>
               </div>
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">כותרת</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">כותרת הפגישה</label>
                   <Input
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
@@ -1008,23 +1103,9 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
                   />
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">סוג פגישה</label>
-                  <select
-                    className="w-full p-2 border border-gray-300 rounded-md"
-                    value={formData.appointment_type}
-                    onChange={(e) => setFormData({ ...formData, appointment_type: e.target.value })}
-                    data-testid="select-appointment-type"
-                  >
-                    {Object.entries(APPOINTMENT_TYPES).map(([key, { label }]) => (
-                      <option key={key} value={key}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-                
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">התחלה</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">תאריך ושעת התחלה</label>
                     <Input
                       type="datetime-local"
                       value={formData.start_time}
@@ -1033,7 +1114,7 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">סיום</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">תאריך ושעת סיום</label>
                     <Input
                       type="datetime-local"
                       value={formData.end_time}
@@ -1043,23 +1124,72 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
                   </div>
                 </div>
                 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">סוג פגישה</label>
+                    <select
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={formData.appointment_type}
+                      onChange={(e) => setFormData({ ...formData, appointment_type: e.target.value })}
+                      data-testid="select-appointment-type"
+                    >
+                      {Object.entries(APPOINTMENT_TYPES).map(([key, { label }]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">סטטוס</label>
+                    <select
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      data-testid="select-appointment-status"
+                    >
+                      {Object.entries(STATUS_TYPES).map(([key, { label }]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
-                  <textarea
-                    className="w-full p-2 border border-gray-300 rounded-md min-h-[80px]"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    placeholder="הערות נוספות..."
-                    data-testid="input-appointment-notes"
+                  <label className="block text-sm font-medium text-gray-700 mb-1">מיקום</label>
+                  <Input
+                    value={formData.location}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    placeholder="כתובת או מיקום הפגישה"
+                    data-testid="input-appointment-location"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">שם איש קשר</label>
+                    <Input
+                      value={formData.contact_name}
+                      onChange={(e) => setFormData({ ...formData, contact_name: e.target.value })}
+                      placeholder="שם מלא"
+                      data-testid="input-appointment-contact-name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">טלפון איש קשר</label>
+                    <Input
+                      value={formData.contact_phone}
+                      onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                      placeholder="מספר טלפון"
+                      data-testid="input-appointment-contact-phone"
+                    />
+                  </div>
                 </div>
                 
                 <div className="flex gap-2 pt-2">
-                  <Button onClick={handleCreateAppointment} disabled={saving} className="flex-1" data-testid="button-save-appointment">
+                  <Button onClick={handleSaveAppointment} disabled={saving} className="flex-1" data-testid="button-save-appointment">
                     {saving ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : null}
-                    {saving ? 'שומר...' : 'שמור פגישה'}
+                    {saving ? 'שומר...' : (editingAppointment ? 'עדכן פגישה' : 'שמור פגישה')}
                   </Button>
-                  <Button variant="secondary" onClick={() => setShowModal(false)} className="flex-1">
+                  <Button variant="secondary" onClick={closeModal} className="flex-1">
                     ביטול
                   </Button>
                 </div>
@@ -1100,6 +1230,35 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
                   {appointment.contact_name && (
                     <p className="text-xs text-gray-500">איש קשר: {appointment.contact_name}</p>
                   )}
+                  {(appointment as any).location && (
+                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                      <MapPin className="w-3 h-3" />
+                      {(appointment as any).location}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => openEditAppointment(appointment)}
+                    data-testid={`button-edit-appointment-${appointment.id}`}
+                  >
+                    <Pencil className="w-4 h-4 text-gray-600" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteAppointment(appointment.id)}
+                    disabled={deleting === appointment.id}
+                    data-testid={`button-delete-appointment-${appointment.id}`}
+                  >
+                    {deleting === appointment.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    )}
+                  </Button>
                 </div>
               </div>
               {appointment.notes && (

@@ -65,10 +65,15 @@ export interface LeadCall {
 export interface LeadAppointment {
   id: number;
   title: string;
+  description?: string;
   start_time: string;
   end_time: string;
-  status: string;
+  location?: string;
+  status: 'scheduled' | 'confirmed' | 'paid' | 'unpaid' | 'cancelled' | string;
+  appointment_type?: 'viewing' | 'meeting' | 'signing' | 'call_followup' | 'phone_call' | string;
+  priority?: 'low' | 'medium' | 'high' | 'urgent' | string;
   contact_name?: string;
+  contact_phone?: string;
   notes?: string;
   call_summary?: string;
 }
