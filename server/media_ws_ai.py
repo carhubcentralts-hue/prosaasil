@@ -826,6 +826,13 @@ class MediaStreamHandler:
         self._last_user_transcript_ts = None
         self._loop_guard_engaged = False  # 🛑 When True, ALL AI audio is blocked
         
+        # 🔥 BUILD 166: NOISE GATE BYPASS during active speech detection
+        # When OpenAI Realtime detects speech_started, we MUST send all audio until speech_stopped
+        # Otherwise OpenAI never gets enough audio to complete the utterance
+        self._realtime_speech_active = False  # Set on speech_started, cleared on speech_stopped
+        self._realtime_speech_started_ts = None  # When speech_started was received (for timeout)
+        self._realtime_speech_timeout_sec = 5.0  # Auto-clear after 5 seconds if no speech_stopped
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
@@ -1426,6 +1433,15 @@ class MediaStreamHandler:
                         continue  # Don't process this event at all
                     print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
                     self.user_has_spoken = True
+                    # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
+                    self._realtime_speech_active = True
+                    self._realtime_speech_started_ts = time.time()
+                    print(f"🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI")
+                
+                # 🔥 BUILD 166: Clear speech active flag when speech ends
+                if event_type == "input_audio_buffer.speech_stopped":
+                    self._realtime_speech_active = False
+                    print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
                 
                 # 🔥 Track response ID for barge-in cancellation
                 if event_type == "response.created":
@@ -2998,7 +3014,17 @@ class MediaStreamHandler:
                     
                     # 🛡️ CRITICAL: Block pure noise BEFORE sending to OpenAI
                     # This prevents Whisper/Realtime from hallucinating on background noise
-                    is_noise = rms < RMS_SILENCE_THRESHOLD  # 120 RMS = pure noise
+                    # 🔥 BUILD 166: BYPASS noise gate when OpenAI is actively processing speech
+                    # OpenAI needs continuous audio stream to detect speech end
+                    # Safety timeout: auto-reset if speech_stopped never arrives
+                    speech_bypass_active = self._realtime_speech_active
+                    if speech_bypass_active and self._realtime_speech_started_ts:
+                        elapsed = time.time() - self._realtime_speech_started_ts
+                        if elapsed > self._realtime_speech_timeout_sec:
+                            self._realtime_speech_active = False
+                            speech_bypass_active = False
+                            print(f"⏱️ [BUILD 166] Speech timeout after {elapsed:.1f}s - noise gate RE-ENABLED")
+                    is_noise = rms < RMS_SILENCE_THRESHOLD and not speech_bypass_active  # 120 RMS = pure noise
                     
                     # 🔥 BUILD 165: MUSIC DETECTION - Block music/songs that have high RMS but aren't speech
                     # Music typically has: high RMS, high variance, but SUSTAINED energy (no speech-like pauses)
