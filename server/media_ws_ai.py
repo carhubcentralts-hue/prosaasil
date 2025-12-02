@@ -1432,7 +1432,15 @@ class MediaStreamHandler:
                         if status == "cancelled" and self.is_playing_greeting:
                             _orig_print(f"⚠️ [GREETING CANCELLED] Unblocking audio input (was greeting)", flush=True)
                             self.is_playing_greeting = False
-                            self.greeting_sent = False  # Allow retry or normal flow
+                            # 🔥 DON'T set greeting_sent=False! That would trigger GUARD block.
+                            # Instead, enable barge-in to allow next response to pass
+                            self.barge_in_enabled_after_greeting = True
+                        
+                        # 🔥 BUILD 168.5: If ANY response is cancelled and user hasn't spoken,
+                        # allow next AI response by keeping greeting_sent=True
+                        if status == "cancelled" and not self.user_has_spoken:
+                            _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
+                            # greeting_sent stays True to bypass GUARD for next response
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
