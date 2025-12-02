@@ -3025,6 +3025,16 @@ class MediaStreamHandler:
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
+                        # 🛡️ BUILD 168.5 FIX: Block audio enqueue during greeting!
+                        # OpenAI's server-side VAD detects incoming audio and cancels the greeting.
+                        # Block audio until greeting finishes OR user has already spoken.
+                        if self.is_playing_greeting and not self.user_has_spoken:
+                            # Log once
+                            if not hasattr(self, '_greeting_enqueue_block_logged'):
+                                print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
+                                self._greeting_enqueue_block_logged = True
+                            continue  # Don't enqueue audio during greeting
+                        
                         # 🔥 BUILD 165: ONLY send audio above noise threshold AND not music!
                         if not is_noise and not is_music:
                             try:
@@ -4702,6 +4712,11 @@ class MediaStreamHandler:
                     settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
                     if settings:
                         self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
+                        # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
+                        # This prevents audio from being sent to OpenAI before the greeting starts
+                        if self.bot_speaks_first:
+                            self.is_playing_greeting = True
+                            print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
                         self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
                         self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
                         # 🎯 SMART HANGUP: Load configurable call control settings
@@ -4873,6 +4888,10 @@ class MediaStreamHandler:
                 
                 if settings:
                     self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
+                    # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
+                    if self.bot_speaks_first:
+                        self.is_playing_greeting = True
+                        print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
                     self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
                     self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
                     # 🎯 SMART HANGUP: Load configurable call control settings
