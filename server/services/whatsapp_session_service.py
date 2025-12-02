@@ -32,6 +32,12 @@ def get_or_create_session(
 ) -> Tuple[WhatsAppConversation, bool]:
     """Get existing open session or create new one
     
+    Session Rules (BUILD 163):
+    1. Session is per-customer (customer_wa_id) + per-business
+    2. Session is valid only for SAME DAY - new day = new session
+    3. If 15+ minutes passed since last CUSTOMER message = close old, create new
+    4. Business messages don't reset the 15-minute inactivity timer
+    
     Args:
         business_id: Business ID
         customer_wa_id: Customer WhatsApp number (cleaned)
@@ -42,19 +48,35 @@ def get_or_create_session(
     """
     customer_wa_id = customer_wa_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
     
+    # Find any open session for this customer
     session = WhatsAppConversation.query.filter_by(
         business_id=business_id,
         customer_wa_id=customer_wa_id,
         is_open=True
     ).first()
     
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
     if session:
-        cutoff = datetime.utcnow() - timedelta(minutes=INACTIVITY_MINUTES)
-        if session.last_message_at and session.last_message_at < cutoff:
+        # 🔥 BUILD 163: Check 1 - Is session from TODAY?
+        session_day = session.started_at.replace(hour=0, minute=0, second=0, microsecond=0) if session.started_at else None
+        if session_day and session_day < today_start:
+            # Session is from a previous day - close it and create new
             session.is_open = False
             db.session.commit()
-            logger.info(f"[WA-SESSION] Closed stale session id={session.id} (inactive > {INACTIVITY_MINUTES}min)")
+            logger.info(f"[WA-SESSION] Closed old-day session id={session.id} (started {session.started_at.date()})")
             session = None
+        
+        # 🔥 BUILD 163: Check 2 - Has 15+ minutes passed since last CUSTOMER message?
+        elif session.last_customer_message_at:
+            cutoff = now - timedelta(minutes=INACTIVITY_MINUTES)
+            if session.last_customer_message_at < cutoff:
+                # Customer inactive for 15+ min - close session, background will summarize
+                session.is_open = False
+                db.session.commit()
+                logger.info(f"[WA-SESSION] Closed stale session id={session.id} (customer inactive > {INACTIVITY_MINUTES}min)")
+                session = None
     
     if session:
         return session, False
@@ -220,21 +242,72 @@ def get_active_chats(business_id: int, limit: int = 50) -> list:
     return result
 
 
+def get_customer_sessions(business_id: int, customer_wa_id: str, limit: int = 20) -> list:
+    """Get all sessions for a specific customer (BUILD 163)
+    
+    Returns session history for a customer, ordered by most recent first.
+    Each session has its summary (if generated).
+    
+    Args:
+        business_id: Business ID
+        customer_wa_id: Customer WhatsApp number
+        limit: Max sessions to return
+    
+    Returns:
+        List of session dicts with summaries
+    """
+    customer_wa_id = customer_wa_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
+    
+    sessions = WhatsAppConversation.query.filter_by(
+        business_id=business_id,
+        customer_wa_id=customer_wa_id
+    ).order_by(
+        WhatsAppConversation.started_at.desc()
+    ).limit(limit).all()
+    
+    result = []
+    for s in sessions:
+        result.append({
+            "id": s.id,
+            "started_at": s.started_at.isoformat() if s.started_at else None,
+            "last_message_at": s.last_message_at.isoformat() if s.last_message_at else None,
+            "is_open": s.is_open,
+            "summary": s.summary,
+            "summary_created": s.summary_created
+        })
+    
+    return result
+
+
 def get_stale_sessions(minutes: int = INACTIVITY_MINUTES) -> list:
-    """Get sessions that have been inactive and need summary
+    """Get sessions that need summary generation
+    
+    BUILD 163: Find sessions that need AI summary:
+    1. OPEN sessions where customer inactive > 15 min (still needs closing + summary)
+    2. CLOSED sessions without summary (closed by new session creation, needs summary)
     
     Args:
         minutes: Inactivity threshold in minutes
     
     Returns:
-        List of WhatsAppConversation objects that need closing
+        List of WhatsAppConversation objects that need summary
     """
+    from sqlalchemy import or_
+    
     cutoff = datetime.utcnow() - timedelta(minutes=minutes)
     
+    # Find sessions needing summary:
+    # 1. Open + customer inactive > 15 min + no summary yet
+    # 2. Closed + no summary yet (was closed by new session creation)
     stale = WhatsAppConversation.query.filter(
-        WhatsAppConversation.is_open == True,
-        WhatsAppConversation.last_customer_message_at < cutoff,
-        WhatsAppConversation.summary_created == False
+        WhatsAppConversation.summary_created == False,
+        or_(
+            # Case 1: Open but stale
+            (WhatsAppConversation.is_open == True) & 
+            (WhatsAppConversation.last_customer_message_at < cutoff),
+            # Case 2: Closed without summary (closed by new session, needs summary now)
+            (WhatsAppConversation.is_open == False)
+        )
     ).all()
     
     return stale
