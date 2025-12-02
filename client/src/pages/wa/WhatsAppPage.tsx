@@ -870,13 +870,24 @@ export function WhatsAppPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Conversations List */}
         <div className="lg:col-span-1">
-          <Card className="p-4">
+          <Card className="p-4 h-[500px] flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="font-semibold text-slate-900">שיחות</h2>
-              <Badge variant="secondary">{threads.length}</Badge>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={loadThreads}
+                  className="p-1"
+                  data-testid="button-refresh-threads"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                <Badge variant="secondary">{threads.length}</Badge>
+              </div>
             </div>
             
-            <div className="space-y-3">
+            <div className="space-y-3 flex-1 overflow-y-auto">
               {threads.map((thread) => (
                 <div
                   key={thread.id}
@@ -940,7 +951,7 @@ export function WhatsAppPage() {
         {/* Chat Area */}
         <div className="lg:col-span-2">
           {selectedThread ? (
-            <Card className="p-0 h-96">
+            <Card className="p-0 h-[500px] flex flex-col">
               {/* Chat Header */}
               <div className="p-4 border-b border-slate-200 bg-green-50">
                 <div className="flex justify-between items-center">
@@ -987,7 +998,7 @@ export function WhatsAppPage() {
               </div>
 
               {/* Messages Area */}
-              <div className="flex-1 p-4 min-h-0 overflow-y-auto" style={{maxHeight: '350px'}}>
+              <div className="flex-1 p-4 min-h-0 overflow-y-auto">
                 {loadingMessages && messages.length === 0 ? (
                   <div className="text-center py-8 text-slate-500">
                     <RefreshCw className="h-8 w-8 mx-auto mb-2 animate-spin" />
