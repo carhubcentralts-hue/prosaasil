@@ -151,12 +151,16 @@ def update_session_activity(
     return session
 
 
-def close_session(session_id: int, summary: Optional[str] = None) -> bool:
+def close_session(session_id: int, summary: Optional[str] = None, mark_processed: bool = True) -> bool:
     """Close a session and optionally set summary
+    
+    BUILD 163 FIX: Always mark summary_created=True to prevent infinite reprocessing
+    of sessions that have too few messages for summary generation.
     
     Args:
         session_id: Session ID
         summary: Optional AI-generated summary
+        mark_processed: If True, always mark summary_created=True (default)
     
     Returns:
         True if closed successfully
@@ -169,9 +173,12 @@ def close_session(session_id: int, summary: Optional[str] = None) -> bool:
     session.is_open = False
     session.updated_at = datetime.utcnow()
     
+    # 🔥 BUILD 163: Always mark as processed to avoid infinite reprocessing
+    if mark_processed:
+        session.summary_created = True
+    
     if summary:
         session.summary = summary
-        session.summary_created = True
         
         if session.lead_id:
             lead = Lead.query.get(session.lead_id)
@@ -179,10 +186,13 @@ def close_session(session_id: int, summary: Optional[str] = None) -> bool:
                 lead.whatsapp_last_summary = summary
                 lead.whatsapp_last_summary_at = datetime.utcnow()
                 logger.info(f"[WA-SESSION] Updated lead {lead.id} with session summary")
+    else:
+        # No summary (too few messages) - log it but still mark as processed
+        logger.info(f"[WA-SESSION] Session {session_id} closed without summary (not enough messages)")
     
     db.session.commit()
     
-    logger.info(f"[WA-SESSION] Closed session id={session_id} with_summary={bool(summary)}")
+    logger.info(f"[WA-SESSION] Closed session id={session_id} with_summary={bool(summary)} processed={mark_processed}")
     
     return True
 
