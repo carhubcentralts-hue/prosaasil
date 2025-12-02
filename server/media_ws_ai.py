@@ -2680,7 +2680,9 @@ class MediaStreamHandler:
         self.rx_frames = 0
         self.tx_frames = 0
         
-        logger.info(f"[CALL] Started sid={self.stream_sid[:8]}...")
+        # ✅ FIX: stream_sid is None until START event - safe logging
+        _orig_print(f"🔵 [CALL] run() started - waiting for START event...", flush=True)
+        logger.info("[CALL] run() started - waiting for START event")
         
         try:
             while True:

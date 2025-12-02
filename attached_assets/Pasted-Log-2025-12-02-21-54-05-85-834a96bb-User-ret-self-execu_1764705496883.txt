@@ -1,0 +1,178 @@
+Log
+2025-12-02 21:54:05.85
+834a96bb
+User
+ret = self._execute_context(
+2025-12-02 21:56:36.77
+834a96bb
+User
+INFO: 35.196.159.84:0 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+2025-12-02 21:56:36.96
+834a96bb
+User
+INFO: 34.75.40.8:0 - "WebSocket /ws/twilio-media" [accepted]
+2025-12-02 21:56:37.01
+834a96bb
+User
+🧹 [REAPER] Session cleanup thread started
+2025-12-02 21:56:37.01
+834a96bb
+User
+INFO: connection open
+2025-12-02 21:56:37.11
+834a96bb
+User
+🎯 AI CONVERSATION STARTED
+2025-12-02 21:56:37.32
+834a96bb
+User
+✅ CustomerIntelligence SUCCESS: customer_id=39, lead_id=110, was_created=False
+2025-12-02 21:56:37.56
+834a96bb
+User
+✅ Updated call_log with customer_id=39
+2025-12-02 21:56:37.65
+834a96bb
+User
+INFO: 34.23.224.173:0 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+2025-12-02 21:56:37.65
+834a96bb
+User
+STREAM_ENDED call=CAc08e9fd7656a921e7aaf23060a7030a8 stream=N/A status=N/A
+2025-12-02 21:56:38.58
+834a96bb
+User
+INFO: connection closed
+2025-12-02 21:56:39.02
+834a96bb
+User
+✅ Updated call CAc08e9fd7656a921e7aaf23060a7030a8 to Record TwiML
+2025-12-02 21:56:39.93
+834a96bb
+User
+✅ Resolved business_id=1 from to_number=+97233763805 (Business: שי דירות )
+2025-12-02 21:56:39.96
+834a96bb
+User
+✅ call_log already exists for CAc08e9fd7656a921e7aaf23060a7030a8
+2025-12-02 21:56:39.96
+834a96bb
+User
+🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAc08e9fd7656a921e7aaf23060a7030a8
+2025-12-02 21:56:39.96
+834a96bb
+User
+🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAc08e9fd7656a921e7aaf23060a7030a8
+2025-12-02 21:56:39.96
+834a96bb
+User
+🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAc08e9fd7656a921e7aaf23060a7030a8
+2025-12-02 21:56:39.96
+834a96bb
+User
+🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAc08e9fd7656a921e7aaf23060a7030a8
+2025-12-02 21:56:39.96
+834a96bb
+User
+🔵 CREATE_LEAD_FROM_CALL - App context created
+2025-12-02 21:56:39.96
+834a96bb
+User
+🔥 TWIML_WS=wss://ai-crmd.replit.app/ws/twilio-media
+
+2025-12-02 21:56:39.96
+834a96bb
+User
+🟢 INCOMING_CALL - Thread started successfully
+2025-12-02 21:56:39.96
+834a96bb
+User
+🔥 TWIML_HOST=ai-crmd.replit.app
+2025-12-02 21:56:39.96
+834a96bb
+User
+🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://ai-crmd.replit.app/webhook/stream_ended"><Stream url="wss://ai-crmd.replit.app/ws/twilio-media"><Parameter name="CallSid" value="CAc08e9fd7656a921e7aaf23060a7030a8" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+2025-12-02 21:56:39.96
+834a96bb
+User
+⚠️ incoming_call: 2203ms - CAc08e9fd7656a92
+2025-12-02 21:56:39.98
+834a96bb
+User
+INFO: 35.196.159.84:0 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+2025-12-02 21:56:41.95
+834a96bb
+User
+✅ CustomerIntelligence SUCCESS: customer_id=39, lead_id=110, was_created=False
+2025-12-02 21:56:42.95
+834a96bb
+User
+✅ Updated call_log with customer_id=39
+2025-12-02 21:56:44.47
+834a96bb
+User
+✅ handle_recording: Updated call_log for CAc08e9fd7656a921e7aaf23060a7030a8
+2025-12-02 21:56:44.47
+834a96bb
+User
+INFO: 35.196.109.179:0 - "POST /webhook/handle_recording HTTP/1.1" 200 OK
+2025-12-02 21:56:44.47
+834a96bb
+User
+✅ REC_QUEUED_ASYNC: CAc08e9fd7656a92 duration=3
+2025-12-02 21:56:44.56
+834a96bb
+User
+INFO: 35.196.159.84:0 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+2025-12-02 21:56:44.56
+834a96bb
+User
+INFO: 35.196.159.84:0 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+2025-12-02 21:56:44.56
+834a96bb
+User
+INFO: 35.196.159.84:0 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+2025-12-02 21:57:04.64
+834a96bb
+User
+✅ Resolved business_id=1 from to_number=+97233763805 (Business: שי דירות )
+2025-12-02 21:57:04.72
+834a96bb
+User
+🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CA32e01432ece3617e3bea28d9099e44d1
+2025-12-02 21:57:04.72
+834a96bb
+User
+✅ call_log created immediately for CA32e01432ece3617e3bea28d9099e44d1
+2025-12-02 21:57:04.72
+834a96bb
+User
+🟢 INCOMING_CALL - Thread started successfully
+2025-12-02 21:57:04.72
+834a96bb
+User
+🔵 CREATE_LEAD_FROM_CALL - App context created
+2025-12-02 21:57:04.72
+834a96bb
+User
+✅ incoming_call: 253ms - CA32e01432ece361
+2025-12-02 21:57:04.72
+834a96bb
+User
+🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CA32e01432ece3617e3bea28d9099e44d1
+2025-12-02 21:57:04.72
+834a96bb
+User
+🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://ai-crmd.replit.app/webhook/stream_ended"><Stream url="wss://ai-crmd.replit.app/ws/twilio-media"><Parameter name="CallSid" value="CA32e01432ece3617e3bea28d9099e44d1" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+2025-12-02 21:57:04.72
+834a96bb
+User
+🔥 TWIML_HOST=ai-crmd.replit.app
+2025-12-02 21:57:04.72
+834a96bb
+User
+INFO: 35.196.109.179:0 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+2025-12-02 21:57:04.72
+834a96bb
+User
+🔥 TWIML_WS=wss://ai-crmd.replit.app/ws/twilio-media
