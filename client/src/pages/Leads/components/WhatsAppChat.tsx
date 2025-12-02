@@ -495,16 +495,16 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.direction === 'out' ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${message.direction === 'out' ? 'justify-start' : 'justify-end'}`}
                   data-testid={`message-${message.direction}-${message.id}`}
                 >
                   <div
-                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg shadow-sm ${
                       message.direction === 'out'
                         ? message.status === 'failed'
                           ? 'bg-red-100 text-red-800 border border-red-200'
                           : 'bg-green-500 text-white'
-                        : 'bg-white text-gray-900 border border-gray-200'
+                        : 'bg-gray-100 text-gray-900 border border-gray-200'
                     }`}
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content_text}</p>

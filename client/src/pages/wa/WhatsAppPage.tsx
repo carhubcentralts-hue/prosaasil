@@ -1007,17 +1007,17 @@ export function WhatsAppPage() {
                         className={`flex ${msg.direction === 'out' ? 'justify-start' : 'justify-end'}`}
                       >
                         <div
-                          className={`max-w-xs px-4 py-2 rounded-lg ${
+                          className={`max-w-xs px-4 py-2 rounded-lg shadow-sm ${
                             msg.direction === 'out'
-                              ? 'bg-blue-500 text-white'
-                              : 'bg-slate-200 text-slate-900'
+                              ? 'bg-green-500 text-white'
+                              : 'bg-gray-100 text-slate-900 border border-gray-200'
                           }`}
                           dir="rtl"
                         >
                           <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
                           <p
                             className={`text-xs mt-1 ${
-                              msg.direction === 'out' ? 'text-blue-100' : 'text-slate-500'
+                              msg.direction === 'out' ? 'text-green-100' : 'text-slate-500'
                             }`}
                           >
                             {msg.time}
