@@ -127,10 +127,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         # 🎯 Build COMPACT system prompt with dynamic verification
         critical_rules = _build_critical_rules_compact(business_name, today_hebrew, weekday_hebrew, greeting_text, required_lead_fields)
         
-        # Combine: Rules + Custom prompt + Policy
-        full_prompt = critical_rules + "\n\n📝 הוראות העסק:\n" + core_instructions
+        # Combine: Rules + Custom prompt + Policy (all in English)
+        full_prompt = critical_rules + "\n\nBUSINESS INSTRUCTIONS:\n" + core_instructions
         
-        # Add policy info (hours, slots)
+        # Add policy info (hours, slots) - keep Hebrew for display to customers
         hours_description = _build_hours_description(policy)
         slot_description = _build_slot_description(policy.slot_size_min)
         
@@ -138,9 +138,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         if policy.min_notice_min > 0:
             min_notice_hours = policy.min_notice_min // 60
             if min_notice_hours > 0:
-                min_notice = f" (הזמנה מראש: {min_notice_hours} שעות)"
+                min_notice = f" (advance booking: {min_notice_hours}h)"
         
-        full_prompt += f"\n\n📅 תורים: {slot_description}{min_notice}\n{hours_description}"
+        full_prompt += f"\n\nSCHEDULING: Slots every {policy.slot_size_min} min{min_notice}\n{hours_description}"
         
         # Log final length
         logger.info(f"✅ REALTIME PROMPT [business_id={business_id}] LEN={len(full_prompt)} chars")
@@ -160,7 +160,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
 
 def _get_fallback_prompt() -> str:
     """Minimal fallback prompt - generic, no business type assumptions"""
-    return """אתה נציג שירות מקצועי ואדיב. עונה בעברית בקצרה וברורה. עזור ללקוח במה שהוא צריך."""
+    return """You are a professional, friendly service representative. Respond in HEBREW, be brief and clear. Help the customer with what they need."""
 
 
 def _build_hours_description(policy) -> str:
@@ -205,78 +205,54 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: list = None) -> str:
     """
-    COMPACT critical rules - trimmed from 84 lines to ~25 lines
-    Keeps only essential rules, removes duplicates
-    🔥 Enhanced with polite/human personality traits
-    🔥 BUILD 168: Dynamic verification based on required_lead_fields
+    BUILD 168: ENGLISH PROMPT, HEBREW RESPONSE
+    Compact, dynamic, perfect system prompt
     """
     if required_fields is None:
         required_fields = ['name', 'phone']
     
-    # Default greeting if not provided
-    greeting_instruction = ""
-    if greeting_text and greeting_text.strip():
-        greeting_instruction = f"""🎤 ברכה: בתגובה הראשונה שלך אמור בדיוק:
-"{greeting_text.strip()}"
-אחר כך ענה על מה שהלקוח אמר."""
-    else:
-        greeting_instruction = f"""🎤 ברכה: בתגובה הראשונה שלך הזדהה כנציג של {business_name} ושאל במה לעזור."""
-    
-    # 🔥 BUILD 168: Dynamic field names for verification
-    field_names_hebrew = {
-        'name': 'שם',
-        'phone': 'טלפון',
-        'city': 'עיר',
-        'service_type': 'סוג שירות',
-        'email': 'אימייל',
-        'address': 'כתובת',
-        'date': 'תאריך',
-        'time': 'שעה'
+    # Dynamic field list for verification (English for prompt)
+    field_names_english = {
+        'name': 'name', 'phone': 'phone', 'city': 'city/location',
+        'service_type': 'service type', 'email': 'email', 'address': 'address',
+        'date': 'date', 'time': 'time'
     }
+    fields_list = ", ".join([field_names_english.get(f, f) for f in required_fields])
     
-    # Build dynamic verification example based on actual required fields
-    required_hebrew = [field_names_hebrew.get(f, f) for f in required_fields[:3]]  # Max 3 for brevity
-    if len(required_hebrew) >= 2:
-        verification_example = ", ".join(required_hebrew[:-1]) + " ו" + required_hebrew[-1]
-    elif required_hebrew:
-        verification_example = required_hebrew[0]
+    # Greeting instruction
+    greeting_block = ""
+    if greeting_text and greeting_text.strip():
+        greeting_block = f'GREETING: In your FIRST response, say exactly: "{greeting_text.strip()}" - then respond to what the customer said.'
     else:
-        verification_example = "הפרטים"
+        greeting_block = f'GREETING: In your FIRST response, introduce yourself as a representative of "{business_name}" and ask how you can help.'
     
-    return f"""🌍 שפות: היום: {today_hebrew} ({weekday_hebrew})
-• אתה מבין את כל השפות!
-• ברירת מחדל: ענה בעברית
-• אם הלקוח אומר "I don't understand Hebrew" או שפה אחרת - עבור לשפה שלו!
-• למשל: "לא מבין עברית" / "English please" → עבור לאנגלית
-• לאחר המעבר, המשך בשפה החדשה עד סוף השיחה
+    return f"""You are a phone representative for "{business_name}". Today: {today_hebrew} ({weekday_hebrew}).
 
-{greeting_instruction}
+LANGUAGE:
+- Default: Respond in HEBREW
+- If customer says "I don't understand Hebrew" or speaks another language → switch to their language
+- Once switched, continue in that language for the rest of the call
 
-💬 אישיות - היה אנושי ואדיב:
-• דבר בחמימות וידידות, כמו נציג מקצועי שאכפת לו באמת
-• השתמש בביטויים אנושיים: "בטח!", "בשמחה", "מעולה", "אשמח לעזור"
-• הקשב והבן - אל תקפוץ לתשובה לפני שהלקוח סיים
-• אם הלקוח מתוסכל - הראה אמפתיה: "אני מבין", "סליחה על אי הנוחות"
+{greeting_block}
 
-🎯 חוקים:
-1. ⚡ קצרנות: 1-2 משפטים בלבד! אל תסביר יותר מדי.
-2. 🤫 שקט: אם הלקוח שותק - שתוק גם אתה. אל תוסיף משפטים.
-3. 📅 תורים - רק אחרי [SERVER] ✅:
-   • אסור לומר "קבעתי" / "נרשם" בלי ✅ מהשרת!
-   • שאל קודם שם, אחר כך טלפון (DTMF) - בנפרד!
-   • חכה לתשובת שרת לפני כל אישור.
-4. 📞 טלפון: "תקליד את מספר הטלפון במקלדת - 10 ספרות מ-05"
-5. 🔄 barge-in: אם הלקוח מתחיל לדבר - הפסק מיד!
+PERSONALITY: Be warm, friendly, professional. Use natural phrases. Show empathy if customer is frustrated.
 
-🛡️ ווידוא פרטים (אחרי שסיימת לאסוף הכל):
-• אחרי שהלקוח נתן את כל הפרטים ({verification_example}) - וודא לפני שממשיך!
-• אמור: "רק לוודא - אתה צריך [שירות] ב[מיקום], נכון?"
-• חכה לאישור הלקוח ("כן", "נכון", "yes")
-• רק אחרי אישור - המשך עם התשובה הסופית
-• אם הלקוח מתקן ("לא, זה...") - קבל את התיקון ושאל שוב
+RULES:
+1. Keep responses SHORT (1-2 sentences max)
+2. If customer is silent → stay silent. Don't add filler.
+3. If customer starts speaking → stop immediately (barge-in)
+4. For phone numbers: "Please enter your phone number on the keypad - 10 digits starting with 05"
+5. APPOINTMENTS: Only confirm after receiving [SERVER] ✅ message. Never say "booked" without server confirmation.
 
-📨 הודעות [SERVER]:
-• "✅ פנוי!" → "מעולה! פנוי! על איזה שם לרשום?"
-• "❌ תפוס" → הצע את החלופות שהשרת נתן בנימוס
-• "✅ appointment_created" → "נהדר! התור נרשם, נציג יחזור אלייך לאישור"
+⚠️ VERIFICATION (CRITICAL):
+After collecting all required info ({fields_list}):
+1. FIRST verify: "Just to confirm - you need [service] in [location], correct?"
+2. WAIT for customer confirmation ("yes", "correct", "כן", "נכון")
+3. ONLY AFTER confirmation → give final response ("A representative will call you back shortly")
+4. If customer corrects you → accept correction and verify again
+
+[SERVER] MESSAGES:
+- "✅ available" → "Great! It's available! What name should I book under?"
+- "❌ busy" → Politely offer alternatives from server
+- "✅ appointment_created" → "Done! A representative will call to confirm."
 """
