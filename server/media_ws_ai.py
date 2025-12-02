@@ -1470,18 +1470,15 @@ class MediaStreamHandler:
                         # 🎯 Track AI speaking state for ALL AI audio (not just greeting)
                         now = time.time()
                         
-                        # For non-greeting AI audio, ensure speaking state is tracked for barge-in
-                        if not self.is_playing_greeting:
-                            if not self.is_ai_speaking_event.is_set():
-                                self.ai_speaking_start_ts = now
-                                self.speaking_start_ts = now
-                                self.is_ai_speaking_event.set()
-                        
-                        # Original tracking logic (always runs for all audio)
+                        # 🔥 BUILD 165: ONLY set timestamps on FIRST chunk per utterance
+                        # This prevents grace period from constantly resetting
                         if not self.is_ai_speaking_event.is_set():
                             print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
-                            self.ai_speaking_start_ts = now  # 🔥 FIX: Record when AI STARTED (not last chunk)
-                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                            self.ai_speaking_start_ts = now
+                            self.speaking_start_ts = now
+                            self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
+                            self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                        # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
                         
@@ -1537,6 +1534,7 @@ class MediaStreamHandler:
                     if self.is_ai_speaking_event.is_set():
                         print(f"🔇 [REALTIME] AI stopped speaking ({event_type})")
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
+                    self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
                     
                     # 🔥🔥 CRITICAL FIX: Do NOT clear audio queue here!
@@ -1871,6 +1869,7 @@ class MediaStreamHandler:
         
         # Stop AI speaking flag (checked in audio output bridge)
         self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped due to barge-in
+        self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
         self.last_ai_audio_ts = None
         self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
         
@@ -2929,23 +2928,65 @@ class MediaStreamHandler:
                     if self.call_sid:
                         stream_registry.touch_media(self.call_sid)
                     
+                    # 🔥 BUILD 165: NOISE GATE BEFORE SENDING TO AI!
+                    # Calculate RMS first to decide if we should send audio at all
+                    rms = audioop.rms(pcm16, 2)
+                    
+                    # 🛡️ CRITICAL: Block pure noise BEFORE sending to OpenAI
+                    # This prevents Whisper/Realtime from hallucinating on background noise
+                    is_noise = rms < RMS_SILENCE_THRESHOLD  # 120 RMS = pure noise
+                    
+                    # 🔥 BUILD 165: CALIBRATION MUST RUN FOR ALL FRAMES (even noise!)
+                    # This ensures VAD thresholds stay accurate
+                    if not self.is_calibrated:
+                        total_frames = getattr(self, '_total_calibration_attempts', 0) + 1
+                        self._total_calibration_attempts = total_frames
+                        
+                        # Calibrate on pure noise frames
+                        if is_noise:
+                            self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
+                            self.calibration_frames += 1
+                        
+                        # Complete calibration after 40 quiet frames OR 4 seconds timeout
+                        if self.calibration_frames >= 40 or total_frames >= 200:
+                            if self.calibration_frames < 10:
+                                self.vad_threshold = 180.0  # Hebrew speech baseline
+                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=180")
+                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=180")
+                            else:
+                                # Adaptive: noise + 100, capped at 200 for quiet speakers
+                                self.vad_threshold = min(200.0, self.noise_floor + 100.0)
+                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
+                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
+                            self.is_calibrated = True
+                    
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        try:
-                            # 🔍 DEBUG: Log first few frames from Twilio
-                            if not hasattr(self, '_twilio_audio_chunks_sent'):
-                                self._twilio_audio_chunks_sent = 0
-                            self._twilio_audio_chunks_sent += 1
-                            
-                            if self._twilio_audio_chunks_sent <= 3:
-                                first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}")
-                            
-                            self.realtime_audio_in_queue.put_nowait(b64)
-                        except queue.Full:
-                            pass
+                        # 🔥 BUILD 165: ONLY send audio above noise threshold!
+                        if not is_noise:
+                            try:
+                                # 🔍 DEBUG: Log first few frames from Twilio
+                                if not hasattr(self, '_twilio_audio_chunks_sent'):
+                                    self._twilio_audio_chunks_sent = 0
+                                self._twilio_audio_chunks_sent += 1
+                                
+                                if self._twilio_audio_chunks_sent <= 3:
+                                    first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
+                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}")
+                                
+                                self.realtime_audio_in_queue.put_nowait(b64)
+                            except queue.Full:
+                                pass
+                        else:
+                            # 🔥 Log noise rejection for debugging
+                            if not hasattr(self, '_noise_reject_count'):
+                                self._noise_reject_count = 0
+                            self._noise_reject_count += 1
+                            # Log every 100 rejected frames
+                            if self._noise_reject_count % 100 == 0:
+                                print(f"🔇 [NOISE GATE] Blocked {self._noise_reject_count} noise frames (last rms={rms:.0f})")
                     # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
-                    elif not USE_REALTIME_API and self.call_sid and pcm16:
+                    elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)
                         if session:
                             session.push_audio(pcm16)
@@ -2960,10 +3001,10 @@ class MediaStreamHandler:
                                 print(f"⚠️ [STT] No streaming session for {self.call_sid[:8]} - using fallback")
                                 self._session_warning_logged = True
                     
-                    # מדד דיבור/שקט (VAD) - זיהוי קול חזק בלבד
-                    rms = audioop.rms(pcm16, 2)
+                    # 🔥 BUILD 165: RMS already calculated above at line 2937 (before noise gate)
+                    # No need to recalculate - reuse the 'rms' variable
                     
-                    # 🔥 BUILD 164B: BALANCED BARGE-IN - Filter noise while allowing speech
+                    # 🔥 BUILD 165: BALANCED BARGE-IN - Filter noise while allowing speech
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         # 🔍 DEBUG: Log AI speaking state every 50 frames (~1 second)
                         if not hasattr(self, '_barge_in_debug_counter'):
@@ -2975,8 +3016,8 @@ class MediaStreamHandler:
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
                         
-                        # 🔥 BUILD 164B: NOISE GATE - Ignore pure noise (RMS < 120)
-                        if rms < RMS_SILENCE_THRESHOLD:  # 120 - low enough to catch soft speech
+                        # 🔥 BUILD 165: NOISE GATE - already checked via is_noise flag
+                        if is_noise:
                             # Pure noise - don't count for barge-in
                             self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 1)
                             continue
@@ -3023,31 +3064,10 @@ class MediaStreamHandler:
                                 # Voice dropped below threshold - gradual reset
                                 self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 2)
                     
-                    # 🔥 BUILD 164B: VAD Calibration with balanced thresholds
-                    if not self.is_calibrated:
-                        # Track total attempts (timeout after 4 seconds)
-                        total_frames = getattr(self, '_total_calibration_attempts', 0) + 1
-                        self._total_calibration_attempts = total_frames
-                        
-                        # Calibrate on frames below 120 RMS - pure background noise
-                        if rms < RMS_SILENCE_THRESHOLD:  # 120
-                            self.noise_floor = (self.noise_floor * self.calibration_frames + rms) / (self.calibration_frames + 1)
-                            self.calibration_frames += 1
-                        
-                        # Complete calibration after 40 quiet frames OR 4 seconds timeout
-                        if self.calibration_frames >= 40 or total_frames >= 200:
-                            if self.calibration_frames < 10:
-                                self.vad_threshold = 180.0  # Hebrew speech baseline
-                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=180")
-                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=180")
-                            else:
-                                # Adaptive: noise + 100, capped at 200 for quiet speakers
-                                self.vad_threshold = min(200.0, self.noise_floor + 100.0)
-                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
-                            self.is_calibrated = True
+                    # 🔥 BUILD 165: Calibration already done above (before audio routing)
+                    # No duplicate calibration needed here
                     
-                    # 🔥 BUILD 164B: Voice detection with balanced threshold
+                    # 🔥 BUILD 165: Voice detection with balanced threshold
                     if self.is_calibrated:
                         is_strong_voice = rms > self.vad_threshold
                     else:
@@ -3078,10 +3098,10 @@ class MediaStreamHandler:
                         self.voice_in_row = 0  # Reset barge-in counter
                         continue  # ← SKIP EVERYTHING - don't listen at all!
                     
-                    # 🎯 SMART BARGE-IN: Enabled by default with intelligent state tracking
-                    # Only trigger when AI is actively speaking (not just thinking)
-                    # 🛡️ FIX: NEVER process barge-in during greeting playback!
-                    if ENABLE_BARGE_IN and not self.is_playing_greeting:
+                    # 🔥 BUILD 165: FALLBACK BARGE-IN - ONLY for non-Realtime API mode!
+                    # Realtime API has its own barge-in handler above (lines 3010-3065)
+                    # This is for legacy Google STT mode only
+                    if ENABLE_BARGE_IN and not self.is_playing_greeting and not USE_REALTIME_API:
                         # ספירת פריימים רצופים של קול חזק בלבד
                         if is_strong_voice:
                             self.voice_in_row += 1
@@ -3090,7 +3110,7 @@ class MediaStreamHandler:
 
                         # ⚡ SIMPLIFIED BARGE-IN: Fast and speech-based
                         # Only trigger after user has spoken at least once (no false positives during greeting)
-                        if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
+                        if self.speaking and not self.waiting_for_dtmf:
                             # Do NOT allow barge-in before the user has ever spoken
                             if not self.user_has_spoken:
                                 # User never spoke yet → do not treat noise as barge-in
@@ -3104,13 +3124,13 @@ class MediaStreamHandler:
                                 continue
                             
                             # Use our calibrated speech threshold as barge-in trigger
-                            speech_threshold = getattr(self, "vad_threshold", None) or 1200
+                            speech_threshold = getattr(self, "vad_threshold", None) or MIN_SPEECH_RMS
                             
                             if rms >= speech_threshold:
-                                print(f"[BARGE-IN] User speech detected while AI speaking (rms={rms:.1f}, threshold={speech_threshold:.1f})")
+                                print(f"[BARGE-IN FALLBACK] User speech detected (rms={rms:.1f}, threshold={speech_threshold:.1f})")
                                 
-                                # Call Realtime barge-in handler (cancels OpenAI response)
-                                self._handle_realtime_barge_in()
+                                # Stop AI speaking
+                                self.speaking = False
                                 
                                 # Clean up state
                                 self.state = STATE_LISTEN
@@ -3127,8 +3147,6 @@ class MediaStreamHandler:
                                         self._tx_enqueue({"type": "clear"})
                                     except:
                                         pass
-                                else:
-                                    print("💔 SKIPPING barge-in clear - WebSocket connection failed")
                                 continue
                     
                     # ✅ איסוף אודיו עם זיהוי דממה תקין
