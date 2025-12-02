@@ -1547,6 +1547,31 @@ class MediaStreamHandler:
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
                     self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+                    
+                    # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
+                    # This ensures AI finishes speaking before we disconnect
+                    if self.pending_hangup and not self.hangup_triggered:
+                        # Wait a moment for any remaining audio to be sent to Twilio
+                        async def delayed_hangup():
+                            # Wait for queue to drain (max 3 seconds)
+                            for _ in range(30):  # 30 * 100ms = 3 seconds max
+                                if self.realtime_audio_out_queue.qsize() == 0:
+                                    break
+                                await asyncio.sleep(0.1)
+                            
+                            # Extra buffer for Twilio to play the audio
+                            await asyncio.sleep(0.5)
+                            
+                            if not self.hangup_triggered:
+                                print(f"📞 [BUILD 163] Audio finished - triggering polite hangup now")
+                                import threading
+                                threading.Thread(
+                                    target=self._trigger_auto_hangup,
+                                    args=("AI finished speaking politely",),
+                                    daemon=True
+                                ).start()
+                        
+                        asyncio.create_task(delayed_hangup())
                 
                 elif event_type == "response.audio_transcript.done":
                     transcript = event.get("transcript", "")
@@ -1612,18 +1637,9 @@ class MediaStreamHandler:
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                            print(f"📞 [BUILD 163] Pending hangup set - will disconnect after audio finishes playing")
                         
-                        # 🎯 BUILD 163: Check for auto hang-up AFTER detecting closing phrases
-                        # 🔥 FIX: Must be AFTER pending_hangup is set, not before!
-                        if self.pending_hangup and not self.hangup_triggered:
-                            print(f"📞 [BUILD 163] Pending hangup detected after AI response - triggering hang-up")
-                            # Use thread to avoid blocking async loop
-                            import threading
-                            threading.Thread(
-                                target=self._trigger_auto_hangup,
-                                args=("AI finished speaking with pending hangup",),
-                                daemon=True
-                            ).start()
+                        # 🔥 NOTE: Hangup is now triggered in response.audio.done to let audio finish!
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
