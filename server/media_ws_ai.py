@@ -1553,18 +1553,31 @@ class MediaStreamHandler:
                     if self.pending_hangup and not self.hangup_triggered:
                         # Wait for audio to fully play before disconnecting
                         async def delayed_hangup():
-                            # Wait for queue to drain (max 5 seconds)
-                            for _ in range(50):  # 50 * 100ms = 5 seconds max
-                                if self.realtime_audio_out_queue.qsize() == 0:
+                            print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
+                            
+                            # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
+                            for i in range(50):  # 50 * 100ms = 5 seconds max
+                                q1_size = self.realtime_audio_out_queue.qsize()
+                                if q1_size == 0:
+                                    print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms")
                                     break
                                 await asyncio.sleep(0.1)
                             
-                            # 🔥 CRITICAL: Wait longer for Twilio to finish playing!
-                            # Audio travels: OpenAI → our queue → Twilio WebSocket → Twilio servers → phone
-                            # Need at least 2-3 seconds for the last audio to reach the caller
-                            queue_was_size = self.realtime_audio_out_queue.qsize()
-                            print(f"⏳ [POLITE HANGUP] Queue drained (was {queue_was_size}), waiting 3s for Twilio playback...")
-                            await asyncio.sleep(3.0)  # 3 seconds for Twilio to play remaining audio
+                            # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
+                            # Each frame is 20ms, so 500 frames = 10 seconds of audio
+                            for i in range(100):  # 100 * 100ms = 10 seconds max
+                                tx_size = self.tx_q.qsize()
+                                if tx_size == 0:
+                                    print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
+                                    break
+                                if i % 10 == 0:  # Log every second
+                                    print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
+                                await asyncio.sleep(0.1)
+                            
+                            # STEP 3: Extra buffer for network latency
+                            # Audio still needs to travel from Twilio servers to phone
+                            print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
+                            await asyncio.sleep(2.0)
                             
                             if not self.hangup_triggered:
                                 print(f"📞 [BUILD 163] Audio playback complete - triggering polite hangup now")
@@ -4871,10 +4884,17 @@ class MediaStreamHandler:
             # Don't clear pending_hangup - try again later
             return
         
-        # 🔥 PROTECTION: Don't hangup if audio queue still has content
-        queue_size = self.realtime_audio_out_queue.qsize()
-        if queue_size > 0:
-            print(f"🛡️ [PROTECTION] BLOCKING hangup - {queue_size} audio frames still in queue!")
+        # 🔥 PROTECTION: Don't hangup if OpenAI audio queue still has content
+        openai_queue_size = self.realtime_audio_out_queue.qsize()
+        if openai_queue_size > 0:
+            print(f"🛡️ [PROTECTION] BLOCKING hangup - {openai_queue_size} frames in OpenAI queue!")
+            # Don't clear pending_hangup - try again later
+            return
+        
+        # 🔥 PROTECTION: Don't hangup if Twilio TX queue still has content
+        tx_queue_size = self.tx_q.qsize()
+        if tx_queue_size > 0:
+            print(f"🛡️ [PROTECTION] BLOCKING hangup - {tx_queue_size} frames in Twilio TX queue!")
             # Don't clear pending_hangup - try again later
             return
         
