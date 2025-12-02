@@ -1389,6 +1389,27 @@ class MediaStreamHandler:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
                 
+                # 🔥 DEBUG BUILD 168.5: Log ALL events to diagnose missing audio
+                if event_type.startswith("response."):
+                    # Log all response-related events with details
+                    if event_type == "response.audio.delta":
+                        delta = event.get("delta", "")
+                        _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
+                    elif event_type == "response.done":
+                        response = event.get("response", {})
+                        status = response.get("status", "?")
+                        output = response.get("output", [])
+                        _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}", flush=True)
+                        # Log output items to see if audio was included
+                        for i, item in enumerate(output[:3]):  # First 3 items
+                            item_type = item.get("type", "?")
+                            _orig_print(f"   output[{i}]: type={item_type}", flush=True)
+                    elif event_type == "response.created":
+                        resp_id = event.get("response", {}).get("id", "?")
+                        _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
+                    else:
+                        _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
+                
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
                     self.transcription_failed_count += 1
@@ -1399,7 +1420,7 @@ class MediaStreamHandler:
                     continue
                 
                 # 🔍 DEBUG: Log all event types to catch duplicates
-                if not event_type.endswith(".delta") and not event_type.startswith("session"):
+                if not event_type.endswith(".delta") and not event_type.startswith("session") and not event_type.startswith("response."):
                     print(f"[REALTIME] event: {event_type}")
                 
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)

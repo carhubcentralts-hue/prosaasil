@@ -1,0 +1,137 @@
+2025-12-02 22:05:22.75
+0650cca4
+User
+🔥 Warming Google TTS client...
+2025-12-02 22:06:26.19
+0650cca4
+User
+🚀 [REALTIME] Thread started for call CA4efbe9 (FRESH SESSION)
+2025-12-02 22:06:26.22
+0650cca4
+User
+🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY
+2025-12-02 22:06:26.22
+0650cca4
+User
+⏱️ [PARALLEL] Client created in 0ms
+2025-12-02 22:06:26.37
+0650cca4
+User
+✅ מצא עסק: שי דירות (id=1)
+2025-12-02 22:06:26.39
+0650cca4
+User
+⚡ COMBINED QUERY: biz+greeting+settings in 198ms
+2025-12-02 22:06:26.39
+0650cca4
+User
+🔍 [SETTINGS LOADED] _call_settings_loaded=True (prevents duplicate load)
+2025-12-02 22:06:26.39
+0650cca4
+User
+🔍 [SETTINGS LOADED] required_lead_fields=['name', 'phone']
+2025-12-02 22:06:26.39
+0650cca4
+User
+bot_speaks_first=True, auto_end_goodbye=True
+2025-12-02 22:06:26.39
+0650cca4
+User
+🔍 [SETTINGS LOADED] smart_hangup_enabled=True
+2025-12-02 22:06:26.39
+0650cca4
+User
+✅ CustomerIntelligence SUCCESS: customer_id=39, lead_id=110, was_created=False
+2025-12-02 22:06:26.41
+0650cca4
+User
+⚡ DB QUERY: business_id=1 in 220ms
+2025-12-02 22:06:26.42
+0650cca4
+User
+🔊 TX_LOOP_START: Audio transmission thread started
+2025-12-02 22:06:26.42
+0650cca4
+User
+🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=1, SID=CA4efbe9031df0900a472acdd042181192
+2025-12-02 22:06:26.42
+0650cca4
+User
+🚀 [PARALLEL] Signaling business info ready at T0+224ms
+2025-12-02 22:06:26.42
+0650cca4
+User
+✅ [REALTIME] Greeting stored: 'שלום שמי מליסה ...' (len=15)
+2025-12-02 22:06:26.42
+0650cca4
+User
+🎙️ REAL_VOICE: rms=2379.0 > threshold=200.0
+2025-12-02 22:06:26.42
+0650cca4
+User
+[REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=cf bf b9 b8 c1, rms=1218
+2025-12-02 22:06:26.42
+0650cca4
+User
+🎯 [T1=1764705986.422] STORING GREETING FOR REALTIME!
+
+2025-12-02 22:06:26.42
+0650cca4
+User
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=52 d9 bf be c2, rms=2379
+2025-12-02 22:06:26.42
+0650cca4
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=59 5e 6f fa ef, rms=205
+2025-12-02 22:06:26.59
+0650cca4
+User
+✅ Call log already exists for CA4efbe9031df0900a472acdd042181192
+2025-12-02 22:06:26.63
+0650cca4
+User
+✅ Updated call_log with customer_id=39
+2025-12-02 22:06:26.86
+0650cca4
+User
+⏱️ [PARALLEL] Using greeting: 'שלום שמי מליסה ...'
+2025-12-02 22:06:26.86
+0650cca4
+User
+⏳ [PARALLEL] Waiting for business info from DB query...
+2025-12-02 22:06:26.86
+0650cca4
+User
+⏱️ [PHASE 1] Session configured in 0ms (total: 640ms)
+2025-12-02 22:06:26.86
+0650cca4
+User
+🎤 [GREETING] max_tokens=200 for greeting length=15 chars
+2025-12-02 22:06:26.86
+0650cca4
+User
+🎤 [VOICE] Using voice=shimmer for entire call (business=1)
+2025-12-02 22:06:26.86
+0650cca4
+User
+✅ [BUILD 163] response.create sent! OpenAI=640ms, T0→speak=667ms
+2025-12-02 22:06:26.96
+0650cca4
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-12-02 22:06:26.97
+0650cca4
+User
+[REALTIME] event: response.done
+2025-12-02 22:06:58.76
+0650cca4
+User
+WS_STOP sid=MZa9ebbe1f18d253b48efcf3e5df3a06ca rx=299 tx=0
+2025-12-02 22:06:58.77
+0650cca4
+User
+📝 [REALTIME] Text sender ended
+2025-12-02 22:06:58.77
+0650cca4
+User
+📤 [REALTIME] Audio sender ended
