@@ -1551,19 +1551,23 @@ class MediaStreamHandler:
                     # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
                     # This ensures AI finishes speaking before we disconnect
                     if self.pending_hangup and not self.hangup_triggered:
-                        # Wait a moment for any remaining audio to be sent to Twilio
+                        # Wait for audio to fully play before disconnecting
                         async def delayed_hangup():
-                            # Wait for queue to drain (max 3 seconds)
-                            for _ in range(30):  # 30 * 100ms = 3 seconds max
+                            # Wait for queue to drain (max 5 seconds)
+                            for _ in range(50):  # 50 * 100ms = 5 seconds max
                                 if self.realtime_audio_out_queue.qsize() == 0:
                                     break
                                 await asyncio.sleep(0.1)
                             
-                            # Extra buffer for Twilio to play the audio
-                            await asyncio.sleep(0.5)
+                            # 🔥 CRITICAL: Wait longer for Twilio to finish playing!
+                            # Audio travels: OpenAI → our queue → Twilio WebSocket → Twilio servers → phone
+                            # Need at least 2-3 seconds for the last audio to reach the caller
+                            queue_was_size = self.realtime_audio_out_queue.qsize()
+                            print(f"⏳ [POLITE HANGUP] Queue drained (was {queue_was_size}), waiting 3s for Twilio playback...")
+                            await asyncio.sleep(3.0)  # 3 seconds for Twilio to play remaining audio
                             
                             if not self.hangup_triggered:
-                                print(f"📞 [BUILD 163] Audio finished - triggering polite hangup now")
+                                print(f"📞 [BUILD 163] Audio playback complete - triggering polite hangup now")
                                 import threading
                                 threading.Thread(
                                     target=self._trigger_auto_hangup,
@@ -4859,6 +4863,19 @@ class MediaStreamHandler:
         if self.is_playing_greeting:
             print(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing!")
             self.pending_hangup = False  # Clear pending hangup
+            return
+        
+        # 🔥 PROTECTION: Don't hangup while AI is speaking
+        if self.is_ai_speaking_event.is_set():
+            print(f"🛡️ [PROTECTION] BLOCKING hangup - AI still speaking!")
+            # Don't clear pending_hangup - try again later
+            return
+        
+        # 🔥 PROTECTION: Don't hangup if audio queue still has content
+        queue_size = self.realtime_audio_out_queue.qsize()
+        if queue_size > 0:
+            print(f"🛡️ [PROTECTION] BLOCKING hangup - {queue_size} audio frames still in queue!")
+            # Don't clear pending_hangup - try again later
             return
         
         # 🔥 PROTECTION: Don't hangup within 3 seconds of greeting completion
