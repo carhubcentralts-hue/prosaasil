@@ -129,7 +129,7 @@ def update_session_activity(
     return session
 
 
-def close_session(session_id: int, summary: str = None) -> bool:
+def close_session(session_id: int, summary: Optional[str] = None) -> bool:
     """Close a session and optionally set summary
     
     Args:
@@ -243,26 +243,51 @@ def get_stale_sessions(minutes: int = INACTIVITY_MINUTES) -> list:
 def get_session_messages(session: WhatsAppConversation) -> list:
     """Get all messages for a session (for summary generation)
     
+    🔥 FIX: Query with flexible phone number matching to handle different formats
+    Also adds upper bound (last_message_at) to prevent including messages from after session ended
+    
     Args:
         session: WhatsAppConversation object
     
     Returns:
         List of message dicts with direction and body
     """
+    from sqlalchemy import or_, func
+    
     if not session.started_at:
         logger.warning(f"[WA-SESSION] No started_at for session {session.id}")
         return []
     
-    # 🔥 FIX: Query messages by to_number matching customer's number
-    # Note: to_number stores the customer's phone for both directions
+    # 🔥 Normalize customer phone for flexible matching
+    customer_phone = session.customer_wa_id or ""
+    customer_phone_clean = customer_phone.replace("@s.whatsapp.net", "").replace("+", "").strip()
+    
+    # Build list of possible phone formats to match (EXACT matches only - no LIKE for security!)
+    phone_variants = [
+        customer_phone_clean,                    # 972501234567
+        f"+{customer_phone_clean}",              # +972501234567
+        f"{customer_phone_clean}@s.whatsapp.net" # 972501234567@s.whatsapp.net
+    ]
+    
+    # 🔥 Add upper bound: only messages from session.started_at to session.last_message_at
+    # This prevents including messages from AFTER the session was considered ended
+    end_time = session.last_message_at or session.updated_at or datetime.utcnow()
+    
+    # Query with EXACT phone matching only (no LIKE - prevents cross-customer data leak!)
     messages = WhatsAppMessage.query.filter(
         WhatsAppMessage.business_id == session.business_id,
-        WhatsAppMessage.to_number == session.customer_wa_id,
-        WhatsAppMessage.created_at >= session.started_at
+        or_(
+            WhatsAppMessage.to_number == phone_variants[0],
+            WhatsAppMessage.to_number == phone_variants[1],
+            WhatsAppMessage.to_number == phone_variants[2]
+        ),
+        WhatsAppMessage.created_at >= session.started_at,
+        WhatsAppMessage.created_at <= end_time  # 🔥 Upper bound!
     ).order_by(WhatsAppMessage.created_at.asc()).all()
     
     # 🔥 DEBUG: Log message count for troubleshooting
-    logger.info(f"[WA-SESSION] Found {len(messages)} messages for session {session.id} (customer={session.customer_wa_id[:8]}...)")
+    logger.info(f"[WA-SESSION] Found {len(messages)} messages for session {session.id}")
+    logger.info(f"   customer={customer_phone_clean[:8]}..., from={session.started_at}, to={end_time}")
     
     result = []
     for m in messages:
@@ -326,7 +351,11 @@ def generate_session_summary(session: WhatsAppConversation) -> Optional[str]:
             temperature=0.3
         )
         
-        summary = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if not content:
+            logger.warning(f"[WA-SESSION] Empty response from OpenAI for session {session.id}")
+            return None
+        summary = content.strip()
         logger.info(f"[WA-SESSION] Generated summary for session {session.id}: {summary[:50]}...")
         
         return summary

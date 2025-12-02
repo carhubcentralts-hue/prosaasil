@@ -46,7 +46,7 @@ export function AdminSupportPage() {
   useEffect(() => {
     if (promptApiData) {
       setPromptData({
-        prompt: promptApiData.ai_prompt || 'אני לאה, נציגת התמיכה של מערכת ניהול הנדל"ן שלנו. אני כאן לעזור לכם עם כל שאלה או בעיה טכנית שיש לכם במערכת.',
+        prompt: promptApiData.ai_prompt || 'אני נציגת התמיכה של המערכת. אני כאן לעזור לכם עם כל שאלה או בעיה טכנית.',
         model: promptApiData.model || 'gpt-4o-mini',
         maxTokens: promptApiData.max_tokens || 150,
         temperature: promptApiData.temperature || 0.7
@@ -61,7 +61,7 @@ export function AdminSupportPage() {
         whatsapp_number: phonesApiData.whatsapp_number || '',
         whatsapp_enabled: phonesApiData.whatsapp_enabled || false,
         working_hours: phonesApiData.working_hours || '08:00-18:00',
-        voice_message: phonesApiData.voice_message || 'שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל"ן. אנחנו כאן לעזור לכם.'
+        voice_message: phonesApiData.voice_message || 'שלום, הגעתם לתמיכה הטכנית. אנחנו כאן לעזור לכם.'
       });
     }
   }, [phonesApiData]);
