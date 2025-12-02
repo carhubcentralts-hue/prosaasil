@@ -45,67 +45,41 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
 
   const fetchLeads = useCallback(async () => {
     try {
-      console.log('🔄 fetchLeads starting with filters:', filters);
-      console.log('🔄 fetchLeads user:', user);
       setLoading(true);
       setError(null);
       
       // Add timeout to prevent infinite hanging
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.log('⏱️ fetchLeads timeout - aborting request');
-        controller.abort();
-      }, 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       // Build query parameters
       const params = new URLSearchParams();
       
-      if (filters.search) {
-        params.append('search', filters.search);
-      }
-      if (filters.status) {
-        params.append('status', filters.status);
-      }
-      if (filters.source) {
-        params.append('source', filters.source);
-      }
-      if (filters.owner_user_id) {
-        params.append('owner_user_id', filters.owner_user_id.toString());
-      }
-      if (filters.page) {
-        params.append('page', filters.page.toString());
-      }
-      if (filters.pageSize) {
-        params.append('pageSize', filters.pageSize.toString());
-      }
+      if (filters.search) params.append('search', filters.search);
+      if (filters.status) params.append('status', filters.status);
+      if (filters.source) params.append('source', filters.source);
+      if (filters.owner_user_id) params.append('owner_user_id', filters.owner_user_id.toString());
+      if (filters.page) params.append('page', filters.page.toString());
+      if (filters.pageSize) params.append('pageSize', filters.pageSize.toString());
 
       const queryString = params.toString();
-      // Use admin endpoint for admin/manager roles to see all tenants' leads
       const url = isAdmin 
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
-      console.log('🔄 fetchLeads calling URL:', url, 'isAdmin:', isAdmin);
       const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url, {
         signal: controller.signal
       });
       
       clearTimeout(timeoutId);
-      console.log('✅ fetchLeads got response:', response);
       
       // Handle both regular endpoint (leads) and admin endpoint (items) response formats
       const leadsList = response.leads || response.items || [];
       setLeads(leadsList);
       setTotal(response.total || leadsList.length);
     } catch (err) {
-      console.error('❌ Failed to fetch leads:', err);
       if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          console.log('⏹️ Request was aborted due to timeout');
-          setError('Request timeout - please try again');
-        } else {
-          setError(err.message);
-        }
+        setError(err.name === 'AbortError' ? 'Request timeout - please try again' : err.message);
       } else {
         setError('Failed to fetch leads');
       }
@@ -129,7 +103,6 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
         throw new Error('Invalid response format');
       }
     } catch (err) {
-      console.error('Failed to create lead:', err);
       throw err;
     }
   }, []);
@@ -139,7 +112,6 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
       const response = await http.patch<{lead: Lead}>(`/api/leads/${leadId}`, leadData);
       
       if (response.lead) {
-        // Update the lead in the current list
         setLeads(prevLeads => 
           prevLeads.map(lead => 
             lead.id === leadId ? { ...lead, ...response.lead } : lead
@@ -150,7 +122,6 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
         throw new Error('Invalid response format');
       }
     } catch (err) {
-      console.error('Failed to update lead:', err);
       throw err;
     }
   }, []);
@@ -158,12 +129,9 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
   const deleteLead = useCallback(async (leadId: number): Promise<void> => {
     try {
       await http.delete(`/api/leads/${leadId}`);
-      
-      // Remove the lead from the current list
       setLeads(prevLeads => prevLeads.filter(lead => lead.id !== leadId));
       setTotal(prevTotal => prevTotal - 1);
     } catch (err) {
-      console.error('Failed to delete lead:', err);
       throw err;
     }
   }, []);
@@ -171,10 +139,7 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
   const moveLead = useCallback(async (leadId: number, moveData: MoveLeadRequest): Promise<void> => {
     try {
       await http.patch(`/api/leads/${leadId}/move`, moveData);
-      
-      // The parent component will call refreshLeads() after this
     } catch (err) {
-      console.error('Failed to move lead:', err);
       throw err;
     }
   }, []);
@@ -183,9 +148,7 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
     await fetchLeads();
   }, [fetchLeads]);
 
-  // Initial fetch and when filters change
   useEffect(() => {
-    console.log('🔄 useLeads useEffect triggered, calling fetchLeads...');
     fetchLeads();
   }, [fetchLeads]);
 

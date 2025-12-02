@@ -98,72 +98,78 @@ def get_business_id():
 @crm_bp.get("/api/crm/threads")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_threads():
-    """Get communication threads (WhatsApp conversations) as JSON"""
+    """Get communication threads (WhatsApp conversations) as JSON - OPTIMIZED"""
+    import re
     try:
         business_id = get_business_id()
         thread_type = request.args.get("type", "whatsapp")
         
         if thread_type == "whatsapp":
-            # Get unique WhatsApp conversations
-            threads_data = db.session.query(
-                WhatsAppMessage.to_number,
-                func.max(WhatsAppMessage.created_at).label('last_message_time'),
-                func.count(WhatsAppMessage.id).label('message_count')
-            ).filter_by(business_id=business_id).group_by(
-                WhatsAppMessage.to_number
-            ).order_by(
-                func.max(WhatsAppMessage.created_at).desc()
-            ).limit(20).all()
+            # BUILD 168.2: OPTIMIZED - Single query with window functions instead of N+1
+            # Uses raw SQL for best performance with DISTINCT ON
+            result = db.session.execute(text("""
+                WITH ranked_messages AS (
+                    SELECT 
+                        to_number,
+                        body,
+                        direction,
+                        created_at,
+                        ROW_NUMBER() OVER (PARTITION BY to_number ORDER BY created_at DESC) as rn
+                    FROM whatsapp_message
+                    WHERE business_id = :business_id
+                ),
+                thread_stats AS (
+                    SELECT 
+                        to_number,
+                        MAX(created_at) as last_message_time,
+                        COUNT(*) as message_count
+                    FROM whatsapp_message
+                    WHERE business_id = :business_id
+                    GROUP BY to_number
+                )
+                SELECT 
+                    rm.to_number,
+                    rm.body as last_body,
+                    rm.direction as last_direction,
+                    ts.last_message_time,
+                    ts.message_count,
+                    c.name as customer_name
+                FROM ranked_messages rm
+                JOIN thread_stats ts ON rm.to_number = ts.to_number
+                LEFT JOIN customer c ON c.phone_number = rm.to_number AND c.business_id = :business_id
+                WHERE rm.rn = 1
+                ORDER BY ts.last_message_time DESC
+                LIMIT 20
+            """), {"business_id": business_id})
             
-            # Convert to JSON format
             threads_list = []
-            for thread in threads_data:
-                # Get the last message text
-                last_msg = WhatsAppMessage.query.filter_by(
-                    business_id=business_id,
-                    to_number=thread.to_number
-                ).order_by(WhatsAppMessage.created_at.desc()).first()
+            closing_phrases = [
+                "תודה שמחתי לעזור", "תודה קבעתי פגישה", "נהיה בקשר",
+                "להתראות", "שמחתי לעזור", "נעים היה לדבר", "צוות שי", "בהצלחה"
+            ]
+            
+            for row in result:
+                to_number = row[0]
+                last_body = row[1] or ""
+                last_direction = row[2]
+                last_message_time = row[3]
+                customer_name = row[5] or to_number
                 
-                # Try to get customer name
-                customer = Customer.query.filter_by(
-                    business_id=business_id,
-                    phone_e164=thread.to_number
-                ).first()
-                
-                customer_name = customer.name if customer else thread.to_number
-                
-                # Check if conversation is closed - based on LEAH's last response (outbound)
+                # Check if conversation is closed
                 is_closed = False
-                if last_msg and last_msg.direction == "outbound" and last_msg.body:
-                    import re
-                    
-                    # Check if Leah closed the conversation with closing phrases
-                    closing_phrases = [
-                        "תודה שמחתי לעזור",
-                        "תודה קבעתי פגישה",
-                        "נהיה בקשר",
-                        "להתראות",
-                        "שמחתי לעזור",
-                        "נעים היה לדבר",
-                        "צוות שי",
-                        "בהצלחה"
-                    ]
-                    
-                    # Remove punctuation and extra spaces for matching
-                    msg_lower = last_msg.body.lower().strip()
-                    msg_clean = re.sub(r'[!.,?:;]+', ' ', msg_lower)  # Replace punctuation with space
-                    msg_clean = re.sub(r'\s+', ' ', msg_clean).strip()  # Normalize spaces
-                    
+                if last_direction == "outbound" and last_body:
+                    msg_clean = re.sub(r'[!.,?:;]+', ' ', last_body.lower().strip())
+                    msg_clean = re.sub(r'\s+', ' ', msg_clean).strip()
                     is_closed = any(phrase in msg_clean for phrase in closing_phrases)
                 
                 threads_list.append({
-                    "id": thread.to_number,
+                    "id": to_number,
                     "name": customer_name,
-                    "phone": thread.to_number,
-                    "phone_e164": thread.to_number,
-                    "lastMessage": last_msg.body[:50] + "..." if last_msg and last_msg.body and len(last_msg.body) > 50 else (last_msg.body if last_msg else ""),
-                    "unread": 0,  # TODO: Implement unread count
-                    "time": thread.last_message_time.strftime('%d/%m %H:%M') if thread.last_message_time else '',
+                    "phone": to_number,
+                    "phone_e164": to_number,
+                    "lastMessage": last_body[:50] + "..." if len(last_body) > 50 else last_body,
+                    "unread": 0,
+                    "time": last_message_time.strftime('%d/%m %H:%M') if last_message_time else '',
                     "is_closed": is_closed
                 })
                 
