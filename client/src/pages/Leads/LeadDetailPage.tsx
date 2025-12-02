@@ -455,7 +455,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         )}
         {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
         {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} />}
-        {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} />}
+        {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
         {activeTab === 'activity' && <ActivityTab activities={activities} />}
       </div>
@@ -656,6 +656,9 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
               </div>
             </div>
           )}
+          
+          {/* Notes Section */}
+          <NotesSection lead={lead} />
         </Card>
       </div>
 
@@ -809,7 +812,95 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
   );
 }
 
-function AppointmentsTab({ appointments, loading }: { appointments: LeadAppointment[]; loading?: boolean }) {
+function NotesSection({ lead }: { lead: Lead }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [notes, setNotes] = useState(lead.notes || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      await http.patch(`/api/leads/${lead.id}`, { notes });
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Error saving notes:', err);
+      alert('שגיאה בשמירת ההערות');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 border-t pt-6">
+      <div className="flex items-center justify-between mb-3">
+        <label className="block text-sm font-medium text-gray-700">הערות</label>
+        {!isEditing ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setIsEditing(true)}
+            data-testid="button-edit-notes"
+          >
+            <Pencil className="w-4 h-4 ml-1" />
+            ערוך
+          </Button>
+        ) : (
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => { setIsEditing(false); setNotes(lead.notes || ''); }} disabled={saving}>
+              <X className="w-4 h-4" />
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={saving} data-testid="button-save-notes">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 ml-1" />}
+              {saving ? '' : 'שמור'}
+            </Button>
+          </div>
+        )}
+      </div>
+      
+      {isEditing ? (
+        <textarea
+          className="w-full p-3 border border-gray-300 rounded-lg min-h-[120px] text-sm"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="הוסף הערות על הלקוח..."
+          data-testid="input-lead-notes"
+        />
+      ) : notes ? (
+        <div className="p-3 bg-gray-50 rounded-lg">
+          <p className="text-sm text-gray-700 whitespace-pre-wrap" data-testid="text-lead-notes">{notes}</p>
+        </div>
+      ) : (
+        <div className="text-center py-6 bg-gray-50 rounded-lg">
+          <p className="text-sm text-gray-500 mb-2">אין הערות</p>
+          <Button size="sm" variant="secondary" onClick={() => setIsEditing(true)} data-testid="button-add-notes">
+            <Plus className="w-4 h-4 ml-1" />
+            הוסף הערה
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const APPOINTMENT_TYPES = {
+  viewing: { label: 'צפייה', color: 'bg-blue-100 text-blue-800' },
+  meeting: { label: 'פגישה', color: 'bg-green-100 text-green-800' },
+  signing: { label: 'חתימה', color: 'bg-purple-100 text-purple-800' },
+  call_followup: { label: 'מעקב שיחה', color: 'bg-orange-100 text-orange-800' },
+  phone_call: { label: 'שיחה טלפונית', color: 'bg-cyan-100 text-cyan-800' }
+};
+
+function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointments: LeadAppointment[]; loading?: boolean; lead?: Lead; onRefresh?: () => void }) {
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState({
+    title: '',
+    appointment_type: 'meeting' as string,
+    start_time: '',
+    end_time: '',
+    notes: ''
+  });
+
   const formatDateTime = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleString('he-IL', {
@@ -833,9 +924,151 @@ function AppointmentsTab({ appointments, loading }: { appointments: LeadAppointm
     return <Badge className={config.className}>{config.label}</Badge>;
   };
 
+  const handleCreateAppointment = async () => {
+    if (!formData.title || !formData.start_time || !formData.end_time) {
+      alert('נא למלא כותרת, תאריך התחלה ותאריך סיום');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await http.post('/api/calendar/appointments', {
+        title: formData.title,
+        appointment_type: formData.appointment_type,
+        start_time: formData.start_time,
+        end_time: formData.end_time,
+        notes: formData.notes,
+        contact_name: lead ? `${lead.first_name || ''} ${lead.last_name || ''}`.trim() : '',
+        contact_phone: lead?.phone_e164 || '',
+        status: 'scheduled',
+        priority: 'medium'
+      });
+      
+      setShowModal(false);
+      setFormData({ title: '', appointment_type: 'meeting', start_time: '', end_time: '', notes: '' });
+      onRefresh?.();
+    } catch (err) {
+      console.error('Error creating appointment:', err);
+      alert('שגיאה ביצירת הפגישה');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openNewAppointment = () => {
+    const now = new Date();
+    now.setMinutes(Math.ceil(now.getMinutes() / 30) * 30);
+    const startTime = now.toISOString().slice(0, 16);
+    now.setHours(now.getHours() + 1);
+    const endTime = now.toISOString().slice(0, 16);
+    
+    setFormData({
+      title: lead ? `פגישה עם ${lead.first_name || ''} ${lead.last_name || ''}`.trim() : 'פגישה חדשה',
+      appointment_type: 'meeting',
+      start_time: startTime,
+      end_time: endTime,
+      notes: ''
+    });
+    setShowModal(true);
+  };
+
   return (
     <Card className="p-4 sm:p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">פגישות</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900">פגישות</h3>
+        <Button 
+          size="sm" 
+          onClick={openNewAppointment}
+          data-testid="button-add-appointment"
+        >
+          <Plus className="w-4 h-4 ml-2" />
+          פגישה חדשה
+        </Button>
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" data-testid="appointment-modal">
+          <Card className="w-full max-w-md mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium">תאם פגישה חדשה</h3>
+                <Button variant="ghost" size="sm" onClick={() => setShowModal(false)} data-testid="button-close-appointment-modal">
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">כותרת</label>
+                  <Input
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    placeholder="נושא הפגישה"
+                    data-testid="input-appointment-title"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">סוג פגישה</label>
+                  <select
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                    value={formData.appointment_type}
+                    onChange={(e) => setFormData({ ...formData, appointment_type: e.target.value })}
+                    data-testid="select-appointment-type"
+                  >
+                    {Object.entries(APPOINTMENT_TYPES).map(([key, { label }]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">התחלה</label>
+                    <Input
+                      type="datetime-local"
+                      value={formData.start_time}
+                      onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                      data-testid="input-appointment-start"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">סיום</label>
+                    <Input
+                      type="datetime-local"
+                      value={formData.end_time}
+                      onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                      data-testid="input-appointment-end"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">הערות</label>
+                  <textarea
+                    className="w-full p-2 border border-gray-300 rounded-md min-h-[80px]"
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="הערות נוספות..."
+                    data-testid="input-appointment-notes"
+                  />
+                </div>
+                
+                <div className="flex gap-2 pt-2">
+                  <Button onClick={handleCreateAppointment} disabled={saving} className="flex-1" data-testid="button-save-appointment">
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : null}
+                    {saving ? 'שומר...' : 'שמור פגישה'}
+                  </Button>
+                  <Button variant="secondary" onClick={() => setShowModal(false)} className="flex-1">
+                    ביטול
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
@@ -844,7 +1077,11 @@ function AppointmentsTab({ appointments, loading }: { appointments: LeadAppointm
       ) : appointments.length === 0 ? (
         <div className="text-center py-8">
           <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-          <p className="text-sm text-gray-500">אין פגישות</p>
+          <p className="text-sm text-gray-500 mb-3">אין פגישות</p>
+          <Button size="sm" variant="secondary" onClick={openNewAppointment} data-testid="button-add-first-appointment">
+            <Plus className="w-4 h-4 ml-2" />
+            תאם פגישה ראשונה
+          </Button>
         </div>
       ) : (
         <div className="space-y-4">
@@ -1303,40 +1540,93 @@ function ContractsTab({ leadId }: { leadId: number }) {
 }
 
 function ActivityTab({ activities }: { activities: LeadActivity[] }) {
+  const getActivityInfo = (activity: LeadActivity) => {
+    const typeMap: Record<string, { label: string; icon: typeof Activity; color: string; bgColor: string }> = {
+      'status_change': { label: 'שינוי סטטוס', icon: Activity, color: 'text-white', bgColor: 'bg-purple-500' },
+      'call': { label: 'שיחת טלפון', icon: Phone, color: 'text-white', bgColor: 'bg-blue-500' },
+      'call_incoming': { label: 'שיחה נכנסת', icon: Phone, color: 'text-white', bgColor: 'bg-green-500' },
+      'call_outgoing': { label: 'שיחה יוצאת', icon: Phone, color: 'text-white', bgColor: 'bg-blue-500' },
+      'whatsapp': { label: 'הודעת וואטסאפ', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-600' },
+      'whatsapp_in': { label: 'הודעה נכנסת', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-600' },
+      'whatsapp_out': { label: 'הודעה יוצאת', icon: MessageSquare, color: 'text-white', bgColor: 'bg-green-500' },
+      'appointment': { label: 'פגישה', icon: Calendar, color: 'text-white', bgColor: 'bg-indigo-500' },
+      'reminder': { label: 'משימה', icon: CheckCircle2, color: 'text-white', bgColor: 'bg-yellow-500' },
+      'note': { label: 'הערה', icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' },
+      'created': { label: 'ליד נוצר', icon: User, color: 'text-white', bgColor: 'bg-emerald-500' },
+      'email': { label: 'אימייל', icon: Mail, color: 'text-white', bgColor: 'bg-red-500' },
+    };
+    return typeMap[activity.type] || { label: activity.type, icon: Activity, color: 'text-white', bgColor: 'bg-gray-500' };
+  };
+
+  const getActivityDescription = (activity: LeadActivity) => {
+    const payload = activity.payload || {};
+    
+    if (activity.type === 'status_change') {
+      return `סטטוס שונה מ"${payload.from || 'לא ידוע'}" ל"${payload.to || 'לא ידוע'}"`;
+    }
+    if (activity.type === 'call' || activity.type === 'call_incoming' || activity.type === 'call_outgoing') {
+      const duration = payload.duration ? ` (${payload.duration} שניות)` : '';
+      return `${payload.summary || 'שיחה התבצעה'}${duration}`;
+    }
+    if (activity.type === 'whatsapp' || activity.type === 'whatsapp_in' || activity.type === 'whatsapp_out') {
+      return payload.message?.substring(0, 100) || 'הודעה נשלחה/התקבלה';
+    }
+    if (activity.type === 'appointment') {
+      return payload.title || 'פגישה נקבעה';
+    }
+    if (activity.type === 'reminder') {
+      return payload.note || 'משימה נוספה';
+    }
+    if (activity.type === 'created') {
+      return `ליד נוסף למערכת מ${payload.source || 'מקור לא ידוע'}`;
+    }
+    
+    return payload.message || payload.note || payload.description || 'פעילות';
+  };
+
   return (
-    <Card className="p-6">
+    <Card className="p-4 sm:p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">פעילות אחרונה</h3>
       {activities.length === 0 ? (
-        <p className="text-sm text-gray-500">אין פעילות</p>
+        <div className="text-center py-8">
+          <Activity className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-sm text-gray-500 mb-2">אין פעילות עדיין</p>
+          <p className="text-xs text-gray-400">פעילויות כמו שיחות, הודעות ושינויי סטטוס יופיעו כאן</p>
+        </div>
       ) : (
         <div className="flow-root">
           <ul className="-mb-8">
-            {activities.map((activity, activityIdx) => (
-              <li key={activity.id}>
-                <div className="relative pb-8">
-                  {activityIdx !== activities.length - 1 ? (
-                    <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true" />
-                  ) : null}
-                  <div className="relative flex space-x-3">
-                    <div>
-                      <span className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center ring-8 ring-white">
-                        <Activity className="w-4 h-4 text-white" />
-                      </span>
-                    </div>
-                    <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
+            {activities.map((activity, activityIdx) => {
+              const info = getActivityInfo(activity);
+              const IconComponent = info.icon;
+              return (
+                <li key={activity.id} data-testid={`activity-${activity.id}`}>
+                  <div className="relative pb-8">
+                    {activityIdx !== activities.length - 1 ? (
+                      <span className="absolute top-4 right-4 -mr-px h-full w-0.5 bg-gray-200" aria-hidden="true" />
+                    ) : null}
+                    <div className="relative flex gap-3">
                       <div>
-                        <p className="text-sm text-gray-500">
-                          {activity.type} - {activity.payload?.message || activity.payload?.note || 'פעילות'}
-                        </p>
+                        <span className={`h-8 w-8 rounded-full ${info.bgColor} flex items-center justify-center ring-4 ring-white`}>
+                          <IconComponent className={`w-4 h-4 ${info.color}`} />
+                        </span>
                       </div>
-                      <div className="text-right text-sm whitespace-nowrap text-gray-500">
-                        {formatDate(activity.at)}
+                      <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="text-sm font-medium text-gray-900">{info.label}</span>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {formatDate(activity.at)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {getActivityDescription(activity)}
+                        </p>
                       </div>
                     </div>
                   </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
