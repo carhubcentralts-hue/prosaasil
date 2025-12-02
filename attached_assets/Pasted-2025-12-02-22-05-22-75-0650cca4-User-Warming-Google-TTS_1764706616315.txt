@@ -1,0 +1,177 @@
+2025-12-02 22:05:22.75
+0650cca4
+User
+🔥 Warming Google TTS client...
+2025-12-02 22:06:25.85
+0650cca4
+User
+🟢 INCOMING_CALL - Thread started successfully
+2025-12-02 22:06:25.85
+0650cca4
+User
+🔥 TWIML_WS=wss://ai-crmd.replit.app/ws/twilio-media
+2025-12-02 22:06:25.85
+0650cca4
+User
+🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://ai-crmd.replit.app/webhook/stream_ended"><Stream url="wss://ai-crmd.replit.app/ws/twilio-media"><Parameter name="CallSid" value="CA4efbe9031df0900a472acdd042181192" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+2025-12-02 22:06:25.85
+0650cca4
+User
+✅ incoming_call: 254ms - CA4efbe9031df090
+2025-12-02 22:06:25.85
+0650cca4
+User
+🔥 TWIML_HOST=ai-crmd.replit.app
+2025-12-02 22:06:25.85
+0650cca4
+User
+INFO: 34.23.224.173:0 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+2025-12-02 22:06:25.98
+0650cca4
+User
+INFO: 35.196.159.84:0 - "WebSocket /ws/twilio-media" [accepted]
+2025-12-02 22:06:26.09
+0650cca4
+User
+🧹 [REAPER] Session cleanup thread started
+2025-12-02 22:06:26.09
+0650cca4
+User
+INFO: connection open
+2025-12-02 22:06:26.19
+0650cca4
+User
+🎯 AI CONVERSATION STARTED
+2025-12-02 22:06:26.19
+0650cca4
+User
+✅ self.phone_number set to: 'None'
+2025-12-02 22:06:26.19
+0650cca4
+User
+customParams.CallFrom: None
+2025-12-02 22:06:26.19
+0650cca4
+User
+📞 START EVENT (customParameters path):
+2025-12-02 22:06:26.19
+0650cca4
+User
+🎯 [CALL DEBUG] START EVENT RECEIVED! call_sid will be extracted...
+2025-12-02 22:06:26.19
+0650cca4
+User
+customParams.From: None
+2025-12-02 22:06:26.19
+0650cca4
+User
+🔵 [CALL] run() started - waiting for START event...
+2025-12-02 22:06:26.19
+0650cca4
+User
+🎯 [T0=1764705986.199] WS_START sid=MZ27ee0175bd9b5a4e50574cc0addd17b5 call_sid=CA4efbe9031df0900a472acdd042181192 from=None to=+97233763805 mode=AI
+2025-12-02 22:06:26.19
+0650cca4
+User
+🚀 [PARALLEL] Starting OpenAI at T0+0ms (BEFORE DB query!)
+2025-12-02 22:06:26.19
+0650cca4
+User
+✅ self.to_number set to: '+97233763805'
+2025-12-02 22:06:26.19
+0650cca4
+User
+⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number=+97233763805
+2025-12-02 22:06:26.19
+0650cca4
+User
+🚀 [REALTIME] Thread started for call CA4efbe9 (FRESH SESSION)
+2025-12-02 22:06:26.22
+0650cca4
+User
+🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY
+2025-12-02 22:06:26.22
+0650cca4
+User
+⏱️ [PARALLEL] Client created in 0ms
+2025-12-02 22:06:26.37
+0650cca4
+User
+✅ מצא עסק: שי דירות (id=1)
+2025-12-02 22:06:26.39
+0650cca4
+User
+⚡ COMBINED QUERY: biz+greeting+settings in 198ms
+2025-12-02 22:06:26.39
+0650cca4
+User
+🔍 [SETTINGS LOADED] _call_settings_loaded=True (prevents duplicate load)
+2025-12-02 22:06:26.39
+0650cca4
+User
+🔍 [SETTINGS LOADED] required_lead_fields=['name', 'phone']
+
+2025-12-02 22:06:26.39
+0650cca4
+User
+bot_speaks_first=True, auto_end_goodbye=True
+2025-12-02 22:06:26.39
+0650cca4
+User
+🔍 [SETTINGS LOADED] smart_hangup_enabled=True
+2025-12-02 22:06:26.39
+0650cca4
+User
+✅ CustomerIntelligence SUCCESS: customer_id=39, lead_id=110, was_created=False
+2025-12-02 22:06:26.41
+0650cca4
+User
+⚡ DB QUERY: business_id=1 in 220ms
+2025-12-02 22:06:26.42
+0650cca4
+User
+🔊 TX_LOOP_START: Audio transmission thread started
+2025-12-02 22:06:26.42
+0650cca4
+User
+🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=1, SID=CA4efbe9031df0900a472acdd042181192
+2025-12-02 22:06:26.42
+0650cca4
+User
+🚀 [PARALLEL] Signaling business info ready at T0+224ms
+2025-12-02 22:06:26.42
+0650cca4
+User
+✅ [REALTIME] Greeting stored: 'שלום שמי מליסה ...' (len=15)
+2025-12-02 22:06:26.42
+0650cca4
+User
+🎙️ REAL_VOICE: rms=2379.0 > threshold=200.0
+2025-12-02 22:06:26.42
+0650cca4
+User
+[REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=cf bf b9 b8 c1, rms=1218
+2025-12-02 22:06:26.42
+0650cca4
+User
+🎯 [T1=1764705986.422] STORING GREETING FOR REALTIME!
+2025-12-02 22:06:26.42
+0650cca4
+User
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=52 d9 bf be c2, rms=2379
+2025-12-02 22:06:26.42
+0650cca4
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=59 5e 6f fa ef, rms=205
+2025-12-02 22:06:26.59
+0650cca4
+User
+✅ Call log already exists for CA4efbe9031df0900a472acdd042181192
+2025-12-02 22:06:26.63
+0650cca4
+User
+✅ Updated call_log with customer_id=39
+2025-12-02 22:06:26.86
+0650cca4
+User
+⏱️ [PARALLEL] Using greeting: 'שלום שמי מליסה ...'

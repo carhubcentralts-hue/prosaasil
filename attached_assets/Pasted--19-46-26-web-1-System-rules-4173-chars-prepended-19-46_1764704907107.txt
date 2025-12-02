@@ -1,0 +1,212 @@
+
+19:46:26 web.1     |    System rules: 4173 chars (prepended)
+19:46:26 web.1     |    DB prompt: 3395 chars
+19:46:26 web.1     |    = Total: 7568 chars
+19:46:26 web.1     | 
+19:46:26 web.1     | ================================================================================
+19:46:26 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+19:46:26 web.1     | ================================================================================
+19:46:26 web.1     | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+19:46:26 web.1     | TODAY: 2025-12-02 21:46 (Israel)
+19:46:26 web.1     | TOMORROW: 2025-12-03
+19:46:26 web.1     | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+19:46:26 web.1     | 
+19:46:26 web.1     | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+19:46:26 web.1     | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+19:46:26 web.1     | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+19:46:26 web.1     | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+19:46:26 web.1     | 4. 🔥 BUILD 112: 
+19:46:26 web.1     | ...
+19:46:26 web.1     | ================================================================================
+19:46:26 web.1     | 📅 Today calculated as: 2025-12-02 (Tuesday)
+19:46:26 web.1     | 📅 Tomorrow calculated as: 2025-12-03
+19:46:26 web.1     | ================================================================================
+19:46:26 web.1     | 
+19:46:26 web.1     | ✅ create_booking_agent RETURNED: True
+19:46:26 web.1     | ⏱️  AGENT_CREATION_TIME: 71ms
+19:46:26 web.1     | ✅ Warmed: פרו סאס (whatsapp)
+19:46:26 web.1     | 
+19:46:26 web.1     | 🎉 WARMUP COMPLETE: 4 agents ready in 831ms
+19:46:26 web.1     |   ✅ פרו סאס (whatsapp): 52ms
+19:46:26 web.1     | 
+19:46:26 web.1     | 🔥🔥🔥 WARMUP COMPLETE: 4/4 agents ready in 306ms
+19:46:26 web.1     | 🚀 System preheated - First AI response will be FAST!
+19:46:26 web.1     | 
+19:46:26 web.1     | ✅ Service warmup thread completed
+19:46:28 web.1     | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+19:46:28 web.1     | ✅ DATA PROTECTION: 20 leads preserved (no deletions)
+19:46:28 web.1     | 🔄 Starting admin roles migration...
+19:46:28 web.1     | 📊 Found 1 users with legacy roles
+19:46:28 web.1     | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+19:46:28 web.1     | 
+19:46:28 web.1     | ✅ Successfully migrated 1 users to new role structure!
+19:46:28 web.1     | 👤 Admin exists (ID=8), resetting password to 'admin123'
+19:46:28 web.1     | ✅ Admin password reset: admin@admin.com / admin123
+19:46:28 web.1     | 🔧 Starting database initialization...
+19:46:29 web.1     | ✅ Business exists: שישישי (ID: 10)
+19:46:29 web.1     | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+19:46:29 web.1     | 
+19:46:29 web.1     | 📊 Total users in database: 5
+19:46:29 web.1     |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+19:46:29 web.1     |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+19:46:29 web.1     |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+19:46:29 web.1     |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+19:46:29 web.1     |   - User 8: admin@admin.com | role=system_admin | business_id=None
+19:46:29 web.1     | ✅ Lead statuses exist: 7 statuses found
+19:46:29 web.1     | ✅ FAQs table exists: 0 FAQs found across all businesses
+19:46:29 web.1     | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+19:46:29 web.1     | 👥 Checking user ownership...
+19:46:29 web.1     | 🔄 Starting User-to-Owner migration...
+19:46:29 web.1     | 📊 Found 2 businesses
+19:46:29 web.1     | ⚠️  Business 'שישישי' (ID=10) has NO users
+19:46:29 web.1     |    → Admin must create owner via UI: /app/admin/businesses
+19:46:29 web.1     | ✅ Business 'פרו סאס' (ID=1) already has owner: business@shai-offices.co.il
+19:46:29 web.1     | 
+19:46:29 web.1     | ✅ User-to-Owner migration completed!
+19:46:29 web.1     | 
+19:46:29 web.1     | ⚠️  1 businesses need manual owner creation:
+19:46:29 web.1     |    - שישישי (ID=10)
+19:46:29 web.1     | 
+19:46:29 web.1     |    → Login as system_admin and use BusinessUsersModal to create owners
+19:46:29 web.1     | ✅ User ownership check completed
+19:46:29 web.1     | ✅ Database initialization completed successfully!
+19:46:29 web.1     | 📧 Admin login: admin@admin.com / admin123
+19:46:29 web.1     | 🏢 Business ID: 10
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B19:46:44 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:44 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:44 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+19:46:44 web.1     | ✅ call_log created immediately for CAaf1efbff31bd35b5babf1ed52ee784d4
+19:46:44 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAaf1efbff31bd35b5babf1ed52ee784d4
+19:46:44 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAaf1efbff31bd35b5babf1ed52ee784d4
+19:46:44 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:46:44 web.1     | 🟢 INCOMING_CALL - Thread started successfully
+19:46:44 web.1     | ✅ incoming_call: 244ms - CAaf1efbff31bd35
+19:46:44 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:46:44 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:46:44 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CAaf1efbff31bd35b5babf1ed52ee784d4" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:46:44 web.1     | INFO:     172.31.68.162:40880 - "POST /incoming_call HTTP/1.1" 200 OK
+19:46:44 web.1     | INFO:     172.31.68.162:40890 - "WebSocket /ws/twilio-media" [accepted]
+19:46:44 web.1     | 🧹 [REAPER] Session cleanup thread started
+19:46:44 web.1     | INFO:     connection open
+19:46:44 web.1     | 🎯 AI CONVERSATION STARTED
+19:46:45 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=8, lead_id=86, was_created=False
+19:46:45 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:45 web.1     | STREAM_ENDED call=CAaf1efbff31bd35b5babf1ed52ee784d4 stream=N/A status=N/A
+19:46:45 web.1     | INFO:     172.31.68.162:40880 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+19:46:45 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:45 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:45 web.1     | ✅ Updated call_log with customer_id=8
+19:46:45 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+19:46:45 web.1     | ✅ call_log already exists for CAaf1efbff31bd35b5babf1ed52ee784d4
+19:46:45 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAaf1efbff31bd35b5babf1ed52ee784d4
+19:46:45 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAaf1efbff31bd35b5babf1ed52ee784d4🟢 INCOMING_CALL - Thread started successfully
+19:46:45 web.1     | 
+19:46:45 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:46:45 web.1     | ✅ incoming_call: 210ms - CAaf1efbff31bd35
+19:46:45 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:46:45 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:46:45 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CAaf1efbff31bd35b5babf1ed52ee784d4" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:46:45 web.1     | INFO:     172.31.68.162:40880 - "POST /incoming_call HTTP/1.1" 200 OK
+19:46:45 web.1     | ✅ Updated call CAaf1efbff31bd35b5babf1ed52ee784d4 to Record TwiML
+19:46:46 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=8, lead_id=86, was_created=False
+19:46:46 web.1     | INFO:     connection closed
+19:46:46 web.1     | ✅ Updated call_log with customer_id=8
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B19:46:58 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:58 web.1     | ✅ handle_recording: Updated call_log for CAaf1efbff31bd35b5babf1ed52ee784d4
+19:46:58 web.1     | INFO:     172.31.68.162:40880 - "POST /webhook/handle_recording HTTP/1.1" 200 OK
+19:46:58 web.1     | ✅ REC_QUEUED_ASYNC: CAaf1efbff31bd35 duration=12
+19:46:59 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:59 web.1     | INFO:     172.31.68.162:56642 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+19:46:59 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:46:59 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:00 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+19:47:00 web.1     | ✅ call_log created immediately for CA820684b88f70fc28b1bf809e8c415864
+19:47:00 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CA820684b88f70fc28b1bf809e8c415864
+19:47:00 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CA820684b88f70fc28b1bf809e8c415864🟢 INCOMING_CALL - Thread started successfully
+19:47:00 web.1     | ✅ incoming_call: 259ms - CA820684b88f70fc
+19:47:00 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:47:00 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:47:00 web.1     | 
+19:47:00 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:47:00 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CA820684b88f70fc28b1bf809e8c415864" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:47:00 web.1     | INFO:     172.31.68.162:56642 - "POST /incoming_call HTTP/1.1" 200 OK
+19:47:00 web.1     | INFO:     172.31.68.162:56652 - "WebSocket /ws/twilio-media" [accepted]
+19:47:00 web.1     | INFO:     connection open
+19:47:00 web.1     | 🎯 AI CONVERSATION STARTED
+19:47:00 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=8, lead_id=86, was_created=False
+19:47:01 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:01 web.1     | STREAM_ENDED call=CA820684b88f70fc28b1bf809e8c415864 stream=N/A status=N/A
+19:47:01 web.1     | INFO:     172.31.68.162:56642 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+19:47:01 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:01 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:01 web.1     | ✅ Updated call_log with customer_id=8
+19:47:01 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+19:47:01 web.1     | ✅ call_log already exists for CA820684b88f70fc28b1bf809e8c415864
+19:47:01 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CA820684b88f70fc28b1bf809e8c415864
+19:47:01 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CA820684b88f70fc28b1bf809e8c415864🟢 INCOMING_CALL - Thread started successfully
+19:47:01 web.1     | ✅ incoming_call: 202ms - CA820684b88f70fc
+19:47:01 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:47:01 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:47:01 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CA820684b88f70fc28b1bf809e8c415864" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:47:01 web.1     | 
+19:47:01 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:47:01 web.1     | INFO:     172.31.68.162:56642 - "POST /incoming_call HTTP/1.1" 200 OK
+19:47:01 web.1     | ✅ Updated call CA820684b88f70fc28b1bf809e8c415864 to Record TwiML
+19:47:01 web.1     | INFO:     172.31.68.162:42330 - "WebSocket /ws/twilio-media" [accepted]
+19:47:01 web.1     | INFO:     connection open
+19:47:01 web.1     | 🎯 AI CONVERSATION STARTED
+19:47:01 web.1     | INFO:     connection closed
+19:47:02 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=8, lead_id=86, was_created=False
+19:47:02 web.1     | ✅ Updated call_log with customer_id=8
+19:47:02 web.1     | INFO:     connection closed
+19:47:05 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:05 web.1     | ✅ handle_recording: Updated call_log for CA820684b88f70fc28b1bf809e8c415864
+19:47:05 web.1     | INFO:     172.31.68.162:56642 - "POST /webhook/handle_recording HTTP/1.1" 200 OK
+19:47:05 web.1     | ✅ REC_QUEUED_ASYNC: CA820684b88f70fc duration=3
+19:47:05 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:05 web.1     | INFO:     172.31.68.162:42344 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+19:47:26 web.1     | [WA-SESSION] 📱 Check #1: Found 0 stale sessions to process
+19:47:35 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:35 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:35 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+19:47:35 web.1     | ✅ call_log created immediately for CA082fdc91f5c10c10668a98266f99f9cb
+19:47:35 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CA082fdc91f5c10c10668a98266f99f9cb
+19:47:35 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CA082fdc91f5c10c10668a98266f99f9cb
+19:47:35 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:47:35 web.1     | 🟢 INCOMING_CALL - Thread started successfully
+19:47:35 web.1     | ✅ incoming_call: 255ms - CA082fdc91f5c10c
+19:47:35 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:47:35 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:47:35 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CA082fdc91f5c10c10668a98266f99f9cb" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:47:35 web.1     | INFO:     172.31.68.162:42344 - "POST /incoming_call HTTP/1.1" 200 OK
+19:47:35 web.1     | INFO:     172.31.68.162:36426 - "WebSocket /ws/twilio-media" [accepted]
+19:47:35 web.1     | INFO:     connection open
+19:47:35 web.1     | 🎯 AI CONVERSATION STARTED
+19:47:36 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=8, lead_id=86, was_created=False
+19:47:36 web.1     | ✅ Updated call_log with customer_id=8
+19:47:36 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:36 web.1     | STREAM_ENDED call=CA082fdc91f5c10c10668a98266f99f9cb stream=N/A status=N/A
+19:47:36 web.1     | INFO:     172.31.68.162:42344 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+19:47:36 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:36 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:36 web.1     | ✅ Updated call CA082fdc91f5c10c10668a98266f99f9cb to Record TwiML
+19:47:36 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+19:47:36 web.1     | ✅ call_log already exists for CA082fdc91f5c10c10668a98266f99f9cb
+19:47:36 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CA082fdc91f5c10c10668a98266f99f9cb
+19:47:36 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CA082fdc91f5c10c10668a98266f99f9cb
+19:47:36 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:47:36 web.1     | 🟢 INCOMING_CALL - Thread started successfully
+19:47:36 web.1     | ✅ incoming_call: 300ms - CA082fdc91f5c10c
+19:47:36 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:47:36 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:47:36 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CA082fdc91f5c10c10668a98266f99f9cb" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:47:36 web.1     | INFO:     172.31.68.162:42344 - "POST /incoming_call HTTP/1.1" 200 OK
+19:47:37 web.1     | INFO:     connection closed
+19:47:37 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=8, lead_id=86, was_created=False
+19:47:37 web.1     | ✅ Updated call_log with customer_id=8
+19:47:40 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:41 web.1     | ✅ handle_recording: Updated call_log for CA082fdc91f5c10c10668a98266f99f9cb
+19:47:41 web.1     | INFO:     172.31.68.162:42344 - "POST /webhook/handle_recording HTTP/1.1" 200 OK
+19:47:41 web.1     | ✅ REC_QUEUED_ASYNC: CA082fdc91f5c10c duration=3
+19:47:41 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:47:41 web.1     | INFO:     172.31.68.162:47802 - "POST /webhook/call_status HTTP/1.1" 204 No Content

@@ -52,44 +52,49 @@ class OpenAIRealtimeClient:
         if websockets is None:
             raise ImportError("websockets library is required. Install with: pip install websockets")
     
-    async def connect(self):
+    async def connect(self, max_retries: int = 3, backoff_base: float = 1.0):
         """
-        Connect to OpenAI Realtime API
+        Connect to OpenAI Realtime API with retry/backoff
         
-        🚨 COST SAFETY: Always creates a fresh session (no reuse)
+        BUILD 168.3: Added reconnection logic for production stability
+        
+        Args:
+            max_retries: Maximum connection attempts (default: 3)
+            backoff_base: Base delay in seconds for exponential backoff
         
         Returns:
             WebSocket connection object
         """
-        # 🚨 CRITICAL: NEVER reuse connections - always create fresh session
+        # Close existing connection if present
         if self.ws is not None:
-            logger.warning("⚠️ Existing connection found - closing it first (prevent session reuse)")
             await self.disconnect()
         
-        logger.info(f"[CALL DEBUG] 🔌 Connecting to OpenAI Realtime API: {self.model}")
-        logger.info(f"[CALL DEBUG] URL: {self.url}")
-        logger.info(f"[CALL DEBUG] API key present: {bool(self.api_key)}, key_prefix: {self.api_key[:10] if self.api_key else 'N/A'}...")
-        # 🔥 CRITICAL: Force print to bypass any suppression
-        print(f"🔌 [CALL DEBUG] Connecting to OpenAI: model={self.model}, api_key_present={bool(self.api_key)}", flush=True)
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.ws = await websockets.connect(
+                    self.url,
+                    additional_headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "OpenAI-Beta": "realtime=v1"
+                    },
+                    ping_interval=20,
+                    ping_timeout=10,
+                    close_timeout=5
+                )
+                logger.info(f"[REALTIME] Connected (attempt {attempt}/{max_retries})")
+                return self.ws
+                
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries:
+                    delay = backoff_base * (2 ** (attempt - 1))  # Exponential backoff
+                    logger.warning(f"[REALTIME] Connection attempt {attempt} failed: {e}, retrying in {delay:.1f}s")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"[REALTIME] All {max_retries} connection attempts failed")
         
-        try:
-            self.ws = await websockets.connect(
-                self.url,
-                additional_headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "OpenAI-Beta": "realtime=v1"
-                },
-                ping_interval=20,
-                ping_timeout=10
-            )
-            logger.info("[CALL DEBUG] ✅ Connected to OpenAI Realtime API (FRESH SESSION)")
-            return self.ws
-            
-        except Exception as e:
-            logger.error(f"[CALL DEBUG] ❌ Failed to connect to Realtime API: {e}")
-            import traceback
-            logger.error(f"[CALL DEBUG] Traceback: {traceback.format_exc()}")
-            raise
+        raise last_error or RuntimeError("Connection failed")
     
     async def disconnect(self):
         """Close WebSocket connection and cleanup session"""
@@ -104,27 +109,40 @@ class OpenAIRealtimeClient:
                 self.ws = None
                 logger.info("🔌 Disconnected from Realtime API (session destroyed)")
     
-    async def send_event(self, event: Dict[str, Any]):
+    async def send_event(self, event: Dict[str, Any], max_retries: int = 2):
         """
-        Send an event to Realtime API
+        Send an event to Realtime API with retry
+        
+        BUILD 168.3: Added retry logic for production stability
         
         Args:
             event: Event dictionary (e.g., {"type": "session.update", ...})
+            max_retries: Maximum send attempts for non-audio events
         """
         if not self.ws:
             raise RuntimeError("Not connected. Call connect() first.")
         
-        try:
-            message = json.dumps(event)
-            await self.ws.send(message)
-            
-            # Log important events (not audio chunks)
-            if event.get("type") != "input_audio_buffer.append":
-                logger.debug(f"📤 Sent: {event.get('type')}")
-                
-        except Exception as e:
-            logger.error(f"❌ Error sending event: {e}")
-            raise
+        event_type = event.get("type", "unknown")
+        is_audio = event_type == "input_audio_buffer.append"
+        retries = 1 if is_audio else max_retries  # Audio: no retry (real-time), other: retry
+        
+        last_error = None
+        for attempt in range(retries):
+            try:
+                message = json.dumps(event)
+                await self.ws.send(message)
+                return  # Success
+            except Exception as e:
+                last_error = e
+                if attempt < retries - 1:
+                    await asyncio.sleep(0.1)  # Brief delay before retry
+                    
+        # Log only important failures (not audio drops)
+        if not is_audio and last_error:
+            logger.error(f"[REALTIME] Send failed after {retries} attempts: {event_type}")
+        
+        if last_error:
+            raise last_error
     
     async def recv_events(self) -> AsyncIterator[Dict[str, Any]]:
         """

@@ -5,33 +5,37 @@ import { RoleGuard } from './layout/RoleGuard';
 import { MainLayout } from './layout/MainLayout';
 import { useAuth } from '../features/auth/hooks';
 
-// Auth Pages
+// Auth Pages (kept eager - needed for initial load)
 import { LoginPage } from '../pages/Auth/LoginPage';
 import { ForgotPasswordPage } from '../pages/Auth/ForgotPasswordPage';
 import { ResetPasswordPage } from '../pages/Auth/ResetPasswordPage';
 
-// Protected Pages  
-import { AdminHomePage } from '../pages/Admin/AdminHomePage';
-import { BusinessHomePage } from '../pages/Business/BusinessHomePage';
-import { BusinessManagerPage } from '../pages/Admin/BusinessManagerPage';
-import { BusinessDetailsPage } from '../pages/Admin/BusinessDetailsPage';
-import { BusinessViewPage } from '../pages/Admin/BusinessViewPage';
-import { AgentPromptsPage } from '../pages/Admin/AgentPromptsPage';
-import { AdminPromptsOverviewPage } from '../pages/Admin/AdminPromptsOverviewPage';
-import { BusinessPromptsSelector } from '../pages/Admin/BusinessPromptsSelector';
-// Lazy loading AdminSupportPage to isolate JSX compilation errors
-const AdminSupportPage = lazy(() => import('../pages/Admin/AdminSupportPage').then(module => ({
-  default: module.AdminSupportPage
-})));
-import { CalendarPage } from '../pages/Calendar/CalendarPage';
-import LeadsPage from '../pages/Leads/LeadsPage';
-import LeadDetailPage from '../pages/Leads/LeadDetailPage';
-import { WhatsAppPage } from '../pages/wa/WhatsAppPage';
-import { CallsPage } from '../pages/calls/CallsPage';
-import { CrmPage } from '../pages/crm/CrmPage';
-import { BillingPage } from '../pages/billing/BillingPage';
-import { UsersPage } from '../pages/users/UsersPage';
-import { SettingsPage } from '../pages/settings/SettingsPage';
+// ⚡ BUILD 168.2: Lazy loading for heavy pages - faster initial load
+const AdminHomePage = lazy(() => import('../pages/Admin/AdminHomePage').then(m => ({ default: m.AdminHomePage })));
+const BusinessHomePage = lazy(() => import('../pages/Business/BusinessHomePage').then(m => ({ default: m.BusinessHomePage })));
+const BusinessManagerPage = lazy(() => import('../pages/Admin/BusinessManagerPage').then(m => ({ default: m.BusinessManagerPage })));
+const BusinessDetailsPage = lazy(() => import('../pages/Admin/BusinessDetailsPage').then(m => ({ default: m.BusinessDetailsPage })));
+const BusinessViewPage = lazy(() => import('../pages/Admin/BusinessViewPage').then(m => ({ default: m.BusinessViewPage })));
+const AgentPromptsPage = lazy(() => import('../pages/Admin/AgentPromptsPage').then(m => ({ default: m.AgentPromptsPage })));
+const AdminPromptsOverviewPage = lazy(() => import('../pages/Admin/AdminPromptsOverviewPage').then(m => ({ default: m.AdminPromptsOverviewPage })));
+const BusinessPromptsSelector = lazy(() => import('../pages/Admin/BusinessPromptsSelector').then(m => ({ default: m.BusinessPromptsSelector })));
+const AdminSupportPage = lazy(() => import('../pages/Admin/AdminSupportPage').then(m => ({ default: m.AdminSupportPage })));
+const CalendarPage = lazy(() => import('../pages/Calendar/CalendarPage').then(m => ({ default: m.CalendarPage })));
+const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
+const LeadDetailPage = lazy(() => import('../pages/Leads/LeadDetailPage'));
+const WhatsAppPage = lazy(() => import('../pages/wa/WhatsAppPage').then(m => ({ default: m.WhatsAppPage })));
+const CallsPage = lazy(() => import('../pages/calls/CallsPage').then(m => ({ default: m.CallsPage })));
+const CrmPage = lazy(() => import('../pages/crm/CrmPage').then(m => ({ default: m.CrmPage })));
+const BillingPage = lazy(() => import('../pages/billing/BillingPage').then(m => ({ default: m.BillingPage })));
+const UsersPage = lazy(() => import('../pages/users/UsersPage').then(m => ({ default: m.UsersPage })));
+const SettingsPage = lazy(() => import('../pages/settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
+
+// Loading fallback component
+const PageLoader = () => (
+  <div className="flex items-center justify-center min-h-[200px]">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+  </div>
+);
 
 // BUILD 135: Smart redirect based on role
 function DefaultRedirect() {
@@ -120,9 +124,7 @@ export function AppRoutes() {
           path="admin/support"
           element={
             <RoleGuard roles={['system_admin']}>
-              <Suspense fallback={<div className="flex items-center justify-center py-12"><div>טוען דף תמיכה...</div></div>}>
-                <AdminSupportPage />
-              </Suspense>
+              <AdminSupportPage />
             </RoleGuard>
           }
         />

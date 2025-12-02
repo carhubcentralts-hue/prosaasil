@@ -1,0 +1,137 @@
+   | 📋 LOADING PROMPT: business_id=1, business_name=פרו סאס
+19:29:07 web.1     | ✅ Loaded calls prompt from DB for business=1 (1516 chars)
+19:29:07 web.1     | 📝 PROMPT PREVIEW: 🎭 ROLE
+19:29:07 web.1     | 
+19:29:07 web.1     | You are a professional Hebrew-speaking assistant for Calliber, a platform that connects cust...
+19:29:07 web.1     | 🔨 CALLING create_booking_agent(business_id=1, channel=calls)
+19:29:07 web.1     | 
+19:29:07 web.1     | ✅ Using DB prompt for פרו סאס (1516 chars)
+19:29:07 web.1     |    System rules: 4173 chars (prepended)
+19:29:07 web.1     |    DB prompt: 1516 chars
+19:29:07 web.1     |    = Total: 5689 chars
+19:29:07 web.1     | 
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+19:29:07 web.1     | TODAY: 2025-12-02 21:29 (Israel)
+19:29:07 web.1     | TOMORROW: 2025-12-03
+19:29:07 web.1     | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+19:29:07 web.1     | 
+19:29:07 web.1     | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+19:29:07 web.1     | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+19:29:07 web.1     | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+19:29:07 web.1     | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+19:29:07 web.1     | 4. 🔥 BUILD 112: 
+19:29:07 web.1     | ...
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 📅 Today calculated as: 2025-12-02 (Tuesday)
+19:29:07 web.1     | 📅 Tomorrow calculated as: 2025-12-03
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 
+19:29:07 web.1     | ✅ create_booking_agent RETURNED: True
+19:29:07 web.1     | ⏱️  AGENT_CREATION_TIME: 78ms
+19:29:07 web.1     | ✅ Warmed: פרו סאס (calls)
+19:29:07 web.1     | 📋 PROMPT LOADING: business_id=1, channel=whatsapp, custom_instructions provided=False
+19:29:07 web.1     | 📋 LOADING PROMPT: business_id=1, business_name=פרו סאס
+19:29:07 web.1     | ✅ Loaded whatsapp prompt from DB for business=1 (3395 chars)
+19:29:07 web.1     | 📝 PROMPT PREVIEW: You are the official AI assistant of **ProSaaS**, an Israeli AI-powered digital secretary platform. ...
+19:29:07 web.1     | 🔨 CALLING create_booking_agent(business_id=1, channel=whatsapp)
+19:29:07 web.1     | 
+19:29:07 web.1     | ✅ Using DB prompt for פרו סאס (3395 chars)
+19:29:07 web.1     |    System rules: 4173 chars (prepended)
+19:29:07 web.1     |    DB prompt: 3395 chars
+19:29:07 web.1     |    = Total: 7568 chars
+19:29:07 web.1     | 
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 📜 AGENT INSTRUCTIONS (first 500 chars):
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+19:29:07 web.1     | TODAY: 2025-12-02 21:29 (Israel)
+19:29:07 web.1     | TOMORROW: 2025-12-03
+19:29:07 web.1     | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+19:29:07 web.1     | 
+19:29:07 web.1     | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+19:29:07 web.1     | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+19:29:07 web.1     | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+19:29:07 web.1     | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+19:29:07 web.1     | 4. 🔥 BUILD 112: 
+19:29:07 web.1     | ...
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 📅 Today calculated as: 2025-12-02 (Tuesday)
+19:29:07 web.1     | 📅 Tomorrow calculated as: 2025-12-03
+19:29:07 web.1     | ================================================================================
+19:29:07 web.1     | 
+19:29:07 web.1     | ✅ create_booking_agent RETURNED: True
+19:29:07 web.1     | ⏱️  AGENT_CREATION_TIME: 81ms
+19:29:07 web.1     | ✅ Warmed: פרו סאס (whatsapp)
+19:29:07 web.1     | 
+19:29:07 web.1     | 🎉 WARMUP COMPLETE: 4 agents ready in 543ms
+19:29:07 web.1     |   ✅ שישישי (whatsapp): 136ms
+19:29:07 web.1     |   ✅ פרו סאס (calls): 0ms
+19:29:07 web.1     |   ✅ פרו סאס (whatsapp): 0ms
+19:29:07 web.1     | 
+19:29:07 web.1     | 🔥🔥🔥 WARMUP COMPLETE: 4/4 agents ready in 249ms
+19:29:07 web.1     | 🚀 System preheated - First AI response will be FAST!
+19:29:07 web.1     | 
+19:29:07 web.1     | ✅ Service warmup thread completed
+19:29:09 web.1     | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+19:29:09 web.1     | ✅ DATA PROTECTION: 20 leads preserved (no deletions)
+19:29:09 web.1     | 🔄 Starting admin roles migration...
+19:29:09 web.1     | 📊 Found 1 users with legacy roles
+19:29:09 web.1     | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+19:29:09 web.1     | 
+19:29:09 web.1     | ✅ Successfully migrated 1 users to new role structure!
+19:29:09 web.1     | 👤 Admin exists (ID=8), resetting password to 'admin123'
+19:29:09 web.1     | ✅ Admin password reset: admin@admin.com / admin123
+19:29:09 web.1     | 🔧 Starting database initialization...
+19:29:10 web.1     | ✅ Business exists: שישישי (ID: 10)
+19:29:10 web.1     | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+19:29:10 web.1     | 
+19:29:10 web.1     | 📊 Total users in database: 5
+19:29:10 web.1     |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+19:29:10 web.1     |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+19:29:10 web.1     |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+19:29:10 web.1     |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+19:29:10 web.1     |   - User 8: admin@admin.com | role=system_admin | business_id=None
+19:29:10 web.1     | ✅ Lead statuses exist: 7 statuses found
+19:29:10 web.1     | ✅ FAQs table exists: 0 FAQs found across all businesses
+19:29:10 web.1     | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+19:29:10 web.1     | 👥 Checking user ownership...
+19:29:10 web.1     | 🔄 Starting User-to-Owner migration...
+19:29:10 web.1     | 📊 Found 2 businesses
+19:29:10 web.1     | ⚠️  Business 'שישישי' (ID=10) has NO users
+19:29:10 web.1     |    → Admin must create owner via UI: /app/admin/businesses
+19:29:10 web.1     | ✅ Business 'פרו סאס' (ID=1) already has owner: business@shai-offices.co.il
+19:29:10 web.1     | 
+19:29:10 web.1     | ✅ User-to-Owner migration completed!
+19:29:10 web.1     | 
+19:29:10 web.1     | ⚠️  1 businesses need manual owner creation:
+19:29:10 web.1     |    - שישישי (ID=10)
+19:29:10 web.1     | 
+19:29:10 web.1     |    → Login as system_admin and use BusinessUsersModal to create owners
+19:29:10 web.1     | ✅ User ownership check completed
+19:29:10 web.1     | ✅ Database initialization completed successfully!
+19:29:10 web.1     | 📧 Admin login: admin@admin.com / admin123
+19:29:10 web.1     | 🏢 Business ID: 10
+19:29:12 web.1     | INFO:     172.31.68.162:42932 - "GET / HTTP/1.1" 200 OK
+19:29:13 web.1     | INFO:     172.31.68.162:42932 - "GET /assets/index-BWJ5VfoL.js HTTP/1.1" 304 Not Modified
+19:29:13 web.1     | INFO:     172.31.68.162:42932 - "GET /assets/index-0lRSZTt5.css HTTP/1.1" 304 Not Modified
+19:29:13 web.1     | INFO:     172.31.68.162:42932 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+19:29:13 web.1     | INFO:     172.31.68.162:42932 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+19:29:13 web.1     | INFO:     172.31.68.162:42932 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+19:29:13 web.1     | INFO:     172.31.68.162:42940 - "GET /favicon.ico HTTP/1.1" 304 Not Modified
+19:29:23 web.1     | INFO:     172.31.68.162:42940 - "GET / HTTP/1.1" 200 OK
+19:29:23 web.1     | INFO:     172.31.68.162:42940 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+19:29:23 web.1     | INFO:     172.31.68.162:42940 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+19:30:07 web.1     | [WA-SESSION] 📱 Check #1: Found 0 stale sessions to process
+19:32:48 web.1     | INFO:     172.31.68.162:45232 - "GET /incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CAa2bb9be1de885d2ecbcb10297f10b3f7&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0FhMmJiOWJlMWRlODg1ZDJlY2JjYjEwMjk3ZjEwYjNmNyIsImZyb20iOiIrOTcyNTQ5NzUwNTA1IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0NzAzOTY3In0.vGdYcYKXbjoXYn9iHqgO3w-CXHCxUdtFFvkWwpb3d3YyzEjvtSoJ_3yHnr2iLCABit0UKBc_VF3WfIDb-PusGA%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972549750505&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 200 OK
+19:32:48 web.1     | INFO:     172.31.68.162:45232 - "GET /incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CAa2bb9be1de885d2ecbcb10297f10b3f7&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0FhMmJiOWJlMWRlODg1ZDJlY2JjYjEwMjk3ZjEwYjNmNyIsImZyb20iOiIrOTcyNTQ5NzUwNTA1IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0NzAzOTY3In0.vGdYcYKXbjoXYn9iHqgO3w-CXHCxUdtFFvkWwpb3d3YyzEjvtSoJ_3yHnr2iLCABit0UKBc_VF3WfIDb-PusGA%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972549750505&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&ErrorUrl=https%3A%2F%2Ff6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev%2Fincoming_call&FromCity=&CalledState=Yovel&ErrorCode=12100&FromZip=&FromState= HTTP/1.1" 200 OK
+19:32:52 web.1     | INFO:     172.31.68.162:45232 - "GET /webhook/call_status?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&Timestamp=Tue,+02+Dec+2025+19:32:52+%2B0000&CallbackSource=call-progress-events&CallerState=&ToZip=&SequenceNumber=0&CallSid=CAa2bb9be1de885d2ecbcb10297f10b3f7&To=%2B97233763805&CallerZip=&ToCountry=IL&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=no-answer&Duration=0&From=%2B972549750505&CallDuration=0&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+^[[B19:33:04 web.1     | INFO:     172.31.68.162:45232 - "GET /incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CAe55fd8b7da3ee3d7d94e743525dcea9a&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0FlNTVmZDhiN2RhM2VlM2Q3ZDk0ZTc0MzUyNWRjZWE5YSIsImZyb20iOiIrOTcyNTQ5NzUwNTA1IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0NzAzOTgzIn0.CqsUHxFQ1_etWGDYUN45NCSVkAx3F90QnRX9KHfSUKXszfXEFwlQvJiKCzEmxxJ9zKp5wf2X3jX1o5BB1KXMiA%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972549750505&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 200 OK
+19:33:04 web.1     | INFO:     172.31.68.162:45232 - "GET /incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CAe55fd8b7da3ee3d7d94e743525dcea9a&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0FlNTVmZDhiN2RhM2VlM2Q3ZDk0ZTc0MzUyNWRjZWE5YSIsImZyb20iOiIrOTcyNTQ5NzUwNTA1IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0NzAzOTgzIn0.CqsUHxFQ1_etWGDYUN45NCSVkAx3F90QnRX9KHfSUKXszfXEFwlQvJiKCzEmxxJ9zKp5wf2X3jX1o5BB1KXMiA%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972549750505&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&ErrorUrl=https%3A%2F%2Ff6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev%2Fincoming_call&FromCity=&CalledState=Yovel&ErrorCode=12100&FromZip=&FromState= HTTP/1.1" 200 OK
+19:33:08 web.1     | INFO:     172.31.68.162:45232 - "GET /webhook/call_status?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&Timestamp=Tue,+02+Dec+2025+19:33:08+%2B0000&CallbackSource=call-progress-events&CallerState=&ToZip=&SequenceNumber=0&CallSid=CAe55fd8b7da3ee3d7d94e743525dcea9a&To=%2B97233763805&CallerZip=&ToCountry=IL&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=no-answer&Duration=0&From=%2B972549750505&CallDuration=0&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+19:33:51 web.1     | INFO:     172.31.68.162:45232 - "GET /incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CAc6a655ebf8d3fed2d986c02fc31429f2&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0FjNmE2NTVlYmY4ZDNmZWQyZDk4NmMwMmZjMzE0MjlmMiIsImZyb20iOiIrOTcyNTQ5NzUwNTA1IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0NzA0MDMxIn0.hhL5WlSlC6oMGBb053IKeTzFVZVCubwNIqjTJRBSMmkKiErAvr6r87kub1GeUqzvo8LPM5nMdcLFXoJPu8Y06A%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972549750505&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 200 OK
+19:33:51 web.1     | INFO:     172.31.68.162:45232 - "GET /incoming_call?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&CallerState=&ToZip=&CallSid=CAc6a655ebf8d3fed2d986c02fc31429f2&To=%2B97233763805&CallerZip=&ToCountry=IL&CallToken=%257B%2522parentCallInfoToken%2522%253A%2522eyJhbGciOiJFUzI1NiJ9.eyJjYWxsU2lkIjoiQ0FjNmE2NTVlYmY4ZDNmZWQyZDk4NmMwMmZjMzE0MjlmMiIsImZyb20iOiIrOTcyNTQ5NzUwNTA1IiwidG8iOiIrOTcyMzM3NjM4MDUiLCJpYXQiOiIxNzY0NzA0MDMxIn0.hhL5WlSlC6oMGBb053IKeTzFVZVCubwNIqjTJRBSMmkKiErAvr6r87kub1GeUqzvo8LPM5nMdcLFXoJPu8Y06A%2522%252C%2522identityHeaderTokens%2522%253A%255B%255D%257D&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=ringing&From=%2B972549750505&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&ErrorUrl=https%3A%2F%2Ff6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev%2Fincoming_call&FromCity=&CalledState=Yovel&ErrorCode=12100&FromZip=&FromState= HTTP/1.1" 200 OK
+19:33:54 web.1     | INFO:     172.31.68.162:45232 - "GET /webhook/call_status?Called=%2B97233763805&ToState=Yovel&CallerCountry=IL&Direction=inbound&Timestamp=Tue,+02+Dec+2025+19:33:54+%2B0000&CallbackSource=call-progress-events&CallerState=&ToZip=&SequenceNumber=0&CallSid=CAc6a655ebf8d3fed2d986c02fc31429f2&To=%2B97233763805&CallerZip=&ToCountry=IL&CalledZip=&ApiVersion=2010-04-01&CalledCity=Mayanei+Hayeshua&CallStatus=no-answer&Duration=0&From=%2B972549750505&CallDuration=0&AccountSid=ACcd09431f076a309088b18ed1f286f32e&CalledCountry=IL&CallerCity=&ToCity=Mayanei+Hayeshua&FromCountry=IL&Caller=%2B972549750505&FromCity=&CalledState=Yovel&FromZip=&FromState= HTTP/1.1" 404 Not Found
+^[[B

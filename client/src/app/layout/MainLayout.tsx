@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'; // ✅ CRITICAL: Default React import for classic JSX
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react'; // ✅ CRITICAL: Default React import for classic JSX
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -511,7 +511,13 @@ export function MainLayout() {
 
         {/* Page content */}
         <div className="flex-1 overflow-y-auto pb-20 md:pb-0">
-          <Outlet />
+          <Suspense fallback={
+            <div className="flex items-center justify-center min-h-[200px]">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--brand)]"></div>
+            </div>
+          }>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
 

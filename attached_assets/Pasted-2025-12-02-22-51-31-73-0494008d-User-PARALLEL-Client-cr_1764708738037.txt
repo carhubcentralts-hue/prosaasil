@@ -1,0 +1,125 @@
+2025-12-02 22:51:31.73
+0494008d
+User
+⏱️ [PARALLEL] Client created in 0ms
+2025-12-02 22:51:31.91
+0494008d
+User
+✅ מצא עסק: שי דירות (id=1)
+2025-12-02 22:51:31.93
+0494008d
+User
+⚡ COMBINED QUERY: biz+greeting+settings in 196ms
+2025-12-02 22:51:31.93
+0494008d
+User
+bot_speaks_first=True, auto_end_goodbye=True
+2025-12-02 22:51:31.93
+0494008d
+User
+🔍 [SETTINGS LOADED] smart_hangup_enabled=True
+2025-12-02 22:51:31.93
+0494008d
+User
+🔍 [SETTINGS LOADED] _call_settings_loaded=True (prevents duplicate load)
+2025-12-02 22:51:31.93
+0494008d
+User
+🔍 [SETTINGS LOADED] required_lead_fields=['name', 'phone']
+2025-12-02 22:51:31.95
+0494008d
+User
+⚡ DB QUERY: business_id=1 in 216ms
+2025-12-02 22:51:31.95
+0494008d
+User
+🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=1, SID=CA7a4445e2ee93756b3839284880deb6b0
+2025-12-02 22:51:31.95
+0494008d
+User
+🎙️ REAL_VOICE: rms=450.0 > threshold=200.0
+2025-12-02 22:51:31.95
+0494008d
+User
+[REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=67 5d 56 51 4e, rms=482
+2025-12-02 22:51:31.95
+0494008d
+User
+[REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=74 70 6c 6a 68, rms=450
+2025-12-02 22:51:31.96
+0494008d
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=72 6d 6a 66 64, rms=254
+2025-12-02 22:51:32.02
+0494008d
+User
+⏱️ [PARALLEL] OpenAI connected in 286ms (T0+289ms)
+2025-12-02 22:51:32.02
+0494008d
+User
+✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice=shimmer
+2025-12-02 22:51:32.02
+0494008d
+User
+📤 [REALTIME] Audio sender started
+2025-12-02 22:51:32.02
+0494008d
+User
+📝 [REALTIME] Text sender started
+2025-12-02 22:51:32.14
+0494008d
+User
+🔊 [REALTIME] response.created: id=resp_CiRdMwvmpS08VaZ...
+2025-12-02 22:51:32.19
+0494008d
+User
+🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing
+2025-12-02 22:51:32.20
+0494008d
+User
+🔊 [REALTIME] response.done: status=cancelled, output_count=0, details={'type': 'cancelled', 'reason': 'turn_detected'}
+2025-12-02 22:51:33.64
+0494008d
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=278, voice_frames=0
+2025-12-02 22:51:34.64
+0494008d
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=93, voice_frames=0
+2025-12-02 22:51:35.44
+0494008d
+User
+🎙️ REAL_VOICE: rms=1397.0 > threshold=125.3
+2025-12-02 22:51:35.64
+0494008d
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=1130, voice_frames=0
+2025-12-02 22:51:36.04
+0494008d
+User
+🔇 [AUDIO GATE] Blocked 100 noise frames (rms=85)
+2025-12-02 22:51:36.42
+0494008d
+User
+WS_STOP sid=MZbee05fcfcf44fb812b0b82c534996738 rx=235 tx=0
+2025-12-02 22:51:36.43
+0494008d
+User
+📤 [REALTIME] Audio sender ended
+
+2025-12-02 22:51:36.43
+0494008d
+User
+📝 [REALTIME] Text sender ended
+2025-12-02 22:51:36.46
+0494008d
+User
+🧹 Waiting for 5 background threads...
+2025-12-02 22:51:36.48
+0494008d
+User
+STREAM_ENDED call=CA7a4445e2ee93756b3839284880deb6b0 stream=N/A status=N/A
+2025-12-02 22:51:36.48
+0494008d
+User
+INFO: 35.196.109.179:0 - "POST /webhook/stream_ended
