@@ -1580,17 +1580,6 @@ class MediaStreamHandler:
                         # 🎯 SMART HANGUP: Extract lead fields from AI confirmation patterns
                         self._extract_lead_fields_from_ai(transcript)
                         
-                        # 🎯 BUILD 163: Check for auto hang-up after AI finishes speaking
-                        if self.pending_hangup and not self.hangup_triggered:
-                            print(f"📞 [BUILD 163] Pending hangup detected after AI response - triggering hang-up")
-                            # Use thread to avoid blocking async loop
-                            import threading
-                            threading.Thread(
-                                target=self._trigger_auto_hangup,
-                                args=("AI finished speaking with pending hangup",),
-                                daemon=True
-                            ).start()
-                        
                         # 🎯 BUILD 163: Detect goodbye phrases in AI transcript
                         # 🔥 PROTECTION: Only detect goodbye if enough time passed since greeting
                         # ONLY applies if greeting was actually played (greeting_completed_at is not None)
@@ -1608,6 +1597,7 @@ class MediaStreamHandler:
                         # Set pending_hangup if:
                         # 1. auto_end_on_goodbye is ON and AI said goodbye, OR
                         # 2. lead_captured is True and AI said any closing phrase
+                        # 3. goodbye_detected is True and AI responded with closing
                         should_hangup = False
                         if self.auto_end_on_goodbye and can_detect_goodbye and ai_polite_closing_detected:
                             print(f"👋 [BUILD 163] AI said goodbye (auto_end_on_goodbye) - marking pending hangup")
@@ -1622,6 +1612,18 @@ class MediaStreamHandler:
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                        
+                        # 🎯 BUILD 163: Check for auto hang-up AFTER detecting closing phrases
+                        # 🔥 FIX: Must be AFTER pending_hangup is set, not before!
+                        if self.pending_hangup and not self.hangup_triggered:
+                            print(f"📞 [BUILD 163] Pending hangup detected after AI response - triggering hang-up")
+                            # Use thread to avoid blocking async loop
+                            import threading
+                            threading.Thread(
+                                target=self._trigger_auto_hangup,
+                                args=("AI finished speaking with pending hangup",),
+                                daemon=True
+                            ).start()
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
