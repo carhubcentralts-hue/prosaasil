@@ -1721,10 +1721,11 @@ class MediaStreamHandler:
                                 print(f"👋 [BUILD 163] User said goodbye - sending polite closing instruction to AI")
                                 self.goodbye_detected = True
                                 # 🔥 FIX: Send explicit instruction to AI to say polite goodbye
-                                # The AI will respond, and when it says closing phrase, pending_hangup will be set
                                 asyncio.create_task(self._send_server_event_to_ai(
                                     "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
                                 ))
+                                # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
+                                asyncio.create_task(self._fallback_hangup_after_timeout(10, "user_goodbye"))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         if self.auto_end_after_lead_capture and not self.pending_hangup and not self.lead_captured:
@@ -1735,7 +1736,8 @@ class MediaStreamHandler:
                                 asyncio.create_task(self._send_server_event_to_ai(
                                     "[SERVER] ✅ כל הפרטים נקלטו! סיים את השיחה בצורה מנומסת - הודה ללקוח ואמור להתראות."
                                 ))
-                                # pending_hangup will be set when AI says goodbye
+                                # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
+                                asyncio.create_task(self._fallback_hangup_after_timeout(10, "lead_captured"))
                     
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
@@ -4860,6 +4862,52 @@ class MediaStreamHandler:
             print(f"❌ [SMART CALL] Error loading call behavior settings: {e}")
             import traceback
             traceback.print_exc()
+
+    async def _fallback_hangup_after_timeout(self, timeout_seconds: int, trigger_type: str):
+        """
+        🔥 FALLBACK: Disconnect call after timeout if AI didn't say closing phrase
+        
+        This ensures calls always end gracefully even if AI's response
+        doesn't contain a recognized closing phrase.
+        
+        Args:
+            timeout_seconds: How long to wait before forcing disconnect
+            trigger_type: What triggered this ("user_goodbye" or "lead_captured")
+        """
+        print(f"⏰ [FALLBACK] Starting {timeout_seconds}s timer for {trigger_type}...")
+        
+        await asyncio.sleep(timeout_seconds)
+        
+        # Check if already disconnected
+        if self.hangup_triggered:
+            print(f"✅ [FALLBACK] Call already ended - no fallback needed")
+            return
+        
+        # Check if pending_hangup was set (AI said closing phrase)
+        if self.pending_hangup:
+            print(f"✅ [FALLBACK] pending_hangup already set - normal flow working")
+            return
+        
+        # AI didn't say a recognized closing phrase - force polite disconnect
+        print(f"⚠️ [FALLBACK] {timeout_seconds}s passed, AI didn't say closing phrase - forcing polite disconnect")
+        
+        # Wait for any audio to finish
+        for _ in range(50):  # 5 seconds max
+            if self.realtime_audio_out_queue.qsize() == 0 and self.tx_q.qsize() == 0:
+                break
+            await asyncio.sleep(0.1)
+        
+        # Extra buffer
+        await asyncio.sleep(2.0)
+        
+        if not self.hangup_triggered:
+            print(f"📞 [FALLBACK] Triggering hangup after {trigger_type} timeout")
+            import threading
+            threading.Thread(
+                target=self._trigger_auto_hangup,
+                args=(f"Fallback after {trigger_type}",),
+                daemon=True
+            ).start()
 
     def _trigger_auto_hangup(self, reason: str):
         """
