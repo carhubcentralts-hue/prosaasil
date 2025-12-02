@@ -32,6 +32,14 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Dynamic Lead Field Prompts**: Verification prompts reference business-specific `required_lead_fields` from database.
 - **Whisper Hallucination Filter**: Blocks pure English words fabricated from Hebrew audio (e.g., "Bye", "Thank you").
 - **Multi-Language Support**: AI responds in Hebrew by default but switches to caller's language when requested.
+- **BUILD 169 - Voice Call Quality Improvements**:
+  - **Barge-in Protection**: Increased from 220ms to 700ms (35 frames) to prevent AI cutoff on background noise.
+  - **STT Segment Merging**: 800ms debounce window combines rapid utterances into single messages.
+  - **Enhanced Noise Filter**: Hebrew whitelist allows short words ("כן", "לא", "רגע") while blocking English hallucinations.
+  - **Gibberish Detection**: Filters repeated letters (e.g., "אאא") and pure consonant patterns.
+  - **Semantic Loop Detection**: Tracks AI response similarity (>70%) to detect repetition loops.
+  - **Mishearing Protection**: Counts consecutive "לא הבנתי" responses and triggers clarification.
+  - **Call Session Logging**: Unique session IDs (SES-XXXXXXXX) for connect/disconnect tracking.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
