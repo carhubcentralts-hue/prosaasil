@@ -1300,6 +1300,10 @@ class MediaStreamHandler:
         """Send audio from Twilio to Realtime API"""
         print(f"📤 [REALTIME] Audio sender started")
         
+        # 🛡️ BUILD 168.5: Track if we've logged the greeting block message
+        _greeting_block_logged = False
+        _greeting_resumed_logged = False
+        
         while not self.realtime_stop_flag:
             try:
                 if not hasattr(self, 'realtime_audio_in_queue'):
@@ -1315,6 +1319,21 @@ class MediaStreamHandler:
                 if audio_chunk is None:
                     print(f"📤 [REALTIME] Stop signal received")
                     break
+                
+                # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
+                # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
+                # Solution: Don't send audio to OpenAI until greeting finishes playing.
+                if self.is_playing_greeting:
+                    if not _greeting_block_logged:
+                        print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
+                        _greeting_block_logged = True
+                    # Drop the audio chunk - don't send to OpenAI during greeting
+                    continue
+                else:
+                    # Greeting finished - resume sending audio
+                    if _greeting_block_logged and not _greeting_resumed_logged:
+                        print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
+                        _greeting_resumed_logged = True
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
                 # Start timer on first chunk

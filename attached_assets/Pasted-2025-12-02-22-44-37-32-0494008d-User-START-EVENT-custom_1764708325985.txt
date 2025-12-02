@@ -1,0 +1,101 @@
+2025-12-02 22:44:37.32
+0494008d
+User
+📞 START EVENT (customParameters path):
+2025-12-02 22:44:37.32
+0494008d
+User
+🎯 [CALL DEBUG] START EVENT RECEIVED! call_sid will be extracted...
+2025-12-02 22:44:37.32
+0494008d
+User
+🚀 [REALTIME] Thread started for call CAde68f6 (FRESH SESSION)
+2025-12-02 22:44:37.32
+0494008d
+User
+⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number=+97233763805
+2025-12-02 22:44:37.32
+0494008d
+User
+⏱️ [PARALLEL] Client created in 0ms
+2025-12-02 22:44:37.32
+0494008d
+User
+🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY
+2025-12-02 22:44:37.54
+0494008d
+User
+⏳ [PARALLEL] Waiting for business info from DB query...
+2025-12-02 22:44:38.37
+0494008d
+User
+⚠️ Background thread 0 still running after timeout
+2025-12-02 22:44:39.50
+0494008d
+User
+✅ מצא עסק: שי דירות (id=1)
+2025-12-02 22:44:39.52
+0494008d
+User
+🔍 [SETTINGS LOADED] smart_hangup_enabled=True
+2025-12-02 22:44:39.52
+0494008d
+User
+🔍 [SETTINGS LOADED] _call_settings_loaded=True (prevents duplicate load)
+2025-12-02 22:44:39.52
+0494008d
+User
+bot_speaks_first=True, auto_end_goodbye=True
+2025-12-02 22:44:39.52
+0494008d
+User
+⚡ COMBINED QUERY: biz+greeting+settings in 2202ms
+2025-12-02 22:44:39.52
+0494008d
+User
+🔍 [SETTINGS LOADED] required_lead_fields=['name', 'phone']
+2025-12-02 22:44:39.54
+0494008d
+User
+✅ [PARALLEL] Business info ready! Wait time: 2001ms
+2025-12-02 22:44:39.54
+0494008d
+User
+🎤 [VOICE] Using voice=shimmer for entire call (business=1)
+2025-12-02 22:44:39.54
+0494008d
+User
+🎤 [GREETING] max_tokens=200 for greeting length=0 chars
+2025-12-02 22:44:39.54
+0494008d
+User
+⏱️ [PARALLEL] No custom greeting - AI will improvise (biz='שי דירות ')
+2025-12-02 22:44:39.54
+0494008d
+User
+🎤 [GREETING] Bot speaks first - triggering greeting at 1764708279.548
+2025-12-02 22:44:39.54
+0494008d
+User
+⏱️ [PHASE 1] Session configured in 1ms (total: 2219ms)
+2025-12-02 22:44:39.54
+0494008d
+User
+✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice=shimmer
+
+2025-12-02 22:44:39.54
+0494008d
+User
+📤 [REALTIME] Audio sender started
+2025-12-02 22:44:39.54
+0494008d
+User
+⚠️ [CRM] No customer phone - skipping lead creation
+2025-12-02 22:44:39.54
+0494008d
+User
+📥 [REALTIME] Audio receiver started
+2025-12-02 22:44:39.54
+0494008d
+User
+✅ [BUILD 163] response.create sent! OpenAI=2220ms, T0→speak=2223ms
