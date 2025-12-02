@@ -1033,6 +1033,26 @@ def _clear_whatsapp_disconnect_notification(business_id: int):
         log.error(f"[WHATSAPP_STATUS] ❌ Failed to clear disconnect notifications: {e}")
         db.session.rollback()
 
+@whatsapp_bp.route('/admin/migrate-sessions', methods=['POST'])
+@require_api_auth(['system_admin'])
+@api_handler
+def migrate_whatsapp_sessions():
+    """Admin endpoint: Create sessions from existing messages for summaries
+    
+    This is a one-time migration to populate the sessions table from
+    existing WhatsApp messages. Only system_admin can run this.
+    """
+    try:
+        from server.services.whatsapp_session_service import migrate_existing_messages_to_sessions
+        result = migrate_existing_messages_to_sessions()
+        return {"ok": True, "result": result}
+    except Exception as e:
+        log.error(f"[WA-ADMIN] Migration error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "error": str(e)}, 500
+
+
 @csrf.exempt
 @internal_whatsapp_bp.route('/status-webhook', methods=['POST'])
 def whatsapp_status_webhook():

@@ -456,3 +456,108 @@ def start_session_processor():
         logger.info("[WA-SESSION] Background processor thread started successfully")
         
         return True
+
+
+def migrate_existing_messages_to_sessions() -> dict:
+    """One-time migration: Create sessions from existing WhatsApp messages
+    
+    This analyzes all existing messages and creates closed sessions with summaries
+    for each unique customer conversation. Sessions are marked as already summarized
+    so they won't be processed again.
+    
+    Returns:
+        Dict with migration statistics
+    """
+    from sqlalchemy import func, distinct
+    
+    logger.info("[WA-SESSION] Starting migration of existing messages to sessions...")
+    
+    unique_conversations = db.session.query(
+        WhatsAppMessage.business_id,
+        WhatsAppMessage.to_number
+    ).filter(
+        WhatsAppMessage.to_number.isnot(None)
+    ).distinct().all()
+    
+    logger.info(f"[WA-SESSION] Found {len(unique_conversations)} unique conversations to process")
+    
+    created = 0
+    skipped = 0
+    errors = 0
+    
+    for business_id, customer_phone in unique_conversations:
+        if not customer_phone:
+            continue
+            
+        customer_phone_clean = customer_phone.replace("@s.whatsapp.net", "").replace("+", "").strip()
+        
+        existing = WhatsAppConversation.query.filter_by(
+            business_id=business_id,
+            customer_wa_id=customer_phone_clean
+        ).first()
+        
+        if existing:
+            skipped += 1
+            continue
+        
+        try:
+            messages = WhatsAppMessage.query.filter(
+                WhatsAppMessage.business_id == business_id,
+                WhatsAppMessage.to_number == customer_phone
+            ).order_by(WhatsAppMessage.created_at.asc()).all()
+            
+            if not messages:
+                continue
+            
+            first_msg = messages[0]
+            last_msg = messages[-1]
+            
+            lead_id = None
+            lead = Lead.query.filter_by(
+                tenant_id=business_id,
+                phone_e164=customer_phone_clean
+            ).first()
+            
+            if not lead:
+                normalized = f"+{customer_phone_clean}" if not customer_phone_clean.startswith("+") else customer_phone_clean
+                lead = Lead.query.filter_by(
+                    tenant_id=business_id,
+                    phone_e164=normalized
+                ).first()
+            
+            if lead:
+                lead_id = lead.id
+            
+            new_session = WhatsAppConversation(
+                business_id=business_id,
+                provider="baileys",
+                customer_wa_id=customer_phone_clean,
+                lead_id=lead_id,
+                started_at=first_msg.created_at,
+                last_message_at=last_msg.created_at,
+                last_customer_message_at=last_msg.created_at,
+                is_open=False,
+                summary_created=False
+            )
+            
+            db.session.add(new_session)
+            db.session.commit()
+            created += 1
+            
+            logger.info(f"[WA-SESSION] Created session for customer={customer_phone_clean[:8]}... (business={business_id})")
+            
+        except Exception as e:
+            errors += 1
+            logger.error(f"[WA-SESSION] Error creating session for {customer_phone_clean}: {e}")
+            db.session.rollback()
+    
+    result = {
+        "total_conversations": len(unique_conversations),
+        "sessions_created": created,
+        "sessions_skipped": skipped,
+        "errors": errors
+    }
+    
+    logger.info(f"[WA-SESSION] Migration complete: {result}")
+    
+    return result
