@@ -454,36 +454,10 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         return None
 
 
-# ⚡ BUILD 116: אופטימיזציות לזמן תגובה <2s
-print("="*80)
-print("⚡ BUILD 116 - SUB-2S RESPONSE OPTIMIZATION + REALTIME API")
-print("="*80)
-print(f"[BOOT] DEBUG = {DEBUG}")
-print(f"[BOOT] 🚀 USE_REALTIME_API = {USE_REALTIME_API} {'(OpenAI Realtime for calls)' if USE_REALTIME_API else '(Google STT/TTS)'}")
-# 🔍 CRITICAL: Log to logger.info so it appears in production logs (bypass print suppression)
-logger.info(f"[BOOT] USE_REALTIME_API = {USE_REALTIME_API}")
+# ⚡ BUILD 168.2: Minimal boot logging (clean startup)
+logger.info(f"[BOOT] USE_REALTIME_API={USE_REALTIME_API} MODEL={OPENAI_REALTIME_MODEL}")
 if not USE_REALTIME_API:
-    logger.warning("[BOOT] ⚠️ USE_REALTIME_API is FALSE - AI will NOT speak during calls! Set USE_REALTIME_API=true to enable.")
-if USE_REALTIME_API:
-    is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
-    cost_info = "$0.01-0.02/min (80% cheaper)" if is_mini else "$0.06-0.24/min (standard)"
-    print(f"[BOOT] 💰 REALTIME_MODEL = {OPENAI_REALTIME_MODEL} ({cost_info})")
-print(f"[BOOT] USE_STREAMING_STT = {USE_STREAMING_STT}")
-print(f"[BOOT] ENABLE_BARGE_IN = {ENABLE_BARGE_IN} (🎯 Smart barge-in with state tracking)")
-print(f"[BOOT] GOOGLE_CLOUD_REGION = {os.getenv('GOOGLE_CLOUD_REGION', 'europe-west1')}")
-print(f"[BOOT] GCP_STT_MODEL = {os.getenv('GCP_STT_MODEL', 'phone_call')} (ENHANCED=True enforced)")
-print(f"[BOOT] GCP_STT_LANGUAGE = {os.getenv('GCP_STT_LANGUAGE', 'he-IL')}")
-print(f"[BOOT] STT_BATCH_MS = {os.getenv('STT_BATCH_MS', '30')}")
-print(f"[BOOT] STT_PARTIAL_DEBOUNCE_MS = {os.getenv('STT_PARTIAL_DEBOUNCE_MS', '80')} (🔥 Ultra-fast)")
-print(f"[BOOT] STT_TIMEOUT_MS = {os.getenv('STT_TIMEOUT_MS', '300')} (🔥 Ultra-fast - was 400ms)")
-print(f"[BOOT] VAD_HANGOVER_MS = {os.getenv('VAD_HANGOVER_MS', '120')}")
-print("="*80)
-
-if USE_STREAMING_STT:
-    print("🚀 STT MODE: Real-time Streaming (Session-per-call)")
-else:
-    print("⚠️  WARNING: STT MODE is Single-request (SLOW!) - Set ENABLE_STREAMING_STT=true")
-    print("📝 STT MODE: Single-request (fast μ-law + optimized Google STT)")
+    logger.warning("[BOOT] USE_REALTIME_API=FALSE - AI will NOT speak during calls!")
 
 # ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
 # Each call_sid has its own session + dispatcher state
@@ -1091,19 +1065,19 @@ class MediaStreamHandler:
             logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             t_client = time.time()
-            print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
+            if DEBUG: print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
             t_connect_start = time.time()
             await client.connect()
             connect_ms = (time.time() - t_connect_start) * 1000
             t_connected = time.time()
-            print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
+            if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
             self.realtime_client = client
             
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
-            print(f"✅ [REALTIME] Connected to OpenAI using {OPENAI_REALTIME_MODEL} ({cost_info})")
+            logger.info("[REALTIME] Connected")
             
             # 🚀 PARALLEL STEP 2: Wait for business info from main thread (max 2s)
             print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
@@ -1132,9 +1106,9 @@ class MediaStreamHandler:
             has_custom_greeting = greeting_text is not None and len(str(greeting_text).strip()) > 0
             
             if has_custom_greeting:
-                print(f"⏱️ [PARALLEL] Using greeting: '{greeting_text[:50]}...'")
+                if DEBUG: print(f"⏱️ [PARALLEL] Using greeting: '{greeting_text[:50]}...'")
             else:
-                print(f"⏱️ [PARALLEL] No custom greeting - AI will improvise (biz='{biz_name}')")
+                if DEBUG: print(f"⏱️ [PARALLEL] No custom greeting - AI will improvise (biz='{biz_name}')")
             
             # Build greeting-only prompt with the actual greeting (or improvise instruction)
             if has_custom_greeting:
@@ -1453,7 +1427,7 @@ class MediaStreamHandler:
                     if response_id:
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
-                        print(f"🎯 [REALTIME] Response started: {response_id}")
+                        pass  # Response started logging removed
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
@@ -2120,7 +2094,7 @@ class MediaStreamHandler:
                 from server.policy.business_policy import get_business_policy
                 policy = get_business_policy(self.business_id)
                 
-                print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
+                if DEBUG: print(f"📊 [DEBUG] Policy loaded: allow_24_7={policy.allow_24_7}, opening_hours={policy.opening_hours}")
                 
                 if policy.allow_24_7:
                     await self._send_server_event_to_ai("hours_info - העסק פתוח 24/7, אפשר לקבוע תור בכל יום ושעה.")
@@ -2594,132 +2568,67 @@ class MediaStreamHandler:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                print(f"🔍 [NLP] Running async NLP parser...")
                 loop.run_until_complete(self._check_appointment_confirmation_async())
-                print(f"✅ [NLP] Async NLP parser completed successfully")
-                # ✅ SUCCESS: Update cache ONLY after NLP completes successfully
                 with self.nlp_processing_lock:
                     self.last_nlp_processed_hash = current_hash
                     self.last_nlp_hash_timestamp = time.time()
-                    print(f"✅ [NLP] Cache updated after successful processing")
             except Exception as e:
-                print(f"❌ [NLP] Error in async parser (cache NOT updated): {e}")
-                import traceback
-                traceback.print_exc()
-                # Cache NOT updated - allows retry on next utterance
+                logger.error(f"[NLP] Error: {e}")
             finally:
                 loop.close()
-                # 🛡️ BUILD 149 FIX: Always clear processing flag when done
                 with self.nlp_processing_lock:
                     self.nlp_is_processing = False
-                    print(f"🔓 [NLP] Cleared nlp_is_processing flag")
         
-        # Launch in background thread to avoid blocking and event loop conflicts
-        print(f"🚀 [NLP] Launching NLP thread...")
         thread = threading.Thread(target=run_in_thread, daemon=True)
         thread.start()
-        print(f"✅ [NLP] Thread launched")
     
     def _realtime_audio_out_loop(self):
-        """
-        🚀 REALTIME API: Bridge thread that moves audio from realtime_audio_out_queue to tx_q
-        
-        🔥 CRITICAL FIX: Split OpenAI chunks (12KB+) into Twilio frames (160 bytes) + 20ms pacing
-        """
-        print(f"📤 [REALTIME] Audio output bridge started")
-        
-        # Track realtime audio transmission
+        """⚡ BUILD 168.2: Optimized audio bridge - minimal logging"""
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
         if not hasattr(self, 'realtime_tx_bytes'):
             self.realtime_tx_bytes = 0
         
-        TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law = 160 bytes
-        FRAME_DURATION_MS = 20  # Each frame is 20ms of audio
-        chunk_count = 0
-        last_chunk_ts = time.time()  # 🔍 GAP DETECTION
-        
-        # 🔥 FIX: Rolling buffer for incomplete frames (prevents audio doubling!)
-        audio_buffer = b''  # Buffer to accumulate sub-160-byte frames
+        TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
+        audio_buffer = b''  # Rolling buffer for incomplete frames
         
         while not self.realtime_stop_flag:
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
-                
-                # 🔍 BRIDGE GAP DETECTION: Log if >500ms between queue reads
-                now = time.time()
-                gap_ms = (now - last_chunk_ts) * 1000
-                if gap_ms > 500 and chunk_count > 3:
-                    print(f"⚠️ [BRIDGE GAP] {gap_ms:.0f}ms wait for queue - chunk #{chunk_count}")
-                last_chunk_ts = now
-                
                 if audio_b64 is None:
-                    print(f"📤 [REALTIME] Stop signal received")
                     break
                 
-                # Decode OpenAI chunk
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
-                chunk_count += 1
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # 🔍 Log large chunks (OpenAI sends 12KB+ chunks, we need to split them)
-                if len(chunk_bytes) > 1000 and chunk_count <= 3:
-                    num_frames = len(chunk_bytes) // TWILIO_FRAME_SIZE
-                    print(f"📦 [AUDIO] OpenAI chunk #{chunk_count}: {len(chunk_bytes)} bytes → splitting into {num_frames} frames")
-                
-                # Verify streamSid is valid
                 if not self.stream_sid:
-                    print(f"❌ [REALTIME] No streamSid available! Skipping chunk.")
                     continue
                 
-                # 🔥 CRITICAL FIX: Use rolling buffer to combine sub-160-byte frames
-                # OpenAI sends variable chunk sizes (80-160 bytes)
-                # We MUST NOT pad with silence (doubles duration!) - buffer and combine instead!
-                
-                # Add chunk to buffer
                 audio_buffer += chunk_bytes
                 
-                # Extract complete 160-byte frames from buffer
                 while len(audio_buffer) >= TWILIO_FRAME_SIZE:
                     frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
-                    audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]  # Keep remainder
+                    audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]
                     
-                    # Encode to base64 for Twilio
                     frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
-                    
-                    # Create Twilio frame
                     twilio_frame = {
                         "event": "media",
                         "streamSid": self.stream_sid,
-                        "media": {
-                            "payload": frame_b64
-                        }
+                        "media": {"payload": frame_b64}
                     }
                     
                     try:
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
-                        
-                        # Log first few frames for verification
-                        if self.realtime_tx_frames <= 3:
-                            first5 = ' '.join([f'{b:02x}' for b in frame_bytes[:5]])
-                            print(f"✅ [AUDIO] Frame #{self.realtime_tx_frames}: 160 bytes, first5={first5}, buffer={len(audio_buffer)}")
-                        
                     except queue.Full:
-                        print(f"⚠️ [AUDIO] tx_q full, dropping frame #{self.realtime_tx_frames}")
-                    except Exception as e:
-                        print(f"❌ [AUDIO] Error enqueueing: {e}")
+                        pass  # Drop silently if queue full
                     
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"❌ [REALTIME] Audio output bridge error: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"[AUDIO] Bridge error: {e}")
                 break
-        
-        print(f"📤 [REALTIME] Audio output bridge ended (sent {self.realtime_tx_frames} frames, {self.realtime_tx_bytes} bytes)")
 
     def _calculate_and_log_cost(self):
         """💰 Calculate and log call cost - called at end of every call"""
@@ -2754,21 +2663,8 @@ class MediaStreamHandler:
             # Convert to NIS (₪) - approximate rate
             total_cost_nis = total_cost * 3.7
             
-            print(f"\n{'='*80}")
-            print(f"💰💰💰 [CALL COST SUMMARY] 💰💰💰")
-            print(f"{'='*80}")
-            print(f"📞 Model: {OPENAI_REALTIME_MODEL}")
-            print(f"⏱️  Total duration: {call_duration:.1f}s ({call_duration/60:.1f} min)")
-            print(f"🎙️  Audio IN (user speaking): {audio_in_chunks} chunks ({audio_in_minutes_exact:.3f} min)")
-            print(f"   └─ Cost: {audio_in_minutes_exact:.3f} min × ${cost_per_min_in}/min = ${cost_in:.4f}")
-            print(f"🔊 Audio OUT (AI speaking): {audio_out_chunks} chunks ({audio_out_minutes_exact:.3f} min)")
-            print(f"   └─ Cost: {audio_out_minutes_exact:.3f} min × ${cost_per_min_out}/min = ${cost_out:.4f}")
-            print(f"{'─'*80}")
-            print(f"💵 TOTAL COST: ${total_cost:.4f} (≈ ₪{total_cost_nis:.2f})")
-            print(f"{'='*80}\n")
-            
-            if total_cost == 0 and call_duration > 5:
-                print(f"⚠️  WARNING: Zero cost but call lasted {call_duration:.0f}s - tracking may be incomplete!")
+            # ⚡ BUILD 168.2: Compact cost log (single line)
+            logger.info(f"[COST] {call_duration:.0f}s ${total_cost:.4f} (₪{total_cost_nis:.2f})")
             
             return total_cost
             
@@ -2777,48 +2673,14 @@ class MediaStreamHandler:
             return 0.0
     
     def run(self):
-        # Media stream handler initialized")
-        
-        # CRITICAL FIX: Ensure json import is available
+        """⚡ BUILD 168.2: Streamlined main loop - minimal logging"""
         import json
         
-        # 💰 Track call start time for cost calculation
         self.call_start_time = time.time()
-        
-        # Write debug to MULTIPLE LOCATIONS for guaranteed persistence
-        timestamp = int(time.time())
-        debug_files = [
-            f"/tmp/ws_handler_debug_{timestamp}.txt",
-            f"/tmp/websocket_debug.txt",
-            f"/tmp/handler_called.txt",
-            f"/home/runner/workspace/handler_debug.txt",
-            f"/tmp/HANDLER_WORKS_{timestamp}.txt"
-        ]
-        
-        success_count = 0
-        for debug_file in debug_files:
-            try:
-                with open(debug_file, "w") as f:
-                    f.write(f"HANDLER_START: {self.stream_sid} at {time.time()}\n")
-                    f.write(f"WEBSOCKET_HANDLER_DEFINITELY_WORKS!\n")
-                    f.write(f"CONNECTION_SUCCESSFUL: {timestamp}\n")
-                    f.flush()
-                success_count += 1
-                print(f"✅ Debug written to {debug_file}", flush=True)
-            except Exception as e:
-                print(f"❌ Failed to write {debug_file}: {e}", flush=True)
-        
-        print(f"✅ Debug files written: {success_count}/{len(debug_files)}", flush=True)
-        
-        # PATCH 4: Advanced logging counters
         self.rx_frames = 0
         self.tx_frames = 0
         
-        print(f"WS_START sid={self.stream_sid} mode=AI call_sid={self.call_sid}")
-        print(f"🎯 CONVERSATION READY (VAD threshold: {VAD_RMS})")
-        # 🔥 CRITICAL: Force print to confirm handler started
-        _orig_print(f"🎯 [CALL DEBUG] MediaStreamHandler.run() entered main loop", flush=True)
-        logger.info("[CALL DEBUG] MediaStreamHandler.run() entered main loop")
+        logger.info(f"[CALL] Started sid={self.stream_sid[:8]}...")
         
         try:
             while True:
@@ -3702,7 +3564,7 @@ class MediaStreamHandler:
                 if hasattr(self, 'eou_timestamp'):
                     asr_latency = time.time() - self.eou_timestamp
                     self.last_stt_time = asr_latency  # ⚡ CRITICAL: Save for TOTAL_LATENCY calculation
-                    print(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
+                    if DEBUG: print(f"📊 ASR_LATENCY: {asr_latency:.3f}s (target: <0.7s)")
                     
             except Exception as e:
                 print(f"❌ STT ERROR: {e}")
@@ -3838,7 +3700,7 @@ class MediaStreamHandler:
                 
                 # ✅ מדידת AI Processing Time
                 ai_processing_time = time.time() - ai_processing_start
-                print(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
+                if DEBUG: print(f"📊 AI_PROCESSING: {ai_processing_time:.3f}s")
                 
                 # 5. הוסף להיסטוריה (שני מבנים - סנכרון)
                 self.response_history.append({
@@ -4036,14 +3898,14 @@ class MediaStreamHandler:
             
             tts_audio = self._hebrew_tts(text)
             tts_generation_time = time.time() - tts_start
-            print(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
+            if DEBUG: print(f"📊 TTS_GENERATION: {tts_generation_time:.3f}s")
             
             if tts_audio and len(tts_audio) > 1000:
                 print(f"🔊 TTS SUCCESS: {len(tts_audio)} bytes")
                 send_start = time.time()
                 self._send_pcm16_as_mulaw_frames_with_mark(tts_audio)
                 send_time = time.time() - send_start
-                print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
+                if DEBUG: print(f"📊 TTS_SEND: {send_time:.3f}s (audio transmission)")
                 
                 # ⚡ BUILD 114: Detailed latency breakdown (EOU→first audio sent)
                 if eou_saved:
@@ -4052,8 +3914,8 @@ class MediaStreamHandler:
                     stt_time = getattr(self, 'last_stt_time', 0.0)
                     ai_time = getattr(self, 'last_ai_time', 0.0)
                     
-                    print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
-                    print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
+                    if DEBUG: print(f"📊 TURN_LATENCY: {turn_latency:.3f}s (EOU→TTS start, target: <1.2s)")
+                    if DEBUG: print(f"📊 🎯 TOTAL_LATENCY: {total_latency:.3f}s (EOU→Audio sent, target: <2.0s)")
                     print(f"[LATENCY] stt={stt_time:.2f}s, ai={ai_time:.2f}s, tts={tts_generation_time:.2f}s, total={total_latency:.2f}s")
                     
                     # Clear for next measurement
@@ -4126,7 +3988,7 @@ class MediaStreamHandler:
         frames_sent = 0
         total_frames = len(mulaw) // FR
         
-        print(f"🔊 TTS_FRAMES: {total_frames} frames ({total_frames * 20}ms)")
+        if DEBUG: print(f"🔊 TTS_FRAMES: {total_frames} frames ({total_frames * 20}ms)")
         
         for i in range(0, len(mulaw), FR):
             # בדיקת ברג-אין
@@ -4171,12 +4033,7 @@ class MediaStreamHandler:
             "type": "mark",
             "name": "assistant_tts_end"
         })
-        print("🎯 TTS_MARK_SENT: assistant_tts_end (queued)")
-        
-        # ✅ BUILD 100.4 FIX: סיים דיבור מיד וחזור להאזנה!
-        # הבעיה: המערכת נשארה ב-STATE_SPEAK אחרי ברכה ולא חזרה להאזנה
         self._finalize_speaking()
-        print("✅ GREETING_COMPLETE -> LISTEN STATE")
 
     def _send_pcm16_as_mulaw_frames(self, pcm16_8k: bytes):
         """
@@ -4402,7 +4259,7 @@ class MediaStreamHandler:
             max_amplitude = audioop.max(pcm16_8k, 2)
             rms = audioop.rms(pcm16_8k, 2)
             duration = len(pcm16_8k) / (2 * 8000)
-            print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
+            if DEBUG: print(f"📊 AUDIO_QUALITY_CHECK: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
             # 🔥 BUILD 164B: BALANCED NOISE GATE - Filter noise, allow quiet speech
             
@@ -4499,12 +4356,12 @@ class MediaStreamHandler:
                 print(f"⚠️ STT_TIMEOUT ({timeout_error}) - likely silence")
                 return ""
             
-            print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
+            if DEBUG: print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
             
             if response.results and response.results[0].alternatives:
                 hebrew_text = response.results[0].alternatives[0].transcript.strip()
                 confidence = response.results[0].alternatives[0].confidence
-                print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
+                if DEBUG: print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
                 
                 # ⚡ ACCURACY FIX: LOWER confidence thresholds to accept more valid Hebrew
                 # Hebrew speech often has lower confidence scores than English
@@ -4545,7 +4402,7 @@ class MediaStreamHandler:
             max_amplitude = audioop.max(pcm16_8k, 2)
             rms = audioop.rms(pcm16_8k, 2)
             duration = len(pcm16_8k) / (2 * 8000)
-            print(f"📊 AUDIO_VALIDATION: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
+            if DEBUG: print(f"📊 AUDIO_VALIDATION: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
             # 🔥 BUILD 164B: BALANCED noise gate for Whisper
             if max_amplitude < 200 or rms < 120:  # Balanced thresholds - allow quiet speech
@@ -5724,7 +5581,7 @@ class MediaStreamHandler:
             print(f"   Metadata: {len(ai_response_dict.get('actions', []))} actions, booking={ai_response_dict.get('booking_successful', False)}")
             
             print(f"🤖 AGENT_RESPONSE: Generated {len(tts_text)} chars in {self.last_ai_time:.3f}s (business {business_id})")
-            print(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
+            if DEBUG: print(f"📊 AI_LATENCY: {self.last_ai_time:.3f}s (target: <1.5s)")
             
             # Return TTS text (string) for _speak_simple
             return tts_text
@@ -6158,7 +6015,7 @@ class MediaStreamHandler:
                         print(f"✅ CALL FINALIZED: {self.call_sid}")
                         print(f"📝 Summary: {summary_data.get('summary', 'N/A')}")
                         print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
-                        print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
+                        if DEBUG: print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
                         
                         # 📋 CRM: Update lead with call summary (Realtime mode only)
                         if USE_REALTIME_API and hasattr(self, 'crm_context') and self.crm_context and self.crm_context.lead_id:
@@ -6497,7 +6354,7 @@ class MediaStreamHandler:
                         print(f"🎯 Live Call AI Processing: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'})")
                         print(f"📋 Live Summary: {conversation_summary.get('summary', 'N/A')}")
                         print(f"🎭 Live Intent: {conversation_summary.get('intent', 'N/A')}")
-                        print(f"📊 Live Status: {new_status}")
+                        if DEBUG: print(f"📊 Live Status: {new_status}")
                         print(f"⚡ Live Next Action: {conversation_summary.get('next_action', 'N/A')}")
                         
                 except Exception as e:
