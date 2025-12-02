@@ -108,12 +108,20 @@ export function CallsPage() {
   const [deletingCall, setDeletingCall] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [deletingOldRecordings, setDeletingOldRecordings] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCalls, setTotalCalls] = useState(0);
+  const PAGE_SIZE = 25;
 
   // Debounce search query to prevent excessive API calls
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   
   // Track initial load vs subsequent searches
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery, statusFilter, directionFilter]);
 
   // Open lead in CRM - navigate to lead detail page
   const openInCRM = async (call: Call) => {
@@ -151,7 +159,7 @@ export function CallsPage() {
 
   useEffect(() => {
     loadCalls();
-  }, [debouncedSearchQuery, statusFilter, directionFilter]);
+  }, [debouncedSearchQuery, statusFilter, directionFilter, currentPage]);
 
   const loadCalls = useCallback(async () => {
     try {
@@ -160,24 +168,28 @@ export function CallsPage() {
         setLoading(true);
       }
       
-      const response = await http.get('/api/calls?search=' + encodeURIComponent(debouncedSearchQuery) + '&status=' + statusFilter + '&direction=' + directionFilter + '&limit=50');
+      const offset = (currentPage - 1) * PAGE_SIZE;
+      const response = await http.get('/api/calls?search=' + encodeURIComponent(debouncedSearchQuery) + '&status=' + statusFilter + '&direction=' + directionFilter + '&limit=' + PAGE_SIZE + '&offset=' + offset);
       
       if (response && typeof response === 'object' && 'success' in response && response.success) {
         setCalls((response as any).calls || []);
+        setTotalCalls((response as any).total || (response as any).calls?.length || 0);
       } else {
         console.error('Error loading calls:', response);
         setCalls([]);
+        setTotalCalls(0);
       }
     } catch (error) {
       console.error('Error loading calls:', error);
       setCalls([]);
+      setTotalCalls(0);
     } finally {
       setLoading(false);
       if (!initialLoadComplete) {
         setInitialLoadComplete(true);
       }
     }
-  }, [debouncedSearchQuery, statusFilter, directionFilter, initialLoadComplete]);
+  }, [debouncedSearchQuery, statusFilter, directionFilter, currentPage, initialLoadComplete]);
 
   const loadCallDetails = async (call: Call) => {
     try {
@@ -901,6 +913,39 @@ export function CallsPage() {
         </div>
       )}
 
+      {/* Pagination */}
+      {Math.ceil(totalCalls / PAGE_SIZE) > 1 && (
+        <div className="flex items-center justify-center gap-4 mt-6 pb-4" data-testid="pagination-controls">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1 || loading}
+            data-testid="button-prev-page"
+          >
+            הקודם
+          </Button>
+          
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span>עמוד</span>
+            <span className="font-medium text-slate-900">{currentPage}</span>
+            <span>מתוך</span>
+            <span className="font-medium text-slate-900">{Math.ceil(totalCalls / PAGE_SIZE)}</span>
+            <span className="text-slate-400">({totalCalls} שיחות)</span>
+          </div>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.min(Math.ceil(totalCalls / PAGE_SIZE), p + 1))}
+            disabled={currentPage === Math.ceil(totalCalls / PAGE_SIZE) || loading}
+            data-testid="button-next-page"
+          >
+            הבא
+          </Button>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="p-4">
@@ -910,7 +955,7 @@ export function CallsPage() {
             </div>
             <div>
               <p className="text-sm font-medium text-slate-600">סה״כ שיחות</p>
-              <p className="text-2xl font-bold text-slate-900" data-testid="stat-total-calls">{calls.length}</p>
+              <p className="text-2xl font-bold text-slate-900" data-testid="stat-total-calls">{totalCalls}</p>
             </div>
           </div>
         </Card>
