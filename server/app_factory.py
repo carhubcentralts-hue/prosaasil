@@ -7,20 +7,17 @@ from flask import Flask, jsonify, send_from_directory, send_file, current_app, r
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# ⚡ PHASE 1: Setup async logging BEFORE anything else
+# Setup async logging BEFORE anything else
 from server.logging_async import setup_async_root
 if os.getenv("ASYNC_LOG_QUEUE", "1") == "1":
     setup_async_root(level=logging.INFO)
-    print("⚡ PHASE 1: Async logging enabled (Eventlet-based)")
 else:
     logging.basicConfig(level=logging.INFO)
-    print("⚡ PHASE 1: Standard logging (sync)")
-# NO Flask-Sock - using EventLet WebSocketWSGI in wsgi.py composite
+
 try:
     from flask_seasurf import SeaSurf
     CSRF_AVAILABLE = True
 except ImportError:
-    print("⚠️ CSRF packages not available - using basic security")
     SeaSurf = None
     CSRF_AVAILABLE = False
 from datetime import datetime, timedelta
@@ -56,7 +53,6 @@ def get_process_app():
     # Otherwise, return the singleton (thread-safe)
     with _app_lock:
         if _app_singleton is None:
-            print("⚠️ get_process_app() called before app created - creating now")
             _app_singleton = create_app()
         
         return _app_singleton
@@ -64,37 +60,27 @@ def get_process_app():
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
     
-    # GOOGLE TTS CREDENTIALS SETUP - FIXED: Use permanent file
-    # Handle both file path and JSON string credentials
+    # GCP credentials setup
     import json
     gcp_creds = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
     if gcp_creds and gcp_creds.startswith('{'):
-        # If it's a JSON string, create a PERMANENT file
         try:
             creds_data = json.loads(gcp_creds)
             credentials_path = '/tmp/gcp_credentials.json'
             with open(credentials_path, 'w') as f:
                 json.dump(creds_data, f)
             os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-            print(f"🔧 GCP credentials converted from JSON to file: {credentials_path}")
-        except Exception as e:
-            print(f"⚠️ GCP credentials error: {e}")
-    else:
-        print(f"🔧 GCP credentials loaded from file path: {gcp_creds[:50]}...")
+        except Exception:
+            pass
     
     app = Flask(__name__, 
                 static_folder=os.path.join(os.path.dirname(__file__), "..", "client", "dist"),
                 static_url_path="",
                 template_folder=os.path.join(os.path.dirname(__file__), "templates"))
     
-    # הדגל השחור - לוג זיהוי לקוד ישן/חדש (שלב 7)
     import time, subprocess
     
-    # נתיב FE_DIST שהשרת משרת
-    FE_DIST_PATH = os.path.join(os.path.dirname(__file__), "..", "client", "dist")
-    print(f"🔧 FE_DIST={FE_DIST_PATH}")
-    
-    # Git SHA קצר
+    # Git SHA for version info endpoint
     try:
         git_sha = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'], 
                                         cwd=os.path.dirname(__file__), 
@@ -102,7 +88,6 @@ def create_app():
                                         timeout=2).decode().strip()
     except:
         git_sha = "dev"
-    print(f"🔧 APP_SHA={git_sha}")
     
     version_info = {
         "build": 87,
@@ -113,7 +98,6 @@ def create_app():
         "commit": os.getenv("GIT_COMMIT", git_sha),
         "startup_ts": int(time.time())
     }
-    print(f"🚩 APP_START {version_info}")
     
     # Database configuration with SSL fix
     DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///default.db')
@@ -122,10 +106,6 @@ def create_app():
     IS_PRODUCTION = os.getenv('REPLIT_DEPLOYMENT') == '1' or os.getenv('RAILWAY_ENVIRONMENT') == 'production'
     if IS_PRODUCTION and DATABASE_URL.startswith('sqlite'):
         raise RuntimeError("❌ FATAL: SQLite is not allowed in production! Set DATABASE_URL secret.")
-    
-    # Log database driver (without password)
-    db_driver = DATABASE_URL.split(':')[0] if DATABASE_URL else 'none'
-    print(f"🔧 DB_DRIVER: {db_driver}", flush=True)
     
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
@@ -355,8 +335,7 @@ def create_app():
         })
         
         # Register auth blueprint - single clean system
-        app.register_blueprint(auth_api)  # Auth API endpoints only
-        print("✅ Auth blueprints registered")
+        app.register_blueprint(auth_api)
         
         # Register new API blueprints
         from server.routes_admin import admin_bp
@@ -373,7 +352,6 @@ def create_app():
         app.register_blueprint(calendar_bp)
         app.register_blueprint(leads_bp)
         app.register_blueprint(user_mgmt_api)
-        print("✅ User Management API blueprint registered")
         
         # Calls API for recordings and transcripts
         from server.routes_calls import calls_bp
@@ -399,12 +377,10 @@ def create_app():
         # Agent API - AgentKit powered AI agents with tools
         from server.routes_agent import bp as agent_bp
         app.register_blueprint(agent_bp)
-        print("✅ Agent API blueprint registered")
         
-        # Agent Ops API - Unified AgentKit operations (appointments, invoices, contracts, etc.)
+        # Agent Ops API - Unified AgentKit operations
         from server.routes_agent_ops import ops_bp
         app.register_blueprint(ops_bp)
-        print("✅ Agent Ops API blueprint registered")
         
         # Admin Channels API - Multi-tenant routing management
         from server.routes_admin_channels import admin_channels_bp
@@ -449,14 +425,20 @@ def create_app():
         import traceback
         traceback.print_exc()
     
-    # 8) לוגים שמראים הכל (לפי ההנחיות המדויקות)
+    # BUILD 168.2: Minimal production logging - only slow requests (>1s)
+    import time as _time
+    
     @app.before_request
-    def _req_log():
-        current_app.logger.info("REQ", extra={"path": request.path, "method": request.method})
+    def _req_start():
+        g._request_start = _time.time()
 
     @app.after_request
-    def _res_log(resp):
-        current_app.logger.info("RES", extra={"path": request.path, "status": resp.status_code})
+    def _req_timing(resp):
+        if hasattr(g, '_request_start'):
+            duration = _time.time() - g._request_start
+            # Only log slow API requests (>1s)
+            if duration > 1.0 and request.path.startswith('/api/'):
+                current_app.logger.warning(f"SLOW_API: {request.method} {request.path} took {duration:.2f}s")
         return resp
     
     # DISABLE Flask-Sock when using EventLet Composite WSGI to prevent conflicts
@@ -468,33 +450,17 @@ def create_app():
         @sock.route('/ws/twilio-media')
         def websocket_fallback(ws):
             """REAL WebSocket FALLBACK route with Flask-Sock if Composite WSGI fails"""
-            print("🔄 Flask-Sock WebSocket FALLBACK activated!", flush=True)
-            
             try:
-                print("✅ Flask-Sock WebSocket connection established", flush=True)
-                
-                # Import and use MediaStreamHandler
                 from server.media_ws_ai import MediaStreamHandler
                 handler = MediaStreamHandler(ws)
                 handler.run()
-                
             except Exception as e:
-                print(f"❌ WebSocket fallback error: {e}", flush=True)
-                import traceback
-                traceback.print_exc()
-            
-        print("🔧 Flask-Sock WebSocket DISABLED - using EventLet Composite WSGI exclusively")
-        
-    # WebSocket routes handled by ASGI layer (asgi.py with Starlette)
-    # Flask app doesn't handle WebSocket - delegated to ASGI wrapper
-    print("🔧 WebSocket: Handled by ASGI layer (Starlette WebSocket)")
-    print("📞 /ws/twilio-media → ASGI WebSocket (asgi.py)")
+                app.logger.error(f"WebSocket fallback error: {e}")
     
-    # DEBUG: Test route to verify which version is running
+    # Test route to verify which version is running
     @app.route('/test-websocket-version')
     def test_websocket_version():
         """Test route to verify WebSocket integration is active"""
-        # Check if running under ASGI or standalone
         server_type = 'uvicorn_asgi' if os.getenv('ASGI_SERVER') else 'standalone'
         
         return jsonify({
@@ -507,53 +473,17 @@ def create_app():
             'timestamp': int(time.time())
         })
     
-    print("✅ WebSocket test route added: /test-websocket-version")
-    
-    # CRITICAL DEBUG: Print all registered routes
-    print("🔍 ALL REGISTERED ROUTES:")
-    for rule in app.url_map.iter_rules():
-        print(f"  {rule.methods} {rule.rule}")
-    print("🔍 Route registration complete")
-    
-    print("🔧 WebSocket routes removed from Flask - handled by wsgi.py composite")
-    print("✅ Health routes handled by health_endpoints.py blueprint")
-    
-    # CRITICAL DEBUG: Add test route directly in app_factory for production
+    # Debug test route
     @app.route('/debug-factory-http', methods=['GET', 'POST'])
     def debug_factory_http():
         """Test route in app_factory.py for production debugging"""
         import time
-        
-        print("🚨 APP_FACTORY HTTP HANDLER CALLED!", flush=True)
-        
-        # Immediate debug
-        with open("/tmp/factory_http_debug.txt", "w") as f:
-            f.write(f"FACTORY_HTTP_CALLED: {time.time()}\n")
-            f.write(f"METHOD: {request.method}\n")
-            f.write(f"HEADERS: {dict(request.headers)}\n")
-            f.flush()
-        
         return jsonify({
             'status': 'app_factory.py HTTP handler works!',
             'timestamp': time.time(),
             'method': request.method,
             'production': True
         })
-    
-    # Health endpoints handled by health_endpoints.py blueprint
-    
-    print("✅ Factory debug route registered: /debug-factory-http")
-    print("✅ /healthz route added directly to app_factory")
-    print("🆘 Emergency healthz-direct route added")
-    
-    # All Flask-Sock references completely removed
-
-    # רישום בלו־פרינטים - AgentLocator 71
-    # Twilio blueprint already registered above with other API blueprints
-    
-    # Note: Using @csrf.exempt decorators instead of exempt_urls for cleaner approach
-    # WhatsApp unified registration only (no more routes_whatsapp.py)
-    print("✅ WhatsApp routes removed - using unified only")
     
     # Enhanced 400 error handler for debugging CSRF issues
     @app.errorhandler(400)
@@ -585,27 +515,6 @@ def create_app():
     # from server.routes_whatsapp import wa_bp
     # app.register_blueprint(wa_bp)
     
-    # Route registration verification
-    wa_routes = [rule for rule in app.url_map.iter_rules() if str(rule).startswith('/wa/')]
-    wa_proxy_routes = [rule for rule in app.url_map.iter_rules() if str(rule).startswith('/api/wa-proxy')]
-    print(f"✅ Baileys proxy routes: {len(wa_routes)} /wa/* endpoints")
-    print(f"✅ Legacy proxy routes: {len(wa_proxy_routes)} /api/wa-proxy/* endpoints")
-    
-    # Baileys WhatsApp bridge routes (DISABLED - cleanup)
-    # try:
-    #     from server.routes_whatsapp_baileys import baileys_bp
-    #     app.register_blueprint(baileys_bp)
-    #     print("✅ Baileys routes registered")
-    # except ImportError:
-    #     print("⚠️ Baileys routes not available")
-    
-    # Debug routes לפריסה (DISABLED - cleanup)
-    # try:
-    #     from server.debug_routes import debug_bp
-    #     app.register_blueprint(debug_bp)
-    #     print("✅ Debug routes registered")
-    # except ImportError:
-    #     print("⚠️ Debug routes not available")
 
     # Version endpoint moved to health_endpoints.py to avoid duplicates
 
@@ -625,12 +534,6 @@ def create_app():
     from flask import send_from_directory, abort
     FE_DIST = Path(__file__).resolve().parents[1] / "client" / "dist"
     
-    # הדפסה פעם אחת בהפעלה
-    try:
-        mtime = FE_DIST.stat().st_mtime
-        print(f"FE_DIST = {FE_DIST} mtime = {mtime}")
-    except Exception as e:
-        print(f"⚠️ FE_DIST error: {e}")
     
     @app.route('/assets/<path:filename>')
     def assets(filename):
@@ -679,18 +582,15 @@ def create_app():
         if is_production:
             try:
                 with app.app_context():
-                    print("🔧 [BACKGROUND] Running migrations...")
                     from server.db_migrate import apply_migrations
                     apply_migrations()
-                    print("✅ [BACKGROUND] Migrations applied")
                     
-                    # ✅ BUILD 124: Migrate legacy admin roles to system_admin
+                    # Migrate legacy admin roles to system_admin
                     try:
                         from server.scripts.migrate_admin_roles import migrate_admin_roles
                         migrate_admin_roles()
-                        print("✅ [BACKGROUND] Admin roles migrated")
-                    except Exception as e:
-                        print(f"⚠️ [BACKGROUND] Admin role migration error: {e}")
+                    except Exception:
+                        pass
                     
                     # Fix FAQ patterns
                     try:
@@ -721,24 +621,21 @@ def create_app():
                         
                         if fixed_count > 0:
                             db.session.commit()
-                            print(f"✅ [BACKGROUND] Fixed {fixed_count} FAQ patterns")
-                            
                             from server.services.faq_cache import faq_cache
                             affected = set(faq.business_id for faq in faqs if faq.patterns_json)
                             for bid in affected:
                                 faq_cache.invalidate(bid)
-                    except Exception as e:
-                        print(f"⚠️ [BACKGROUND] FAQ fix error: {e}")
-            except Exception as e:
-                print(f"⚠️ [BACKGROUND] Migration error: {e}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
         else:
             # Development mode - quick table creation
             try:
                 with app.app_context():
                     db.create_all()
-                    print("✅ [BACKGROUND] Dev tables created")
-            except Exception as e:
-                print(f"⚠️ [BACKGROUND] Dev table error: {e}")
+            except Exception:
+                pass
         
         # Shared initialization
         try:
@@ -747,37 +644,20 @@ def create_app():
                 create_default_admin()
                 
                 from server.init_database import initialize_production_database
-                initialization_success = initialize_production_database()
-                if initialization_success:
-                    print("✅ [BACKGROUND] DB initialized successfully")
-        except Exception as e:
-            print(f"⚠️ [BACKGROUND] Init error: {e}")
+                initialize_production_database()
+        except Exception:
+            pass
     
     # Start background initialization thread
     import threading
     init_thread = threading.Thread(target=_background_initialization, daemon=True)
     init_thread.start()
-    print("⚡ Server starting immediately - DB initialization running in background")
     
-    # Health endpoints removed - using health_endpoints.py blueprint only
-    
-    # ✅ WARMUP: Preload services after startup to avoid cold start
+    # Preload services after startup to avoid cold start
     from server.services.lazy_services import warmup_services_async, start_periodic_warmup
     warmup_services_async()
-    print("🔥 Service warmup initiated")
-    
-    # 🔥 Phase 2F: Periodic warmup every 7-8 minutes to prevent cold start
     start_periodic_warmup()
-    print("🔥 Periodic warmup started (every 7-8 minutes)")
     
-    # דיבוג זמני CSRF (מוחקים אחרי שזה עובד) 
-    @app.before_request
-    def _dbg_csrf():
-        if request.path.endswith('/prompt') or request.path.endswith('/impersonate'):
-            print('CSRF-DBG',
-                  'cookie=', request.cookies.get('XSRF-TOKEN'),
-                  'header=', request.headers.get('X-CSRFToken'),
-                  'ct=', request.headers.get('Content-Type'))
 
     # ✅ ERROR HANDLERS - JSON responses instead of Error {}
     @app.errorhandler(400)
@@ -836,117 +716,64 @@ def create_app():
                 'error': str(e)
             }), 500
     
-    # הדפסת רשימת נתיבים לדיבוג
-    print("\n=== URL MAP ===")
-    for r in sorted(app.url_map.iter_rules(), key=lambda r: r.rule):
-        if any(keyword in r.rule for keyword in ['/api/', '/prompt', '/impersonate', '/csrf', '/auth']):
-            print(f"  {r.methods} {r.rule} -> {r.endpoint}")
-    print("================")
     
-    # SPA blueprint disabled temporarily - using direct routes
-    # from server.spa_static import spa_bp
-    # app.register_blueprint(spa_bp)
-    print("✅ Simple SPA routes registered (no blueprint)")
-    
-    # ⚡ Phase 2: TTS Pre-warming on startup (prevents 4s cold start!)
-    import traceback as tb
+    # TTS Pre-warming on startup (prevents cold start)
     try:
         from server.services.gcp_tts_live import maybe_warmup
-        import time as warmup_time
-        
-        print("="*80)
-        print("🔥 STARTING TTS PRE-WARMUP...")
-        app.logger.info("🔥 TTS prewarm on startup...")
-        
-        t0 = warmup_time.time()
-        success = maybe_warmup()
-        warmup_ms = int((warmup_time.time() - t0) * 1000)
-        
-        if success:
-            app.logger.info(f"✅ TTS prewarm SUCCESS: {warmup_ms}ms")
-            print(f"✅ TTS prewarmed on startup: {warmup_ms}ms")
-        else:
-            app.logger.error(f"❌ TTS prewarm returned False after {warmup_ms}ms")
-            print(f"❌ TTS prewarm FAILED (returned False): {warmup_ms}ms")
-        print("="*80)
-    except Exception as e:
-        app.logger.error(f"❌ TTS prewarm EXCEPTION: {e}")
-        print(f"❌ TTS prewarm EXCEPTION: {e}")
-        print(f"Traceback: {tb.format_exc()}")
-        print("="*80)
+        maybe_warmup()
+    except Exception:
+        pass
     
-    # 🔥 WARMUP: Pre-create agents to eliminate cold starts!
-    # This runs AFTER app creation but BEFORE first request
+    # Pre-create agents to eliminate cold starts
     try:
-        print("\n🔥 Starting agent warmup...")
         from server.agent_tools.agent_factory import warmup_all_agents
         
-        # 🔥 CRITICAL FIX: Run warmup WITH app context!
-        # SQLAlchemy queries need app context to access db
         def warmup_with_context():
             with app.app_context():
                 try:
                     warmup_all_agents()
-                except Exception as e:
-                    print(f"❌ Warmup failed inside context: {e}")
-                    import traceback
-                    traceback.print_exc()
+                except Exception:
+                    pass
         
-        # Run warmup in background thread to not block app startup
         import threading
         warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
         warmup_thread.start()
-        print("✅ Agent warmup started in background thread (with app context)")
-    except Exception as e:
-        print(f"⚠️  Agent warmup setup failed (non-critical): {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        pass
     
-    # 🔥 CRITICAL: Set singleton so future calls to get_process_app() reuse this instance
+    # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton
     with _app_lock:
         if _app_singleton is None:
             _app_singleton = app
-            print("✅ App singleton set - future calls will reuse this instance")
     
-    # 🗑️ BUILD 148: Automatic recording cleanup scheduler (7-day retention)
+    # Automatic recording cleanup scheduler (7-day retention)
     try:
-        print("\n🗑️ Starting automatic recording cleanup scheduler...")
         from server.tasks_recording import auto_cleanup_old_recordings
         import threading
         import time as scheduler_time
         
         def recording_cleanup_scheduler():
             """Background scheduler - runs cleanup daily"""
-            print("🗑️ Recording cleanup scheduler started (runs every 6 hours)")
-            # Wait 5 minutes after startup before first run
-            scheduler_time.sleep(300)
-            
+            scheduler_time.sleep(300)  # Wait 5 minutes after startup
             while True:
                 try:
                     with app.app_context():
-                        deleted, files = auto_cleanup_old_recordings()
-                        if deleted > 0 or files > 0:
-                            print(f"🗑️ Scheduled cleanup completed: {deleted} DB entries, {files} files")
-                except Exception as e:
-                    print(f"⚠️ Scheduled cleanup failed: {e}")
-                
-                # Run every 6 hours (21600 seconds)
-                scheduler_time.sleep(21600)
+                        auto_cleanup_old_recordings()
+                except Exception:
+                    pass
+                scheduler_time.sleep(21600)  # Run every 6 hours
         
         cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
         cleanup_thread.start()
-        print("✅ Recording cleanup scheduler started (7-day retention, runs every 6 hours)")
-    except Exception as e:
-        print(f"⚠️ Recording cleanup scheduler setup failed (non-critical): {e}")
+    except Exception:
+        pass
     
-    # 📱 BUILD 162: WhatsApp session processor (15-min auto-summary)
+    # WhatsApp session processor (15-min auto-summary)
     try:
-        print("\n📱 Starting WhatsApp session processor...")
         from server.services.whatsapp_session_service import start_session_processor
         start_session_processor()
-        print("✅ WhatsApp session processor started (15-min inactivity auto-summary)")
-    except Exception as e:
-        print(f"⚠️ WhatsApp session processor setup failed (non-critical): {e}")
+    except Exception:
+        pass
     
     return app
