@@ -1135,9 +1135,10 @@ class MediaStreamHandler:
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
             
-            # 🎯 VOICE CONSISTENCY: Set voice once at call start, never change
+            # 🎯 VOICE CONSISTENCY: Set voice once at call start, use same voice throughout
             # Using 'shimmer' - stable voice for Hebrew TTS
             call_voice = "shimmer"
+            self._call_voice = call_voice  # Store for session.update reuse
             print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
             
             await client.configure_session(
@@ -1230,17 +1231,17 @@ class MediaStreamHandler:
                         await asyncio.sleep(0.3)
                         
                         # Update session with full prompt (session.update event)
-                        # 🎯 VOICE CONSISTENCY: Do NOT change voice mid-call - only update instructions
-                        # OpenAI Realtime preserves voice setting if not specified in update
+                        # 🎯 VOICE CONSISTENCY: Explicitly re-send voice to ensure it doesn't reset
+                        voice_to_use = getattr(self, '_call_voice', 'shimmer')
                         await client.send_event({
                             "type": "session.update",
                             "session": {
                                 "instructions": full_prompt,
+                                "voice": voice_to_use,  # 🔒 Must re-send voice to lock it
                                 "max_response_output_tokens": 300
-                                # NOTE: voice parameter intentionally omitted to preserve initial voice
                             }
                         })
-                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars (voice preserved)")
+                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars, voice={voice_to_use} locked")
                     else:
                         print(f"⚠️ [PHASE 2] Keeping minimal prompt - full prompt build failed")
                 except Exception as e:
