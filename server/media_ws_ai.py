@@ -3092,11 +3092,12 @@ class MediaStreamHandler:
                     
                     # 🔒 CRITICAL FIX: אם המערכת מדברת - לא להאזין בכלל!
                     # אל תעבד אודיו, אל תאסוף, אל תבדוק VAD - SKIP COMPLETELY!
-                    # 🚨 MUST BE BEFORE BARGE-IN CHECK - UNCONDITIONAL!
-                    if self.speaking:
+                    # 🔥 BUILD 165: Only skip for Realtime API (which handles barge-in above)
+                    # Fallback mode needs to continue to process barge-in below
+                    if self.speaking and USE_REALTIME_API:
                         self.buf.clear()
                         self.voice_in_row = 0  # Reset barge-in counter
-                        continue  # ← SKIP EVERYTHING - don't listen at all!
+                        continue  # ← SKIP EVERYTHING - Realtime barge-in handled above
                     
                     # 🔥 BUILD 165: FALLBACK BARGE-IN - ONLY for non-Realtime API mode!
                     # Realtime API has its own barge-in handler above (lines 3010-3065)
