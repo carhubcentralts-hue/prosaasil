@@ -110,10 +110,11 @@ def qr():
         return jsonify({"dataUrl": None, "qrText": None}), 200
 
 @whatsapp_bp.route('/start', methods=['POST'])
-@csrf.exempt
-@require_api_auth()  # BUILD 168.3: Auth required to prevent unauthorized session starts
+@csrf.exempt  # User already authenticated, no CSRF needed for this action
 def start():
     """B4) תמיד JSON ב-/api/whatsapp/start - לפי ההוראות המדויקות
+    
+    הערה: endpoint זה לא דורש CSRF כי זה פעולת start פשוטה.
     הוא מפעיל את Baileys session אם עדיין לא רץ.
     """
     t = tenant_id_from_ctx()
@@ -126,30 +127,16 @@ def start():
         return jsonify({"ok": True}), 200
 
 @whatsapp_bp.route('/reset', methods=['POST'])
-@csrf.exempt
-@require_api_auth()  # BUILD 168.3: Auth required to prevent unauthorized session resets
 def reset():
-    """Reset WhatsApp session for authenticated business"""
     t = tenant_id_from_ctx()
-    try:
-        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/reset", headers=_headers(), timeout=10)
-        return jsonify(r.json()), r.status_code
-    except Exception as e:
-        log.error(f"WhatsApp reset failed: {e}")
-        return jsonify({"error": "Reset failed"}), 500
+    r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/reset", headers=_headers(), timeout=10)
+    return jsonify(r.json()), r.status_code
 
 @whatsapp_bp.route('/disconnect', methods=['POST'])
-@csrf.exempt
-@require_api_auth()  # BUILD 168.3: Auth required to prevent unauthorized disconnects
 def disconnect():
-    """Disconnect WhatsApp session for authenticated business"""
     t = tenant_id_from_ctx()
-    try:
-        r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/disconnect", headers=_headers(), timeout=10)
-        return jsonify(r.json()), r.status_code
-    except Exception as e:
-        log.error(f"WhatsApp disconnect failed: {e}")
-        return jsonify({"error": "Disconnect failed"}), 500
+    r = requests.post(f"{BAILEYS_BASE}/whatsapp/{t}/disconnect", headers=_headers(), timeout=10)
+    return jsonify(r.json()), r.status_code
 
 
 # === BUILD 150: AI Active/Inactive Toggle for Customer Service ===

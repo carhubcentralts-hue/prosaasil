@@ -23,41 +23,62 @@ from starlette.websockets import WebSocket
 from starlette.responses import PlainTextResponse
 from starlette.requests import Request
 
-# BUILD 168.2: Minimal startup logging
-log = logging.getLogger("asgi")
+# STARTUP LOGGING - TO STDOUT
+print("=" * 80, flush=True)
+print("🚀 ASGI BUILD 87 LOADING - DUPLICATE CALL_SID FIX", flush=True)
+print("=" * 80, flush=True)
 
-# GCP credentials setup (silent unless error)
+# ✅ CRITICAL FIX: Ensure Google Cloud credentials are set BEFORE any imports
 gcp_creds = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
 if gcp_creds and gcp_creds.startswith('{'):
+    # If it's JSON string, create permanent file
     try:
         creds_data = json.loads(gcp_creds)
         credentials_path = '/tmp/gcp_credentials.json'
         with open(credentials_path, 'w') as f:
             json.dump(creds_data, f)
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        print(f"✅ GCP credentials file created in ASGI: {credentials_path}", flush=True)
     except Exception as e:
-        log.error(f"GCP credentials setup failed: {e}")
+        print(f"❌ ASGI GCP credentials setup failed: {e}", flush=True)
+elif gcp_creds:
+    print(f"✅ GCP credentials already configured: {gcp_creds[:50]}...", flush=True)
+else:
+    print("⚠️  No GCP credentials found in ASGI startup!", flush=True)
 
-# Lazy Flask app creation
-twilio_log = logging.getLogger("twilio_ws")
-flask_app = None
+# 🚀 CRITICAL FIX: Defer Flask app creation to avoid import-time slowness
+# This allows Uvicorn to bind port IMMEDIATELY before heavy initialization
+log = logging.getLogger("twilio_ws")
+flask_app = None  # Will be created on first request
 
 def get_flask_app():
     """Lazy Flask app creation - only when needed"""
     global flask_app
     if flask_app is None:
+        print("🔧 Creating Flask app (first request)...", flush=True)
         from server.app_factory import create_app
         flask_app = create_app()
+        print("✅ Flask app created", flush=True)
     return flask_app
 
-# Background warmup
+print("=" * 80, flush=True)
+print("✅ ASGI BUILD 88 READY - LAZY FLASK INIT", flush=True)
+print("=" * 80, flush=True)
+
+# 🚀 CRITICAL FIX: Warm Flask app immediately in background
+# This ensures system prompts are ready BEFORE first Realtime call
+import threading
 def _warmup_flask():
+    """Background warmup to ensure Flask is ready before first call"""
     import time
-    time.sleep(0.5)
+    time.sleep(0.5)  # Let Uvicorn bind port first
+    print("🔥 [WARMUP] Starting Flask app initialization...", flush=True)
     _ = get_flask_app()
+    print("✅ [WARMUP] Flask app ready for Realtime calls", flush=True)
 
 warmup_thread = threading.Thread(target=_warmup_flask, daemon=True)
 warmup_thread.start()
+print("⚡ Flask warmup initiated in background", flush=True)
 
 async def ws_http_probe(request: Request):
     """Return 426 Upgrade Required for non-WebSocket requests"""
@@ -80,19 +101,21 @@ class SyncWebSocketWrapper:
     def receive(self):
         """Sync receive - blocks until message available"""
         try:
-            msg = self.recv_queue.get(timeout=120)
-            if msg is None:
+            msg = self.recv_queue.get(timeout=120)  # ✅ BUILD 117: 120s timeout (was 30s) - prevents ABNORMAL_CLOSURE
+            if msg is None:  # EOF signal
                 return None
             return msg
         except Empty:
+            print("⚠️ Receive timeout after 120s - assuming call ended", flush=True)
             return None
     
     def send(self, data):
         """Sync send - puts in queue for async sender with timeout"""
         if self.running:
             try:
-                self.send_queue.put(data, timeout=2.0)
+                self.send_queue.put(data, timeout=2.0)  # ✅ 2s timeout instead of blocking forever
             except:
+                print(f"⚠️ Send queue full, dropping frame", flush=True)
                 pass  # Drop frame if queue is full
     
     def stop(self):
@@ -105,14 +128,22 @@ async def ws_twilio_media(websocket: WebSocket):
     WebSocket handler for Twilio Media Streams
     Bridges async Starlette WS to sync MediaStreamHandler
     """
+    # Log connection attempt
+    print(f"📞 WebSocket connection attempt: headers={dict(websocket.headers)}", flush=True)
+    log.info(f"📞 WebSocket connection attempt: headers={dict(websocket.headers)}")
+    
     # Accept with Twilio subprotocol
     try:
         await websocket.accept(subprotocol="audio.twilio.com")
+        print("✅ WebSocket accepted with subprotocol: audio.twilio.com", flush=True)
+        log.info("✅ WebSocket accepted with subprotocol: audio.twilio.com")
     except Exception as e:
-        twilio_log.error(f"WebSocket accept failed: {e}")
+        print(f"❌ WebSocket accept failed: {e}", flush=True)
+        log.error(f"❌ WebSocket accept failed: {e}")
         raise
     
-    twilio_log.info("WebSocket connected: /ws/twilio-media")
+    print("📞 WebSocket connected: /ws/twilio-media", flush=True)
+    log.info("📞 WebSocket connected: /ws/twilio-media")
     
     # Create sync wrapper
     ws_wrapper = SyncWebSocketWrapper()
@@ -124,83 +155,104 @@ async def ws_twilio_media(websocket: WebSocket):
         
         # Task 1: Receive from Starlette WS → put in queue for sync handler
         async def receive_loop():
-            msg_count = 0
             try:
-                twilio_log.info("[WS] receive_loop started")
+                print("🔧 receive_loop started", flush=True)
                 while ws_wrapper.running:
                     try:
                         msg = await websocket.receive_json()
-                        msg_count += 1
-                        event_type = msg.get("event", "unknown")
-                        if event_type == "start":
-                            twilio_log.info(f"[WS] START event received! Forwarding to handler")
+                        # ✅ Only log non-media events (media frames are too noisy - 50/sec!)
+                        event_type = msg.get('event', 'unknown')
+                        if event_type != 'media':
+                            print(f"📨 Received: {event_type}", flush=True)
                         ws_wrapper.recv_queue.put(json.dumps(msg))
                     except json.JSONDecodeError:
+                        # Non-JSON frames - consume text to keep loop alive
                         try:
                             _ = await websocket.receive_text()
                         except Exception:
                             pass
                         continue
                     except Exception as e:
-                        twilio_log.error(f"[WS] Receive error after {msg_count} msgs: {e}")
+                        print(f"❌ Receive error: {e}", flush=True)
+                        log.error(f"Receive error: {e}")
                         break
             finally:
-                twilio_log.info(f"[WS] receive_loop ended after {msg_count} messages")
+                print("🔧 receive_loop ended", flush=True)
                 ws_wrapper.stop()
         
-        # Task 2: Get from queue → send to Starlette WS
+        # Task 2: Get from queue → send to Starlette WS (CRITICAL FIX for Cloud Run)
         async def send_loop():
             try:
+                print("🔧 send_loop started", flush=True)
                 error_count = 0
                 max_errors = 10
                 
                 while ws_wrapper.running and error_count < max_errors:
+                    # Non-blocking check for messages with LONGER timeout
                     try:
                         data = await asyncio.get_event_loop().run_in_executor(
-                            None, ws_wrapper.send_queue.get, True, 0.5
+                            None, ws_wrapper.send_queue.get, True, 0.5  # ✅ 500ms timeout (was 100ms)
                         )
                         if data is None:
                             break
                         
+                        # Send with retry on failure
                         try:
                             if isinstance(data, str):
                                 await websocket.send_text(data)
                             else:
                                 await websocket.send_bytes(data)
-                            error_count = 0
+                            error_count = 0  # Reset on success
                         except Exception as send_err:
                             error_count += 1
+                            print(f"❌ WS send failed (#{error_count}): {send_err}", flush=True)
                             if error_count >= max_errors:
+                                print(f"🚨 Max send errors ({max_errors}) reached, closing", flush=True)
                                 break
-                            await asyncio.sleep(0.05)
+                            await asyncio.sleep(0.05)  # Brief pause before retry
                             
                     except Empty:
-                        await asyncio.sleep(0.01)
+                        await asyncio.sleep(0.01)  # Yield to other tasks
                     except Exception as e:
                         error_count += 1
-                        twilio_log.error(f"Send loop error: {e}")
+                        print(f"❌ Send loop error (#{error_count}): {e}", flush=True)
+                        log.error(f"Send loop error: {e}")
                         if error_count >= max_errors:
+                            print(f"🚨 Max loop errors ({max_errors}) reached, closing", flush=True)
                             break
                         await asyncio.sleep(0.05)
+                        
             except Exception as fatal:
-                twilio_log.error(f"Fatal send_loop error: {fatal}")
+                print(f"❌ Fatal send_loop error: {fatal}", flush=True)
             finally:
-                ws_wrapper.stop()
+                print("🔧 send_loop ended", flush=True)
+                ws_wrapper.stop()  # ✅ Signal handler to stop
         
-        # Task 3: MediaStreamHandler in background thread
+        # Task 3: MediaStreamHandler in background thread (starts AFTER loops)
         def run_handler():
             try:
-                twilio_log.info("[WS] run_handler: Getting Flask app...")
+                # Ensure Flask app is created before handler runs
+                print("🔧 [HANDLER] Getting Flask app...", flush=True)
+                log.info("[CALL DEBUG] Getting Flask app for MediaStreamHandler")
                 _ = get_flask_app()
-                twilio_log.info("[WS] run_handler: Creating MediaStreamHandler...")
+                print("🔧 [HANDLER] Flask app ready", flush=True)
+                log.info("[CALL DEBUG] Flask app ready")
+                
+                print("🔧 Creating MediaStreamHandler...", flush=True)
+                log.info("[CALL DEBUG] Creating MediaStreamHandler")
                 handler = MediaStreamHandler(ws_wrapper)
-                twilio_log.info("[WS] run_handler: Starting handler.run()...")
+                print("🔧 Starting MediaStreamHandler.run()...", flush=True)
+                log.info("[CALL DEBUG] Starting MediaStreamHandler.run()")
                 handler.run()
-                twilio_log.info("[WS] run_handler: handler.run() completed normally")
+                print("✅ MediaStreamHandler completed", flush=True)
+                log.info("✅ MediaStreamHandler completed")
             except Exception as e:
-                twilio_log.error(f"[WS] MediaStreamHandler error: {e}")
+                print(f"❌ MediaStreamHandler error: {e}", flush=True)
+                log.error(f"[CALL DEBUG] ❌ MediaStreamHandler error: {e}")
                 import traceback
-                twilio_log.error(traceback.format_exc())
+                tb = traceback.format_exc()
+                print(tb, flush=True)
+                log.error(f"[CALL DEBUG] Traceback: {tb}")
             finally:
                 ws_wrapper.stop()
         
@@ -219,28 +271,32 @@ async def ws_twilio_media(websocket: WebSocket):
             # Now start handler thread
             handler_thread = threading.Thread(target=run_handler, daemon=True)
             handler_thread.start()
+            print("✅ MediaStreamHandler thread started", flush=True)
+            log.info("✅ MediaStreamHandler thread started")
             
             # Wait for loops to finish
             await loops_task
             
-            # Wait for handler thread to finish
+            # Wait for handler thread to finish (with LONGER timeout for background threads)
+            # BUILD 100.8: 4 background threads × 3s each = 12s + 3s buffer = 15s
             await asyncio.get_event_loop().run_in_executor(
-                None, handler_thread.join, 15
+                None, handler_thread.join, 15  # 15s timeout (was 5s)
             )
+            print("✅ Handler thread join completed", flush=True)
         
         await run_all()
         
     except Exception as e:
-        twilio_log.exception(f"WebSocket error: {e}")
+        log.exception(f"WebSocket error: {e}")
     finally:
         ws_wrapper.stop()
         try:
             await websocket.close()
         except Exception:
             pass
-        twilio_log.info("WebSocket closed")
+        log.info("📞 WebSocket closed")
 
-# Lazy ASGI wrapper to defer Flask app creation
+# 🚀 CRITICAL: Lazy ASGI wrapper to defer Flask app creation
 class LazyASGIWrapper:
     """Wraps Flask app creation to defer until first request"""
     def __init__(self, app_getter):
@@ -249,8 +305,10 @@ class LazyASGIWrapper:
     
     async def __call__(self, scope, receive, send):
         if self._asgi_app is None:
+            print("🔧 LazyASGI: Creating Flask app on first request...", flush=True)
             flask_app = self.app_getter()
             self._asgi_app = WsgiToAsgi(flask_app)
+            print("✅ LazyASGI: Flask app wrapped in ASGI", flush=True)
         await self._asgi_app(scope, receive, send)
 
 # ASGI Application with Starlette

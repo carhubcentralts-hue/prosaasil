@@ -199,10 +199,12 @@ export function WhatsAppPage() {
     let interval: NodeJS.Timeout | null = null;
     
     if (showQR && qrCode && !whatsappStatus.connected) {
+      console.log('🔄 Starting QR auto-refresh interval');
       interval = setInterval(async () => {
         try {
           const statusResponse = await http.get<WhatsAppStatus>('/api/whatsapp/status');
           if (statusResponse.connected) {
+            console.log('✅ WhatsApp connected - stopping QR refresh');
             setShowQR(false);
             setQrCode('');
             setWhatsappStatus(statusResponse);
@@ -212,16 +214,20 @@ export function WhatsAppPage() {
           const qrResponse = await getQRCode();
           const qrData = qrResponse?.dataUrl || qrResponse?.qrText;
           if (qrData && qrData !== qrCode) {
+            console.log('🔄 QR code refreshed');
             setQrCode(qrData);
           }
         } catch (error) {
-          // QR refresh failed silently
+          console.warn('❌ QR auto-refresh failed:', error);
         }
-      }, 2500);
+      }, 2500); // Poll every 2.5s
     }
     
     return () => {
-      if (interval) clearInterval(interval);
+      if (interval) {
+        console.log('🛑 Stopping QR auto-refresh interval');
+        clearInterval(interval);
+      }
     };
   }, [showQR, qrCode, whatsappStatus.connected]);
 
@@ -241,10 +247,10 @@ export function WhatsAppPage() {
           }
         }
       } catch (providerError) {
-        // Provider info load failed
+        console.warn('Error loading provider info:', providerError);
       }
     } catch (error) {
-      // Status load failed
+      console.error('Error loading WhatsApp status:', error);
     }
   };
 
@@ -256,7 +262,7 @@ export function WhatsAppPage() {
         setActiveChatsCount(response.count);
       }
     } catch (error) {
-      // Active chats load failed
+      console.error('Error loading active chats:', error);
     }
   };
   
@@ -269,7 +275,7 @@ export function WhatsAppPage() {
         setSummaries(response.summaries);
       }
     } catch (error) {
-      // Summaries load failed
+      console.error('Error loading summaries:', error);
     } finally {
       setLoadingSummaries(false);
     }

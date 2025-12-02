@@ -317,14 +317,6 @@ def incoming_call_hyphen():
     """Route alias with hyphen for Twilio webhook"""
     return incoming_call()
 
-# ✅ BUILD 168.4: Add root-level route alias for Twilio (some configs use /incoming_call without /webhook/)
-@csrf.exempt
-@twilio_bp.route("/incoming_call", methods=["POST", "GET"])
-@require_twilio_signature
-def incoming_call_root():
-    """Route alias at root level for Twilio webhook compatibility"""
-    return incoming_call()
-
 @csrf.exempt
 @twilio_bp.route("/webhook/incoming_call", methods=["POST", "GET"])
 @require_twilio_signature
@@ -649,21 +641,14 @@ def stream_status():
         return make_response("", 200)
 
 @csrf.exempt
-@twilio_bp.route("/webhook/call_status", methods=["POST", "GET"])
+@twilio_bp.route("/webhook/call_status", methods=["POST"])
 @require_twilio_signature
 def call_status():
     """Handle call status updates - FAST אסינכרוני - BUILD 106"""
-    # BUILD 168.4: Support both POST (form) and GET (args)
-    if request.method == "GET":
-        call_sid = request.args.get("CallSid")
-        call_status_val = request.args.get("CallStatus")
-        call_duration = request.args.get("CallDuration", "0")
-        direction = request.args.get("Direction", "inbound")
-    else:
-        call_sid = request.form.get("CallSid")
-        call_status_val = request.form.get("CallStatus")
-        call_duration = request.form.get("CallDuration", "0")
-        direction = request.form.get("Direction", "inbound")
+    call_sid = request.form.get("CallSid")
+    call_status = request.form.get("CallStatus")
+    call_duration = request.form.get("CallDuration", "0")  # ✅ BUILD 106: Get duration
+    direction = request.form.get("Direction", "inbound")  # ✅ BUILD 106: Get direction
     
     # החזרה מיידית ללא עיכובים
     resp = make_response("", 204)
@@ -672,10 +657,10 @@ def call_status():
     
     # עיבוד ברקע אחרי שהחזרנו response
     try:
-        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status_val, "duration": call_duration})
-        if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled"]:
+        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status, "duration": call_duration})
+        if call_status in ["completed", "busy", "no-answer", "failed", "canceled"]:
             # ✅ BUILD 106: Save with duration and direction
-            save_call_status(call_sid, call_status_val, int(call_duration), direction)
+            save_call_status(call_sid, call_status, int(call_duration), direction)
     except Exception:
         current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
     
