@@ -9,6 +9,7 @@ from server.extensions import csrf
 from threading import Thread
 import time
 from server.services.n8n_integration import n8n_whatsapp_incoming, n8n_whatsapp_outgoing
+from server.services.whatsapp_session_service import update_session_activity
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,18 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                             incoming_msg.provider = 'baileys'
                             db.session.add(incoming_msg)
                             db.session.commit()
+                            
+                            # ✅ BUILD 162: Track session for summary even when AI is off
+                            try:
+                                update_session_activity(
+                                    business_id=business_id,
+                                    customer_wa_id=phone_number,
+                                    direction="in",
+                                    provider="baileys"
+                                )
+                            except Exception as e:
+                                logger.warning(f"⚠️ Session tracking failed: {e}")
+                            
                             continue  # Skip AI response generation, finally block will stop typing
                         
                         # ⚡ STEP 2: Quick customer/lead lookup (no heavy processing)
@@ -265,6 +278,17 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                         incoming_msg.provider = 'baileys'
                         db.session.add(incoming_msg)
                         
+                        # ✅ BUILD 162: Track session for incoming message
+                        try:
+                            update_session_activity(
+                                business_id=business_id,
+                                customer_wa_id=phone_number,
+                                direction="in",
+                                provider="baileys"
+                            )
+                        except Exception as e:
+                            logger.warning(f"⚠️ Session tracking (in) failed: {e}")
+                        
                         # 🔗 n8n: Send incoming message event (async, non-blocking)
                         n8n_whatsapp_incoming(
                             phone=phone_number,
@@ -286,6 +310,17 @@ def _process_whatsapp_fast(tenant_id: str, messages: list):
                             outgoing_msg.provider = send_result.get('provider', 'baileys')
                             outgoing_msg.provider_message_id = send_result.get('message_id')
                             db.session.add(outgoing_msg)
+                            
+                            # ✅ BUILD 162: Track session for outgoing message
+                            try:
+                                update_session_activity(
+                                    business_id=business_id,
+                                    customer_wa_id=phone_number,
+                                    direction="out",
+                                    provider="baileys"
+                                )
+                            except Exception as e:
+                                logger.warning(f"⚠️ Session tracking (out) failed: {e}")
                             
                             # 🔗 n8n: Send outgoing message event (async, non-blocking)
                             n8n_whatsapp_outgoing(

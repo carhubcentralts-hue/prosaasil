@@ -5,6 +5,7 @@ from server.extensions import csrf
 from server.auth_api import require_api_auth
 from server.db import db
 from server.models_sql import WhatsAppConversationState, LeadReminder, Business, User
+from server.services.whatsapp_session_service import update_session_activity
 
 whatsapp_bp = Blueprint('whatsapp', __name__, url_prefix='/api/whatsapp')
 internal_whatsapp_bp = Blueprint('internal_whatsapp', __name__, url_prefix='/api/internal/whatsapp')
@@ -578,6 +579,17 @@ def baileys_webhook():
                 db.session.add(wa_msg)
                 db.session.commit()
                 
+                # ✅ BUILD 162: Track session for auto-summary generation
+                try:
+                    update_session_activity(
+                        business_id=business_id,
+                        customer_wa_id=from_number,
+                        direction="in",
+                        provider="baileys"
+                    )
+                except Exception as e:
+                    log.warning(f"⚠️ Session tracking failed: {e}")
+                
                 # ✅ BUILD 93: Check for appointment request FIRST
                 appointment_created = False
                 try:
@@ -700,6 +712,18 @@ def baileys_webhook():
                     out_msg.status = 'sent'
                     db.session.add(out_msg)
                     db.session.commit()
+                    
+                    # ✅ BUILD 162: Track session for outgoing message
+                    try:
+                        update_session_activity(
+                            business_id=business_id,
+                            customer_wa_id=from_number,
+                            direction="out",
+                            provider="baileys"
+                        )
+                    except Exception as e:
+                        log.warning(f"⚠️ Session tracking (out) failed: {e}")
+                    
                     log.info(f"[WA-OUTGOING] Sent to {from_number} successfully")
                     processed_count += 1
                 
@@ -773,10 +797,11 @@ def send_manual_message():
         
         if send_result.get('status') == 'sent':
             # שמירת ההודעה בבסיס הנתונים
+            clean_number = to_number.replace('@s.whatsapp.net', '')
             try:
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
-                wa_msg.to_number = to_number.replace('@s.whatsapp.net', '')
+                wa_msg.to_number = clean_number
                 wa_msg.body = message
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'outbound'
@@ -786,6 +811,18 @@ def send_manual_message():
                 
                 db.session.add(wa_msg)
                 db.session.commit()
+                
+                # ✅ BUILD 162: Track session for manual message
+                try:
+                    update_session_activity(
+                        business_id=business_id,
+                        customer_wa_id=clean_number,
+                        direction="out",
+                        provider=send_result.get('provider', 'baileys')
+                    )
+                except Exception as e:
+                    log.warning(f"⚠️ Session tracking (manual) failed: {e}")
+                    
             except Exception as db_error:
                 log.error(f"[WA-SEND] DB save failed (message was sent): {db_error}")
                 db.session.rollback()
