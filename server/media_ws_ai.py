@@ -3026,30 +3026,10 @@ class MediaStreamHandler:
                             print(f"⏱️ [BUILD 166] Speech timeout after {elapsed:.1f}s - noise gate RE-ENABLED")
                     is_noise = rms < RMS_SILENCE_THRESHOLD and not speech_bypass_active  # 120 RMS = pure noise
                     
-                    # 🔥 BUILD 165: MUSIC DETECTION - Block music/songs that have high RMS but aren't speech
-                    # Music typically has: high RMS, high variance, but SUSTAINED energy (no speech-like pauses)
-                    is_music = False
-                    if not is_noise and rms > 200:
-                        # Track sustained high-energy frames (music signature)
-                        if not hasattr(self, '_sustained_energy_frames'):
-                            self._sustained_energy_frames = 0
-                            self._last_high_energy_rms = 0
-                        
-                        # If RMS is consistently high without speech-like pauses, likely music
-                        if rms > 300:  # Very high energy
-                            self._sustained_energy_frames += 1
-                            self._last_high_energy_rms = rms
-                            
-                            # 50 frames = 1 second of sustained high energy = likely music
-                            if self._sustained_energy_frames > 50:
-                                is_music = True
-                                # Log every 100 frames
-                                if self._sustained_energy_frames % 100 == 0:
-                                    print(f"🎵 [MUSIC GATE] Blocking sustained high-energy audio: {self._sustained_energy_frames} frames, rms={rms:.0f}")
-                        else:
-                            # Normal speech has pauses - reset counter
-                            if self._sustained_energy_frames > 0:
-                                self._sustained_energy_frames = max(0, self._sustained_energy_frames - 5)
+                    # 🔥 BUILD 167: MUSIC GATE DISABLED - Hebrew speech was being blocked!
+                    # Hebrew has sustained consonant clusters with RMS 200-350 which matched "music" pattern
+                    # The noise gate (RMS < 120) is sufficient to block background noise
+                    is_music = False  # ALWAYS FALSE - no music detection
                     
                     # 🔥 BUILD 165: CALIBRATION MUST RUN FOR ALL FRAMES (even noise!)
                     # This ensures VAD thresholds stay accurate
