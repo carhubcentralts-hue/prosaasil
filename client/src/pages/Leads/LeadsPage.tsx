@@ -399,12 +399,49 @@ export default function LeadsPage() {
         </Card>
       )}
 
-      {/* Loading State */}
+      {/* Loading State - Skeleton */}
       {loading && (
-        <Card className="p-12 text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <p className="text-gray-600 dark:text-gray-400 mt-4" data-testid="loading-leads">טוען לידים...</p>
+        <Card className="hidden md:block" data-testid="loading-leads">
+          <div className="divide-y divide-gray-100">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="p-4 flex items-center gap-4 animate-pulse">
+                <div className="w-5 h-5 bg-gray-200 rounded"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+                  <div className="h-3 bg-gray-100 rounded w-1/6"></div>
+                </div>
+                <div className="h-6 bg-gray-200 rounded-full w-16"></div>
+                <div className="h-4 bg-gray-100 rounded w-20"></div>
+                <div className="h-4 bg-gray-100 rounded w-24"></div>
+                <div className="flex gap-2">
+                  <div className="h-8 w-8 bg-gray-200 rounded"></div>
+                  <div className="h-8 w-8 bg-gray-200 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
         </Card>
+      )}
+      
+      {/* Mobile Loading Skeleton */}
+      {loading && (
+        <div className="md:hidden space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="p-4 animate-pulse">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-gray-200 rounded-full"></div>
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                  <div className="h-3 bg-gray-100 rounded w-1/3"></div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <div className="h-8 bg-gray-200 rounded flex-1"></div>
+                <div className="h-8 bg-gray-200 rounded flex-1"></div>
+              </div>
+            </Card>
+          ))}
+        </div>
       )}
 
       {/* Desktop Table - Hidden on Mobile */}
