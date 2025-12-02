@@ -1482,10 +1482,17 @@ class MediaStreamHandler:
                             self._ai_speech_start = now
                         self.realtime_audio_out_chunks += 1
                         
-                        # 🔍 DEBUG: Verify μ-law format from OpenAI
+                        # 🔍 DEBUG: Verify μ-law format from OpenAI + GAP DETECTION
                         if not hasattr(self, '_openai_audio_chunks_received'):
                             self._openai_audio_chunks_received = 0
+                            self._last_audio_chunk_ts = now
                         self._openai_audio_chunks_received += 1
+                        
+                        # 🔍 GAP DETECTION: Log if >500ms between chunks (potential pause source)
+                        gap_ms = (now - getattr(self, '_last_audio_chunk_ts', now)) * 1000
+                        if gap_ms > 500 and self._openai_audio_chunks_received > 3:
+                            print(f"⚠️ [AUDIO GAP] {gap_ms:.0f}ms gap between chunks #{self._openai_audio_chunks_received-1} and #{self._openai_audio_chunks_received} - OpenAI delay!")
+                        self._last_audio_chunk_ts = now
                         
                         if self._openai_audio_chunks_received <= 3:
                             import base64
@@ -2432,6 +2439,7 @@ class MediaStreamHandler:
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law = 160 bytes
         FRAME_DURATION_MS = 20  # Each frame is 20ms of audio
         chunk_count = 0
+        last_chunk_ts = time.time()  # 🔍 GAP DETECTION
         
         # 🔥 FIX: Rolling buffer for incomplete frames (prevents audio doubling!)
         audio_buffer = b''  # Buffer to accumulate sub-160-byte frames
@@ -2439,6 +2447,13 @@ class MediaStreamHandler:
         while not self.realtime_stop_flag:
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
+                
+                # 🔍 BRIDGE GAP DETECTION: Log if >500ms between queue reads
+                now = time.time()
+                gap_ms = (now - last_chunk_ts) * 1000
+                if gap_ms > 500 and chunk_count > 3:
+                    print(f"⚠️ [BRIDGE GAP] {gap_ms:.0f}ms wait for queue - chunk #{chunk_count}")
+                last_chunk_ts = now
                 
                 if audio_b64 is None:
                     print(f"📤 [REALTIME] Stop signal received")
