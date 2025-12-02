@@ -1685,7 +1685,10 @@ class MediaStreamHandler:
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
-                        # 🔥 BUILD 169: SEMANTIC LOOP DETECTION - Check if AI is repeating itself
+                        # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
+                        # Added: length floor to avoid false positives on short confirmations
+                        MIN_LENGTH_FOR_SIMILARITY = 15  # Don't compare short confirmations
+                        
                         def _text_similarity(a, b):
                             """Simple word overlap similarity (0-1)"""
                             words_a = set(a.split())
@@ -1702,16 +1705,19 @@ class MediaStreamHandler:
                             self._last_ai_responses.pop(0)  # Keep only last 5
                         
                         # Check for semantic repetition (similarity > 70% with any of last 3 responses)
+                        # 🔥 ARCHITECT FIX: Only check if responses are long enough (avoid short template FP)
                         is_repeating = False
-                        if len(self._last_ai_responses) >= 2:
+                        if len(self._last_ai_responses) >= 2 and len(transcript) >= MIN_LENGTH_FOR_SIMILARITY:
                             for prev_response in self._last_ai_responses[:-1]:
+                                if len(prev_response) < MIN_LENGTH_FOR_SIMILARITY:
+                                    continue  # Skip short responses
                                 similarity = _text_similarity(transcript, prev_response)
                                 if similarity > 0.70:
                                     is_repeating = True
                                     print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
                                     break
                         
-                        # 🔥 BUILD 169: MISHEARING DETECTION - Check for "I don't understand" patterns
+                        # 🔥 BUILD 169.1: MISHEARING DETECTION (Architect: reduced to 2 for better UX)
                         confusion_phrases = ["לא הבנתי", "לא שמעתי", "אפשר לחזור", "מה אמרת", "לא הצלחתי", "בבקשה חזור"]
                         is_confused = any(phrase in transcript for phrase in confusion_phrases)
                         if is_confused:
@@ -1720,17 +1726,17 @@ class MediaStreamHandler:
                         else:
                             self._mishearing_count = 0  # Reset on clear response
                         
-                        # 🔥 BUILD 165 + 169: ENHANCED LOOP PREVENTION
+                        # 🔥 BUILD 165 + 169.1: ENHANCED LOOP PREVENTION
                         self._consecutive_ai_responses += 1
                         
                         # Trigger loop guard if:
                         # 1. Too many consecutive AI responses without user input, OR
-                        # 2. AI is semantically repeating itself, OR
-                        # 3. AI has been confused 3+ times in a row
+                        # 2. AI is semantically repeating itself (long responses only), OR
+                        # 3. AI has been confused 2+ times in a row (architect: reduced from 3)
                         should_engage_guard = (
                             self._consecutive_ai_responses >= self._max_consecutive_ai_responses or
                             (is_repeating and self._consecutive_ai_responses >= 2) or
-                            self._mishearing_count >= 3
+                            self._mishearing_count >= 2  # 🔥 ARCHITECT: Reduced from 3 to 2 for faster UX
                         )
                         
                         if should_engage_guard:
@@ -1857,16 +1863,29 @@ class MediaStreamHandler:
                     text = raw_text.strip()
                     now_ms = time.time() * 1000
                     
-                    # 🔥 BUILD 169: ENHANCED NOISE/HALLUCINATION FILTER
-                    # 1. Allow short Hebrew words (כן, לא, רגע, שניה, etc.)
+                    # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
+                    # 1. Allow short Hebrew words (expanded list per architect feedback)
                     # 2. Block English hallucinations
-                    # 3. Block gibberish (random consonants, repeated letters)
+                    # 3. Block gibberish (but allow natural elongations like "אמממ")
                     
-                    # ✅ WHITELIST: Short Hebrew words that are VALID responses
+                    # ✅ WHITELIST: Expanded Hebrew words that are VALID responses
+                    # Per architect: Added יאללה, סבבה, דקה, numbers, and other common fillers
                     valid_short_hebrew = [
-                        "כן", "לא", "רגע", "שניה", "טוב", "מה", "איפה", "מתי", "למה", "איך",
-                        "כמה", "זה", "אני", "אתה", "את", "הוא", "היא", "בסדר", "תודה", "סליחה",
-                        "יופי", "נכון", "אוקיי", "שלום", "ביי", "להתראות", "מי", "בבקשה"
+                        # Basic confirmations
+                        "כן", "לא", "רגע", "שניה", "טוב", "בסדר", "תודה", "סליחה", "יופי", "נכון",
+                        # Common fillers (architect feedback)
+                        "יאללה", "סבבה", "דקה", "אוקיי", "או קיי", "אוקי", "סבבה",
+                        # Questions
+                        "מה", "איפה", "מתי", "למה", "איך", "כמה", "מי", "איזה", "איזו",
+                        # Pronouns
+                        "זה", "אני", "אתה", "את", "הוא", "היא", "אנחנו", "הם", "הן",
+                        # Greetings
+                        "שלום", "ביי", "להתראות", "בבקשה", "היי", "הלו",
+                        # Numbers (Hebrew)
+                        "אחד", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע", "עשר",
+                        "אפס", "מאה", "אלף",
+                        # Natural elongations (NOT gibberish - per architect)
+                        "אמממ", "אההה", "אממ", "אהה"
                     ]
                     
                     text_stripped = text.strip()
@@ -1886,16 +1905,16 @@ class MediaStreamHandler:
                     text_lower = text.lower().strip('.!?')
                     is_hallucination = text_lower in hallucination_phrases
                     
-                    # 🔥 BUILD 169: Detect gibberish (random consonants, repeated letters)
-                    # E.g., "אאא", "ממממ", "שששש" = likely noise
+                    # 🔥 BUILD 169.1: Improved gibberish detection (architect feedback)
+                    # Only flag as gibberish if: 4+ chars of SAME letter AND not a natural elongation
+                    # E.g., "אאאא" = gibberish, but "אמממ" = natural filler (allowed)
                     is_gibberish = False
-                    if hebrew_chars > 0:
-                        # Check for repeated letter patterns
-                        if len(set(text_stripped)) <= 2 and len(text_stripped) > 2:
+                    natural_elongations = ["אמממ", "אההה", "אממ", "אהה", "מממ", "ווו"]
+                    if hebrew_chars > 0 and text_stripped not in natural_elongations:
+                        # Only pure repetition of SAME letter (4+ chars)
+                        if len(text_stripped) >= 4 and len(set(text_stripped)) == 1:
                             is_gibberish = True
-                        # Check for pure consonant clusters (no vowels in transliteration)
-                        elif len(text_stripped) > 3 and text_stripped == text_stripped[0] * len(text_stripped):
-                            is_gibberish = True
+                            print(f"[GIBBERISH] Detected: '{text_stripped}' (single char x{len(text_stripped)})")
                     
                     # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
                     is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
@@ -1930,15 +1949,45 @@ class MediaStreamHandler:
                     # ✅ PASSED FILTER
                     print(f"[NOISE FILTER] ✅ ACCEPTED: '{text}' (hebrew={hebrew_chars}, english={english_chars})")
                     
-                    # 🔥 BUILD 169: SEGMENT MERGING - Merge segments within 800ms window
+                    # 🔥 BUILD 169.1: IMPROVED SEGMENT MERGING (Architect-reviewed)
+                    # Added: max length limit, flush on long pause, proper reset
+                    MAX_MERGE_LENGTH = 100  # Max characters before forced flush
+                    LONG_PAUSE_MS = 1500  # Flush if pause > 1.5 seconds (distinct intents)
+                    
+                    should_merge = False
+                    should_flush = False
+                    
                     if self._stt_last_segment_ts > 0:
                         time_since_last = now_ms - self._stt_last_segment_ts
-                        if time_since_last < STT_MERGE_WINDOW_MS:
-                            # Merge with previous segment
-                            self._stt_merge_buffer.append(text)
-                            self._stt_last_segment_ts = now_ms
-                            print(f"📝 [SEGMENT MERGE] Buffering: '{text}' (wait {STT_MERGE_WINDOW_MS - time_since_last:.0f}ms for more)")
-                            continue  # Wait for more segments
+                        buffer_len = sum(len(s) for s in self._stt_merge_buffer) if self._stt_merge_buffer else 0
+                        
+                        # Check flush conditions (architect feedback)
+                        if time_since_last >= LONG_PAUSE_MS:
+                            # Long pause = distinct intent, flush buffer first
+                            should_flush = True
+                            print(f"📝 [SEGMENT MERGE] FLUSH - long pause ({time_since_last:.0f}ms)")
+                        elif buffer_len >= MAX_MERGE_LENGTH:
+                            # Buffer too long, flush to avoid over-merging
+                            should_flush = True
+                            print(f"📝 [SEGMENT MERGE] FLUSH - max length ({buffer_len} chars)")
+                        elif time_since_last < STT_MERGE_WINDOW_MS:
+                            # Within merge window, continue buffering
+                            should_merge = True
+                    
+                    # Process any pending buffer if flush needed
+                    if should_flush and self._stt_merge_buffer:
+                        flushed_text = " ".join(self._stt_merge_buffer)
+                        print(f"📝 [SEGMENT MERGE] Flushed buffer: '{flushed_text}'")
+                        self._stt_merge_buffer = []
+                        # Process flushed text separately - let it flow through
+                        # Current text will be processed as new segment
+                    
+                    if should_merge:
+                        # Merge with previous segment
+                        self._stt_merge_buffer.append(text)
+                        self._stt_last_segment_ts = now_ms
+                        print(f"📝 [SEGMENT MERGE] Buffering: '{text}' (wait for more)")
+                        continue  # Wait for more segments
                     
                     # Either first segment or timeout - process now
                     if self._stt_merge_buffer:
@@ -3269,14 +3318,14 @@ class MediaStreamHandler:
                             # 🔥 BUILD 164B: RMS > 200 for speech detection (typical speech is 180-500)
                             speech_threshold = MIN_SPEECH_RMS  # 200
                             
-                            # 🔥 BUILD 164B: Require 220ms continuous speech (~11 frames @ 20ms)
+                            # 🔥 BUILD 169: Require 700ms continuous speech (35 frames @ 20ms)
+                            # Per architect: Increased from 220ms to prevent AI cutoff on background noise
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
-                                # 220ms continuous = ~11 frames @ 20ms/frame
-                                frames_for_220ms = 11
-                                if self.barge_in_voice_frames >= frames_for_220ms:
+                                # 🔥 ARCHITECT FIX: Use BARGE_IN_VOICE_FRAMES constant, not hardcoded 11
+                                if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
                                     print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= {speech_threshold:.0f}, "
-                                          f"continuous={self.barge_in_voice_frames} frames (220ms+)")
+                                          f"continuous={self.barge_in_voice_frames} frames ({BARGE_IN_VOICE_FRAMES*20}ms)")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
                                               f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
                                     self._handle_realtime_barge_in()

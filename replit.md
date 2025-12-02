@@ -32,13 +32,13 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Dynamic Lead Field Prompts**: Verification prompts reference business-specific `required_lead_fields` from database.
 - **Whisper Hallucination Filter**: Blocks pure English words fabricated from Hebrew audio (e.g., "Bye", "Thank you").
 - **Multi-Language Support**: AI responds in Hebrew by default but switches to caller's language when requested.
-- **BUILD 169 - Voice Call Quality Improvements**:
-  - **Barge-in Protection**: Increased from 220ms to 700ms (35 frames) to prevent AI cutoff on background noise.
-  - **STT Segment Merging**: 800ms debounce window combines rapid utterances into single messages.
-  - **Enhanced Noise Filter**: Hebrew whitelist allows short words ("כן", "לא", "רגע") while blocking English hallucinations.
-  - **Gibberish Detection**: Filters repeated letters (e.g., "אאא") and pure consonant patterns.
-  - **Semantic Loop Detection**: Tracks AI response similarity (>70%) to detect repetition loops.
-  - **Mishearing Protection**: Counts consecutive "לא הבנתי" responses and triggers clarification.
+- **BUILD 169 - Voice Call Quality Improvements** (Architect-Reviewed):
+  - **Barge-in Protection**: Increased from 220ms to 700ms (35 frames) to prevent AI cutoff on background noise. Fixed hardcoded value to use configurable constant.
+  - **STT Segment Merging**: 800ms debounce window with max length (100 chars) and long pause flush (1.5s) to prevent over-merging distinct intents.
+  - **Enhanced Noise Filter**: Expanded Hebrew whitelist includes fillers (יאללה, סבבה, דקה), numbers (אחד-עשר), and natural elongations (אמממ, אההה). Blocks English hallucinations.
+  - **Gibberish Detection**: Only filters 4+ repeated identical letters, allows natural elongations.
+  - **Semantic Loop Detection**: Tracks AI response similarity (>70%) with 15-char minimum length floor to avoid false positives on short confirmations.
+  - **Mishearing Protection**: Triggers clarification after 2 consecutive "לא הבנתי" responses (reduced from 3 for better UX).
   - **Call Session Logging**: Unique session IDs (SES-XXXXXXXX) for connect/disconnect tracking.
 
 ### Frontend
