@@ -1399,16 +1399,26 @@ class MediaStreamHandler:
                         response = event.get("response", {})
                         status = response.get("status", "?")
                         output = response.get("output", [])
-                        _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}", flush=True)
+                        status_details = response.get("status_details", {})
+                        _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}", flush=True)
                         # Log output items to see if audio was included
                         for i, item in enumerate(output[:3]):  # First 3 items
                             item_type = item.get("type", "?")
-                            _orig_print(f"   output[{i}]: type={item_type}", flush=True)
+                            content = item.get("content", [])
+                            content_types = [c.get("type", "?") for c in content] if content else []
+                            _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
                     else:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
+                
+                # 🔥 DEBUG: Log errors and cancellations
+                if event_type == "error":
+                    error = event.get("error", {})
+                    _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
+                if event_type == "response.cancelled":
+                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
@@ -1444,11 +1454,16 @@ class MediaStreamHandler:
                 
                 # 🔥 Track response ID for barge-in cancellation
                 if event_type == "response.created":
-                    response_id = event.get("response", {}).get("id")
+                    response = event.get("response", {})
+                    response_id = response.get("id")
+                    # 🔍 DEBUG: Log full response configuration to diagnose missing audio
+                    output_audio_format = response.get("output_audio_format", "NONE")
+                    modalities = response.get("modalities", [])
+                    status = response.get("status", "?")
+                    _orig_print(f"🎯 [RESPONSE.CREATED] id={response_id[:20] if response_id else '?'}... status={status} modalities={modalities} output_format={output_audio_format}", flush=True)
                     if response_id:
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
-                        pass  # Response started logging removed
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)

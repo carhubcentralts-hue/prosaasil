@@ -1,0 +1,100 @@
+
+User
+🎤 [VOICE] Using voice=shimmer for entire call (business=1)
+2025-12-02 22:31:07.10
+6b330643
+User
+📥 [REALTIME] Audio receiver started
+2025-12-02 22:31:07.10
+6b330643
+User
+📝 [REALTIME] Text sender started
+2025-12-02 22:31:07.30
+6b330643
+User
+📏 [PROMPT] Final length: 5055 chars
+2025-12-02 22:31:07.32
+6b330643
+User
+⏳ [PHASE 2] Waiting for greeting to finish before session.update...
+2025-12-02 22:31:07.44
+6b330643
+User
+🎙️ REAL_VOICE: rms=246.0 > threshold=200.0
+2025-12-02 22:31:07.45
+6b330643
+User
+[REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=d3 d5 d5 d8 d9, rms=1075
+2025-12-02 22:31:07.47
+6b330643
+User
+[REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=4a 4e 54 5f 74, rms=1248
+2025-12-02 22:31:07.57
+6b330643
+User
+🔊 [REALTIME] response.output_item.added
+2025-12-02 22:31:07.57
+6b330643
+User
+[REALTIME] event: conversation.item.created
+
+2025-12-02 22:31:07.59
+6b330643
+User
+🔊 [REALTIME] response.content_part.added
+2025-12-02 22:31:07.60
+6b330643
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-02 22:31:07.85
+6b330643
+User
+✅ Recording started for CA965399193b9d6bb89b2ed21ea13375f0: REddb1cba97edc94039a12c41d6f2cb332
+2025-12-02 22:31:11.80
+6b330643
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=465, voice_frames=0
+2025-12-02 22:31:12.80
+6b330643
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=532, voice_frames=0
+2025-12-02 22:31:13.79
+6b330643
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=427, voice_frames=0
+2025-12-02 22:31:14.55
+6b330643
+User
+🎙️ REAL_VOICE: rms=264.0 > threshold=117.5
+2025-12-02 22:31:14.80
+6b330643
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=362, voice_frames=0
+2025-12-02 22:31:14.89
+6b330643
+User
+🧠 STATE -> PROCESSING | len=72000 | silence_ms=0
+2025-12-02 22:31:14.89
+6b330643
+User
+✅ Processing complete for conversation #0
+2025-12-02 22:31:14.89
+6b330643
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-12-02 22:31:14.89
+6b330643
+User
+🎤 END OF UTTERANCE: 4.5s audio, conversation #0
+2025-12-02 22:31:15.79
+6b330643
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=13, voice_frames=0
+2025-12-02 22:31:15.85
+6b330643
+User
+🔇 [AUDIO GATE] Blocked 200 noise frames (rms=12)
+2025-12-02 22:31:16.79
+6b330643
+User
+🔍 [BARGE-IN 
