@@ -124,9 +124,7 @@ export function AppRoutes() {
           path="admin/support"
           element={
             <RoleGuard roles={['system_admin']}>
-              <Suspense fallback={<div className="flex items-center justify-center py-12"><div>טוען דף תמיכה...</div></div>}>
-                <AdminSupportPage />
-              </Suspense>
+              <AdminSupportPage />
             </RoleGuard>
           }
         />
