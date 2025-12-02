@@ -1426,6 +1426,13 @@ class MediaStreamHandler:
                             content = item.get("content", [])
                             content_types = [c.get("type", "?") for c in content] if content else []
                             _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        
+                        # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
+                        # Otherwise is_playing_greeting stays True forever and blocks all audio
+                        if status == "cancelled" and self.is_playing_greeting:
+                            _orig_print(f"⚠️ [GREETING CANCELLED] Unblocking audio input (was greeting)", flush=True)
+                            self.is_playing_greeting = False
+                            self.greeting_sent = False  # Allow retry or normal flow
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
