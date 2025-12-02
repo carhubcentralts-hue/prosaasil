@@ -1,0 +1,76 @@
+9b0222fcebc3e3a67797b
+19:40:55 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:40:55 web.1     | 🟢 INCOMING_CALL - Thread started successfully
+19:40:55 web.1     | ✅ incoming_call: 386ms - CAbc1b35959f29b0
+19:40:55 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:40:55 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:40:55 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CAbc1b35959f29b0222fcebc3e3a67797b" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:40:55 web.1     | INFO:     172.31.68.162:43154 - "POST /incoming_call HTTP/1.1" 200 OK
+19:40:55 web.1     | INFO:     172.31.68.162:43168 - "WebSocket /ws/twilio-media" [accepted]
+19:40:55 web.1     | 🧹 [REAPER] Session cleanup thread started
+19:40:55 web.1     | INFO:     connection open
+19:40:56 web.1     | 🎯 AI CONVERSATION STARTED
+19:40:56 web.1     | 👤 Admin exists (ID=8), resetting password to 'admin123'
+19:40:56 web.1     | ✅ Admin password reset: admin@admin.com / admin123
+19:40:56 web.1     | 🔧 Starting database initialization...
+19:40:56 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=4, lead_id=85, was_created=False
+19:40:56 web.1     | ✅ Updated call_log with customer_id=4
+19:40:56 web.1     | ✅ Business exists: שישישי (ID: 10)
+19:40:56 web.1     | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+19:40:56 web.1     | 
+19:40:56 web.1     | 📊 Total users in database: 5
+19:40:56 web.1     |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+19:40:56 web.1     |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+19:40:56 web.1     |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+19:40:56 web.1     |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+19:40:56 web.1     |   - User 8: admin@admin.com | role=system_admin | business_id=None
+19:40:56 web.1     | ✅ Lead statuses exist: 7 statuses found
+19:40:56 web.1     | ✅ FAQs table exists: 0 FAQs found across all businesses
+19:40:56 web.1     | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+19:40:56 web.1     | 👥 Checking user ownership...
+19:40:56 web.1     | 🔄 Starting User-to-Owner migration...
+19:40:56 web.1     | 📊 Found 2 businesses
+19:40:56 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:40:56 web.1     | STREAM_ENDED call=CAbc1b35959f29b0222fcebc3e3a67797b stream=N/A status=N/A
+19:40:56 web.1     | INFO:     172.31.68.162:43154 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+19:40:56 web.1     | ⚠️  Business 'שישישי' (ID=10) has NO users
+19:40:56 web.1     |    → Admin must create owner via UI: /app/admin/businesses
+19:40:56 web.1     | ✅ Business 'פרו סאס' (ID=1) already has owner: business@shai-offices.co.il
+19:40:56 web.1     | 
+19:40:56 web.1     | ✅ User-to-Owner migration completed!
+19:40:56 web.1     | 
+19:40:56 web.1     | ⚠️  1 businesses need manual owner creation:
+19:40:56 web.1     |    - שישישי (ID=10)
+19:40:56 web.1     | 
+19:40:56 web.1     |    → Login as system_admin and use BusinessUsersModal to create owners
+19:40:56 web.1     | ✅ User ownership check completed
+19:40:56 web.1     | ✅ Database initialization completed successfully!
+19:40:56 web.1     | 📧 Admin login: admin@admin.com / admin123
+19:40:56 web.1     | 🏢 Business ID: 10
+19:40:56 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:40:56 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:40:57 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+19:40:57 web.1     | ✅ call_log already exists for CAbc1b35959f29b0222fcebc3e3a67797b
+19:40:57 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972549750505, call_sid=CAbc1b35959f29b0222fcebc3e3a67797b
+19:40:57 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972549750505, call_sid=CAbc1b35959f29b0222fcebc3e3a67797b🟢 INCOMING_CALL - Thread started successfully
+19:40:57 web.1     | ✅ incoming_call: 187ms - CAbc1b35959f29b0
+19:40:57 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+19:40:57 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+19:40:57 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CAbc1b35959f29b0222fcebc3e3a67797b" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+19:40:57 web.1     | 
+19:40:57 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+19:40:57 web.1     | INFO:     172.31.68.162:43154 - "POST /incoming_call HTTP/1.1" 200 OK
+19:40:57 web.1     | INFO:     172.31.68.162:43176 - "WebSocket /ws/twilio-media" [accepted]
+19:40:57 web.1     | INFO:     connection open
+19:40:57 web.1     | 🎯 AI CONVERSATION STARTED
+19:40:57 web.1     | ✅ Updated call CAbc1b35959f29b0222fcebc3e3a67797b to Record TwiML
+19:40:57 web.1     | INFO:     connection closed
+19:40:57 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=4, lead_id=85, was_created=False
+19:40:57 web.1     | ✅ Updated call_log with customer_id=4
+19:40:58 web.1     | INFO:     connection closed
+^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B^[[B19:41:16 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:41:16 web.1     | ✅ handle_recording: Updated call_log for CAbc1b35959f29b0222fcebc3e3a67797b
+19:41:16 web.1     | ✅ REC_QUEUED_ASYNC: CAbc1b35959f29b0 duration=19
+19:41:16 web.1     | INFO:     172.31.68.162:43154 - "POST /webhook/handle_recording HTTP/1.1" 200 OK
+19:41:17 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+19:41:17 web.1     | INFO:     172.31.68.162:46628 - "POST /webhook/call_status HTTP/1.1" 204 No Content

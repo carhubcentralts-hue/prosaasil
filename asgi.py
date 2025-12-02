@@ -124,10 +124,16 @@ async def ws_twilio_media(websocket: WebSocket):
         
         # Task 1: Receive from Starlette WS → put in queue for sync handler
         async def receive_loop():
+            msg_count = 0
             try:
+                twilio_log.info("[WS] receive_loop started")
                 while ws_wrapper.running:
                     try:
                         msg = await websocket.receive_json()
+                        msg_count += 1
+                        event_type = msg.get("event", "unknown")
+                        if event_type == "start":
+                            twilio_log.info(f"[WS] START event received! Forwarding to handler")
                         ws_wrapper.recv_queue.put(json.dumps(msg))
                     except json.JSONDecodeError:
                         try:
@@ -136,9 +142,10 @@ async def ws_twilio_media(websocket: WebSocket):
                             pass
                         continue
                     except Exception as e:
-                        twilio_log.error(f"Receive error: {e}")
+                        twilio_log.error(f"[WS] Receive error after {msg_count} msgs: {e}")
                         break
             finally:
+                twilio_log.info(f"[WS] receive_loop ended after {msg_count} messages")
                 ws_wrapper.stop()
         
         # Task 2: Get from queue → send to Starlette WS
@@ -183,11 +190,17 @@ async def ws_twilio_media(websocket: WebSocket):
         # Task 3: MediaStreamHandler in background thread
         def run_handler():
             try:
+                twilio_log.info("[WS] run_handler: Getting Flask app...")
                 _ = get_flask_app()
+                twilio_log.info("[WS] run_handler: Creating MediaStreamHandler...")
                 handler = MediaStreamHandler(ws_wrapper)
+                twilio_log.info("[WS] run_handler: Starting handler.run()...")
                 handler.run()
+                twilio_log.info("[WS] run_handler: handler.run() completed normally")
             except Exception as e:
-                twilio_log.error(f"MediaStreamHandler error: {e}")
+                twilio_log.error(f"[WS] MediaStreamHandler error: {e}")
+                import traceback
+                twilio_log.error(traceback.format_exc())
             finally:
                 ws_wrapper.stop()
         
