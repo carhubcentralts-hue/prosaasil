@@ -118,8 +118,14 @@ def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
         if not greeting_text:
             greeting_text = ""
         
-        # 🎯 Build COMPACT system prompt
-        critical_rules = _build_critical_rules_compact(business_name, today_hebrew, weekday_hebrew, greeting_text)
+        # 🔥 BUILD 168: Load required_lead_fields for dynamic verification prompt
+        required_lead_fields = ['name', 'phone']  # Default
+        if settings and hasattr(settings, 'required_lead_fields') and settings.required_lead_fields:
+            required_lead_fields = settings.required_lead_fields
+            logger.info(f"✅ Using custom required_lead_fields: {required_lead_fields}")
+        
+        # 🎯 Build COMPACT system prompt with dynamic verification
+        critical_rules = _build_critical_rules_compact(business_name, today_hebrew, weekday_hebrew, greeting_text, required_lead_fields)
         
         # Combine: Rules + Custom prompt + Policy
         full_prompt = critical_rules + "\n\n📝 הוראות העסק:\n" + core_instructions
@@ -197,12 +203,15 @@ def _build_slot_description(slot_size_min: int) -> str:
         return f"כל {slot_size_min} דק'"
 
 
-def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "") -> str:
+def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: list = None) -> str:
     """
     COMPACT critical rules - trimmed from 84 lines to ~25 lines
     Keeps only essential rules, removes duplicates
     🔥 Enhanced with polite/human personality traits
+    🔥 BUILD 168: Dynamic verification based on required_lead_fields
     """
+    if required_fields is None:
+        required_fields = ['name', 'phone']
     
     # Default greeting if not provided
     greeting_instruction = ""
@@ -212,6 +221,27 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 אחר כך ענה על מה שהלקוח אמר."""
     else:
         greeting_instruction = f"""🎤 ברכה: בתגובה הראשונה שלך הזדהה כנציג של {business_name} ושאל במה לעזור."""
+    
+    # 🔥 BUILD 168: Dynamic field names for verification
+    field_names_hebrew = {
+        'name': 'שם',
+        'phone': 'טלפון',
+        'city': 'עיר',
+        'service_type': 'סוג שירות',
+        'email': 'אימייל',
+        'address': 'כתובת',
+        'date': 'תאריך',
+        'time': 'שעה'
+    }
+    
+    # Build dynamic verification example based on actual required fields
+    required_hebrew = [field_names_hebrew.get(f, f) for f in required_fields[:3]]  # Max 3 for brevity
+    if len(required_hebrew) >= 2:
+        verification_example = ", ".join(required_hebrew[:-1]) + " ו" + required_hebrew[-1]
+    elif required_hebrew:
+        verification_example = required_hebrew[0]
+    else:
+        verification_example = "הפרטים"
     
     return f"""🌍 שפות: היום: {today_hebrew} ({weekday_hebrew})
 • אתה מבין את כל השפות!
@@ -239,11 +269,11 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 5. 🔄 barge-in: אם הלקוח מתחיל לדבר - הפסק מיד!
 
 🛡️ ⚠️ ווידוא חובה לפני סיום שיחה (קריטי!):
-• לפני שאתה אומר "להתראות" - תמיד חזור על הפרטים שאספת!
-• למשל: "רק לוודא - שמך הוא יוסי ואתה מרמלה, נכון?"
-• אם הלקוח מאשר ("כן", "נכון") - רק אז סיים: "תודה שהתקשרת!"
-• אם הלקוח מתקן ("לא, זה יוסף") - קבל את התיקון ושאל שוב לווידוא
-• אם לא הבנת משהו - תמיד שאל שוב! "סליחה, לא שמעתי טוב, מה השם?"
+• לפני שאתה אומר "להתראות" - תמיד חזור על {verification_example} שאספת!
+• למשל: "רק לוודא - [חזור על הפרטים], נכון?"
+• אם הלקוח מאשר ("כן", "נכון", "yes") - רק אז סיים: "תודה שהתקשרת!"
+• אם הלקוח מתקן - קבל את התיקון ושאל שוב לווידוא
+• אם לא הבנת משהו - תמיד שאל שוב! "סליחה, לא שמעתי טוב"
 • ⛔ אסור לנתק בלי ווידוא! אסור להניח שהבנת נכון!
 
 📨 הודעות [SERVER]:
