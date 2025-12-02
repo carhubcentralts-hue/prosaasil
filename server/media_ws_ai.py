@@ -829,7 +829,7 @@ class MediaStreamHandler:
         # 🔒 Response collision prevention - thread-safe optimistic lock
         self.response_pending_event = threading.Event()  # Thread-safe flag
         
-        # 🎯 BUILD 163: Call behavior settings (loaded from BusinessSettings)
+        # 🎯 SMART CALL CONTROL: Call behavior settings (loaded from BusinessSettings)
         self.bot_speaks_first = False  # If True, bot plays greeting before listening
         self.auto_end_after_lead_capture = False  # If True, hang up after lead details collected
         self.auto_end_on_goodbye = False  # If True, hang up when customer says goodbye
@@ -839,6 +839,11 @@ class MediaStreamHandler:
         self.hangup_triggered = False  # Prevents multiple hangup attempts
         self.greeting_completed_at = None  # 🔥 PROTECTION: Timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # 🔥 PROTECTION: Don't hangup for 3s after greeting
+        # 🎯 SMART HANGUP: Configurable call control (loaded from BusinessSettings)
+        self.silence_timeout_sec = 15  # Seconds of silence before "are you there?"
+        self.silence_max_warnings = 2  # How many warnings before polite hangup
+        self.smart_hangup_enabled = True  # AI-driven hangup based on context, not keywords
+        self.required_lead_fields = ['name', 'phone']  # Fields that must be collected
 
     def _init_streaming_stt(self):
         """
@@ -1171,7 +1176,8 @@ class MediaStreamHandler:
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
             
             # 🚀 PHASE 2: Build full prompt in background and update session
-            # This runs while greeting is already playing - no blocking!
+            # 🔥 CRITICAL FIX: Wait for greeting to FINISH before sending session.update!
+            # Sending session.update during greeting causes OpenAI to abort the greeting mid-sentence.
             async def _update_session_with_full_prompt():
                 try:
                     loop = asyncio.get_event_loop()
@@ -1192,8 +1198,25 @@ class MediaStreamHandler:
                     full_prompt = await loop.run_in_executor(None, _build_in_thread)
                     
                     if full_prompt:
-                        # Wait a moment for greeting to start playing
-                        await asyncio.sleep(0.5)
+                        # 🔥 CRITICAL: Wait for greeting to FINISH before session.update
+                        # The previous 0.5s wait was causing greeting truncation!
+                        wait_start = time.time()
+                        max_wait_seconds = 15  # Max 15 seconds for greeting
+                        check_interval = 0.2  # Check every 200ms
+                        
+                        print(f"⏳ [PHASE 2] Waiting for greeting to finish before session.update...")
+                        
+                        while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
+                            await asyncio.sleep(check_interval)
+                        
+                        wait_duration = time.time() - wait_start
+                        if self.is_playing_greeting:
+                            print(f"⚠️ [PHASE 2] Greeting still playing after {wait_duration:.1f}s - proceeding anyway")
+                        else:
+                            print(f"✅ [PHASE 2] Greeting finished after {wait_duration:.1f}s - now updating session")
+                        
+                        # Add small buffer after greeting ends to ensure clean transition
+                        await asyncio.sleep(0.3)
                         
                         # Update session with full prompt (session.update event)
                         await client.send_event({
@@ -4514,10 +4537,30 @@ class MediaStreamHandler:
                         self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
                         self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
                         self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
+                        # 🎯 SMART HANGUP: Load configurable call control settings
+                        self.silence_timeout_sec = getattr(settings, 'silence_timeout_sec', 15) or 15
+                        self.silence_max_warnings = getattr(settings, 'silence_max_warnings', 2) or 2
+                        self.smart_hangup_enabled = getattr(settings, 'smart_hangup_enabled', True)
+                        if self.smart_hangup_enabled is None:
+                            self.smart_hangup_enabled = True
+                        # Load required lead fields from JSON or default to ['name', 'phone']
+                        required_fields_json = getattr(settings, 'required_lead_fields_json', None)
+                        if required_fields_json:
+                            try:
+                                import json
+                                self.required_lead_fields = json.loads(required_fields_json) if isinstance(required_fields_json, str) else required_fields_json
+                            except:
+                                self.required_lead_fields = ['name', 'phone']
+                        else:
+                            self.required_lead_fields = ['name', 'phone']
                     else:
                         self.bot_speaks_first = False
                         self.auto_end_after_lead_capture = False
                         self.auto_end_on_goodbye = False
+                        self.silence_timeout_sec = 15
+                        self.silence_max_warnings = 2
+                        self.smart_hangup_enabled = True
+                        self.required_lead_fields = ['name', 'phone']
                     
                     t_end = time.time()
                     print(f"⚡ COMBINED QUERY: biz+greeting+settings in {(t_end-t_start)*1000:.0f}ms")
@@ -4630,17 +4673,22 @@ class MediaStreamHandler:
 
     def _load_call_behavior_settings(self):
         """
-        🎯 BUILD 163: Load call behavior settings from BusinessSettings
+        🎯 SMART CALL CONTROL: Load call behavior settings from BusinessSettings
         - bot_speaks_first: Bot plays greeting before listening
         - auto_end_after_lead_capture: Hang up after all lead details collected
         - auto_end_on_goodbye: Hang up when customer says goodbye
+        - silence_timeout_sec: Seconds of silence before asking "are you there?"
+        - silence_max_warnings: How many silence warnings before polite hangup
+        - smart_hangup_enabled: AI-driven hangup based on context, not keywords
+        - required_lead_fields: Which fields must be collected before allowing hangup
         """
         if not self.business_id:
-            print(f"⚠️ [BUILD 163] No business_id - using default call behavior settings")
+            print(f"⚠️ [SMART CALL] No business_id - using default call behavior settings")
             return
         
         try:
             from server.models_sql import BusinessSettings
+            import json
             
             app = _get_flask_app()
             with app.app_context():
@@ -4650,15 +4698,37 @@ class MediaStreamHandler:
                     self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
                     self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
                     self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
+                    # 🎯 SMART HANGUP: Load configurable call control settings
+                    self.silence_timeout_sec = getattr(settings, 'silence_timeout_sec', 15) or 15
+                    self.silence_max_warnings = getattr(settings, 'silence_max_warnings', 2) or 2
+                    self.smart_hangup_enabled = getattr(settings, 'smart_hangup_enabled', True)
+                    if self.smart_hangup_enabled is None:
+                        self.smart_hangup_enabled = True
+                    # Load required lead fields from JSON
+                    required_fields_json = getattr(settings, 'required_lead_fields_json', None)
+                    if required_fields_json:
+                        try:
+                            self.required_lead_fields = json.loads(required_fields_json) if isinstance(required_fields_json, str) else required_fields_json
+                        except:
+                            self.required_lead_fields = ['name', 'phone']
+                    else:
+                        self.required_lead_fields = ['name', 'phone']
                     
-                    print(f"✅ [BUILD 163] Call behavior loaded for business {self.business_id}:")
+                    print(f"✅ [SMART CALL] Call behavior loaded for business {self.business_id}:")
                     print(f"   bot_speaks_first={self.bot_speaks_first}")
                     print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}")
                     print(f"   auto_end_on_goodbye={self.auto_end_on_goodbye}")
+                    print(f"   silence_timeout={self.silence_timeout_sec}s, max_warnings={self.silence_max_warnings}")
+                    print(f"   smart_hangup_enabled={self.smart_hangup_enabled}")
+                    print(f"   required_lead_fields={self.required_lead_fields}")
                 else:
-                    print(f"⚠️ [BUILD 163] No BusinessSettings for business {self.business_id} - using defaults")
+                    print(f"⚠️ [SMART CALL] No BusinessSettings for business {self.business_id} - using defaults")
+                    self.silence_timeout_sec = 15
+                    self.silence_max_warnings = 2
+                    self.smart_hangup_enabled = True
+                    self.required_lead_fields = ['name', 'phone']
         except Exception as e:
-            print(f"❌ [BUILD 163] Error loading call behavior settings: {e}")
+            print(f"❌ [SMART CALL] Error loading call behavior settings: {e}")
             import traceback
             traceback.print_exc()
 
@@ -4781,22 +4851,51 @@ class MediaStreamHandler:
 
     def _check_lead_captured(self) -> bool:
         """
-        🎯 BUILD 163: Check if all required lead information has been collected
+        🎯 SMART HANGUP: Check if all required lead information has been collected
+        
+        Uses business-specific required_lead_fields if configured, otherwise
+        defaults to name+phone for backward compatibility.
         
         Returns:
-            True if lead has name and phone (minimum required fields)
+            True if all required lead fields are collected
         """
         crm_context = getattr(self, 'crm_context', None)
         if not crm_context:
             return False
         
-        has_name = bool(crm_context.customer_name)
-        has_phone = bool(crm_context.customer_phone)
+        # Get required fields from business settings (defaults to ['name', 'phone'])
+        required_fields = getattr(self, 'required_lead_fields', None)
+        if not required_fields:
+            required_fields = ['name', 'phone']  # Default for backward compatibility
         
-        if has_name and has_phone:
-            print(f"✅ [BUILD 163] Lead captured: name={crm_context.customer_name}, phone={crm_context.customer_phone}")
+        # Map UI field names to actual CRM context attribute names
+        # UI uses: 'name', 'phone', 'email', etc.
+        # CRM uses: 'customer_name', 'customer_phone', 'customer_email', etc.
+        field_to_attr = {
+            'name': 'customer_name',
+            'phone': 'customer_phone',
+            'email': 'customer_email',
+            'service_type': 'service_type',
+            'preferred_time': 'preferred_time',
+            'notes': 'notes',
+        }
+        
+        # Check which fields are missing
+        missing_fields = []
+        collected_values = []
+        for field in required_fields:
+            attr_name = field_to_attr.get(field, field)  # Fallback to field name if not mapped
+            value = getattr(crm_context, attr_name, None)
+            if not value:
+                missing_fields.append(field)
+            else:
+                collected_values.append(f"{field}={value}")
+        
+        if not missing_fields:
+            print(f"✅ [SMART HANGUP] All required fields collected: {', '.join(collected_values)}")
             return True
         
+        print(f"⏳ [SMART HANGUP] Still missing fields: {missing_fields}")
         return False
 
     def _process_dtmf_skip(self):
