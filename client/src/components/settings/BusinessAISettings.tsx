@@ -422,9 +422,11 @@ export function BusinessAISettings() {
                 { key: 'name', label: 'שם מלא' },
                 { key: 'phone', label: 'טלפון' },
                 { key: 'email', label: 'אימייל' },
-                { key: 'service_type', label: 'סוג שירות' },
+                { key: 'city', label: 'עיר' },
+                { key: 'service_type', label: 'סוג שירות/תחום' },
+                { key: 'budget', label: 'תקציב' },
                 { key: 'preferred_time', label: 'זמן מועדף' },
-                { key: 'notes', label: 'הערות' }
+                { key: 'notes', label: 'הערות/תיאור בעיה' }
               ].map(field => (
                 <button
                   key={field.key}

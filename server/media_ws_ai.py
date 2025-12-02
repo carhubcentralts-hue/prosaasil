@@ -844,6 +844,9 @@ class MediaStreamHandler:
         self.silence_max_warnings = 2  # How many warnings before polite hangup
         self.smart_hangup_enabled = True  # AI-driven hangup based on context, not keywords
         self.required_lead_fields = ['name', 'phone']  # Fields that must be collected
+        # 🎯 DYNAMIC LEAD CAPTURE STATE: Tracks ALL captured fields from conversation
+        # Updated by _update_lead_capture_state() from AI responses and DTMF
+        self.lead_capture_state = {}  # e.g., {'name': 'דני', 'city': 'תל אביב', 'service_type': 'ניקיון'}
 
     def _init_streaming_stt(self):
         """
@@ -1544,6 +1547,9 @@ class MediaStreamHandler:
                         # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
                         # Removing this call to prevent loop (NLP should only analyze user input)
                         
+                        # 🎯 SMART HANGUP: Extract lead fields from AI confirmation patterns
+                        self._extract_lead_fields_from_ai(transcript)
+                        
                         # 🎯 BUILD 163: Check for auto hang-up after AI finishes speaking
                         if self.pending_hangup and not self.hangup_triggered:
                             print(f"📞 [BUILD 163] Pending hangup detected after AI response - triggering hang-up")
@@ -1601,6 +1607,9 @@ class MediaStreamHandler:
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
+                        
+                        # 🎯 SMART HANGUP: Extract lead fields from user speech as well
+                        self._extract_lead_fields_from_ai(transcript)
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
@@ -1831,6 +1840,9 @@ class MediaStreamHandler:
         # NLP only looks at last 10 messages, so name can be lost if mentioned earlier
         # Strategy: Save to crm_context if it exists, otherwise cache temporarily on handler
         if customer_name:
+            # 🎯 DYNAMIC LEAD STATE: Update lead capture state for smart hangup
+            self._update_lead_capture_state('name', customer_name)
+            
             crm_context = getattr(self, 'crm_context', None)
             if crm_context:
                 # Context exists - save there
@@ -2667,6 +2679,10 @@ class MediaStreamHandler:
                         print(f"   customParams.CallFrom: {custom_params.get('CallFrom')}")
                         print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
                         print(f"   ✅ self.to_number set to: '{self.to_number}'")
+                        
+                        # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
+                        if self.phone_number:
+                            self._update_lead_capture_state('phone', self.phone_number)
                     else:
                         # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
                         self.stream_sid = evt.get("streamSid")
@@ -2679,6 +2695,10 @@ class MediaStreamHandler:
                         print(f"   from field: {evt.get('from')}")
                         print(f"   phone_number field: {evt.get('phone_number')}")
                         print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
+                        
+                        # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
+                        if self.phone_number:
+                            self._update_lead_capture_state('phone', self.phone_number)
                         
                     self.last_rx_ts = time.time()
                     self.last_keepalive_ts = time.time()  # ✅ התחל keepalive
@@ -4849,53 +4869,197 @@ class MediaStreamHandler:
         print(f"[GOODBYE CHECK] No goodbye phrase: '{text_lower[:30]}...'")
         return False
 
+    def _extract_lead_fields_from_ai(self, ai_transcript: str):
+        """
+        🎯 SMART HANGUP: Extract lead fields from AI confirmation patterns
+        
+        Parses AI responses to identify confirmed information:
+        - "אתה מתל אביב" → city=תל אביב
+        - "שירות ניקיון" → service_type=ניקיון
+        - "תקציב של X שקל" → budget=X
+        
+        Args:
+            ai_transcript: The AI's transcribed speech
+        """
+        import re
+        
+        text = ai_transcript.strip()
+        if not text or len(text) < 5:
+            return
+        
+        # Get required fields to know what we're looking for
+        required_fields = getattr(self, 'required_lead_fields', [])
+        if not required_fields:
+            return
+        
+        # 🏙️ CITY EXTRACTION: Look for city mentions (comprehensive Israeli city list)
+        if 'city' in required_fields and 'city' not in self.lead_capture_state:
+            # Comprehensive list of Israeli cities and towns
+            israeli_cities = [
+                # Major cities
+                'תל אביב', 'ירושלים', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'אשדוד', 'נתניה',
+                'באר שבע', 'בני ברק', 'חולון', 'רמת גן', 'אשקלון', 'רחובות', 'בת ים',
+                'הרצליה', 'כפר סבא', 'רעננה', 'לוד', 'נצרת', 'עכו', 'אילת', 'מודיעין',
+                # Gush Dan
+                'גבעתיים', 'רמת השרון', 'הוד השרון', 'פתח תקוה', 'ראש העין', 'יהוד',
+                'אור יהודה', 'קרית אונו', 'גני תקווה', 'רמלה', 'יבנה', 'נס ציונה',
+                # Sharon
+                'נתניה', 'רעננה', 'כפר סבא', 'הוד השרון', 'הרצליה', 'רמת השרון',
+                # South
+                'אשקלון', 'אשדוד', 'שדרות', 'נתיבות', 'אופקים', 'דימונה', 'ערד', 'מצפה רמון',
+                'קרית גת', 'קרית מלאכי', 'גדרה', 'באר שבע',
+                # North
+                'חיפה', 'נהריה', 'עכו', 'כרמיאל', 'נצרת', 'עפולה', 'טבריה', 'צפת',
+                'קריית שמונה', 'בית שאן', 'מגדל העמק', 'נצרת עילית', 'קריית אתא',
+                'קריית ביאליק', 'קריית מוצקין', 'קריית ים', 'טירת כרמל', 'נשר',
+                # Jerusalem area
+                'ירושלים', 'בית שמש', 'מעלה אדומים', 'גבעת זאב', 'אריאל', 'מודיעין',
+                # Other
+                'אלעד', 'ביתר עילית', 'מודיעין עילית', 'בית שאן', 'קצרין', 'חריש'
+            ]
+            
+            # Normalize text for matching
+            text_normalized = text.replace('-', ' ').replace('־', ' ')
+            
+            for city in israeli_cities:
+                # Check for city name in text (with word boundaries)
+                if city in text_normalized:
+                    self._update_lead_capture_state('city', city)
+                    break
+        
+        # 🔧 SERVICE_TYPE EXTRACTION: Look for service mentions
+        if 'service_type' in required_fields and 'service_type' not in self.lead_capture_state:
+            service_indicators = ['שירות', 'טיפול', 'תחום', 'עבודה', 'פרויקט', 'בעיה']
+            service_patterns = [
+                r'(?:שירות|טיפול|תחום)\s+(?:של\s+)?([א-ת\s]{2,20})',  # "שירות ניקיון"
+                r'ב(?:תחום|נושא)\s+(?:של\s+)?([א-ת\s]{2,20})',  # "בתחום השיפוצים"
+            ]
+            for pattern in service_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    service = match.group(1).strip()
+                    if len(service) > 2:
+                        self._update_lead_capture_state('service_type', service)
+                        break
+        
+        # 💰 BUDGET EXTRACTION: Look for budget/price mentions
+        if 'budget' in required_fields and 'budget' not in self.lead_capture_state:
+            budget_patterns = [
+                r'תקציב\s+(?:של\s+)?(\d[\d,\.]*)\s*(?:שקל|ש"ח|₪)?',  # "תקציב של 5000 שקל"
+                r'(\d[\d,\.]*)\s*(?:שקל|ש"ח|₪)',  # "5000 שקל"
+            ]
+            for pattern in budget_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    budget = match.group(1).replace(',', '')
+                    self._update_lead_capture_state('budget', budget)
+                    break
+        
+        # 📧 EMAIL EXTRACTION: Look for email mentions
+        if 'email' in required_fields and 'email' not in self.lead_capture_state:
+            email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+            match = re.search(email_pattern, text)
+            if match:
+                self._update_lead_capture_state('email', match.group(0))
+        
+        # ⏰ PREFERRED_TIME EXTRACTION: Look for time preferences
+        if 'preferred_time' in required_fields and 'preferred_time' not in self.lead_capture_state:
+            time_indicators = ['בוקר', 'צהריים', 'ערב', 'לילה', 'בשעה', 'ביום']
+            for indicator in time_indicators:
+                if indicator in text:
+                    # Extract nearby text as time preference
+                    idx = text.find(indicator)
+                    time_context = text[max(0, idx-10):min(len(text), idx+20)]
+                    self._update_lead_capture_state('preferred_time', time_context.strip())
+                    break
+        
+        # 📝 NOTES EXTRACTION: If AI confirms problem description
+        if 'notes' in required_fields and 'notes' not in self.lead_capture_state:
+            notes_indicators = ['הבנתי', 'בסדר אז', 'אני מבין', 'הבעיה היא', 'תיאור הבעיה']
+            for indicator in notes_indicators:
+                if indicator in text and len(text) > 20:
+                    self._update_lead_capture_state('notes', text[:100])
+                    break
+    
+    def _update_lead_capture_state(self, field: str, value: str):
+        """
+        🎯 DYNAMIC LEAD CAPTURE: Update lead capture state with a new field value
+        
+        Called from:
+        - _process_dtmf_phone() when phone is captured via DTMF
+        - NLP parser when name/service_type/etc. are extracted
+        - AI response parsing when fields are mentioned
+        
+        Args:
+            field: Field identifier (e.g., 'name', 'phone', 'city', 'service_type')
+            value: The captured value
+        """
+        if not value or not str(value).strip():
+            return
+        
+        value = str(value).strip()
+        self.lead_capture_state[field] = value
+        print(f"✅ [LEAD STATE] Updated: {field}={value}")
+        print(f"📋 [LEAD STATE] Current state: {self.lead_capture_state}")
+        
+        # Also update CRM context for legacy compatibility (name/phone)
+        crm_context = getattr(self, 'crm_context', None)
+        if crm_context:
+            if field == 'name' and not crm_context.customer_name:
+                crm_context.customer_name = value
+            elif field == 'phone' and not crm_context.customer_phone:
+                crm_context.customer_phone = value
+    
     def _check_lead_captured(self) -> bool:
         """
         🎯 SMART HANGUP: Check if all required lead information has been collected
         
-        Uses business-specific required_lead_fields if configured, otherwise
-        defaults to name+phone for backward compatibility.
+        Uses business-specific required_lead_fields if configured.
+        Checks BOTH lead_capture_state (dynamic) AND crm_context (legacy).
         
         Returns:
             True if all required lead fields are collected
         """
-        crm_context = getattr(self, 'crm_context', None)
-        if not crm_context:
-            return False
-        
-        # Get required fields from business settings (defaults to ['name', 'phone'])
+        # Get required fields from business settings
         required_fields = getattr(self, 'required_lead_fields', None)
         if not required_fields:
             required_fields = ['name', 'phone']  # Default for backward compatibility
         
-        # Map UI field names to actual CRM context attribute names
-        # UI uses: 'name', 'phone', 'email', etc.
-        # CRM uses: 'customer_name', 'customer_phone', 'customer_email', etc.
-        field_to_attr = {
+        # Get current capture state
+        lead_state = getattr(self, 'lead_capture_state', {})
+        crm_context = getattr(self, 'crm_context', None)
+        
+        # Map UI field names to CRM context attribute names (for legacy fallback)
+        field_to_crm_attr = {
             'name': 'customer_name',
             'phone': 'customer_phone',
             'email': 'customer_email',
-            'service_type': 'service_type',
-            'preferred_time': 'preferred_time',
-            'notes': 'notes',
         }
         
         # Check which fields are missing
         missing_fields = []
         collected_values = []
+        
         for field in required_fields:
-            attr_name = field_to_attr.get(field, field)  # Fallback to field name if not mapped
-            value = getattr(crm_context, attr_name, None)
-            if not value:
-                missing_fields.append(field)
-            else:
+            # First check dynamic lead_capture_state
+            value = lead_state.get(field)
+            
+            # Fallback to CRM context for legacy fields (name, phone, email)
+            if not value and crm_context:
+                crm_attr = field_to_crm_attr.get(field)
+                if crm_attr:
+                    value = getattr(crm_context, crm_attr, None)
+            
+            if value:
                 collected_values.append(f"{field}={value}")
+            else:
+                missing_fields.append(field)
         
         if not missing_fields:
             print(f"✅ [SMART HANGUP] All required fields collected: {', '.join(collected_values)}")
             return True
         
-        print(f"⏳ [SMART HANGUP] Still missing fields: {missing_fields}")
+        print(f"⏳ [SMART HANGUP] Still missing fields: {missing_fields} | Collected: {collected_values}")
         return False
 
     def _process_dtmf_skip(self):
@@ -4967,6 +5131,9 @@ class MediaStreamHandler:
         
         if normalized_phone:
             print(f"✅ Phone normalized: {phone_number} → {normalized_phone}")
+            
+            # 🎯 DYNAMIC LEAD STATE: Update lead capture state for smart hangup
+            self._update_lead_capture_state('phone', normalized_phone)
             
             # 🔥 CRITICAL FIX: Store normalized phone in instance variable!
             # Don't use flask.g - WebSocket runs outside request context
