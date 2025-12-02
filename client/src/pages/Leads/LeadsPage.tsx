@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X } from 'lucide-react';
+import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Input } from '../../shared/components/ui/Input';
 import { Card } from '../../shared/components/ui/Card';
@@ -36,6 +36,8 @@ export default function LeadsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 25;
   
   // Debounce search input for better performance (150ms delay)
   useEffect(() => {
@@ -53,23 +55,33 @@ export default function LeadsPage() {
     refreshStatuses();
   }, [refreshStatuses]);
 
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch, selectedStatus, dateFrom, dateTo]);
+
   // Memoize filters using debounced search to prevent excessive API calls
   const filters = useMemo(() => ({
     search: debouncedSearch,
     status: selectedStatus === 'all' ? undefined : selectedStatus,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-  }), [debouncedSearch, selectedStatus, dateFrom, dateTo]);
+    page: currentPage,
+    pageSize: PAGE_SIZE,
+  }), [debouncedSearch, selectedStatus, dateFrom, dateTo, currentPage]);
 
   const {
     leads,
     loading,
     error,
+    total,
     createLead,
     updateLead,
     deleteLead,
     refreshLeads,
   } = useLeads(filters);
+  
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   // Sort and filter leads
   const sortedLeads = useMemo(() => {
@@ -956,6 +968,41 @@ export default function LeadsPage() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-4 mt-6 pb-4" data-testid="pagination-controls">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1 || loading}
+            data-testid="button-prev-page"
+          >
+            <ChevronRight className="w-4 h-4" />
+            הקודם
+          </Button>
+          
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <span>עמוד</span>
+            <span className="font-medium text-gray-900">{currentPage}</span>
+            <span>מתוך</span>
+            <span className="font-medium text-gray-900">{totalPages}</span>
+            <span className="text-gray-400">({total} לידים)</span>
+          </div>
+          
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages || loading}
+            data-testid="button-next-page"
+          >
+            הבא
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
         </div>
       )}
 
