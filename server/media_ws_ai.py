@@ -866,8 +866,7 @@ class MediaStreamHandler:
         
         # 🛡️ BUILD 168: VERIFICATION BEFORE HANGUP
         # AI must verify collected details before disconnecting
-        self.details_verification_requested = False  # True after AI asks "let me verify..."
-        self.details_verified = False  # True after user confirms the details
+        # BUILD 168: Verification is now prompt-only, no guard needed
 
     def _init_streaming_stt(self):
         """
@@ -1727,72 +1726,9 @@ class MediaStreamHandler:
                             hangup_reason = "user_goodbye_response"
                             should_hangup = True
                         
-                        # 🛡️ BUILD 168: VERIFICATION GATE
-                        # If AI wants to hang up but hasn't verified details yet, trigger verification
-                        if should_hangup:
-                            has_collected_data = bool(self.lead_capture_state)
-                            
-                            # Check if AI recited ALL collected field values (not just one!)
-                            # AI must recite every value that was collected
-                            transcript_lower = transcript.lower()
-                            recited_field_count = 0
-                            total_fields = len(self.lead_capture_state)
-                            for field, value in self.lead_capture_state.items():
-                                if value and str(value).lower() in transcript_lower:
-                                    recited_field_count += 1
-                            
-                            # ALL fields must be recited for verification to count
-                            ai_recited_all_fields = (recited_field_count == total_fields) if total_fields > 0 else False
-                            
-                            # Check if verification phrases used AND ALL fields recited
-                            verification_phrases = ["רק לוודא", "לוודא", "נכון?", "מאשר?", "בסדר?", "זה נכון"]
-                            ai_asked_verification = any(phrase in transcript_lower for phrase in verification_phrases)
-                            
-                            if ai_asked_verification and ai_recited_all_fields:
-                                self.details_verification_requested = True
-                                print(f"✅ [BUILD 168] AI asked for verification WITH ALL {recited_field_count}/{total_fields} fields: '{transcript[:50]}...'")
-                            
-                            # Check if user confirmed - MULTILINGUAL support
-                            confirmation_words = [
-                                # Hebrew
-                                "כן", "נכון", "בסדר", "מאשר", "אוקי", "יופי", "מעולה",
-                                # English
-                                "yes", "correct", "right", "ok", "okay", "sure", "yeah", "yep",
-                                # Arabic
-                                "نعم", "صح", "تمام", "اوكي"
-                            ]
-                            user_confirmed = False
-                            if len(self.conversation_history) >= 2:
-                                last_user_msg = None
-                                for msg in reversed(self.conversation_history[-5:]):
-                                    if msg.get("speaker") == "user":
-                                        last_user_msg = msg.get("text", "").lower()
-                                        break
-                                # Only confirm if verification was actually requested first
-                                if last_user_msg and self.details_verification_requested:
-                                    if any(word in last_user_msg for word in confirmation_words):
-                                        user_confirmed = True
-                                        self.details_verified = True
-                                        print(f"✅ [BUILD 168] User confirmed details: '{last_user_msg[:30]}...'")
-                            
-                            # If fields are collected but verification not done, request it
-                            if has_collected_data and not self.details_verification_requested:
-                                print(f"🛡️ [BUILD 168] BLOCKING hangup - need to verify details first!")
-                                # Send instruction to AI to verify details
-                                collected_info = ", ".join([f"{k}={v}" for k, v in self.lead_capture_state.items()])
-                                asyncio.create_task(self._send_server_event_to_ai(
-                                    f"[SERVER] לפני שמסיימים - חזור על הפרטים שאספת: {collected_info}. אמור 'רק לוודא - [הפרטים], נכון?'"
-                                ))
-                                should_hangup = False  # Block hangup until verification
-                            elif has_collected_data and self.details_verification_requested and not self.details_verified:
-                                print(f"⏳ [BUILD 168] Verification requested but waiting for user confirmation...")
-                                should_hangup = False  # Wait for user confirmation
-                            else:
-                                # No collected data OR verification complete - allow hangup
-                                print(f"👋 [BUILD 168] Hangup allowed ({hangup_reason}, verified={self.details_verified})")
-                                # Reset verification state for next attempt
-                                self.details_verification_requested = False
-                                self.details_verified = False
+                        # 🔥 BUILD 168 FIX: NO GUARD! Verification is handled by system prompt only.
+                        # The AI naturally verifies details before saying goodbye.
+                        # No need to block or inject server messages.
                         
                         if should_hangup:
                             self.goodbye_detected = True

@@ -1,0 +1,365 @@
+
+17:39:47 web.1     | 🛡️ [BUILD 168] BLOCKING hangup - need to verify details first!
+17:39:47 web.1     | [REALTIME] event: response.content_part.done
+17:39:47 web.1     | [REALTIME] event: response.output_item.done
+17:39:47 web.1     | [REALTIME] event: response.done
+17:39:47 web.1     | 🔇 [SERVER_EVENT] Sent SILENTLY to AI: [SERVER] לפני שמסיימים - חזור על הפרטים שאספת: service_type=תרצה עזרה, city=רמלה. אמור 'רק לוודא - [
+17:39:47 web.1     | 🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)
+17:39:47 web.1     | [REALTIME] event: rate_limits.updated
+17:39:47 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:47 web.1     | [REALTIME] event: conversation.item.created
+17:39:47 web.1     | [REALTIME] event: response.created
+17:39:47 web.1     | 🎯 [REALTIME] Response started: resp_CiOdnl2zyWLORv2JiCLZd
+17:39:47 web.1     | [REALTIME] event: response.output_item.added
+17:39:47 web.1     | [REALTIME] event: conversation.item.created
+17:39:47 web.1     | [REALTIME] event: response.content_part.added
+17:39:48 web.1     | 🔊 [REALTIME] AI started speaking (audio.delta)
+17:39:48 web.1     | ⚠️ [AUDIO GAP] 559ms gap between chunks #47 and #48 - OpenAI delay!
+17:39:48 web.1     | ⚠️ [BRIDGE GAP] 560ms wait for queue - chunk #68
+17:39:48 web.1     | 
+17:39:48 web.1     | ============================================================
+17:39:48 web.1     | 🔍 [NLP RESULT] GPT-4o-mini extraction complete
+17:39:48 web.1     | ============================================================
+17:39:48 web.1     | 📄 [NLP RESULT] Raw response: {"action":"none","date":null,"time":null,"name":null,"confidence":1.0}
+17:39:48 web.1     | 📊 [NLP RESULT] Parsed values:
+17:39:48 web.1     | 📊 [NLP RESULT]   - action: none
+17:39:48 web.1     | 📊 [NLP RESULT]   - date: None
+17:39:48 web.1     | 📊 [NLP RESULT]   - time: None
+17:39:48 web.1     | 📊 [NLP RESULT]   - name: None
+17:39:48 web.1     | 📊 [NLP RESULT]   - confidence: 1.0
+17:39:48 web.1     | ============================================================
+17:39:48 web.1     | 
+17:39:48 web.1     | 🔍 [NLP] ◀️ NLP result: {'action': 'none', 'date': None, 'time': None, 'name': None, 'confidence': 1.0}
+17:39:48 web.1     | 📭 [NLP] No appointment action detected (action=none)
+17:39:48 web.1     | ✅ [NLP] Async NLP parser completed successfully
+17:39:48 web.1     | ✅ [NLP] Cache updated after successful processing
+17:39:48 web.1     | 🔓 [NLP] Cleared nlp_is_processing flag
+17:39:48 web.1     | 🔇 [AUDIO GATE] Blocked 700 noise frames (rms=8)
+17:39:48 web.1     | [TX] fps=50 q=437/800
+17:39:48 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=True, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:48 web.1     | [REALTIME] event: response.audio.done
+17:39:48 web.1     | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+17:39:48 web.1     | [REALTIME] event: response.audio_transcript.done
+17:39:48 web.1     | 🤖 [REALTIME] AI said: רק לוודא – אתה צריך חשמלאי בעיר רמלה, נכון?
+17:39:48 web.1     | 💰 [COST] AI utterance: 0.88s (64 chunks)
+17:39:48 web.1     | [GOODBYE CHECK] No goodbye phrase: 'רק לוודא – אתה צריך חשמלאי בעי...'
+17:39:48 web.1     | [REALTIME] event: response.content_part.done
+17:39:48 web.1     | [REALTIME] event: response.output_item.done
+17:39:48 web.1     | [REALTIME] event: response.done
+17:39:48 web.1     | [REALTIME] event: rate_limits.updated
+17:39:49 web.1     | [TX] fps=51 q=516/800
+17:39:49 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:50 web.1     | 🔇 [AUDIO GATE] Blocked 800 noise frames (rms=8)
+17:39:50 web.1     | [TX] fps=50 q=466/800
+17:39:50 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:51 web.1     | [TX] fps=51 q=415/800
+17:39:51 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:52 web.1     | 🔇 [AUDIO GATE] Blocked 900 noise frames (rms=8)
+17:39:52 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:52 web.1     | 🎙️ REAL_VOICE: rms=176.0 > threshold=113.2
+17:39:53 web.1     | 💓 WS_KEEPALIVE #2 (prevents 5min timeout)
+17:39:53 web.1     | 📨 Received: mark
+17:39:53 web.1     | [REALTIME] event: input_audio_buffer.speech_started
+17:39:53 web.1     | 🎤 [REALTIME] User started speaking - setting user_has_spoken=True
+17:39:53 web.1     | 🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI
+17:39:53 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:53 web.1     | 🎤 END OF UTTERANCE: 0.7s audio, conversation #2
+17:39:53 web.1     | 🧠 STATE -> PROCESSING | len=10880 | silence_ms=500
+17:39:53 web.1     | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+17:39:53 web.1     | ✅ Processing complete for conversation #2
+17:39:54 web.1     | [REALTIME] event: input_audio_buffer.speech_stopped
+17:39:54 web.1     | 🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+17:39:54 web.1     | [REALTIME] event: input_audio_buffer.committed
+17:39:54 web.1     | [REALTIME] event: conversation.item.created
+17:39:54 web.1     | [REALTIME] event: response.created
+17:39:54 web.1     | 🎯 [REALTIME] Response started: resp_CiOduMtJeLztMWJQsrTk8
+17:39:54 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:54 web.1     | [REALTIME] event: response.output_item.added
+17:39:54 web.1     | [REALTIME] event: conversation.item.created
+17:39:54 web.1     | [REALTIME] event: response.content_part.added
+17:39:54 web.1     | 🔊 [REALTIME] AI started speaking (audio.delta)
+17:39:54 web.1     | ⚠️ [AUDIO GAP] 5756ms gap between chunks #64 and #65 - OpenAI delay!
+17:39:54 web.1     | ⚠️ [BRIDGE GAP] 5756ms wait for queue - chunk #85
+17:39:54 web.1     | [REALTIME] event: conversation.item.input_audio_transcription.completed
+17:39:54 web.1     | [TRANSCRIPT FILTER] Ignoring too_short: '謝謝'
+17:39:54 web.1     | [SAFETY] Transcription successful (total failures: 0)
+17:39:54 web.1     | 🔇 [AUDIO GATE] Blocked 1000 noise frames (rms=8)
+17:39:55 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=True, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:56 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=True, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:56 web.1     | [REALTIME] event: response.audio.done
+17:39:56 web.1     | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+17:39:56 web.1     | [REALTIME] event: response.audio_transcript.done
+17:39:56 web.1     | 🤖 [REALTIME] AI said: מצוין, קיבלתי. אתה צריך חשמלאי בעיר רמלה. בעל מקצוע מתאים יחזור אליך בדקות הקרובות. תודה ויום טוב.
+17:39:56 web.1     | ⚠️ [LOOP GUARD] AI responded 3 times without user input!
+17:39:56 web.1     | 🛑 [LOOP GUARD] BLOCKING further responses until user speaks!
+17:39:56 web.1     | 🛑 [LOOP GUARD] Cleared TX queue
+17:39:56 web.1     | 🛑 [LOOP GUARD] Sent clear to Twilio
+17:39:56 web.1     | 💰 [COST] AI utterance: 1.95s (102 chunks)
+17:39:56 web.1     | [GOODBYE CHECK] No goodbye phrase: 'מצוין, קיבלתי. אתה צריך חשמלאי...'
+17:39:56 web.1     | [POLITE CLOSING] Detected: 'יום טוב'
+17:39:56 web.1     | 🛡️ [BUILD 168] BLOCKING hangup - need to verify details first!
+17:39:56 web.1     | [REALTIME] event: response.content_part.done
+17:39:56 web.1     | [REALTIME] event: response.output_item.done
+17:39:56 web.1     | [REALTIME] event: response.done
+17:39:56 web.1     | [REALTIME] event: rate_limits.updated
+17:39:56 web.1     | 🔇 [SERVER_EVENT] Sent SILENTLY to AI: [SERVER] לפני שמסיימים - חזור על הפרטים שאספת: service_type=תרצה עזרה, city=רמלה. אמור 'רק לוודא - [
+17:39:56 web.1     | 🛑 [LOOP GUARD] Blocking response.create (engaged=True, consecutive=3)
+17:39:56 web.1     | 🧹 TX_CLEAR: SUCCESS
+17:39:56 web.1     | [REALTIME] event: conversation.item.created
+17:39:56 web.1     | 🔇 [AUDIO GATE] Blocked 1100 noise frames (rms=8)
+17:39:57 web.1     | 🎙️ REAL_VOICE: rms=200.0 > threshold=113.2
+17:39:57 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=34, voice_frames=0
+17:39:58 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:39:59 web.1     | [REALTIME] event: input_audio_buffer.speech_started
+17:39:59 web.1     | 🎤 [REALTIME] User started speaking - setting user_has_spoken=True
+17:39:59 web.1     | 🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI
+17:39:59 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=68, voice_frames=0
+17:40:00 web.1     | 🎤 END OF UTTERANCE: 1.4s audio, conversation #3
+17:40:00 web.1     | 🧠 STATE -> PROCESSING | len=22080 | silence_ms=501
+17:40:00 web.1     | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+17:40:00 web.1     | ✅ Processing complete for conversation #3
+17:40:00 web.1     | [REALTIME] event: input_audio_buffer.speech_stopped
+17:40:00 web.1     | 🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+17:40:00 web.1     | [REALTIME] event: input_audio_buffer.committed
+17:40:00 web.1     | [REALTIME] event: conversation.item.created
+17:40:00 web.1     | [REALTIME] event: response.created
+17:40:00 web.1     | 🎯 [REALTIME] Response started: resp_CiOe0hmeMoaw2pNmoDLmz
+17:40:00 web.1     | 🔇 [AUDIO GATE] Blocked 1200 noise frames (rms=8)
+17:40:00 web.1     | [REALTIME] event: response.output_item.added
+17:40:00 web.1     | [REALTIME] event: conversation.item.created
+17:40:00 web.1     | [REALTIME] event: response.content_part.added
+17:40:00 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=59, voice_frames=0
+17:40:01 web.1     | 🎙️ REAL_VOICE: rms=147.0 > threshold=113.2
+17:40:01 web.1     | [REALTIME] event: conversation.item.input_audio_transcription.completed
+17:40:01 web.1     | [TRANSCRIPT FILTER] Ignoring hallucination: 'Thank you.'
+17:40:01 web.1     | [SAFETY] Transcription successful (total failures: 0)
+17:40:01 web.1     | [REALTIME] event: response.audio.done
+17:40:01 web.1     | [REALTIME] event: response.audio_transcript.done
+17:40:01 web.1     | 🤖 [REALTIME] AI said: רק לוודא – אתה צריך חשמלאי בעיר רמלה, נכון?
+17:40:01 web.1     | ⚠️ [LOOP GUARD] AI responded 4 times without user input!
+17:40:01 web.1     | 🛑 [LOOP GUARD] BLOCKING further responses until user speaks!
+17:40:01 web.1     | 🛑 [LOOP GUARD] Cleared TX queue
+17:40:01 web.1     | 🛑 [LOOP GUARD] Sent clear to Twilio
+17:40:01 web.1     | [GOODBYE CHECK] No goodbye phrase: 'רק לוודא – אתה צריך חשמלאי בעי...'
+17:40:01 web.1     | 🧹 TX_CLEAR: SUCCESS[REALTIME] event: response.content_part.done
+17:40:01 web.1     | [REALTIME] event: response.output_item.done
+17:40:01 web.1     | [REALTIME] event: response.done
+17:40:01 web.1     | [REALTIME] event: rate_limits.updated
+17:40:01 web.1     | 
+17:40:01 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+17:40:02 web.1     | 📨 Received: stop
+17:40:02 web.1     | WS_STOP sid=MZb9c9bc41538040f32966efec9e9da66c rx=1589 tx=915
+17:40:02 web.1     | ⚠️ [BRIDGE GAP] 5736ms wait for queue - chunk #123
+17:40:02 web.1     | 📤 [REALTIME] Stop signal received
+17:40:02 web.1     | 📤 [REALTIME] Audio output bridge ended (sent 1550 frames, 248000 bytes)
+17:40:02 web.1     | 📤 [REALTIME] Audio sender ended
+17:40:02 web.1     | 📝 [REALTIME] Text sender ended
+17:40:02 web.1     | 🧹 Waiting for 5 background threads...
+17:40:02 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+17:40:02 web.1     | STREAM_ENDED call=CAfa103db713fcbf68c56d5c703f399190 stream=N/A status=N/A
+17:40:02 web.1     | INFO:     172.31.72.130:53770 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+17:40:02 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+17:40:02 web.1     | INFO:     172.31.72.130:53770 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+17:40:02 web.1     | ✅ Found existing recording for CAfa103db713fcbf68c56d5c703f399190: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/RE6042598cc35251f0457d1704cbb7e906.json
+17:40:02 web.1     | ✅ Recording queued for processing: CAfa103db713fcbf68c56d5c703f399190
+17:40:03 web.1     | ❌ Receive error: (<CloseCode.NO_STATUS_RCVD: 1005>, '')
+17:40:03 web.1     | 🔧 receive_loop ended
+17:40:03 web.1     | INFO:     connection closed
+17:40:03 web.1     | 🔧 send_loop ended
+17:40:04 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+17:40:05 web.1     | ✅ Resolved business_id=1 from to_number=+97233763805 (Business: פרו סאס)
+17:40:05 web.1     | ✅ call_log created immediately for CAe68fbf3b171e1a36e54a340b1f1497eb
+17:40:05 web.1     | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAe68fbf3b171e1a36e54a340b1f1497eb
+17:40:05 web.1     | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAe68fbf3b171e1a36e54a340b1f1497eb🟢 INCOMING_CALL - Thread started successfully
+17:40:05 web.1     | ✅ incoming_call: 222ms - CAe68fbf3b171e1a
+17:40:05 web.1     | 🔥 TWIML_HOST=f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev
+17:40:05 web.1     | 🔥 TWIML_WS=wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media
+17:40:05 web.1     | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/webhook/stream_ended"><Stream url="wss://f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev/ws/twilio-media"><Parameter name="CallSid" value="CAe68fbf3b171e1a36e54a340b1f1497eb" /><Parameter name="To" value="+97233763805" /></Stream></Connect></Response>
+17:40:05 web.1     | INFO:     172.31.72.130:53770 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+17:40:05 web.1     | 
+17:40:05 web.1     | 🔵 CREATE_LEAD_FROM_CALL - App context created
+17:40:05 web.1     | 📞 WebSocket connection attempt: headers={'host': 'f6bc9e3d-e344-4c65-83e9-6679c9c65e69-00-30jsasmqh67fq.picard.replit.dev', 'user-agent': 'Twilio.TmeWs/1.0', 'accept-encoding': 'gzip', 'connection': 'Upgrade', 'sec-websocket-key': 'i7Pzckq6ykqbnpxBHTq8tQ==', 'sec-websocket-version': '13', 'upgrade': 'websocket', 'x-forwarded-for': '34.229.78.122, 10.81.5.200', 'x-forwarded-proto': 'https', 'x-replit-user-bio': '', 'x-replit-user-id': '', 'x-replit-user-name': '', 'x-replit-user-profile-image': '', 'x-replit-user-roles': '', 'x-replit-user-teams': '', 'x-replit-user-url': '', 'x-twilio-signature': 'xN146EpEIFGvWAhoDyQbRWlGGQY='}
+17:40:05 web.1     | INFO:     172.31.72.130:51206 - "WebSocket /ws/twilio-media" [accepted]
+17:40:05 web.1     | ✅ WebSocket accepted with subprotocol: audio.twilio.com
+17:40:05 web.1     | 📞 WebSocket connected: /ws/twilio-media
+17:40:05 web.1     | INFO:     connection open
+17:40:05 web.1     | 🔧 receive_loop started
+17:40:05 web.1     | 🔧 send_loop started
+17:40:05 web.1     | 📨 Received: connected
+17:40:05 web.1     | 📨 Received: start
+17:40:05 web.1     | 🔧 [HANDLER] Getting Flask app...✅ MediaStreamHandler thread started
+17:40:05 web.1     | 
+17:40:05 web.1     | 🔧 [HANDLER] Flask app ready
+17:40:05 web.1     | 🔧 Creating MediaStreamHandler...
+17:40:05 web.1     | 🎯 AI CONVERSATION STARTED
+17:40:05 web.1     | 🔧 Starting MediaStreamHandler.run()...
+17:40:05 web.1     | ✅ Debug written to /tmp/ws_handler_debug_1764697205.txt
+17:40:05 web.1     | ✅ Debug written to /tmp/websocket_debug.txt
+17:40:05 web.1     | ✅ Debug written to /tmp/handler_called.txt
+17:40:05 web.1     | ✅ Debug written to /home/runner/workspace/handler_debug.txt
+17:40:05 web.1     | ✅ Debug written to /tmp/HANDLER_WORKS_1764697205.txt
+17:40:05 web.1     | ✅ Debug files written: 5/5
+17:40:05 web.1     | WS_START sid=None mode=AI call_sid=None
+17:40:05 web.1     | 🎯 CONVERSATION READY (VAD threshold: 65)
+17:40:05 web.1     | 🎯 [CALL DEBUG] MediaStreamHandler.run() entered main loop
+17:40:05 web.1     | 🎯 [CALL DEBUG] START EVENT RECEIVED! call_sid will be extracted...
+17:40:05 web.1     | 
+17:40:05 web.1     | 📞 START EVENT (customParameters path):
+17:40:05 web.1     |    customParams.From: None
+17:40:05 web.1     |    customParams.CallFrom: None
+17:40:05 web.1     |    ✅ self.phone_number set to: 'None'
+17:40:05 web.1     |    ✅ self.to_number set to: '+97233763805'
+17:40:05 web.1     | 🎯 [T0=1764697205.371] WS_START sid=MZc3f36ad2f54e3d4ecd030939e45eb7ff call_sid=CAe68fbf3b171e1a36e54a340b1f1497eb from=None to=+97233763805 mode=AI
+17:40:05 web.1     | 🚀 [PARALLEL] Starting OpenAI at T0+0ms (BEFORE DB query!)
+17:40:05 web.1     | 🚀 [REALTIME] Thread started for call CAe68fbf (FRESH SESSION)
+17:40:05 web.1     | 🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY
+17:40:05 web.1     | ⏱️ [PARALLEL] Client created in 0ms📤 [REALTIME] Audio output bridge started
+17:40:05 web.1     | 🔌 [CALL DEBUG] Connecting to OpenAI: model=gpt-4o-realtime-preview, api_key_present=True
+17:40:05 web.1     | ⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number=+97233763805
+17:40:05 web.1     | 
+17:40:05 web.1     | ⚠️ Background thread 0 still running after timeout
+17:40:05 web.1     | ✅ מצא עסק: פרו סאס (id=1)
+17:40:05 web.1     | ⚡ COMBINED QUERY: biz+greeting+settings in 189ms
+17:40:05 web.1     |    bot_speaks_first=True, auto_end_goodbye=True
+17:40:05 web.1     | 🔍 [SETTINGS LOADED] required_lead_fields=['name', 'service_type', 'city']
+17:40:05 web.1     | 🔍 [SETTINGS LOADED] smart_hangup_enabled=True
+17:40:05 web.1     | 🔍 [SETTINGS LOADED] _call_settings_loaded=True (prevents duplicate load)
+17:40:05 web.1     | ⚡ DB QUERY: business_id=1 in 211ms
+17:40:05 web.1     | 🔊 TX_LOOP_START: Audio transmission thread started
+17:40:05 web.1     | 🎯 [T1=1764697205.590] STORING GREETING FOR REALTIME!🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=1, SID=CAe68fbf3b171e1a36e54a340b1f1497eb
+17:40:05 web.1     | 
+17:40:05 web.1     | ✅ [REALTIME] Greeting stored: 'שלום אני העוזרת הדיגטלית של קליבר, באיזה תחום תרצה...' (len=56)
+17:40:05 web.1     | 🚀 [PARALLEL] Signaling business info ready at T0+222ms
+17:40:05 web.1     | [REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=fe eb e5 e8 e9, rms=178
+17:40:05 web.1     | [REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=69 6a 6e 78 fc, rms=187
+17:40:05 web.1     | [REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=e5 e6 e8 eb ef, rms=393
+17:40:05 web.1     | 🎙️ REAL_VOICE: rms=393.0 > threshold=200.0
+17:40:05 web.1     | ⏱️ [PARALLEL] OpenAI connected in 241ms (T0+242ms)
+17:40:05 web.1     | ✅ [REALTIME] Connected to OpenAI using gpt-4o-realtime-preview (STANDARD)
+17:40:05 web.1     | ⏳ [PARALLEL] Waiting for business info from DB query...
+17:40:05 web.1     | ✅ [PARALLEL] Business info ready! Wait time: 4ms
+17:40:05 web.1     | ⏱️ [PARALLEL] Using greeting: 'שלום אני העוזרת הדיגטלית של קליבר, באיזה תחום תרצה...'
+17:40:05 web.1     | 🎤 [VOICE] Using voice=shimmer for entire call (business=1)
+17:40:05 web.1     | 🎤 [GREETING] max_tokens=200 for greeting length=56 chars
+17:40:05 web.1     | ⏱️ [PHASE 1] Session configured in 1ms (total: 246ms)
+17:40:05 web.1     | ✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice=shimmer
+17:40:05 web.1     | 🎤 [GREETING] Bot speaks first - triggering greeting at 1764697205.619
+17:40:05 web.1     | ✅ [BUILD 163] response.create sent! OpenAI=246ms, T0→speak=247ms
+17:40:05 web.1     | ⚠️ [CRM] No customer phone - skipping lead creation
+17:40:05 web.1     | 📤 [REALTIME] Audio sender started
+17:40:05 web.1     | 📥 [REALTIME] Audio receiver started
+17:40:05 web.1     | 📝 [REALTIME] Text sender started
+17:40:05 web.1     | ✅ CustomerIntelligence SUCCESS: customer_id=8, lead_id=86, was_created=False
+17:40:05 web.1     | [REALTIME] event: response.created
+17:40:05 web.1     | 🎯 [REALTIME] Response started: resp_CiOe5mBO9nWtRj1ViET3O
+17:40:05 web.1     | [REALTIME] event: input_audio_buffer.speech_started
+17:40:05 web.1     | 🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing
+17:40:05 web.1     | [REALTIME] event: response.done
+17:40:05 web.1     | ✅ Call log already exists for CAe68fbf3b171e1a36e54a340b1f1497eb
+17:40:05 web.1     | 🔍 AUTH DEBUG: user_id=9, role=owner, business_id=1, computed_tenant=1, impersonating=False
+17:40:05 web.1     | 🔔 /api/notifications - tenant_id=1, g.tenant=1
+17:40:05 web.1     | 🔔 Querying reminders for tenant_id=1, is_system_admin=False
+17:40:05 web.1     | 📏 [PROMPT] Final length: 3220 chars
+17:40:05 web.1     | ⏳ [PHASE 2] Waiting for greeting to finish before session.update...
+17:40:05 web.1     | ✅ Updated call_log with customer_id=8
+17:40:05 web.1     | 🔔 Found 0 reminders
+17:40:05 web.1     | INFO:     172.31.72.130:53770 - "GET /api/notifications HTTP/1.1" 200 OK
+17:40:06 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=11, voice_frames=0
+17:40:06 web.1     | ✅ Recording started for CAe68fbf3b171e1a36e54a340b1f1497eb: RE32373d845fc76685599f73b5250a6990
+17:40:06 web.1     | 🎛️ VAD CALIBRATED (noise=25.8, threshold=125.8)
+17:40:07 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=12, voice_frames=0
+17:40:07 web.1     | 🔇 [AUDIO GATE] Blocked 100 noise frames (rms=46)
+17:40:08 web.1     | ✅ CALL FINALIZED: CAfa103db713fcbf68c56d5c703f399190
+17:40:08 web.1     | 📝 Summary: ### סוג הפנייה והתחום:
+17:40:08 web.1     | פנייה בתחום השירותים, ספציפית בתחום החשמל, כאשר הלקוח מחפש חשמלאי בעיר רמלה.
+17:40:08 web.1     | 
+17:40:08 web.1     | ### פרטים ספציפיים:
+17:40:08 web.1     | - **שירות נדרש**: חשמלאי
+17:40:08 web.1     | - **מיקום**: רמלה
+17:40:08 web.1     | 
+17:40:08 web.1     | ### פרטי הלקוח:
+17:40:08 web.1     | - **שם**: Hashem Elayi
+17:40:08 web.1     | - **אמצעי התקשרות**: לא נמסרו בשיחה
+17:40:08 web.1     | 
+17:40:08 web.1     | ### סטטוס ומעקב:
+17:40:08 web.1     | - **פעולה**: בעל מקצוע מתאים יחזור ללקוח בדקות הקרובות.
+17:40:08 web.1     | - **דחיפות**: לא צוינה דחיפות, אך ניתן להניח כי מדובר בצורך מיידי.
+17:40:08 web.1     | - **פעולות נדרשות מהעסק**: לוודא שהחשמלאי ייצור קשר בהקדם עם הלקוח.
+17:40:08 web.1     | 
+17:40:08 web.1     | ### הערות חשובות:
+17:40:08 web.1     | חשוב לעקוב אחרי הפנייה ולוודא שהשירות מתבצע לשביעות רצון הלקוח. ניתן לשקול לשלוח הודעה מעקב לאחר שהחשמלאי יצר קשר.
+17:40:08 web.1     | 🎯 Intent: general_inquiry
+17:40:08 web.1     | 📊 Next Action: מעקב תוך 24 שעות
+17:40:08 web.1     | ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)
+17:40:08 web.1     | ✅ Background thread 4 completed
+17:40:08 web.1     | ✅ All background threads cleanup complete
+17:40:08 web.1     | 
+17:40:08 web.1     | ================================================================================
+17:40:08 web.1     | 💰💰💰 [CALL COST SUMMARY] 💰💰💰
+17:40:08 web.1     | ================================================================================
+17:40:08 web.1     | 📞 Model: gpt-4o-realtime-preview
+17:40:08 web.1     | ⏱️  Total duration: 37.7s (0.6 min)
+17:40:08 web.1     | 🎙️  Audio IN (user speaking): 295 chunks (0.098 min)
+17:40:08 web.1     |    └─ Cost: 0.098 min × $0.06/min = $0.0059
+17:40:08 web.1     | 🔊 Audio OUT (AI speaking): 102 chunks (0.034 min)
+17:40:08 web.1     |    └─ Cost: 0.034 min × $0.24/min = $0.0082
+17:40:08 web.1     | ────────────────────────────────────────────────────────────────────────────────
+17:40:08 web.1     | 💵 TOTAL COST: $0.0141 (≈ ₪0.05)
+17:40:08 web.1     | ================================================================================
+17:40:08 web.1     | 
+17:40:08 web.1     | WS_DONE sid=MZb9c9bc41538040f32966efec9e9da66c rx=1589 tx=915
+17:40:08 web.1     | ✅ MediaStreamHandler completed
+17:40:08 web.1     | ✅ Handler thread join completed
+17:40:08 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=1353, voice_frames=0
+17:40:08 web.1     | 🎙️ REAL_VOICE: rms=6858.0 > threshold=125.8
+17:40:09 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=7085, voice_frames=0
+17:40:10 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=2803, voice_frames=0
+17:40:11 web.1     | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=12, voice_frames=0
+17:40:11 web.1     | 📨 Received: stop
+17:40:11 web.1     | WS_STOP sid=MZc3f36ad2f54e3d4ecd030939e45eb7ff rx=319 tx=0
+17:40:11 web.1     | 📤 [REALTIME] Stop signal received
+17:40:11 web.1     | 📤 [REALTIME] Audio output bridge ended (sent 0 frames, 0 bytes)
+17:40:11 web.1     | 📤 [REALTIME] Audio sender ended
+17:40:11 web.1     | 📝 [REALTIME] Text sender ended
+17:40:11 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+17:40:11 web.1     | STREAM_ENDED call=CAe68fbf3b171e1a36e54a340b1f1497eb stream=N/A status=N/A
+17:40:11 web.1     | INFO:     172.31.72.130:53770 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+17:40:12 web.1     | ⚠️ DEV MODE: VALIDATE_TWILIO_SIGNATURE=false - signature validation skipped
+17:40:12 web.1     | INFO:     172.31.72.130:53770 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+17:40:12 web.1     | ✅ Found existing recording for CAe68fbf3b171e1a36e54a340b1f1497eb: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/RE32373d845fc76685599f73b5250a6990.json
+17:40:12 web.1     | 🧹 Waiting for 5 background threads...
+17:40:12 web.1     | ✅ CALL FINALIZED: CAe68fbf3b171e1a36e54a340b1f1497eb
+17:40:12 web.1     | 📝 Summary: שיחה קצרה
+17:40:12 web.1     | 🎯 Intent: general_inquiry
+17:40:12 web.1     | 📊 Next Action: מעקב תוך 24 שעות
+17:40:12 web.1     | ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)
+17:40:12 web.1     | ✅ Recording queued for processing: CAe68fbf3b171e1a36e54a340b1f1497eb
+17:40:12 web.1     | ❌ Receive error: (<CloseCode.NO_STATUS_RCVD: 1005>, '')
+17:40:12 web.1     | 🔧 receive_loop ended
+17:40:12 web.1     | INFO:     connection closed
+17:40:12 web.1     | 🔧 send_loop ended
+^[[B^[[B17:40:15 web.1     | ⚠️ Background thread 0 still running after timeout
+17:40:15 web.1     | ✅ All background threads cleanup complete
+17:40:15 web.1     | 
+17:40:15 web.1     | ================================================================================
+17:40:15 web.1     | 💰💰💰 [CALL COST SUMMARY] 💰💰💰
+17:40:15 web.1     | ================================================================================
+17:40:15 web.1     | 📞 Model: gpt-4o-realtime-preview
+17:40:15 web.1     | ⏱️  Total duration: 9.7s (0.2 min)
+17:40:15 web.1     | 🎙️  Audio IN (user speaking): 161 chunks (0.054 min)
+17:40:15 web.1     |    └─ Cost: 0.054 min × $0.06/min = $0.0032
+17:40:15 web.1     | 🔊 Audio OUT (AI speaking): 0 chunks (0.000 min)
+17:40:15 web.1     |    └─ Cost: 0.000 min × $0.24/min = $0.0000
+17:40:15 web.1     | ────────────────────────────────────────────────────────────────────────────────
+17:40:15 web.1     | 💵 TOTAL COST: $0.0032 (≈ ₪0.01)
+17:40:15 web.1     | ================================================================================
+17:40:15 web.1     | 
+17:40:15 web.1     | WS_DONE sid=MZc3f36ad2f54e3d4ecd030939e45eb7ff rx=319 tx=0
+17:40:15 web.1     | ✅ MediaStreamHandler completed
+17:40:15 web.1     | ✅ Handler thread join completed
+^[[B^[[B17:40:20 web.1     | ⚠️ [PHASE 2] Greeting still playing after 15.0s - proceeding anyway
+17:40:21 web.1     | ✅ [PHASE 2] Session updated with full prompt: 3220 chars, voice=shimmer locked
+^[[B^[[B17:40:25 web.1     | 🔍 AUTH DEBUG: user_id=9, role=owner, business_id=1, computed_tenant=1, impersonating=False
+17:40:25 web.1     | 🔔 /api/notifications - tenant_id=1, g.tenant=1
+17:40:25 web.1     | 🔔 Querying reminders for tenant_id=1, is_system_admin=False
+17:40:25 web.1     | 🔔 Found 0 reminders
