@@ -634,11 +634,11 @@ SR = 8000
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
 VAD_RMS = int(os.getenv("VAD_RMS", "150"))                  # 🔥 BUILD 164B: 150 - balanced threshold
-# 🔥 BALANCED NOISE THRESHOLDS - filter noise while allowing normal speech (180-500 RMS typical)
-RMS_SILENCE_THRESHOLD = 120      # Below this = pure noise only (was 350, too high)
-MIN_SPEECH_RMS = 200             # Speech detection threshold (was 600, too high - speech is 180-500)
-MIN_SPEECH_DURATION_MS = 220     # 220ms continuous speech for detection (was 280)
-NOISE_HOLD_MS = 150              # Grace period for noise tolerance
+# 🔥 CONFIGURABLE NOISE THRESHOLDS - filter noise while allowing normal speech (180-500 RMS typical)
+RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "120"))      # Below this = pure noise
+MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "200"))                    # Speech detection threshold
+MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "220"))    # Continuous speech for detection
+NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                      # Grace period for noise tolerance
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 164B: 150ms (balanced)
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
