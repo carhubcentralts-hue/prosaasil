@@ -820,6 +820,12 @@ class MediaStreamHandler:
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
         
+        # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
+        self._consecutive_ai_responses = 0
+        self._max_consecutive_ai_responses = 3  # Block after 3 AI responses without user input
+        self._last_user_transcript_ts = None
+        self._loop_guard_engaged = False  # 🛑 When True, ALL AI audio is blocked
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
@@ -1434,6 +1440,11 @@ class MediaStreamHandler:
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
+                        # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
+                        if self._loop_guard_engaged:
+                            # Silently drop audio - don't even log each frame
+                            continue
+                        
                         # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
                         if self.greeting_sent and not self.user_has_spoken:
                             print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
@@ -1596,6 +1607,46 @@ class MediaStreamHandler:
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
+                        # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses
+                        self._consecutive_ai_responses += 1
+                        if self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
+                            print(f"⚠️ [LOOP GUARD] AI responded {self._consecutive_ai_responses} times without user input!")
+                            print(f"🛑 [LOOP GUARD] BLOCKING further responses until user speaks!")
+                            # 🛑 ENGAGE GUARD FIRST - before any other operations to prevent race conditions
+                            self._loop_guard_engaged = True
+                            # Cancel any pending response
+                            if self.active_response_id and self.realtime_client:
+                                try:
+                                    await client.send_event({"type": "response.cancel"})
+                                    print(f"🛑 [LOOP GUARD] Cancelled pending AI response")
+                                except:
+                                    pass
+                            # Clear OpenAI audio queue
+                            try:
+                                while not self.realtime_audio_out_queue.empty():
+                                    self.realtime_audio_out_queue.get_nowait()
+                            except:
+                                pass
+                            # 🔥 CRITICAL: Also clear Twilio TX queue to stop any audio in flight!
+                            try:
+                                while not self.tx_q.empty():
+                                    self.tx_q.get_nowait()
+                                print(f"🛑 [LOOP GUARD] Cleared TX queue")
+                            except:
+                                pass
+                            # Send clear to Twilio to stop playback (allowed through guard)
+                            try:
+                                # Temporarily disengage to send clear, then re-engage
+                                self._loop_guard_engaged = False
+                                self._tx_enqueue({"type": "clear"})
+                                self._loop_guard_engaged = True
+                                print(f"🛑 [LOOP GUARD] Sent clear to Twilio")
+                            except:
+                                self._loop_guard_engaged = True  # Ensure guard remains engaged
+                            # Mark AI as not speaking
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
+                        
                         # 💰 COST TRACKING: AI finished speaking - stop timer
                         if hasattr(self, '_ai_speech_start') and self._ai_speech_start is not None:
                             ai_duration = time.time() - self._ai_speech_start
@@ -1677,6 +1728,14 @@ class MediaStreamHandler:
                     
                     # Mark that the user really spoke at least once
                     self.user_has_spoken = True
+                    
+                    # 🔥 BUILD 165: LOOP PREVENTION - Reset counter when user speaks
+                    self._consecutive_ai_responses = 0
+                    self._last_user_transcript_ts = time.time()
+                    # 🛑 DISENGAGE LOOP GUARD - user spoke, allow AI to respond again
+                    if self._loop_guard_engaged:
+                        print(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
+                        self._loop_guard_engaged = False
                     
                     # 💰 COST TRACKING: User finished speaking - stop timer  
                     if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
@@ -1811,6 +1870,11 @@ class MediaStreamHandler:
             if "appointment_created" in message_text:
                 print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
                 print(f"🔔 [APPOINTMENT] Message content: {message_text}")
+            
+            # 🔥 BUILD 165: LOOP GUARD - Block if engaged or too many consecutive responses
+            if self._loop_guard_engaged or self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
+                print(f"🛑 [LOOP GUARD] Blocking response.create (engaged={self._loop_guard_engaged}, consecutive={self._consecutive_ai_responses})")
+                return
             
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
             if not self.active_response_id and not self.response_pending_event.is_set():
@@ -2936,6 +3000,31 @@ class MediaStreamHandler:
                     # This prevents Whisper/Realtime from hallucinating on background noise
                     is_noise = rms < RMS_SILENCE_THRESHOLD  # 120 RMS = pure noise
                     
+                    # 🔥 BUILD 165: MUSIC DETECTION - Block music/songs that have high RMS but aren't speech
+                    # Music typically has: high RMS, high variance, but SUSTAINED energy (no speech-like pauses)
+                    is_music = False
+                    if not is_noise and rms > 200:
+                        # Track sustained high-energy frames (music signature)
+                        if not hasattr(self, '_sustained_energy_frames'):
+                            self._sustained_energy_frames = 0
+                            self._last_high_energy_rms = 0
+                        
+                        # If RMS is consistently high without speech-like pauses, likely music
+                        if rms > 300:  # Very high energy
+                            self._sustained_energy_frames += 1
+                            self._last_high_energy_rms = rms
+                            
+                            # 50 frames = 1 second of sustained high energy = likely music
+                            if self._sustained_energy_frames > 50:
+                                is_music = True
+                                # Log every 100 frames
+                                if self._sustained_energy_frames % 100 == 0:
+                                    print(f"🎵 [MUSIC GATE] Blocking sustained high-energy audio: {self._sustained_energy_frames} frames, rms={rms:.0f}")
+                        else:
+                            # Normal speech has pauses - reset counter
+                            if self._sustained_energy_frames > 0:
+                                self._sustained_energy_frames = max(0, self._sustained_energy_frames - 5)
+                    
                     # 🔥 BUILD 165: CALIBRATION MUST RUN FOR ALL FRAMES (even noise!)
                     # This ensures VAD thresholds stay accurate
                     if not self.is_calibrated:
@@ -2962,8 +3051,8 @@ class MediaStreamHandler:
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        # 🔥 BUILD 165: ONLY send audio above noise threshold!
-                        if not is_noise:
+                        # 🔥 BUILD 165: ONLY send audio above noise threshold AND not music!
+                        if not is_noise and not is_music:
                             try:
                                 # 🔍 DEBUG: Log first few frames from Twilio
                                 if not hasattr(self, '_twilio_audio_chunks_sent'):
@@ -2978,13 +3067,14 @@ class MediaStreamHandler:
                             except queue.Full:
                                 pass
                         else:
-                            # 🔥 Log noise rejection for debugging
+                            # 🔥 Log noise/music rejection for debugging
                             if not hasattr(self, '_noise_reject_count'):
                                 self._noise_reject_count = 0
                             self._noise_reject_count += 1
                             # Log every 100 rejected frames
                             if self._noise_reject_count % 100 == 0:
-                                print(f"🔇 [NOISE GATE] Blocked {self._noise_reject_count} noise frames (last rms={rms:.0f})")
+                                reason = "music" if is_music else "noise"
+                                print(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} {reason} frames (rms={rms:.0f})")
                     # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
                     elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)
@@ -3933,6 +4023,12 @@ class MediaStreamHandler:
         ⚡ BUILD 115.1: Enqueue with drop-oldest policy
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         """
+        # 🛑 BUILD 165: LOOP GUARD - Block all audio except "clear" when engaged
+        if self._loop_guard_engaged:
+            if isinstance(item, dict) and item.get("type") == "clear":
+                pass  # Allow clear commands through
+            else:
+                return  # Silently drop all other audio
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
