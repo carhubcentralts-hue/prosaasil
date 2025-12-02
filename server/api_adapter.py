@@ -62,14 +62,37 @@ def dashboard_stats():
         if not tenant_id:
             return jsonify({"error": "No tenant access"}), 403
         
-        # Get today's data
+        # Get time filter from query params (default: today)
+        time_filter = request.args.get('time_filter', 'today')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # Calculate date range based on filter
         today = datetime.utcnow().date()
+        now = datetime.utcnow()
+        
+        if time_filter == 'custom' and start_date and end_date:
+            date_start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            date_end = datetime.strptime(end_date, '%Y-%m-%d').date()
+        elif time_filter == '7days' or time_filter == 'week':
+            date_start = today - timedelta(days=7)
+            date_end = today
+        elif time_filter == 'month' or time_filter == '30days':
+            date_start = today - timedelta(days=30)
+            date_end = today
+        else:  # today or default
+            date_start = today
+            date_end = today
+        
         week_ago = today - timedelta(days=7)
         
-        # BUILD 135: Calls stats - FILTERED by tenant_id
-        calls_today = CallLog.query.filter(
+        # BUILD 135: Calls stats - FILTERED by tenant_id and date range
+        from sqlalchemy import func as sql_func
+        
+        calls_in_range = CallLog.query.filter(
             CallLog.business_id == tenant_id,
-            db.func.date(CallLog.created_at) == today
+            db.func.date(CallLog.created_at) >= date_start,
+            db.func.date(CallLog.created_at) <= date_end
         ).count()
         
         calls_last7d = CallLog.query.filter(
@@ -81,11 +104,11 @@ def dashboard_stats():
         avg_handle_sec = 0
         
         # BUILD 156: WhatsApp stats - COUNT UNIQUE CHATS (not messages)
-        # Count distinct phone numbers that had conversations today
-        from sqlalchemy import func as sql_func
-        whatsapp_today = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
+        # Count distinct phone numbers that had conversations in date range
+        whatsapp_in_range = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
             WhatsAppMessage.business_id == tenant_id,
-            db.func.date(WhatsAppMessage.created_at) == today
+            db.func.date(WhatsAppMessage.created_at) >= date_start,
+            db.func.date(WhatsAppMessage.created_at) <= date_end
         ).scalar() or 0
         
         # Count distinct phone numbers that had conversations in last 7 days
@@ -114,18 +137,23 @@ def dashboard_stats():
         
         return jsonify({
             "calls": {
-                "today": calls_today,
+                "today": calls_in_range,
                 "last7d": calls_last7d,
                 "avgHandleSec": avg_handle_sec
             },
             "whatsapp": {
-                "today": whatsapp_today,
+                "today": whatsapp_in_range,
                 "last7d": whatsapp_last7d,
                 "unread": unread
             },
             "revenue": {
                 "thisMonth": revenue_this_month,
                 "ytd": revenue_ytd
+            },
+            "filter": {
+                "type": time_filter,
+                "start": str(date_start),
+                "end": str(date_end)
             }
         })
         
@@ -143,19 +171,44 @@ def dashboard_activity():
         if not tenant_id:
             return jsonify({"error": "No tenant access"}), 403
         
-        # BUILD 135: Get recent WhatsApp messages - FILTERED by tenant_id
-        recent_whatsapp = WhatsAppMessage.query.filter_by(
-            business_id=tenant_id
+        # Get time filter from query params
+        time_filter = request.args.get('time_filter', 'today')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # Calculate date range
+        today = datetime.utcnow().date()
+        
+        if time_filter == 'custom' and start_date and end_date:
+            date_start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            date_end = datetime.strptime(end_date, '%Y-%m-%d').date()
+        elif time_filter == '7days' or time_filter == 'week':
+            date_start = today - timedelta(days=7)
+            date_end = today
+        elif time_filter == 'month' or time_filter == '30days':
+            date_start = today - timedelta(days=30)
+            date_end = today
+        else:  # today or default
+            date_start = today
+            date_end = today
+        
+        # BUILD 135: Get recent WhatsApp messages - FILTERED by tenant_id and date
+        recent_whatsapp = WhatsAppMessage.query.filter(
+            WhatsAppMessage.business_id == tenant_id,
+            db.func.date(WhatsAppMessage.created_at) >= date_start,
+            db.func.date(WhatsAppMessage.created_at) <= date_end
         ).order_by(
             WhatsAppMessage.created_at.desc()
-        ).limit(10).all()
+        ).limit(20).all()
         
-        # BUILD 135: Get recent calls - FILTERED by tenant_id
-        recent_calls = CallLog.query.filter_by(
-            business_id=tenant_id
+        # BUILD 135: Get recent calls - FILTERED by tenant_id and date
+        recent_calls = CallLog.query.filter(
+            CallLog.business_id == tenant_id,
+            db.func.date(CallLog.created_at) >= date_start,
+            db.func.date(CallLog.created_at) <= date_end
         ).order_by(
             CallLog.created_at.desc()
-        ).limit(10).all()
+        ).limit(20).all()
         
         activities = []
         

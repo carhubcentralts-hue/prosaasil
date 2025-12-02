@@ -1,6 +1,13 @@
 // business dashboard API functions
 import { http } from '../../services/http';
 
+export type TimeFilter = 'today' | '7days' | '30days' | 'custom';
+
+export interface DateRange {
+  from: Date;
+  to: Date;
+}
+
 export interface BusinessDashboardStats {
   calls: {
     today: number;
@@ -15,6 +22,11 @@ export interface BusinessDashboardStats {
   revenue: {
     thisMonth: number;
     ytd: number;
+  };
+  filter?: {
+    type: string;
+    start: string;
+    end: string;
   };
 }
 
@@ -31,12 +43,28 @@ export interface BusinessActivityResponse {
 }
 
 export const businessApi = {
-  getDashboardStats: async (): Promise<BusinessDashboardStats> => {
-    return await http.get<BusinessDashboardStats>('/api/dashboard/stats');
+  getDashboardStats: async (timeFilter: TimeFilter = 'today', dateRange?: DateRange): Promise<BusinessDashboardStats> => {
+    const params = new URLSearchParams();
+    params.append('time_filter', timeFilter);
+    
+    if (timeFilter === 'custom' && dateRange) {
+      params.append('start_date', dateRange.from.toISOString().split('T')[0]);
+      params.append('end_date', dateRange.to.toISOString().split('T')[0]);
+    }
+    
+    return await http.get<BusinessDashboardStats>(`/api/dashboard/stats?${params.toString()}`);
   },
   
-  getDashboardActivity: async (): Promise<BusinessActivity[]> => {
-    const response = await http.get<BusinessActivityResponse>('/api/dashboard/activity');
+  getDashboardActivity: async (timeFilter: TimeFilter = 'today', dateRange?: DateRange): Promise<BusinessActivity[]> => {
+    const params = new URLSearchParams();
+    params.append('time_filter', timeFilter);
+    
+    if (timeFilter === 'custom' && dateRange) {
+      params.append('start_date', dateRange.from.toISOString().split('T')[0]);
+      params.append('end_date', dateRange.to.toISOString().split('T')[0]);
+    }
+    
+    const response = await http.get<BusinessActivityResponse>(`/api/dashboard/activity?${params.toString()}`);
     return response.items || [];
   }
 };

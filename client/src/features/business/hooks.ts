@@ -1,9 +1,9 @@
 // business dashboard hooks for data fetching
 import { useState, useEffect, useCallback } from 'react';
-import { businessApi, type BusinessDashboardStats, type BusinessActivity } from './api';
+import { businessApi, type BusinessDashboardStats, type BusinessActivity, type TimeFilter, type DateRange } from './api';
 import { useAuth } from '../auth/hooks';
 
-export const useBusinessDashboard = () => {
+export const useBusinessDashboard = (timeFilter: TimeFilter = 'today', dateRange?: DateRange) => {
   const { user, tenant, impersonating } = useAuth();
   const [stats, setStats] = useState<BusinessDashboardStats | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
@@ -14,11 +14,11 @@ export const useBusinessDashboard = () => {
   const [activityError, setActivityError] = useState<Error | null>(null);
   
   const fetchStats = useCallback(async () => {
-    console.log('🔍 Fetching dashboard stats...', { user: user?.email, tenant: tenant?.name, impersonating });
+    console.log('🔍 Fetching dashboard stats...', { user: user?.email, tenant: tenant?.name, timeFilter });
     setIsLoadingStats(true);
     setStatsError(null);
     try {
-      const result = await businessApi.getDashboardStats();
+      const result = await businessApi.getDashboardStats(timeFilter, dateRange);
       console.log('✅ Dashboard stats loaded:', result);
       setStats(result);
     } catch (err) {
@@ -27,14 +27,14 @@ export const useBusinessDashboard = () => {
     } finally {
       setIsLoadingStats(false);
     }
-  }, [user, tenant, impersonating]);
+  }, [user, tenant, impersonating, timeFilter, dateRange]);
   
   const fetchActivity = useCallback(async () => {
-    console.log('🔍 Fetching dashboard activity...', { user: user?.email, tenant: tenant?.name, impersonating });
+    console.log('🔍 Fetching dashboard activity...', { user: user?.email, tenant: tenant?.name, timeFilter });
     setIsLoadingActivity(true);
     setActivityError(null);
     try {
-      const result = await businessApi.getDashboardActivity();
+      const result = await businessApi.getDashboardActivity(timeFilter, dateRange);
       console.log('✅ Dashboard activity loaded:', result);
       setActivity(result);
     } catch (err) {
@@ -43,28 +43,16 @@ export const useBusinessDashboard = () => {
     } finally {
       setIsLoadingActivity(false);
     }
-  }, [user, tenant, impersonating]);
+  }, [user, tenant, impersonating, timeFilter, dateRange]);
   
-  // Re-fetch when auth state changes (important for impersonation!)
+  // Re-fetch when auth state or time filter changes
   useEffect(() => {
-    console.log('🔍 useBusinessDashboard useEffect triggered:', { 
-      user: user?.email, 
-      tenant: tenant?.name, 
-      impersonating,
-      hasUser: !!user,
-      hasTenant: !!tenant,
-      willFetch: !!(user && tenant)
-    });
-    
-    if (user && tenant) {  // Only fetch when we have auth state
-      console.log('🔄 Auth state changed, re-fetching dashboard data...', { impersonating, tenant: tenant.name });
-      // Fire both in parallel (each handles its own errors and loading state)
+    if (user && tenant) {
+      console.log('🔄 Fetching dashboard data...', { timeFilter, tenant: tenant.name });
       fetchStats();
       fetchActivity();
-    } else {
-      console.log('⚠️ Not fetching dashboard data - missing auth state:', { user: !!user, tenant: !!tenant });
     }
-  }, [user, tenant, impersonating, fetchStats, fetchActivity]);
+  }, [user, tenant, impersonating, timeFilter, dateRange, fetchStats, fetchActivity]);
   
   const refetch = useCallback(() => {
     fetchStats();
@@ -81,3 +69,5 @@ export const useBusinessDashboard = () => {
     refetch
   };
 };
+
+export { type TimeFilter, type DateRange } from './api';
