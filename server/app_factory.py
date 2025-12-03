@@ -261,6 +261,7 @@ def create_app():
     
     # CORS with security restrictions - SECURE: regex patterns work in Flask-CORS
     # BUILD 143: All origins unified - no more IS_PREVIEW checks
+    # BUILD 177: Support external domains via CORS_ALLOWED_ORIGINS env var
     cors_origins = [
         "http://localhost:5000",
         "http://localhost:3000",
@@ -269,6 +270,16 @@ def create_app():
         r"^https://[\w-]+\.replit\.app$",    # Regex pattern for *.replit.app
         r"^https://[\w-]+\.replit\.dev$"     # Regex pattern for *.replit.dev
     ]
+    
+    # Add external origins from environment variable (comma-separated)
+    # Example: CORS_ALLOWED_ORIGINS=https://myapp.contabo.com,https://api.example.com
+    external_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    if external_origins:
+        for origin in external_origins.split(","):
+            origin = origin.strip()
+            if origin:
+                cors_origins.append(origin)
+                app.logger.info(f"[CORS] Added external origin: {origin}")
     
     CORS(app, 
          origins=cors_origins,
