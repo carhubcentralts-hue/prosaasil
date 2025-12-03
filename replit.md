@@ -34,7 +34,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Voice Call Quality Improvements**: Includes barge-in protection, STT segment merging, enhanced noise filtering, gibberish detection, semantic loop detection, and mishearing protection.
 - **Silence Hallucination Prevention**: Stricter VAD thresholds, low-RMS gate, and a three-layer defense combining RMS gating, consecutive frames, and a post-AI cooldown.
 - **Hebrew Grammar & Natural Speech**: Improved system prompt, Hebrew normalization dictionary, expanded whitelist for valid speech, smarter filter logic, phrase detection, and language switch rules.
-- **Call Control State Machine**: Implemented with WARMUP/ACTIVE/CLOSING/ENDED states for controlled call lifecycle management, silence monitoring, and functional hangup settings.
+- **Call Control State Machine (BUILD 172)**: Single source of truth for all call settings. CallState enum (WARMUP/ACTIVE/CLOSING/ENDED) manages lifecycle. load_call_config() loads BusinessSettings once per call. All settings (bot_speaks_first, auto_end_*, silence_timeout, etc.) read from CallConfig only. Legacy `_load_call_behavior_settings()` removed. Safety guards ensure ACTIVE state on first speech. Silence monitoring with configurable warnings and polite hangup.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

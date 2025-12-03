@@ -1080,21 +1080,22 @@ class MediaStreamHandler:
         self._silence_warning_count = 0  # How many "are you there?" warnings sent
         self._silence_check_task = None  # Background task for silence monitoring
         
-        # 🎯 SMART CALL CONTROL: Call behavior settings (loaded from CallConfig)
-        self.bot_speaks_first = False  # If True, bot plays greeting before listening
-        self.auto_end_after_lead_capture = False  # If True, hang up after lead details collected
-        self.auto_end_on_goodbye = False  # If True, hang up when customer says goodbye
-        self.lead_captured = False  # Tracks if all required lead info is collected
-        self.goodbye_detected = False  # Tracks if goodbye phrase detected
-        self.pending_hangup = False  # Signals that call should end after current TTS
-        self.hangup_triggered = False  # Prevents multiple hangup attempts
-        self.greeting_completed_at = None  # 🔥 PROTECTION: Timestamp when greeting finished
-        self.min_call_duration_after_greeting_ms = 3000  # 🔥 PROTECTION: Don't hangup for 3s after greeting
-        # 🎯 SMART HANGUP: Configurable call control (loaded from BusinessSettings)
-        self.silence_timeout_sec = 15  # Seconds of silence before "are you there?"
-        self.silence_max_warnings = 2  # How many warnings before polite hangup
-        self.smart_hangup_enabled = True  # AI-driven hangup based on context, not keywords
-        self.required_lead_fields = ['name', 'phone']  # Fields that must be collected
+        # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
+        # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
+        # Do NOT modify these directly - always use self.call_config for the authoritative values
+        self.bot_speaks_first = False  # Default: wait for user - overwritten by CallConfig
+        self.auto_end_after_lead_capture = False  # Default: don't auto-end - overwritten by CallConfig
+        self.auto_end_on_goodbye = False  # Default: don't auto-end - overwritten by CallConfig
+        self.lead_captured = False  # Runtime state: tracks if all required lead info is collected
+        self.goodbye_detected = False  # Runtime state: tracks if goodbye phrase detected
+        self.pending_hangup = False  # Runtime state: signals that call should end after current TTS
+        self.hangup_triggered = False  # Runtime state: prevents multiple hangup attempts
+        self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
+        self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
+        self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
+        self.silence_max_warnings = 2  # Default - overwritten by CallConfig
+        self.smart_hangup_enabled = True  # Default - overwritten by CallConfig
+        self.required_lead_fields = ['name', 'phone']  # Default - overwritten by CallConfig
         # 🎯 DYNAMIC LEAD CAPTURE STATE: Tracks ALL captured fields from conversation
         # Updated by _update_lead_capture_state() from AI responses and DTMF
         self.lead_capture_state = {}  # e.g., {'name': 'דני', 'city': 'תל אביב', 'service_type': 'ניקיון'}
@@ -1263,6 +1264,8 @@ class MediaStreamHandler:
         # 🔥 BUILD 172: Ensure CallConfig is set with defaults
         if not hasattr(self, 'call_config') or self.call_config is None:
             self.call_config = CallConfig(
+                business_id=self.business_id,
+                business_name=getattr(self, 'business_name', "העסק"),
                 bot_speaks_first=self.bot_speaks_first,
                 auto_end_after_lead_capture=self.auto_end_after_lead_capture,
                 auto_end_on_goodbye=self.auto_end_on_goodbye,
@@ -1272,7 +1275,7 @@ class MediaStreamHandler:
                 required_lead_fields=self.required_lead_fields,
                 closing_sentence="תודה רבה שהתקשרת! יום נפלא!"
             )
-            print(f"🔒 [DEFAULTS] Created fallback CallConfig")
+            print(f"🔒 [DEFAULTS] Created fallback CallConfig for business={self.business_id}")
         
         # Force bot_speaks_first on error/timeout paths
         if force_greeting:
@@ -5435,79 +5438,9 @@ class MediaStreamHandler:
             print(f"❌ Traceback: {traceback.format_exc()}")
             return None
 
-    def _load_call_behavior_settings(self):
-        """
-        🎯 SMART CALL CONTROL: Load call behavior settings from BusinessSettings
-        - bot_speaks_first: Bot plays greeting before listening
-        - auto_end_after_lead_capture: Hang up after all lead details collected
-        - auto_end_on_goodbye: Hang up when customer says goodbye
-        - silence_timeout_sec: Seconds of silence before asking "are you there?"
-        - silence_max_warnings: How many silence warnings before polite hangup
-        - smart_hangup_enabled: AI-driven hangup based on context, not keywords
-        - required_lead_fields: Which fields must be collected before allowing hangup
-        
-        🔥 BUILD FIX: Uses _call_settings_loaded flag to prevent duplicate loading
-        """
-        if not self.business_id:
-            print(f"⚠️ [SMART CALL] No business_id - using default call behavior settings")
-            return
-        
-        # 🔥 CHECK: Were settings already loaded by _identify_business_and_get_greeting()?
-        if getattr(self, '_call_settings_loaded', False):
-            print(f"✅ [SMART CALL] Settings already loaded (_call_settings_loaded=True) - skipping duplicate load")
-            print(f"   Current: silence_timeout={self.silence_timeout_sec}s, required_fields={self.required_lead_fields}")
-            return
-        
-        try:
-            from server.models_sql import BusinessSettings
-            import json
-            
-            app = _get_flask_app()
-            with app.app_context():
-                settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
-                
-                if settings:
-                    self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
-                    # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
-                    if self.bot_speaks_first:
-                        self.is_playing_greeting = True
-                        print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
-                    self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
-                    self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
-                    # 🎯 SMART HANGUP: Load configurable call control settings
-                    self.silence_timeout_sec = getattr(settings, 'silence_timeout_sec', 15) or 15
-                    self.silence_max_warnings = getattr(settings, 'silence_max_warnings', 2) or 2
-                    self.smart_hangup_enabled = getattr(settings, 'smart_hangup_enabled', True)
-                    if self.smart_hangup_enabled is None:
-                        self.smart_hangup_enabled = True
-                    # Load required lead fields - JSON column returns list directly
-                    required_fields = getattr(settings, 'required_lead_fields', None)
-                    if required_fields and isinstance(required_fields, list):
-                        self.required_lead_fields = required_fields
-                    # 🔥 FIX: Don't overwrite with default if DB has empty list - empty is valid!
-                    # Only use default if truly None/missing
-                    elif required_fields is None:
-                        self.required_lead_fields = ['name', 'phone']
-                    # else: keep whatever was loaded before
-                    
-                    # 🔥 CRITICAL: Mark settings as loaded to prevent future duplicate loading
-                    self._call_settings_loaded = True
-                    
-                    print(f"✅ [SMART CALL] Call behavior loaded for business {self.business_id}:")
-                    print(f"   bot_speaks_first={self.bot_speaks_first}")
-                    print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}")
-                    print(f"   auto_end_on_goodbye={self.auto_end_on_goodbye}")
-                    print(f"   silence_timeout={self.silence_timeout_sec}s, max_warnings={self.silence_max_warnings}")
-                    print(f"   smart_hangup_enabled={self.smart_hangup_enabled}")
-                    print(f"   required_lead_fields={self.required_lead_fields}")
-                else:
-                    # 🔥 FIX: Only set defaults if values weren't previously loaded
-                    print(f"⚠️ [SMART CALL] No BusinessSettings for business {self.business_id}")
-                    # Don't overwrite existing values - keep what __init__ set
-        except Exception as e:
-            print(f"❌ [SMART CALL] Error loading call behavior settings: {e}")
-            import traceback
-            traceback.print_exc()
+    # 🔥 BUILD 172 CLEANUP: _load_call_behavior_settings() REMOVED
+    # All call settings now loaded via single source of truth: load_call_config(business_id)
+    # This function was duplicating the loading logic and has been removed.
 
     async def _fallback_hangup_after_timeout(self, timeout_seconds: int, trigger_type: str):
         """
