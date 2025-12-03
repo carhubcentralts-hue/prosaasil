@@ -1858,7 +1858,9 @@ ALWAYS mention their name in the first sentence.
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
-                        if self._loop_guard_engaged:
+                        # 🔥 BUILD 178: Disabled for outbound calls
+                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                        if self._loop_guard_engaged and not is_outbound:
                             # Silently drop audio - don't even log each frame
                             continue
                         
@@ -2090,16 +2092,20 @@ ALWAYS mention their name in the first sentence.
                         # 1. Too many consecutive AI responses AND user silent for >8s, OR
                         # 2. AI is semantically repeating itself (long responses only), OR
                         # 3. AI has been confused 3+ times in a row (BUILD 170.3: back to 3)
-                        # 🔥 BUILD 178: More lenient for outbound calls (user might not have answered yet)
+                        # 🔥 BUILD 178: COMPLETELY DISABLE loop guard for outbound calls!
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                        max_consecutive = 8 if is_outbound else self._max_consecutive_ai_responses  # 8 for outbound, 5 for inbound
-                        min_repeats_for_guard = 5 if is_outbound else 3  # More lenient for outbound
                         
-                        should_engage_guard = (
-                            (self._consecutive_ai_responses >= max_consecutive and user_silent_long_time) or
-                            (is_repeating and self._consecutive_ai_responses >= min_repeats_for_guard) or
-                            self._mishearing_count >= 3  # 🔥 BUILD 170.3: Back to 3 for less blocking
-                        )
+                        if is_outbound:
+                            # 🔥 OUTBOUND: Never engage loop guard - let AI talk freely
+                            should_engage_guard = False
+                        else:
+                            # INBOUND: Normal loop guard logic
+                            max_consecutive = self._max_consecutive_ai_responses
+                            should_engage_guard = (
+                                (self._consecutive_ai_responses >= max_consecutive and user_silent_long_time) or
+                                (is_repeating and self._consecutive_ai_responses >= 3) or
+                                self._mishearing_count >= 3
+                            )
                         
                         if should_engage_guard:
                             guard_reason = "consecutive_responses" if self._consecutive_ai_responses >= self._max_consecutive_ai_responses else \
@@ -2638,12 +2644,13 @@ ALWAYS mention their name in the first sentence.
                 print(f"🔔 [APPOINTMENT] Message content: {message_text}")
             
             # 🔥 BUILD 165: LOOP GUARD - Block if engaged or too many consecutive responses
-            # 🔥 BUILD 178: More lenient for outbound calls
+            # 🔥 BUILD 178: COMPLETELY DISABLED for outbound calls!
             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-            max_consecutive = 8 if is_outbound else self._max_consecutive_ai_responses
-            if self._loop_guard_engaged or self._consecutive_ai_responses >= max_consecutive:
-                print(f"🛑 [LOOP GUARD] Blocking response.create (engaged={self._loop_guard_engaged}, consecutive={self._consecutive_ai_responses}, max={max_consecutive})")
-                return
+            if not is_outbound:
+                # INBOUND only: Check loop guard
+                if self._loop_guard_engaged or self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
+                    print(f"🛑 [LOOP GUARD] Blocking response.create (engaged={self._loop_guard_engaged}, consecutive={self._consecutive_ai_responses})")
+                    return
             
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
             if not self.active_response_id and not self.response_pending_event.is_set():
@@ -4734,7 +4741,9 @@ ALWAYS mention their name in the first sentence.
         If queue is full, drop oldest frame and insert new one (Real-time > past)
         """
         # 🛑 BUILD 165: LOOP GUARD - Block all audio except "clear" when engaged
-        if self._loop_guard_engaged:
+        # 🔥 BUILD 178: Disabled for outbound calls
+        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+        if self._loop_guard_engaged and not is_outbound:
             if isinstance(item, dict) and item.get("type") == "clear":
                 pass  # Allow clear commands through
             else:
@@ -5458,14 +5467,30 @@ ALWAYS mention their name in the first sentence.
                     # 🔥 BUILD 172: Load CallConfig with all settings
                     self.call_config = load_call_config(self.business_id)
                     
-                    # Copy config values to instance variables for backward compatibility
-                    self.bot_speaks_first = self.call_config.bot_speaks_first
-                    self.auto_end_after_lead_capture = self.call_config.auto_end_after_lead_capture
-                    self.auto_end_on_goodbye = self.call_config.auto_end_on_goodbye
-                    self.silence_timeout_sec = self.call_config.silence_timeout_sec
-                    self.silence_max_warnings = self.call_config.silence_max_warnings
-                    self.smart_hangup_enabled = self.call_config.smart_hangup_enabled
-                    self.required_lead_fields = self.call_config.required_lead_fields
+                    # 🔥 BUILD 178: OUTBOUND CALLS - Disable all call control settings!
+                    # Outbound calls should ONLY follow the AI prompt, not call control settings
+                    if call_direction == 'outbound':
+                        print(f"📤 [OUTBOUND] Disabling all call control settings - AI follows prompt only!")
+                        # Force settings that won't interfere with outbound calls
+                        self.bot_speaks_first = True  # AI always speaks first in outbound
+                        self.auto_end_after_lead_capture = False  # Don't auto-end
+                        self.auto_end_on_goodbye = False  # Don't auto-end on goodbye
+                        self.silence_timeout_sec = 120  # Very long timeout (2 min)
+                        self.silence_max_warnings = 0  # No silence warnings
+                        self.smart_hangup_enabled = False  # Disable smart hangup
+                        self.required_lead_fields = []  # No required fields
+                        self._loop_guard_engaged = False  # Ensure loop guard is off
+                        self._max_consecutive_ai_responses = 20  # Very high limit
+                        print(f"   ✓ auto_end=OFF, silence_timeout=120s, smart_hangup=OFF, loop_guard_max=20")
+                    else:
+                        # Copy config values to instance variables for backward compatibility (INBOUND only)
+                        self.bot_speaks_first = self.call_config.bot_speaks_first
+                        self.auto_end_after_lead_capture = self.call_config.auto_end_after_lead_capture
+                        self.auto_end_on_goodbye = self.call_config.auto_end_on_goodbye
+                        self.silence_timeout_sec = self.call_config.silence_timeout_sec
+                        self.silence_max_warnings = self.call_config.silence_max_warnings
+                        self.smart_hangup_enabled = self.call_config.smart_hangup_enabled
+                        self.required_lead_fields = self.call_config.required_lead_fields
                     
                     # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
                     if self.bot_speaks_first:
