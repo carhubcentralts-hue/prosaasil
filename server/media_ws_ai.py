@@ -2106,11 +2106,18 @@ ALWAYS mention their name in the first sentence.
                         # 2. AI is semantically repeating itself (long responses only), OR
                         # 3. AI has been confused 3+ times in a row (BUILD 170.3: back to 3)
                         # 🔥 BUILD 178: COMPLETELY DISABLE loop guard for outbound calls!
+                        # 🔥 BUILD 179: Also disable if call is CLOSING or hangup already triggered
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                        is_closing = getattr(self, 'call_state', None) == CallState.CLOSING
+                        is_hanging_up = getattr(self, 'hangup_triggered', False)
                         
                         if is_outbound:
                             # 🔥 OUTBOUND: Never engage loop guard - let AI talk freely
                             should_engage_guard = False
+                        elif is_closing or is_hanging_up:
+                            # 🔥 BUILD 179: Never engage loop guard during call ending
+                            should_engage_guard = False
+                            print(f"⏭️ [LOOP GUARD] Skipped - call is ending (closing={is_closing}, hangup={is_hanging_up})")
                         else:
                             # INBOUND: Normal loop guard logic
                             max_consecutive = self._max_consecutive_ai_responses
@@ -6039,7 +6046,8 @@ ALWAYS mention their name in the first sentence.
             return
         
         # 🏙️ CITY EXTRACTION: Look for city mentions (comprehensive Israeli city list)
-        if 'city' in required_fields and 'city' not in self.lead_capture_state:
+        # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned city (user may change mind)
+        if 'city' in required_fields:
             # Comprehensive list of Israeli cities and towns
             israeli_cities = [
                 # Major cities
@@ -6074,7 +6082,8 @@ ALWAYS mention their name in the first sentence.
                     break
         
         # 🔧 SERVICE_TYPE EXTRACTION: Look for service mentions
-        if 'service_type' in required_fields and 'service_type' not in self.lead_capture_state:
+        # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned service (user may change mind)
+        if 'service_type' in required_fields:
             service_indicators = ['שירות', 'טיפול', 'תחום', 'עבודה', 'פרויקט', 'בעיה']
             service_patterns = [
                 r'(?:שירות|טיפול|תחום)\s+(?:של\s+)?([א-ת\s]{2,20})',  # "שירות ניקיון"
@@ -7019,17 +7028,24 @@ ALWAYS mention their name in the first sentence.
                             
                             # 🔍 FIRST: Extract service from transcript using KNOWN professionals list
                             # This takes priority because lead_capture_state might have garbage from AI questions
+                            # 🔥 BUILD 179: Find the LAST mentioned professional (user may change mind)
                             known_professionals = ['חשמלאי', 'אינסטלטור', 'שיפוצניק', 'מנקה', 'הובלות', 'מנעולן',
                                                    'טכנאי מזגנים', 'גנן', 'צבעי', 'רצף', 'נגר', 'אלומיניום',
                                                    'טכנאי מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנאי',
                                                    'שיפוצים', 'ניקיון', 'גינון', 'צביעה', 'ריצוף', 'נגרות']
                             
                             if full_conversation:
+                                # Find LAST occurrence of any professional
+                                last_prof_pos = -1
+                                last_prof = None
                                 for prof in known_professionals:
-                                    if prof in full_conversation:
-                                        service_category = prof
-                                        print(f"🎯 [WEBHOOK] Found known professional in transcript: {prof}")
-                                        break
+                                    pos = full_conversation.rfind(prof)  # rfind = LAST occurrence
+                                    if pos > last_prof_pos:
+                                        last_prof_pos = pos
+                                        last_prof = prof
+                                if last_prof:
+                                    service_category = last_prof
+                                    print(f"🎯 [WEBHOOK] Found LAST professional in transcript: {last_prof} (pos={last_prof_pos})")
                             
                             # Source 1: lead_capture_state (collected during conversation) - for city/phone only
                             lead_state = getattr(self, 'lead_capture_state', {}) or {}
@@ -7093,27 +7109,40 @@ ALWAYS mention their name in the first sentence.
                                 transcript_text = full_conversation.replace('\n', ' ')
                                 
                                 # Extract city from transcript (common Israeli cities)
+                                # 🔥 BUILD 179: Find the LAST mentioned city (user may change mind)
                                 if not city:
                                     city_names = ['תל אביב', 'ירושלים', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'אשדוד', 
                                                   'נתניה', 'באר שבע', 'בני ברק', 'חולון', 'רמת גן', 'אשקלון',
                                                   'רחובות', 'בת ים', 'הרצליה', 'כפר סבא', 'רעננה', 'לוד', 'רמלה',
-                                                  'נצרת', 'עכו', 'אילת', 'מודיעין', 'גבעתיים', 'הוד השרון']
+                                                  'נצרת', 'עכו', 'אילת', 'מודיעין', 'גבעתיים', 'הוד השרון',
+                                                  'קריית שמונה', 'קריית אתא', 'קריית ביאליק', 'קריית מוצקין', 'קריית ים']
+                                    last_city_pos = -1
+                                    last_city = None
                                     for city_name in city_names:
-                                        if city_name in transcript_text:
-                                            city = city_name
-                                            print(f"   └─ City from transcript: {city}")
-                                            break
+                                        pos = transcript_text.rfind(city_name)  # rfind = LAST occurrence
+                                        if pos > last_city_pos:
+                                            last_city_pos = pos
+                                            last_city = city_name
+                                    if last_city:
+                                        city = last_city
+                                        print(f"   └─ LAST city from transcript: {city} (pos={last_city_pos})")
                                 
                                 # Extract service/professional from transcript
+                                # 🔥 BUILD 179: Find the LAST mentioned service (user may change mind)
                                 if not service_category:
                                     services = ['חשמלאי', 'אינסטלטור', 'שיפוצים', 'ניקיון', 'הובלות', 'מנעולן',
                                                 'מיזוג', 'גינון', 'צביעה', 'ריצוף', 'נגרות', 'אלומיניום',
                                                 'תיקון מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנות']
+                                    last_service_pos = -1
+                                    last_service = None
                                     for service in services:
-                                        if service in transcript_text:
-                                            service_category = service
-                                            print(f"   └─ Service from transcript: {service_category}")
-                                            break
+                                        pos = transcript_text.rfind(service)  # rfind = LAST occurrence
+                                        if pos > last_service_pos:
+                                            last_service_pos = pos
+                                            last_service = service
+                                    if last_service:
+                                        service_category = last_service
+                                        print(f"   └─ LAST service from transcript: {service_category} (pos={last_service_pos})")
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
