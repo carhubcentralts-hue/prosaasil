@@ -966,11 +966,13 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 FIX: Increased to 900 frames (~18s buffer) to prevent drops for long TTS
-        self.tx_q = queue.Queue(maxsize=900)  # Support up to 18s TTS without drops
+        # 🔥 BUILD 181: Increased to 1500 frames (~30s buffer) to handle OpenAI delays
+        # OpenAI Realtime can delay 10-15+ seconds during long text generation
+        self.tx_q = queue.Queue(maxsize=1500)  # Support up to 30s without drops
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
+        self._audio_gap_recovery_active = False  # 🔥 BUILD 181: Gap recovery state
         
         print("🎯 AI CONVERSATION STARTED")
         
@@ -1939,6 +1941,22 @@ ALWAYS mention their name in the first sentence.
                         gap_ms = (now - getattr(self, '_last_audio_chunk_ts', now)) * 1000
                         if gap_ms > 500 and self._openai_audio_chunks_received > 3:
                             print(f"⚠️ [AUDIO GAP] {gap_ms:.0f}ms gap between chunks #{self._openai_audio_chunks_received-1} and #{self._openai_audio_chunks_received} - OpenAI delay!")
+                            
+                            # 🔥 BUILD 181: GAP RECOVERY - Insert silence frames for gaps >3 seconds
+                            # This prevents audio distortion by maintaining continuous playback
+                            if gap_ms > 3000:
+                                # Calculate how many silence frames needed to smooth transition
+                                # Don't add full gap - just 500ms transition buffer
+                                silence_frames_needed = min(25, int(gap_ms / 100))  # 25 frames max = 500ms
+                                import base64
+                                # Generate 160-byte μ-law silence frames (0xFF = silence in μ-law)
+                                silence_frame = base64.b64encode(bytes([0xFF] * 160)).decode('utf-8')
+                                for _ in range(silence_frames_needed):
+                                    try:
+                                        self.realtime_audio_out_queue.put_nowait(silence_frame)
+                                    except queue.Full:
+                                        break
+                                print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms)")
                         self._last_audio_chunk_ts = now
                         
                         if self._openai_audio_chunks_received <= 3:
@@ -3374,10 +3392,31 @@ ALWAYS mention their name in the first sentence.
                     }
                     
                     try:
+                        # 🔥 BUILD 181: Queue overflow protection
+                        queue_size = self.tx_q.qsize()
+                        if queue_size >= 1400:  # Near max (1500)
+                            # Log overflow warning (throttled)
+                            now = time.time()
+                            if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
+                                print(f"⚠️ [AUDIO OVERFLOW] TX queue at {queue_size}/1500 - dropping oldest frames")
+                                self._last_overflow_warning = now
+                            # Drop 100 oldest frames to make room
+                            for _ in range(100):
+                                try:
+                                    self.tx_q.get_nowait()
+                                except queue.Empty:
+                                    break
+                        
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        pass  # Drop silently if queue full
+                        # 🔥 BUILD 181: If still full after cleanup, drop oldest and retry
+                        try:
+                            self.tx_q.get_nowait()  # Remove oldest
+                            self.tx_q.put_nowait(twilio_frame)  # Add new
+                            self.realtime_tx_frames += 1
+                        except (queue.Empty, queue.Full):
+                            pass  # Last resort: skip this frame
                     
             except queue.Empty:
                 continue
@@ -6702,9 +6741,9 @@ ALWAYS mention their name in the first sentence.
                 now = time.monotonic()
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
-                    # Only log if queue is getting full (>400 frames = >50%)
-                    if queue_size > 400:
-                        print(f"[TX] fps={frames_sent_last_sec} q={queue_size}/800", flush=True)
+                    # 🔥 BUILD 181: Updated threshold to 750 frames (50% of 1500)
+                    if queue_size > 750:
+                        print(f"[TX] fps={frames_sent_last_sec} q={queue_size}/1500", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     last_telemetry_time = now
