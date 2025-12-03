@@ -79,7 +79,7 @@ class CallLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"))
-    lead_id = db.Column(db.Integer, db.ForeignKey("lead.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
     outbound_template_id = db.Column(db.Integer, db.ForeignKey("outbound_call_templates.id"), nullable=True)  # BUILD 174: Template used for outbound call
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     from_number = db.Column(db.String(64), index=True)
