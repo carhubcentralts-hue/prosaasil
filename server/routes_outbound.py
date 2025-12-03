@@ -245,6 +245,7 @@ def start_outbound_calls():
                 webhook_url += f"?call_id={call_log.id}"
                 webhook_url += f"&lead_id={lead.id}"
                 webhook_url += f"&lead_name={lead_name}"
+                webhook_url += f"&business_id={tenant_id}"
                 webhook_url += f"&business_name={business_name}"
                 if template:
                     webhook_url += f"&template_id={template.id}"

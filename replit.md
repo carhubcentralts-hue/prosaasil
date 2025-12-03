@@ -121,11 +121,13 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - `client/src/components/settings/BusinessAISettings.tsx` - Added dedicated "Outbound Calls Prompt" section with separate save functionality
 
 ## WebSocket Integration (media_ws_ai.py)
-- Extracts outbound parameters (`direction`, `lead_id`, `lead_name`, `template_id`, `business_name`) from Twilio customParameters
+- Extracts outbound parameters (`direction`, `lead_id`, `lead_name`, `template_id`, `business_id`, `business_name`) from Twilio customParameters
+- **🔒 SECURITY**: Uses explicit `business_id` for outbound calls (NOT phone-based resolution) to prevent tenant cross-contamination
 - Loads template prompt from database for outbound calls
 - Injects lead context into AI prompt (business name, lead name)
 - Uses pre-existing `lead_id` for CRM context (no duplicate lead creation)
 - Summaries and transcripts saved via shared pipeline for both inbound/outbound calls
+- `_identify_business_and_get_greeting()` handles both inbound (phone resolution) and outbound (explicit business_id) with shared CallConfig loading
 
 ## Manually Tested
 - Template CRUD operations

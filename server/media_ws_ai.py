@@ -3440,6 +3440,7 @@ class MediaStreamHandler:
                         self.outbound_lead_id = custom_params.get("lead_id")
                         self.outbound_lead_name = custom_params.get("lead_name")
                         self.outbound_template_id = custom_params.get("template_id")
+                        self.outbound_business_id = custom_params.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = custom_params.get("business_name")
                         
                         # 🔍 DEBUG: Log phone numbers and outbound params
@@ -3466,6 +3467,7 @@ class MediaStreamHandler:
                         self.outbound_lead_id = evt.get("lead_id")
                         self.outbound_lead_name = evt.get("lead_name")
                         self.outbound_template_id = evt.get("template_id")
+                        self.outbound_business_id = evt.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = evt.get("business_name")
                         
                         # 🔍 DEBUG: Log phone number on start
@@ -5326,32 +5328,53 @@ class MediaStreamHandler:
             to_number = getattr(self, 'to_number', None)
             t_start = time.time()
             
-            print(f"⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number={to_number}")
+            # 🔒 BUILD 174 SECURITY: For outbound calls, use explicit business_id (NOT phone resolution)
+            # This prevents tenant cross-contamination when multiple businesses share same Twilio number
+            call_direction = getattr(self, 'call_direction', 'inbound')
+            outbound_business_id = getattr(self, 'outbound_business_id', None)
             
             app = _get_flask_app()
             with app.app_context():
                 business = None
                 
-                if to_number:
-                    normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+                if call_direction == 'outbound' and outbound_business_id:
+                    # 🔒 OUTBOUND CALL: Use explicit business_id (NOT phone-based resolution)
+                    print(f"🔒 OUTBOUND CALL: Using explicit business_id={outbound_business_id} (NOT phone-based resolution)")
+                    try:
+                        business_id_int = int(outbound_business_id)
+                        business = Business.query.get(business_id_int)
+                        if business:
+                            print(f"✅ OUTBOUND: Loaded business {business.name} (id={business.id})")
+                        else:
+                            logger.error(f"❌ OUTBOUND: Business {outbound_business_id} NOT FOUND - security violation?")
+                            return (None, None)
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"❌ OUTBOUND: Invalid business_id={outbound_business_id}: {e}")
+                        return (None, None)
+                else:
+                    # INBOUND CALL: Use phone-based resolution
+                    print(f"⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number={to_number}")
                     
-                    business = Business.query.filter(
-                        or_(
-                            Business.phone_e164 == to_number,
-                            Business.phone_e164 == normalized_phone
-                        )
-                    ).first()
+                    if to_number:
+                        normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+                        
+                        business = Business.query.filter(
+                            or_(
+                                Business.phone_e164 == to_number,
+                                Business.phone_e164 == normalized_phone
+                            )
+                        ).first()
+                        
+                        if business:
+                            print(f"✅ מצא עסק: {business.name} (id={business.id})")
                     
-                    if business:
-                        print(f"✅ מצא עסק: {business.name} (id={business.id})")
-                
-                if not business:
-                    from server.services.business_resolver import resolve_business_with_fallback
-                    to_num_safe = to_number or ''
-                    resolved_id, status = resolve_business_with_fallback('twilio_voice', to_num_safe)
-                    logger.warning(f"[CALL-WARN] No business for {to_number}, resolver: biz={resolved_id} ({status})")
-                    if resolved_id:
-                        business = Business.query.get(resolved_id)
+                    if not business:
+                        from server.services.business_resolver import resolve_business_with_fallback
+                        to_num_safe = to_number or ''
+                        resolved_id, status = resolve_business_with_fallback('twilio_voice', to_num_safe)
+                        logger.warning(f"[CALL-WARN] No business for {to_number}, resolver: biz={resolved_id} ({status})")
+                        if resolved_id:
+                            business = Business.query.get(resolved_id)
                 
                 if business:
                     self.business_id = business.id
