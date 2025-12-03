@@ -141,8 +141,9 @@ def update_business_prompt(business_id):
             calls_prompt = data.get('prompt')
             whatsapp_prompt = data.get('prompt')
         
-        if not calls_prompt and not whatsapp_prompt:
-            return jsonify({"error": "חסר תוכן פרומפט (לפחות שיחות או וואטסאפ)"}), 400
+        # 🔥 BUILD 174: Allow saving only outbound_calls_prompt
+        if not calls_prompt and not whatsapp_prompt and not outbound_calls_prompt:
+            return jsonify({"error": "חסר תוכן פרומפט (לפחות שיחות, שיחות יוצאות, או וואטסאפ)"}), 400
         
         # ולידציות שרת - לפי ההנחיות
         if calls_prompt and len(calls_prompt) > 10000:

@@ -70,7 +70,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Monday.com Webhook Integration**: Per-business configurable webhook for call transcript sending.
 - **Auto Hang-up Settings**: Options to automatically end calls after lead capture or on goodbye phrases.
 - **Bot Speaks First**: Option for the bot to play greeting before listening to the customer.
-- **Outbound AI Calls (BUILD 174)**: AI-initiated calls to leads with concurrency limits (max 3 outbound, 5 total per business). Template-based prompts with custom greeting injection. Frontend page at `/app/outbound-calls` with lead selection, template picker, and real-time call status. Call limiter service enforces limits for both inbound and outbound calls.
+- **Outbound AI Calls (BUILD 174)**: AI-initiated calls to leads with concurrency limits (max 3 outbound, 5 total per business). Template-based prompts with custom greeting injection. Frontend page at `/app/outbound-calls` with lead selection, template picker, and real-time call status. Call limiter service enforces limits for both inbound and outbound calls. Separate outbound AI prompt (`outbound_ai_prompt`) for business-level outbound call instructions distinct from inbound calls.
 
 # External Dependencies
 
@@ -106,16 +106,19 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 
 ## Files Modified for BUILD 174
 ### Backend
-- `server/models_sql.py` - Added `OutboundCallTemplate` model, extended `CallLog`
+- `server/models_sql.py` - Added `OutboundCallTemplate` model, extended `CallLog`, added `outbound_ai_prompt` to `BusinessSettings`
 - `server/routes_outbound.py` - New file: outbound call API endpoints
 - `server/services/call_limiter.py` - New file: call concurrency limiting
 - `server/routes_twilio.py` - Added `/webhook/outbound_call` and `check_inbound_call_limit()`
 - `server/app_factory.py` - Registered `outbound_bp` blueprint
+- `server/services/realtime_prompt_builder.py` - Updated `build_realtime_system_prompt()` to accept `call_direction` parameter, uses `outbound_ai_prompt` for outbound calls
+- `server/routes_ai_prompt.py` - Updated GET/PUT `/api/business/current/prompt` to handle `outbound_calls_prompt` field
 
 ### Frontend
 - `client/src/pages/calls/OutboundCallsPage.tsx` - New page: lead selection, template picker, call status
 - `client/src/app/layout/MainLayout.tsx` - Added sidebar item "שיחות יוצאות"
 - `client/src/app/routes.tsx` - Added `/app/outbound-calls` route
+- `client/src/components/settings/BusinessAISettings.tsx` - Added dedicated "Outbound Calls Prompt" section with separate save functionality
 
 ## WebSocket Integration (media_ws_ai.py)
 - Extracts outbound parameters (`direction`, `lead_id`, `lead_name`, `template_id`, `business_name`) from Twilio customParameters
