@@ -51,6 +51,12 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Relaxed SILENCE GATE**: Only rejects transcripts with RMS < 15 (near-zero silence). Removed overly aggressive speech_threshold*0.5 check.
   - **Better Loop Guard Tracking**: Added `_last_user_speech_ts` to track when user last spoke, preventing false loop triggers during natural conversation pauses.
   - **Less Aggressive Mishearing Detection**: Back to 3 consecutive "לא הבנתי" responses before triggering clarification (was 2).
+- **BUILD 170.4 - Hebrew Grammar & Natural Speech**:
+  - **Improved System Prompt**: Natural Hebrew prompt with proper grammar. Verify at END only (not per field) to avoid annoying customers.
+  - **Hebrew Normalization Dictionary**: 80+ common STT mistakes auto-corrected (numbers, cities, names, days, confirmations).
+  - **Expanded Whitelist**: Days of week, numbers (feminine/masculine), time words, service words, greetings added.
+  - **Smarter Filter Logic**: Allow any text with 2+ Hebrew characters (not just whitelist). Priority: Hebrew > hallucinations > gibberish.
+  - **Phrase Detection**: Phrases starting with valid words now pass through (e.g., "בסדר גמור" passes because starts with "בסדר").
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
