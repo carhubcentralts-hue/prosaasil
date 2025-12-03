@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2 } from 'lucide-react';
+import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2, Link2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { BusinessAISettings } from '@/components/settings/BusinessAISettings';
@@ -94,6 +94,8 @@ interface IntegrationSettings {
   openai_api_key?: string;
   google_stt_enabled: boolean;
   google_tts_enabled: boolean;
+  // BUILD 177: Generic Webhook
+  generic_webhook_url?: string;
 }
 
 interface AISettings {
@@ -147,7 +149,9 @@ export function SettingsPage() {
     openai_enabled: true,
     openai_api_key: 'sk-***************************',
     google_stt_enabled: true,
-    google_tts_enabled: true
+    google_tts_enabled: true,
+    // BUILD 177: Generic Webhook
+    generic_webhook_url: ''
   });
 
   const [aiSettings, setAISettings] = useState<AISettings>({
@@ -196,6 +200,8 @@ export function SettingsPage() {
     booking_window_days: number;
     min_notice_min: number;
     opening_hours_json?: Record<string, string[][]>;
+    // BUILD 177: Generic Webhook
+    generic_webhook_url?: string | null;
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture?: boolean;
     auto_end_on_goodbye?: boolean;
@@ -231,6 +237,12 @@ export function SettingsPage() {
         min_notice_min: businessData.min_notice_min || 0,
         opening_hours_json: businessData.opening_hours_json
       });
+
+      // BUILD 177: Load webhook URL
+      setIntegrationSettings(prev => ({
+        ...prev,
+        generic_webhook_url: businessData.generic_webhook_url || ''
+      }));
 
       // ✅ Load working days from opening_hours_json
       if (businessData.opening_hours_json) {
@@ -881,6 +893,68 @@ export function SettingsPage() {
                   </div>
                 </div>
               )}
+            </Card>
+
+            {/* Generic Webhook - BUILD 177 */}
+            <Card className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Link2 className="w-6 h-6 text-orange-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Webhook כללי</h3>
+                <Badge variant={integrationSettings.generic_webhook_url ? 'success' : 'default'}>
+                  {integrationSettings.generic_webhook_url ? 'מוגדר' : 'לא מוגדר'}
+                </Badge>
+              </div>
+              
+              <p className="text-sm text-gray-600 mb-4">
+                כתובת Webhook לקבלת תמלילי שיחות, סיכומים ונתוני לידים בסיום כל שיחה.
+                ניתן לחבר ל-n8n, Zapier, Monday.com או כל שירות אחר.
+              </p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">כתובת Webhook</label>
+                  <input
+                    type="url"
+                    value={integrationSettings.generic_webhook_url || ''}
+                    onChange={(e) => setIntegrationSettings({...integrationSettings, generic_webhook_url: e.target.value})}
+                    placeholder="https://n8n.example.com/webhook/xxx"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    dir="ltr"
+                    data-testid="input-webhook-url"
+                  />
+                </div>
+                
+                <Button
+                  onClick={async () => {
+                    try {
+                      await apiRequest('/api/business/current/settings', {
+                        method: 'PUT',
+                        body: { generic_webhook_url: integrationSettings.generic_webhook_url || null }
+                      });
+                      queryClient.invalidateQueries({ queryKey: ['/api/business/current'] });
+                      alert('כתובת Webhook נשמרה בהצלחה');
+                    } catch (error) {
+                      alert('שגיאה בשמירת הגדרות');
+                    }
+                  }}
+                  className="w-full justify-center"
+                  data-testid="button-save-webhook"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  שמור Webhook
+                </Button>
+                
+                <div className="mt-4 p-3 bg-blue-50 rounded-md text-sm">
+                  <h4 className="font-medium text-blue-800 mb-2">📋 מידע שנשלח ב-Webhook:</h4>
+                  <ul className="text-blue-700 space-y-1 list-disc list-inside">
+                    <li>תמליל מלא של השיחה</li>
+                    <li>סיכום אוטומטי (AI)</li>
+                    <li>פרטי הלקוח והליד</li>
+                    <li>זמן התחלה וסיום</li>
+                    <li>כיוון השיחה (נכנסת/יוצאת)</li>
+                  </ul>
+                </div>
+              </div>
             </Card>
           </div>
         )}

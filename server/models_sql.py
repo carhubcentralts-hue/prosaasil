@@ -135,9 +135,8 @@ class BusinessSettings(db.Model):
     min_notice_min = db.Column(db.Integer, default=0)  # Minimum notice time in minutes before appointment
     require_phone_before_booking = db.Column(db.Boolean, default=True)  # 🔥 Require phone number before booking
     
-    # 🔥 BUILD 163: Monday.com integration
-    monday_webhook_url = db.Column(db.String(512), nullable=True)  # Monday webhook URL
-    send_call_transcripts_to_monday = db.Column(db.Boolean, default=False)  # Auto-send transcripts to Monday
+    # 🔥 BUILD 177: Generic Webhook for external integrations (n8n, Zapier, etc.)
+    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts
     
     # 🔥 BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected

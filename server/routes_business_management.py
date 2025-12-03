@@ -723,6 +723,8 @@ def get_current_business():
             "booking_window_days": settings.booking_window_days if settings else 30,
             "min_notice_min": settings.min_notice_min if settings else 0,
             "opening_hours_json": settings.opening_hours_json if settings else None,
+            # 🔥 BUILD 177: Generic Webhook
+            "generic_webhook_url": settings.generic_webhook_url if settings else None,
             # 🔥 BUILD 163: Auto hang-up settings
             "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if settings else False,
             "auto_end_on_goodbye": settings.auto_end_on_goodbye if settings else False,
@@ -810,6 +812,10 @@ def update_current_business_settings():
         if 'opening_hours_json' in data:
             settings.opening_hours_json = data['opening_hours_json']
             appointment_settings_changed = True
+        
+        # 🔥 BUILD 177: Generic Webhook
+        if 'generic_webhook_url' in data:
+            settings.generic_webhook_url = data['generic_webhook_url'] or None
         
         # 🔥 BUILD 163: Auto hang-up settings
         if 'auto_end_after_lead_capture' in data:

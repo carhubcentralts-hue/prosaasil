@@ -6880,6 +6880,33 @@ class MediaStreamHandler:
                         # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
                         print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
                         
+                        # 🔥 BUILD 177: Send Generic Webhook for external integrations (n8n, Zapier, etc.)
+                        try:
+                            from server.services.generic_webhook_service import send_call_completed_webhook
+                            
+                            lead_id = None
+                            phone = getattr(self, 'customer_phone', None) or getattr(self, 'from_number', '')
+                            
+                            if hasattr(self, 'crm_context') and self.crm_context:
+                                lead_id = self.crm_context.lead_id
+                            
+                            send_call_completed_webhook(
+                                business_id=business_id,
+                                call_id=self.call_sid,
+                                lead_id=lead_id,
+                                phone=phone,
+                                started_at=call_log.start_time,
+                                ended_at=call_log.end_time,
+                                duration_sec=call_log.duration or 0,
+                                transcript=full_conversation,
+                                summary=summary_data.get('summary', ''),
+                                agent_name=getattr(self, 'bot_name', 'Assistant'),
+                                direction=getattr(self, 'call_direction', 'inbound')
+                            )
+                            print(f"✅ [WEBHOOK] Call completed webhook queued for business {business_id}")
+                        except Exception as webhook_err:
+                            print(f"⚠️ [WEBHOOK] Webhook error (non-blocking): {webhook_err}")
+                        
                 except Exception as e:
                     print(f"❌ Failed to finalize call: {e}")
                     import traceback
