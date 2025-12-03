@@ -1,9 +1,13 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
-  plugins: [react({ jsxRuntime: 'classic' })], // ✅ CRITICAL: Classic runtime for Safari
-  base: '/',                  // ← חשוב! assets תמיד יהיו /assets/ (לא יחסיים)
+  plugins: [react({ jsxRuntime: 'classic' })],
+  base: '/',
   server: {
     host: '0.0.0.0',
     port: 3310,
@@ -13,20 +17,20 @@ export default defineConfig({
     }
   },
   build: {
-    target: 'es2019',         // ✅ Safari compatibility - transpile for older browsers
-    outDir: './dist',         // Build ל-client/dist (נכון!)
+    target: 'es2019',
+    outDir: './dist',
     assetsDir: 'assets',
-    sourcemap: true,          // ✅ Enable sourcemaps for debugging
+    sourcemap: true,
   },
   resolve: {
-    dedupe: ['react', 'react-dom'], // ✅ CRITICAL: Force single React instance
+    dedupe: ['react', 'react-dom'],
     alias: {
-      '@': '/src',
-      'react': 'react',           // ✅ Pin React - prevent aliasing
-      'react-dom': 'react-dom'    // ✅ Pin React-DOM
+      '@': path.resolve(__dirname, './src'),
+      'react': 'react',
+      'react-dom': 'react-dom'
     }
   },
   optimizeDeps: {
-    include: ['react', 'react-dom'] // ✅ Pre-bundle React for consistency
+    include: ['react', 'react-dom']
   }
 })
