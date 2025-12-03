@@ -41,10 +41,10 @@ interface BusinessMinutesResponse {
   };
 }
 
-type DateRange = 'this_month' | 'last_30_days' | 'last_month' | 'custom';
+type DateRange = 'today' | 'this_week' | 'this_month' | 'last_30_days' | 'last_month' | 'custom';
 
 export function BusinessMinutesPage() {
-  const [dateRange, setDateRange] = useState<DateRange>('this_month');
+  const [dateRange, setDateRange] = useState<DateRange>('today');
   const [customFrom, setCustomFrom] = useState<string>('');
   const [customTo, setCustomTo] = useState<string>('');
 
@@ -53,6 +53,15 @@ export function BusinessMinutesPage() {
     let from: Date, to: Date;
 
     switch (dateRange) {
+      case 'today':
+        from = today;
+        to = today;
+        break;
+      case 'this_week':
+        from = new Date(today);
+        from.setDate(from.getDate() - 7);
+        to = today;
+        break;
       case 'this_month':
         from = new Date(today.getFullYear(), today.getMonth(), 1);
         to = today;
@@ -195,6 +204,8 @@ export function BusinessMinutesPage() {
             className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             data-testid="select-date-range"
           >
+            <option value="today">היום</option>
+            <option value="this_week">השבוע</option>
             <option value="this_month">החודש הנוכחי</option>
             <option value="last_30_days">30 ימים אחרונים</option>
             <option value="last_month">החודש הקודם</option>
