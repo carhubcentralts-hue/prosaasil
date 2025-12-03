@@ -957,14 +957,6 @@ class MediaStreamHandler:
         # 🔥 BUILD 169: CALL SESSION LOGGING - Enhanced diagnostics
         self._call_session_id = None  # Unique session ID for logging
         
-        # 🔥 BUILD 172: STRICT MUTE - Complete audio blocking while AI speaks
-        # When AI is speaking, we COMPLETELY STOP sending audio to OpenAI
-        # This prevents the bot from "hearing itself" (echo/feedback loop)
-        self._strict_mute_active = False  # True = don't send ANY audio to OpenAI
-        self._strict_mute_start_ts = 0  # When strict mute started
-        self._strict_mute_cooldown_ms = 600  # 🔥 Wait 600ms after AI finishes before listening again
-        self._ai_tts_finished_ts = 0  # When AI TTS finished (for cooldown)
-        
         # 🔥 BUILD 166: NOISE GATE BYPASS during active speech detection
         # When OpenAI Realtime detects speech_started, we MUST send all audio until speech_stopped
         # Otherwise OpenAI never gets enough audio to complete the utterance
@@ -1683,10 +1675,6 @@ class MediaStreamHandler:
                             if not self.is_ai_speaking_event.is_set():
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
-                                # 🔥 BUILD 172: STRICT MUTE - Stop listening when AI speaks
-                                self._strict_mute_active = True
-                                self._strict_mute_start_ts = now
-                                print(f"🔇 [BUILD 172] STRICT MUTE ON - AI starting to speak (greeting)")
                             self.is_ai_speaking_event.set()
                             self.is_playing_greeting = True
                             try:
@@ -1722,10 +1710,6 @@ class MediaStreamHandler:
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
                             self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
-                            # 🔥 BUILD 172: STRICT MUTE - Stop listening when AI speaks
-                            self._strict_mute_active = True
-                            self._strict_mute_start_ts = now
-                            print(f"🔇 [BUILD 172] STRICT MUTE ON - AI started speaking")
                         # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
@@ -1784,11 +1768,6 @@ class MediaStreamHandler:
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
-                    
-                    # 🔥 BUILD 172: Track when AI finished speaking - strict mute cooldown begins
-                    self._ai_tts_finished_ts = time.time()
-                    # Don't clear strict mute immediately - cooldown will be checked in audio handler
-                    print(f"🔇 [BUILD 172] AI TTS finished - strict mute cooldown started ({self._strict_mute_cooldown_ms}ms)")
                     
                     # 🔥 BUILD 171: Track when AI finished speaking for cooldown check
                     self._ai_finished_speaking_ts = time.time()
@@ -2050,20 +2029,6 @@ class MediaStreamHandler:
                     
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
-                    
-                    # 🔥 BUILD 172: DETAILED STT LOGGING for debugging
-                    recent_rms = getattr(self, '_recent_audio_rms', 0)
-                    consec_frames = getattr(self, '_consecutive_voice_frames', 0)
-                    strict_mute = getattr(self, '_strict_mute_active', False)
-                    ai_speaking = self.is_ai_speaking_event.is_set()
-                    time_since_ai = (now_sec - self._ai_finished_speaking_ts) * 1000 if self._ai_finished_speaking_ts > 0 else -1
-                    
-                    # Log ALL transcriptions with full context
-                    logger.info(f"📝 [STT] Received: '{text[:40]}{'...' if len(text) > 40 else ''}' | "
-                               f"len={len(text)} | rms={recent_rms:.0f} | frames={consec_frames} | "
-                               f"mute={strict_mute} | ai_speaking={ai_speaking} | time_since_ai={time_since_ai:.0f}ms")
-                    print(f"📝 [STT DEBUG] text='{text[:50]}' | len={len(text)} | rms={recent_rms:.0f} | "
-                          f"frames={consec_frames} | strict_mute={strict_mute} | ai_speaking={ai_speaking}")
                     
                     # 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
                     # Humans cannot form a coherent response in <800ms, so these are hallucinations
@@ -3487,50 +3452,6 @@ class MediaStreamHandler:
                                 print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
                                 self._greeting_enqueue_block_logged = True
                             continue  # Don't enqueue audio during greeting
-                        
-                        # 🔥 BUILD 172: STRICT MUTE - Don't send ANY audio while AI is speaking
-                        # This is the most important fix - prevents bot from hearing itself
-                        now_ts = time.time()
-                        
-                        # 🎙️ BARGE-IN EXCEPTION: Check FIRST - allow loud speech to break through mute
-                        # Only if RMS is VERY high (above 400) for multiple frames - indicates real deliberate speech
-                        if self._strict_mute_active:
-                            barge_in_threshold = 400  # Very loud speech only
-                            if rms > barge_in_threshold:
-                                if not hasattr(self, '_barge_in_loud_frames'):
-                                    self._barge_in_loud_frames = 0
-                                self._barge_in_loud_frames += 1
-                                if self._barge_in_loud_frames >= 35:  # 700ms of very loud speech
-                                    print(f"🔥 [BUILD 172] BARGE-IN OVERRIDE - very loud speech detected (rms={rms:.0f}, frames={self._barge_in_loud_frames})")
-                                    self._strict_mute_active = False  # Release mute for barge-in
-                                    self._barge_in_loud_frames = 0
-                                    self._ai_tts_finished_ts = now_ts  # Pretend AI just finished
-                            else:
-                                self._barge_in_loud_frames = 0  # Reset if not loud
-                        
-                        # Now check strict mute status (may have been cleared by barge-in above)
-                        if self._strict_mute_active:
-                            # Check if AI finished speaking and cooldown passed
-                            if self._ai_tts_finished_ts > 0:
-                                time_since_tts_finished = (now_ts - self._ai_tts_finished_ts) * 1000  # ms
-                                if time_since_tts_finished >= self._strict_mute_cooldown_ms:
-                                    # Cooldown passed - resume listening
-                                    self._strict_mute_active = False
-                                    self._consecutive_voice_frames = 0  # Reset frame counter
-                                    print(f"🎙️ [BUILD 172] STRICT MUTE OFF - cooldown complete ({time_since_tts_finished:.0f}ms >= {self._strict_mute_cooldown_ms}ms)")
-                                else:
-                                    # Still in cooldown - block audio
-                                    if not hasattr(self, '_strict_mute_block_log_ts') or (now_ts - self._strict_mute_block_log_ts) > 0.5:
-                                        remaining_ms = self._strict_mute_cooldown_ms - time_since_tts_finished
-                                        print(f"🔇 [BUILD 172] STRICT MUTE - blocking audio (cooldown: {remaining_ms:.0f}ms remaining)")
-                                        self._strict_mute_block_log_ts = now_ts
-                                    continue  # BLOCK ALL AUDIO during cooldown
-                            else:
-                                # AI still speaking (no TTS finished yet) - block audio completely
-                                if not hasattr(self, '_strict_mute_speaking_log_ts') or (now_ts - self._strict_mute_speaking_log_ts) > 1.0:
-                                    print(f"🔇 [BUILD 172] STRICT MUTE - AI is speaking, blocking ALL audio")
-                                    self._strict_mute_speaking_log_ts = now_ts
-                                continue  # BLOCK ALL AUDIO while AI speaks
                         
                         # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT
                         # Track consecutive voice frames before considering it real speech
