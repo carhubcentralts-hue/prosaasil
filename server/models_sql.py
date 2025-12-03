@@ -95,8 +95,8 @@ class CallLog(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # BUILD 174: Relationships for outbound calls
-    lead = db.relationship("Lead", backref="call_logs", foreign_keys=[lead_id])
-    outbound_template = db.relationship("OutboundCallTemplate", backref="calls")
+    lead = db.relationship("Lead", backref=db.backref("call_logs", lazy="dynamic"), foreign_keys="[CallLog.lead_id]")
+    outbound_template = db.relationship("OutboundCallTemplate", backref=db.backref("calls", lazy="dynamic"), foreign_keys="[CallLog.outbound_template_id]")
 
 class ConversationTurn(db.Model):
     """תורות שיחה - כל הודעה בשיחה טלפונית או WhatsApp"""
