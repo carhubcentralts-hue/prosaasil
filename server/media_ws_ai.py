@@ -6903,29 +6903,59 @@ ALWAYS mention their name in the first sentence.
                             city = None
                             service_category = None
                             
-                            # 📱 Phone extraction - fallback chain
+                            # 📱 Phone extraction - fallback chain with detailed logging
                             phone = None
-                            # 1) From handler attributes
-                            if getattr(self, 'customer_phone', None):
-                                phone = self.customer_phone
-                            # 2) From handler from_number
-                            elif getattr(self, 'from_number', None):
-                                phone = self.from_number
-                            # 3) From CallLog
+                            print(f"📱 [WEBHOOK] Phone extraction debug:")
+                            print(f"   - self.phone_number: {getattr(self, 'phone_number', 'NOT_SET')}")
+                            print(f"   - self.customer_phone_dtmf: {getattr(self, 'customer_phone_dtmf', 'NOT_SET')}")
+                            print(f"   - call_log.from_number: {call_log.from_number if call_log else 'NO_CALL_LOG'}")
+                            crm = getattr(self, 'crm_context', None)
+                            print(f"   - crm_context.customer_phone: {crm.customer_phone if crm else 'NO_CRM'}")
+                            
+                            # 1) From CRM context (collected during call)
+                            if hasattr(self, 'crm_context') and self.crm_context and getattr(self.crm_context, 'customer_phone', None):
+                                phone = self.crm_context.customer_phone
+                                print(f"   ✓ Using CRM phone: {phone}")
+                            # 2) From DTMF input (customer entered phone manually)
+                            elif getattr(self, 'customer_phone_dtmf', None):
+                                phone = self.customer_phone_dtmf
+                                print(f"   ✓ Using DTMF phone: {phone}")
+                            # 3) From handler phone_number (Twilio caller ID)
+                            elif getattr(self, 'phone_number', None):
+                                phone = self.phone_number
+                                print(f"   ✓ Using Twilio caller ID: {phone}")
+                            # 4) From CallLog (saved on call creation)
                             elif call_log and call_log.from_number:
                                 phone = call_log.from_number
+                                print(f"   ✓ Using CallLog from_number: {phone}")
+                            else:
+                                print(f"   ⚠️ No phone found in any source!")
                             
-                            # 🏠 Extract lead_id, city, service_category from CRM context and Lead
+                            # 🏠 Extract lead_id, city, service_category from multiple sources
+                            
+                            # Source 1: lead_capture_state (collected during conversation)
+                            lead_state = getattr(self, 'lead_capture_state', {}) or {}
+                            if lead_state:
+                                print(f"📋 [WEBHOOK] Lead capture state: {lead_state}")
+                                if not city:
+                                    city = lead_state.get('city') or lead_state.get('עיר')
+                                if not service_category:
+                                    service_category = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
+                                if not phone:
+                                    phone = lead_state.get('phone') or lead_state.get('טלפון')
+                            
+                            # Source 2: CRM context
                             if hasattr(self, 'crm_context') and self.crm_context:
                                 lead_id = self.crm_context.lead_id
                                 
                                 # Try to get city/service from CRM context attributes
-                                if hasattr(self.crm_context, 'city'):
+                                if not city and hasattr(self.crm_context, 'city'):
                                     city = self.crm_context.city
-                                if hasattr(self.crm_context, 'service_category'):
-                                    service_category = self.crm_context.service_category
-                                elif hasattr(self.crm_context, 'professional'):
-                                    service_category = self.crm_context.professional
+                                if not service_category:
+                                    if hasattr(self.crm_context, 'service_category'):
+                                        service_category = self.crm_context.service_category
+                                    elif hasattr(self.crm_context, 'professional'):
+                                        service_category = self.crm_context.professional
                                 
                                 # Fallback: Load from Lead model if we have lead_id
                                 if lead_id and (not city or not service_category or not phone):
@@ -6954,6 +6984,34 @@ ALWAYS mention their name in the first sentence.
                                         import traceback
                                         print(f"⚠️ [WEBHOOK] Could not load lead data: {lead_err}")
                                         traceback.print_exc()
+                            
+                            # 🔍 Last resort: Extract city and service from transcript if still missing
+                            if (not city or not service_category) and full_conversation:
+                                import re
+                                transcript_text = full_conversation.replace('\n', ' ')
+                                
+                                # Extract city from transcript (common Israeli cities)
+                                if not city:
+                                    city_names = ['תל אביב', 'ירושלים', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'אשדוד', 
+                                                  'נתניה', 'באר שבע', 'בני ברק', 'חולון', 'רמת גן', 'אשקלון',
+                                                  'רחובות', 'בת ים', 'הרצליה', 'כפר סבא', 'רעננה', 'לוד', 'רמלה',
+                                                  'נצרת', 'עכו', 'אילת', 'מודיעין', 'גבעתיים', 'הוד השרון']
+                                    for city_name in city_names:
+                                        if city_name in transcript_text:
+                                            city = city_name
+                                            print(f"   └─ City from transcript: {city}")
+                                            break
+                                
+                                # Extract service/professional from transcript
+                                if not service_category:
+                                    services = ['חשמלאי', 'אינסטלטור', 'שיפוצים', 'ניקיון', 'הובלות', 'מנעולן',
+                                                'מיזוג', 'גינון', 'צביעה', 'ריצוף', 'נגרות', 'אלומיניום',
+                                                'תיקון מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנות']
+                                    for service in services:
+                                        if service in transcript_text:
+                                            service_category = service
+                                            print(f"   └─ Service from transcript: {service_category}")
+                                            break
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
