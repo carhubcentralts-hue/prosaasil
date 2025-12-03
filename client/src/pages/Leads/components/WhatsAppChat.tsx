@@ -495,27 +495,27 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
               {messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex ${message.direction === 'out' ? 'justify-start' : 'justify-end'}`}
+                  className={`flex ${message.direction === 'out' ? 'justify-end' : 'justify-start'}`}
                   data-testid={`message-${message.direction}-${message.id}`}
                 >
                   <div
-                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg shadow-sm ${
+                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl shadow-sm ${
                       message.direction === 'out'
                         ? message.status === 'failed'
-                          ? 'bg-red-100 text-red-800 border border-red-200'
-                          : 'bg-green-500 text-white'
-                        : 'bg-gray-100 text-gray-900 border border-gray-200'
+                          ? 'bg-red-100 text-red-800 border border-red-200 rounded-br-sm'
+                          : 'bg-green-500 text-white rounded-br-sm'
+                        : 'bg-white text-gray-900 border border-gray-200 rounded-bl-sm'
                     }`}
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content_text}</p>
-                    <div className={`flex items-center justify-between mt-1 text-xs ${
+                    <div className={`flex items-center justify-end gap-1 mt-1 text-xs ${
                       message.direction === 'out' && message.status !== 'failed' 
                         ? 'text-green-100' 
-                        : 'text-gray-500'
+                        : 'text-gray-400'
                     }`}>
                       <span>{formatDate(message.sent_at)}</span>
                       {message.direction === 'out' && (
-                        <span className="ml-2">
+                        <span>
                           {getMessageStatusIcon(message.status)}
                         </span>
                       )}

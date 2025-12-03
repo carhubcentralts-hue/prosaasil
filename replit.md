@@ -59,6 +59,10 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Optimized Lead Search**: Filters only by name or phone number (partial match works - e.g., "075" finds any number containing "075").
   - **Fast Status Updates**: Optimistic UI updates for instant feedback (no 6-second delay).
   - **Notes Tab**: New "הערות" tab in lead detail page for free-text notes, images, and file attachments (session-local storage).
+- **BUILD 170.1 - WhatsApp Chat UI Fixes**:
+  - **Message Colors**: Outgoing messages (green, right side), incoming messages (white/gray, left side) - proper WhatsApp-like styling.
+  - **Toggle AI Endpoint**: Added `/api/whatsapp/toggle-ai` endpoint for frontend compatibility with AI on/off toggle per conversation.
+  - **Message Alignment**: Fixed RTL alignment - outgoing messages now appear on the right, incoming on the left.
 
 ## Feature Specifications
 - **Call Logging**: Comprehensive tracking.

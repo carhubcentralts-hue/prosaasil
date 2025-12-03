@@ -222,6 +222,53 @@ def get_ai_state():
     return jsonify({"success": True, "ai_active": ai_active})
 
 
+# ✅ BUILD 170: Add toggle-ai endpoint for frontend compatibility
+@whatsapp_bp.route('/toggle-ai', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def toggle_ai():
+    """Toggle AI on/off for a specific WhatsApp conversation - frontend compatibility"""
+    from server.routes_crm import get_business_id
+    
+    data = request.get_json() or {}
+    phone_number = data.get('phone_number') or data.get('phone')
+    ai_enabled = data.get('ai_enabled', True)
+    
+    if not phone_number:
+        return jsonify({"success": False, "error": "Missing phone_number"}), 400
+    
+    # Normalize phone number
+    phone = phone_number.replace('+', '').strip()
+    
+    business_id = get_business_id()
+    user_id = getattr(g, 'user', {}).get('id') if hasattr(g, 'user') else None
+    
+    try:
+        state = WhatsAppConversationState.query.filter_by(
+            business_id=business_id,
+            phone=phone
+        ).first()
+        
+        if state:
+            state.ai_active = ai_enabled
+            state.updated_by = user_id
+        else:
+            state = WhatsAppConversationState()
+            state.business_id = business_id
+            state.phone = phone
+            state.ai_active = ai_enabled
+            state.updated_by = user_id
+            db.session.add(state)
+        
+        db.session.commit()
+        log.info(f"✅ AI toggled for {phone}: {'enabled' if ai_enabled else 'disabled'} (business {business_id})")
+        return jsonify({"success": True, "ai_enabled": ai_enabled})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"❌ Failed to toggle AI: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 def is_ai_active_for_conversation(business_id: int, phone: str) -> bool:
     """Helper function to check if AI should respond to this conversation
     
