@@ -85,94 +85,6 @@ function ProviderStatusCard({ providerStatus }: { providerStatus?: any }) {
 }
 
 
-function RecentActivityCard({ recentActivity }: { recentActivity?: any[] }) {
-  const navigate = useNavigate();
-
-  const handleActivityClick = (activity: any) => {
-    if (activity.type === 'call') {
-      navigate('/app/calls');
-    } else if (activity.type === 'whatsapp') {
-      navigate('/app/whatsapp');
-    } else {
-      navigate('/app/overview');
-    }
-  };
-
-  if (!recentActivity) {
-    return (
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-900">פעילות אחרונה</h3>
-          <Clock className="h-5 w-5 text-slate-400" />
-        </div>
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-          <span className="text-slate-600 mr-2">טוען פעילות אחרונה...</span>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-slate-900">פעילות אחרונה</h3>
-        <Clock className="h-5 w-5 text-slate-400" />
-      </div>
-      
-      <div className="space-y-3">
-        {recentActivity.length > 0 ? recentActivity.map((activity) => (
-          <div 
-            key={activity.id} 
-            className="flex items-start p-3 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
-            onClick={() => handleActivityClick(activity)}
-            data-testid={`activity-item-${activity.id}`}
-          >
-            <div className={cn(
-              'w-3 h-3 rounded-full mt-2 ml-3 flex-shrink-0',
-              activity.type === 'call' ? 'bg-blue-500' : 'bg-green-500'
-            )} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-slate-900 truncate">{activity.tenant}</span>
-                <span className="text-xs text-slate-500 tabular-nums flex-shrink-0">{activity.time}</span>
-              </div>
-              <p className="text-sm text-slate-600 mt-1 break-words">{activity.preview}</p>
-            </div>
-            <button 
-              className="btn-ghost text-xs px-3 py-1.5 mr-2 flex-shrink-0 hover:bg-blue-100 hover:text-blue-700 rounded-lg transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleActivityClick(activity);
-              }}
-              data-testid={`button-open-activity-${activity.id}`}
-            >
-              פתח
-            </button>
-          </div>
-        )) : (
-          <div className="text-center py-8 text-slate-500">
-            <Clock className="h-12 w-12 mx-auto mb-4 text-slate-300" />
-            <p>אין פעילות אחרונה לטווח הזמן שנבחר</p>
-          </div>
-        )}
-      </div>
-      
-      {recentActivity.length > 0 && (
-        <div className="mt-4 text-center">
-          <button 
-            className="btn-ghost text-sm hover:bg-slate-100 px-4 py-2 rounded-lg transition-colors"
-            onClick={() => navigate('/app/overview')}
-            data-testid="button-view-more-activity"
-          >
-            ראה עוד פעילות
-          </button>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 export function AdminHomePage() {
   const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'month' | 'custom'>('today');
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -422,9 +334,6 @@ export function AdminHomePage() {
         <div className="mb-6">
           <PhoneNumbersCard />
         </div>
-
-        {/* Recent Activity */}
-        <RecentActivityCard recentActivity={overviewData?.recent_activity} />
       </div>
     </div>
   );
