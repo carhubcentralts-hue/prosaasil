@@ -1108,7 +1108,7 @@ def get_notifications():
 @leads_bp.route("/api/leads/bulk-delete", methods=["POST"])
 @require_api_auth()  # BUILD 137: Added missing decorator
 def bulk_delete_leads():
-    """Bulk delete multiple leads"""
+    """Bulk delete multiple leads - with proper cascade cleanup"""
     # BUILD 137: Authentication handled by @require_api_auth() decorator
     
     user = get_current_user()
@@ -1132,47 +1132,89 @@ def bulk_delete_leads():
     
     log.info(f"🗑️ Bulk delete: user={user.get('email') if user else 'unknown'}, is_system_admin={is_system_admin}, tenant_id={tenant_id}, lead_ids={lead_ids}")
     
-    # BUILD 157: Find leads - use tenant filtering when available
-    if tenant_id:
-        leads = Lead.query.filter(
-            Lead.id.in_(lead_ids),
-            Lead.tenant_id == tenant_id
-        ).all()
-    else:
-        # System admin without impersonation - can delete any lead
-        leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
-    
-    log.info(f"🗑️ Found {len(leads)} leads out of {len(lead_ids)} requested")
-    
-    # BUILD 157: Allow deletion of found leads - don't fail if some not found
-    if len(leads) == 0:
-        return jsonify({"error": "No leads found or access denied", "success": False}), 404
-    
-    # BUILD 157: Delete leads (skip activity logging - causes FK constraint issues)
-    deleted_count = 0
-    deleted_names = []
-    
-    for lead in leads:
-        try:
+    try:
+        # BUILD 157: Find leads - use tenant filtering when available
+        if tenant_id:
+            leads = Lead.query.filter(
+                Lead.id.in_(lead_ids),
+                Lead.tenant_id == tenant_id
+            ).all()
+        else:
+            # System admin without impersonation - can delete any lead
+            leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
+        
+        log.info(f"🗑️ Found {len(leads)} leads out of {len(lead_ids)} requested")
+        
+        # BUILD 157: Allow deletion of found leads - don't fail if some not found
+        if len(leads) == 0:
+            return jsonify({"error": "No leads found or access denied", "success": False}), 404
+        
+        # BUILD 172: Delete related records FIRST to avoid FK constraint violations
+        actual_lead_ids = [lead.id for lead in leads]
+        
+        # Delete LeadActivity records
+        LeadActivity.query.filter(LeadActivity.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
+        
+        # Delete LeadReminder records
+        LeadReminder.query.filter(LeadReminder.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
+        
+        # Delete LeadNote records (has cascade but be explicit)
+        LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
+        
+        # Delete LeadMergeCandidate records
+        LeadMergeCandidate.query.filter(
+            db.or_(
+                LeadMergeCandidate.lead_id.in_(actual_lead_ids),
+                LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
+            )
+        ).delete(synchronize_session=False)
+        
+        # Clear lead_id references in WhatsAppSession (set to NULL)
+        from server.models_sql import WhatsAppSession
+        WhatsAppSession.query.filter(WhatsAppSession.lead_id.in_(actual_lead_ids)).update(
+            {"lead_id": None}, synchronize_session=False
+        )
+        
+        # Clear lead_id references in Task (set to NULL)
+        from server.models_sql import Task
+        Task.query.filter(Task.lead_id.in_(actual_lead_ids)).update(
+            {"lead_id": None}, synchronize_session=False
+        )
+        
+        # Clear lead_id references in RealtimeCallContext (set to NULL)
+        from server.models_sql import RealtimeCallContext
+        RealtimeCallContext.query.filter(RealtimeCallContext.lead_id.in_(actual_lead_ids)).update(
+            {"lead_id": None}, synchronize_session=False
+        )
+        
+        # Now delete the leads
+        deleted_count = 0
+        deleted_names = []
+        
+        for lead in leads:
             deleted_names.append(lead.full_name or f"Lead #{lead.id}")
             db.session.delete(lead)
             deleted_count += 1
-        except Exception as e:
-            log.error(f"❌ Error deleting lead {lead.id}: {e}")
-    
-    db.session.commit()
-    
-    # Log summary after commit
-    log.info(f"🗑️ Bulk deleted by {user.get('email') if user else 'unknown'}: {deleted_names}")
-    
-    log.info(f"✅ Bulk delete completed: {deleted_count}/{len(lead_ids)} leads deleted")
-    
-    return jsonify({
-        "success": True,
-        "message": f"Bulk delete completed: {deleted_count} leads deleted",
-        "deleted_count": deleted_count,
-        "total_requested": len(lead_ids)
-    })
+        
+        db.session.commit()
+        
+        # Log summary after commit
+        log.info(f"🗑️ Bulk deleted by {user.get('email') if user else 'unknown'}: {deleted_names}")
+        log.info(f"✅ Bulk delete completed: {deleted_count}/{len(lead_ids)} leads deleted")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Bulk delete completed: {deleted_count} leads deleted",
+            "deleted_count": deleted_count,
+            "total_requested": len(lead_ids)
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"❌ Bulk delete error: {e}")
+        import traceback
+        log.error(traceback.format_exc())
+        return jsonify({"error": f"Failed to delete leads: {str(e)}", "success": False}), 500
 
 @leads_bp.route("/api/leads/bulk", methods=["PATCH"])
 @require_api_auth()  # BUILD 137: Added missing decorator

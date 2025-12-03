@@ -253,28 +253,34 @@ def download_recording(call_sid):
         return jsonify({"success": False, "error": str(e)}), 500
 
 @calls_bp.route("/api/calls/cleanup", methods=["POST"])
-@require_api_auth(["admin"])
+@calls_bp.route("/api/calls/cleanup-recordings", methods=["POST"])
+@require_api_auth(["system_admin", "owner", "admin"])
 def cleanup_old_recordings():
-    """מחיקה ידנית של הקלטות ישנות (רק למנהלים)"""
+    """מחיקה ידנית של הקלטות ישנות (רק למנהלים) - מסנן לפי עסק"""
     try:
-        # Delete recordings older than 7 days
+        # Get business_id for tenant filtering
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"success": False, "error": "Business ID required"}), 400
+        
+        # Delete recordings older than 7 days - FILTERED BY BUSINESS
         cutoff_date = datetime.utcnow() - timedelta(days=7)
         
         old_calls = Call.query.filter(
+            Call.business_id == business_id,
             Call.created_at < cutoff_date,
             Call.recording_url.isnot(None)
         ).all()
         
         deleted_count = 0
         for call in old_calls:
-            # Clear recording URL and transcript to free space
+            # Clear recording URL to mark as deleted
             call.recording_url = None
-            # Keep transcription for now as it's text and small
             deleted_count += 1
         
         db.session.commit()
         
-        log.info(f"Cleaned up {deleted_count} old recordings")
+        log.info(f"Cleaned up {deleted_count} old recordings for business {business_id}")
         
         return jsonify({
             "success": True,
@@ -284,6 +290,7 @@ def cleanup_old_recordings():
         
     except Exception as e:
         log.error(f"Error cleaning up recordings: {e}")
+        db.session.rollback()
         return jsonify({"success": False, "error": str(e)}), 500
 
 @calls_bp.route("/api/calls/stats", methods=["GET"])
