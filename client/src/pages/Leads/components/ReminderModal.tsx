@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from "../../../shared/components/ui/Button";
 import { Lead, LeadReminder } from '../types';
-import { Clock, Bell, MessageSquare, Mail, X, Save } from 'lucide-react';
+import { Clock, X, Save } from 'lucide-react';
 import { http } from '../../../services/http';
 
 interface ReminderModalProps {
@@ -16,7 +16,6 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
   const [note, setNote] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [dueTime, setDueTime] = useState('');
-  const [channel, setChannel] = useState<'ui' | 'email' | 'whatsapp'>('ui');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Pre-populate form when reminder is provided or reset when creating new
@@ -32,13 +31,11 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
         
         setDueDate(dateStr);
         setDueTime(timeStr);
-        setChannel(reminder.channel as 'ui' | 'email' | 'whatsapp');
       } else {
         // Reset form when creating new reminder
         setNote('');
         setDueDate('');
         setDueTime('');
-        setChannel('ui');
       }
     }
   }, [reminder, isOpen]);
@@ -61,7 +58,6 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
         await http.patch(`/api/leads/${lead.id}/reminders/${reminder.id}`, {
           due_at: dueAt,
           note: note.trim(),
-          channel,
         });
         alert(`תזכורת עודכנה בהצלחה`);
       } else {
@@ -69,7 +65,6 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
         await http.post(`/api/leads/${lead.id}/reminders`, {
           due_at: dueAt,
           note: note.trim(),
-          channel,
         });
         alert(`תזכורת לחזרה ללקוח ${lead.full_name} נוצרה בהצלחה`);
       }
@@ -88,7 +83,6 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
     setNote('');
     setDueDate('');
     setDueTime('');
-    setChannel('ui');
     onClose();
   };
 
@@ -96,18 +90,6 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   const defaultDate = tomorrow.toISOString().split('T')[0];
-
-  const channelIcons = {
-    ui: <Bell className="w-4 h-4" />,
-    email: <Mail className="w-4 h-4" />,
-    whatsapp: <MessageSquare className="w-4 h-4" />
-  };
-
-  const channelLabels = {
-    ui: 'התראה במערכת',
-    email: 'אימייל',
-    whatsapp: 'וואטסאפ'
-  };
 
   if (!isOpen) return null;
 
@@ -184,26 +166,6 @@ export function ReminderModal({ isOpen, onClose, lead, reminder = null, onSucces
                 required
                 data-testid="textarea-reminder-note"
               />
-            </div>
-
-            {/* Channel */}
-            <div>
-              <label htmlFor="reminder-channel" className="block text-sm font-medium text-slate-700 mb-2">
-                אופן התזכורת
-              </label>
-              <select
-                id="reminder-channel"
-                value={channel}
-                onChange={(e) => setChannel(e.target.value as 'ui' | 'email' | 'whatsapp')}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                data-testid="select-reminder-channel"
-              >
-                {Object.entries(channelLabels).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
             </div>
 
             {/* Footer */}
