@@ -1496,37 +1496,16 @@ class MediaStreamHandler:
                                 outbound_lead_name = getattr(self, 'outbound_lead_name', None)
                                 outbound_business_name = getattr(self, 'outbound_business_name', None)
                                 
-                                if call_direction == 'outbound' and outbound_template_id:
-                                    # Load outbound template from DB
-                                    try:
-                                        from server.models_sql import OutboundCallTemplate
-                                        template = OutboundCallTemplate.query.filter_by(
-                                            id=int(outbound_template_id),
-                                            is_active=True
-                                        ).first()
-                                        
-                                        if template and template.prompt_text:
-                                            # Build outbound-specific prompt
-                                            biz_name = outbound_business_name or "העסק"
-                                            lead_name = outbound_lead_name or "לקוח"
-                                            
-                                            outbound_prompt = f"""אתה נציג מכירות של {biz_name}.
-אתה יוזם שיחה יוצאת ל{lead_name}.
-
-{template.prompt_text}
-
-חוקים חשובים:
-- דבר בעברית בלבד
-- היה קצר וענייני
-- הקשב ללקוח והגב בהתאם
-- אל תדבר יותר מ-2-3 משפטים בכל תשובה"""
-                                            print(f"📤 [OUTBOUND] Using template #{template.id}: {template.name}")
-                                            return outbound_prompt
-                                    except Exception as e:
-                                        print(f"⚠️ [OUTBOUND] Failed to load template: {e}")
+                                # 🔥 BUILD 174: Use dedicated outbound_ai_prompt from BusinessSettings
+                                # The prompt builder now handles outbound vs inbound prompts!
+                                prompt = build_prompt(business_id_safe, call_direction=call_direction)
                                 
-                                # Standard inbound prompt
-                                prompt = build_prompt(business_id_safe)
+                                # For outbound calls with template, prepend lead context
+                                if call_direction == 'outbound' and outbound_lead_name:
+                                    lead_context = f"אתה מתקשר ל{outbound_lead_name}.\n\n"
+                                    prompt = lead_context + prompt
+                                    print(f"📤 [OUTBOUND] Using outbound prompt with lead context: {outbound_lead_name}")
+                                
                                 if prompt and len(prompt) > 100:
                                     return prompt
                                 return None
