@@ -80,3 +80,47 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
 - **n8n**: Workflow automation platform for custom automations.
+
+# Outbound Calls – Validation Checklist (BUILD 174)
+
+## Models Used
+- `CallLog` - Extended with `lead_id`, `outbound_template_id`, `direction` fields (all nullable for backward compatibility)
+- `OutboundCallTemplate` - New model: `id`, `business_id`, `name`, `description`, `prompt_text`, `greeting_template`, `is_active`
+
+## Routes Added
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/outbound_calls/templates` | GET | List active templates for business |
+| `/api/outbound_calls/templates` | POST | Create new template (owner/admin) |
+| `/api/outbound_calls/templates/<id>` | DELETE | Soft-delete template |
+| `/api/outbound_calls/counts` | GET | Get active call counts |
+| `/api/outbound_calls/start` | POST | Start outbound calls to leads |
+| `/webhook/outbound_call` | POST/GET | Twilio webhook for outbound calls |
+
+## Concurrency Limits
+- **Max 3 outbound calls** per business (simultaneous)
+- **Max 5 total calls** (inbound + outbound combined) per business
+- Enforced via `server/services/call_limiter.py`
+- Inbound calls return polite TwiML rejection when at limit
+- Outbound API returns 429 with Hebrew error message when at limit
+
+## Files Modified for BUILD 174
+### Backend
+- `server/models_sql.py` - Added `OutboundCallTemplate` model, extended `CallLog`
+- `server/routes_outbound.py` - New file: outbound call API endpoints
+- `server/services/call_limiter.py` - New file: call concurrency limiting
+- `server/routes_twilio.py` - Added `/webhook/outbound_call` and `check_inbound_call_limit()`
+- `server/app_factory.py` - Registered `outbound_bp` blueprint
+
+### Frontend
+- `client/src/pages/calls/OutboundCallsPage.tsx` - New page: lead selection, template picker, call status
+- `client/src/app/layout/MainLayout.tsx` - Added sidebar item "שיחות יוצאות"
+- `client/src/app/routes.tsx` - Added `/app/outbound-calls` route
+
+## Manually Tested
+- Template CRUD operations
+- Lead selection with limit enforcement (1-3 leads max)
+- Call counts display and refresh
+- Hebrew error messages for limit violations
+- Sidebar navigation to outbound calls page
+- Inbound call flow unchanged when under limits
