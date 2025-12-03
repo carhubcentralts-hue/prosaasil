@@ -76,15 +76,29 @@ def send_generic_webhook(
         }
         
         def send_with_retry():
+            # 🔧 BUILD 177: Handle redirects properly to preserve POST method
+            current_url = webhook_url
+            
             for attempt in range(MAX_RETRIES):
                 try:
-                    print(f"[WEBHOOK] Sending {event_type} to {webhook_url[:50]}... (attempt {attempt + 1})")
+                    print(f"[WEBHOOK] Sending {event_type} to {current_url[:50]}... (attempt {attempt + 1})")
+                    
+                    # Disable auto-redirects to handle them manually (preserve POST on redirect)
                     response = requests.post(
-                        webhook_url,
+                        current_url,
                         data=payload_json.encode('utf-8'),
                         headers=headers,
-                        timeout=30
+                        timeout=30,
+                        allow_redirects=False  # Handle redirects manually to preserve POST
                     )
+                    
+                    # Handle redirect (301, 302, 307, 308) - follow with POST
+                    if response.status_code in (301, 302, 307, 308):
+                        redirect_url = response.headers.get('Location')
+                        if redirect_url:
+                            print(f"[WEBHOOK] 🔀 Following redirect to: {redirect_url}")
+                            current_url = redirect_url
+                            continue  # Retry with new URL
                     
                     if response.status_code >= 200 and response.status_code < 300:
                         print(f"[WEBHOOK] ✅ Success: {event_type} sent to webhook (status {response.status_code})")
