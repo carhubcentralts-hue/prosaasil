@@ -60,6 +60,7 @@ export function OutboundCallsPage() {
   const { data: templates = [], isLoading: templatesLoading, error: templatesError } = useQuery<OutboundTemplate[]>({
     queryKey: ['/api/outbound_calls/templates'],
     select: (data: any) => {
+      console.log('Templates API response:', data);
       if (!data) return [];
       if (Array.isArray(data)) return data;
       if (data.templates && Array.isArray(data.templates)) return data.templates;
@@ -80,6 +81,7 @@ export function OutboundCallsPage() {
     select: (data: any) => {
       if (!data) return { leads: [] };
       if (Array.isArray(data)) return { leads: data };
+      if (data.items && Array.isArray(data.items)) return { leads: data.items };
       if (data.leads && Array.isArray(data.leads)) return { leads: data.leads };
       return { leads: [] };
     },

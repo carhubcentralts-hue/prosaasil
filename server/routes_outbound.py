@@ -225,16 +225,15 @@ def start_outbound_calls():
                 continue
             
             try:
-                call_log = CallLog(
-                    business_id=tenant_id,
-                    lead_id=lead.id,
-                    outbound_template_id=template.id if template else None,
-                    from_number=from_phone,
-                    to_number=lead.phone_e164,
-                    direction="outbound",
-                    status="initiated",
-                    call_status="initiated"
-                )
+                call_log = CallLog()
+                call_log.business_id = tenant_id
+                call_log.lead_id = lead.id
+                call_log.outbound_template_id = template.id if template else None
+                call_log.from_number = from_phone
+                call_log.to_number = lead.phone_e164
+                call_log.direction = "outbound"
+                call_log.status = "initiated"
+                call_log.call_status = "initiated"
                 db.session.add(call_log)
                 db.session.flush()
                 
@@ -332,14 +331,13 @@ def create_outbound_template():
         return jsonify({"error": "הנחיות לשיחה חובה"}), 400
     
     try:
-        template = OutboundCallTemplate(
-            business_id=tenant_id,
-            name=name,
-            description=description,
-            prompt_text=prompt_text,
-            greeting_template=greeting_template,
-            is_active=True
-        )
+        template = OutboundCallTemplate()
+        template.business_id = tenant_id
+        template.name = name
+        template.description = description
+        template.prompt_text = prompt_text
+        template.greeting_template = greeting_template
+        template.is_active = True
         db.session.add(template)
         db.session.commit()
         

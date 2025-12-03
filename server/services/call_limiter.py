@@ -7,6 +7,7 @@ Limits:
 - MAX_TOTAL_CALLS_PER_BUSINESS = 5 (inbound + outbound combined)
 """
 import logging
+from datetime import datetime, timedelta
 from typing import Tuple
 from server.models_sql import CallLog, db
 
@@ -16,6 +17,9 @@ MAX_OUTBOUND_CALLS_PER_BUSINESS = 3
 MAX_TOTAL_CALLS_PER_BUSINESS = 5
 
 ACTIVE_CALL_STATUSES = ['initiated', 'ringing', 'in-progress', 'queued', 'in_progress']
+TERMINAL_CALL_STATUSES = ['completed', 'busy', 'no-answer', 'canceled', 'failed', 'ended', 'hangup']
+
+MAX_CALL_AGE_MINUTES = 30
 
 
 def count_active_calls(business_id: int) -> int:
@@ -23,11 +27,17 @@ def count_active_calls(business_id: int) -> int:
     Count total active calls (inbound + outbound) for a business
     
     Active = status in ['initiated', 'ringing', 'in-progress', 'queued']
+    AND created within last MAX_CALL_AGE_MINUTES (to exclude stale entries)
+    AND call_status is not terminal (completed, busy, etc.)
     """
     try:
+        cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
+        
         count = CallLog.query.filter(
             CallLog.business_id == business_id,
-            CallLog.status.in_(ACTIVE_CALL_STATUSES)
+            CallLog.status.in_(ACTIVE_CALL_STATUSES),
+            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.created_at >= cutoff_time
         ).count()
         return count
     except Exception as e:
@@ -40,10 +50,14 @@ def count_active_outbound_calls(business_id: int) -> int:
     Count active outbound calls for a business
     """
     try:
+        cutoff_time = datetime.utcnow() - timedelta(minutes=MAX_CALL_AGE_MINUTES)
+        
         count = CallLog.query.filter(
             CallLog.business_id == business_id,
             CallLog.direction == 'outbound',
-            CallLog.status.in_(ACTIVE_CALL_STATUSES)
+            CallLog.status.in_(ACTIVE_CALL_STATUSES),
+            CallLog.call_status.notin_(TERMINAL_CALL_STATUSES),
+            CallLog.created_at >= cutoff_time
         ).count()
         return count
     except Exception as e:
