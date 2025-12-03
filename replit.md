@@ -65,7 +65,8 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Enhanced Reminders System**.
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice time.
-- **CRM Tasks**: Redesigned task board with notifications.
+- **CRM Tasks**: Redesigned task board with notifications. N+1 query optimized with batch prefetch (BUILD 172).
+- **Bulk Lead Deletion**: Cascade delete for all related FK tables (LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate) with proper transaction rollback.
 - **Monday.com Webhook Integration**: Per-business configurable webhook for call transcript sending.
 - **Auto Hang-up Settings**: Options to automatically end calls after lead capture or on goodbye phrases.
 - **Bot Speaks First**: Option for the bot to play greeting before listening to the customer.
