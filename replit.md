@@ -46,6 +46,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **RBAC Sidebar**: Dynamic visibility for "Business Management" and "User Management".
 - **Role-Based Routing**: Smart default redirects based on user roles.
 - **Leads UX Improvements**: Optimized lead search, fast status updates, and a notes tab for free-text notes, images, and file attachments.
+- **Lead Notes System (BUILD 172)**: Permanent LeadNote model separate from WhatsApp/call logs. CRUD API endpoints with tenant isolation. File uploads with 10MB limit and session-authenticated serving. Edit/delete functionality with chronological display.
 - **WhatsApp Chat UI Fixes**: Proper WhatsApp-like styling for messages, toggle AI endpoint, correct message alignment, AI prompt fallback, and database session fixes.
 
 ## Feature Specifications

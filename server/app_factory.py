@@ -526,6 +526,41 @@ def create_app():
         """Serve static TTS files"""
         return send_from_directory(os.path.join(os.path.dirname(__file__), "..", "static", "tts"), filename)
     
+    # BUILD 172: Serve uploaded note attachments with session-based authentication
+    @app.route('/uploads/notes/<int:tenant_id>/<path:filename>')
+    def serve_note_attachment(tenant_id, filename):
+        """Serve uploaded note attachments - requires session authentication and tenant match"""
+        from flask import session, abort
+        
+        # Check session-based authentication (same as require_api_auth)
+        user = session.get("al_user") or session.get("user")
+        if not user:
+            abort(401)
+        
+        user_role = user.get('role', '')
+        
+        # Compute user's tenant - impersonation overrides business_id
+        if session.get("impersonated_tenant_id"):
+            user_tenant = session.get("impersonated_tenant_id")
+        else:
+            user_tenant = user.get('business_id')
+        
+        # System admin can access all tenants
+        if user_role != 'system_admin' and user_tenant != tenant_id:
+            abort(403)
+        
+        # Safe path check - prevent directory traversal
+        if '..' in filename or filename.startswith('/'):
+            abort(400)
+        
+        uploads_dir = os.path.join(os.path.dirname(__file__), "..", "uploads", "notes", str(tenant_id))
+        file_path = os.path.join(uploads_dir, filename)
+        
+        # Check file exists
+        if not os.path.isfile(file_path):
+            abort(404)
+        
+        return send_from_directory(uploads_dir, filename)
 
     # Health endpoints moved below to prevent duplicates
         
@@ -551,8 +586,8 @@ def create_app():
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def spa(path):
-        # אל תיתן לנתיבי /api, /webhook, /static, /wa להגיע לכאן
-        if path.startswith(('api','webhook','static','assets','wa')):
+        # אל תיתן לנתיבי /api, /webhook, /static, /wa, /uploads להגיע לכאן
+        if path.startswith(('api','webhook','static','assets','wa','uploads')):
             abort(404)
         resp = send_from_directory(FE_DIST, 'index.html')
         # index.html must never be cached (always fresh)
