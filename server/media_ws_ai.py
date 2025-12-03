@@ -1966,42 +1966,39 @@ class MediaStreamHandler:
                         ai_polite_closing_detected = self._check_goodbye_phrases(transcript) or self._check_polite_closing(transcript)
                         
                         # 🎯 BUILD 170.5: FIXED HANGUP LOGIC
-                        # Settings-based hangup should work when enabled, not blocked by verification gate
+                        # Settings-based hangup respects business configuration
+                        # Hangup requires EITHER:
+                        # - User said goodbye (goodbye_detected=True), OR
+                        # - Lead captured with auto_end_after_lead_capture=True, OR
+                        # - User confirmed summary (verification_confirmed=True)
                         should_hangup = False
                         hangup_reason = ""
                         
-                        # 🔥 BUILD 170.5: Respect business settings for automatic hangup
-                        # Priority 1: User explicitly said goodbye - always allow
+                        # 🔥 BUILD 170.5: Hangup only when proper conditions are met
+                        
+                        # Case 1: User explicitly said goodbye - always allow hangup after AI responds
                         if self.goodbye_detected and ai_polite_closing_detected:
                             hangup_reason = "user_goodbye"
                             should_hangup = True
-                            print(f"✅ [HANGUP] User said goodbye - allowing hangup")
+                            print(f"✅ [HANGUP] User said goodbye, AI responded politely - disconnecting")
                         
-                        # Priority 2: auto_end_on_goodbye is ON and AI said goodbye
-                        elif self.auto_end_on_goodbye and can_detect_goodbye and ai_polite_closing_detected:
-                            hangup_reason = "auto_end_on_goodbye"
-                            should_hangup = True
-                            print(f"✅ [HANGUP] auto_end_on_goodbye=True, AI said goodbye - allowing hangup")
-                        
-                        # Priority 3: auto_end_after_lead_capture is ON and lead is captured
+                        # Case 2: Lead fully captured AND setting enabled AND AI confirmed
                         elif self.auto_end_after_lead_capture and self.lead_captured and ai_polite_closing_detected:
-                            hangup_reason = "auto_end_after_lead_capture"
+                            hangup_reason = "lead_captured_auto"
                             should_hangup = True
-                            print(f"✅ [HANGUP] auto_end_after_lead_capture=True, lead captured - allowing hangup")
+                            print(f"✅ [HANGUP] Lead captured + auto_end_after_lead_capture=True - disconnecting")
                         
-                        # Priority 4: Verification confirmed (user confirmed summary)
+                        # Case 3: User explicitly confirmed details in summary
                         elif self.verification_confirmed and ai_polite_closing_detected:
-                            hangup_reason = "verification_confirmed"
+                            hangup_reason = "user_verified"
                             should_hangup = True
-                            print(f"✅ [HANGUP] User confirmed details - allowing hangup")
+                            print(f"✅ [HANGUP] User confirmed all details - disconnecting")
                         
-                        # Log when hangup is blocked
+                        # Log when AI says closing but we're blocking hangup
                         elif ai_polite_closing_detected:
-                            print(f"🔒 [HANGUP BLOCKED] AI said closing but conditions not met:")
+                            print(f"🔒 [HANGUP BLOCKED] AI said closing phrase but conditions not met:")
                             print(f"   goodbye_detected={self.goodbye_detected}")
-                            print(f"   auto_end_on_goodbye={self.auto_end_on_goodbye}")
-                            print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}")
-                            print(f"   lead_captured={self.lead_captured}")
+                            print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}, lead_captured={self.lead_captured}")
                             print(f"   verification_confirmed={self.verification_confirmed}")
                         
                         if should_hangup:
@@ -2245,26 +2242,28 @@ class MediaStreamHandler:
                             print(f"🔍 [DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                             self._check_appointment_confirmation(transcript)
                         
-                        # 🎯 BUILD 163: Detect goodbye phrases in user transcript
-                        # ONLY "ביי/להתראות" trigger hangup - NOT "אין צורך/לא צריך"
+                        # 🎯 BUILD 170.5: ALWAYS detect goodbye phrases in user transcript
+                        # User saying goodbye should ALWAYS allow call to end
                         # 🔥 PROTECTION: Only detect goodbye if enough time passed since greeting
-                        # ONLY applies if greeting was actually played (greeting_completed_at is not None)
                         can_detect_goodbye = True
                         if self.greeting_completed_at is not None:
                             elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
                             if elapsed_ms < self.min_call_duration_after_greeting_ms:
                                 can_detect_goodbye = False
                                 print(f"🛡️ [PROTECTION] Ignoring user goodbye - only {elapsed_ms:.0f}ms since greeting")
-                        # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
                         
-                        if self.auto_end_on_goodbye and not self.pending_hangup and can_detect_goodbye:
+                        # 🔥 BUILD 170.5: ALWAYS set goodbye_detected when user says bye (no setting gate!)
+                        if not self.pending_hangup and can_detect_goodbye:
                             if self._check_goodbye_phrases(transcript):
-                                print(f"👋 [BUILD 163] User said goodbye - sending polite closing instruction to AI")
+                                print(f"👋 [BUILD 170.5] User said goodbye - setting goodbye_detected=True")
                                 self.goodbye_detected = True
-                                # 🔥 FIX: Send explicit instruction to AI to say polite goodbye
-                                asyncio.create_task(self._send_server_event_to_ai(
-                                    "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
-                                ))
+                                
+                                # If auto_end_on_goodbye is ON, send explicit instruction to AI
+                                if self.auto_end_on_goodbye:
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
+                                    ))
+                                
                                 # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
                                 asyncio.create_task(self._fallback_hangup_after_timeout(10, "user_goodbye"))
                         
