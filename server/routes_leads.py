@@ -15,6 +15,25 @@ log = logging.getLogger(__name__)
 
 leads_bp = Blueprint("leads_bp", __name__)
 
+def normalize_source(source: str) -> str:
+    """
+    Normalize lead source to only 'phone' or 'whatsapp'
+    All phone-related sources (call, realtime_phone, phone_call, etc.) become 'phone'
+    All WhatsApp-related sources become 'whatsapp'
+    """
+    if not source:
+        return 'phone'
+    
+    source_lower = source.lower().strip()
+    
+    phone_sources = {'call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual'}
+    whatsapp_sources = {'whatsapp', 'wa', 'whats_app'}
+    
+    if source_lower in whatsapp_sources:
+        return 'whatsapp'
+    
+    return 'phone'
+
 def get_current_user():
     """
     BUILD 141 FIX: Get current user from g.user (populated by @require_api_auth)
@@ -218,7 +237,12 @@ def list_leads():
         query = query.filter(func.lower(Lead.status) == status_filter.lower())
     
     if source_filter:
-        query = query.filter(Lead.source == source_filter)
+        if source_filter == 'phone':
+            phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
+            query = query.filter(Lead.source.in_(phone_sources))
+        elif source_filter == 'whatsapp':
+            whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
+            query = query.filter(Lead.source.in_(whatsapp_sources))
     
     if owner_filter:
         query = query.filter(Lead.owner_user_id == owner_filter)
@@ -275,7 +299,7 @@ def list_leads():
             "display_phone": lead.display_phone,
             "email": lead.email,
             "status": lead.status,
-            "source": lead.source,
+            "source": normalize_source(lead.source),
             "owner_user_id": lead.owner_user_id,
             "tags": lead.tags or [],
             "created_at": lead.created_at.isoformat() if lead.created_at else None,
@@ -451,7 +475,7 @@ def create_lead():
                 "phone_e164": lead.phone_e164,
                 "email": lead.email,
                 "status": lead.status,
-                "source": lead.source,
+                "source": normalize_source(lead.source),
                 "created_at": lead.created_at.isoformat()
             }
         }), 201
@@ -525,7 +549,7 @@ def get_lead_detail(lead_id):
             "display_phone": lead.display_phone,
             "email": lead.email,
             "status": lead.status,
-            "source": lead.source,
+            "source": normalize_source(lead.source),
             "external_id": lead.external_id,
             "owner_user_id": lead.owner_user_id,
             "tags": lead.tags or [],
@@ -607,7 +631,7 @@ def update_lead(lead_id):
             "phone_e164": lead.phone_e164,
             "email": lead.email,
             "status": lead.status,
-            "source": lead.source,
+            "source": normalize_source(lead.source),
             "owner_user_id": lead.owner_user_id,
             "tags": lead.tags,
             "notes": lead.notes,

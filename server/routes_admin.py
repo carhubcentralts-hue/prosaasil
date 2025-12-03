@@ -535,7 +535,12 @@ def admin_leads():
             query = query.filter(Lead.status == status)
             
         if source and source != 'all':
-            query = query.filter(Lead.source == source)
+            if source == 'phone':
+                phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
+                query = query.filter(Lead.source.in_(phone_sources))
+            elif source == 'whatsapp':
+                whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
+                query = query.filter(Lead.source.in_(whatsapp_sources))
             
         if owner_user_id is not None:
             query = query.filter(Lead.owner_user_id == owner_user_id)
@@ -578,6 +583,14 @@ def admin_leads():
         leads = leads_query.all()
         
         # Format leads data
+        def normalize_source_admin(source):
+            if not source:
+                return 'phone'
+            source_lower = source.lower().strip()
+            if source_lower in {'whatsapp', 'wa', 'whats_app'}:
+                return 'whatsapp'
+            return 'phone'
+        
         leads_data = []
         for lead in leads:
             business = lead.tenant
@@ -587,7 +600,7 @@ def admin_leads():
                 'phone': lead.phone_e164,
                 'email': lead.email,
                 'status': lead.status,
-                'source': lead.source,
+                'source': normalize_source_admin(lead.source),
                 'created_at': lead.created_at.isoformat() if lead.created_at else None,
                 'updated_at': lead.updated_at.isoformat() if lead.updated_at else None,
                 'notes': lead.notes,
