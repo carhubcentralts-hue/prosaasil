@@ -8,6 +8,7 @@ Endpoints:
 - GET /api/outbound_calls/counts - Get current active call counts
 """
 import os
+import re
 import logging
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
@@ -16,6 +17,50 @@ from server.services.call_limiter import check_call_limits, get_call_counts, MAX
 from twilio.rest import Client
 
 log = logging.getLogger(__name__)
+
+
+def normalize_israeli_phone(phone: str) -> str:
+    """
+    Normalize Israeli phone number to E.164 format (+972XXXXXXXXX)
+    
+    Handles:
+    - +972XXXXXXXXX -> +972XXXXXXXXX (already E.164)
+    - 972XXXXXXXXX -> +972XXXXXXXXX (missing +)
+    - 0XXXXXXXXX -> +972XXXXXXXXX (local format)
+    - 05XXXXXXXX -> +9725XXXXXXXX (mobile local)
+    
+    Returns the original string if it can't be normalized
+    """
+    if not phone:
+        return phone
+    
+    # Remove all non-digit characters except +
+    cleaned = re.sub(r'[^\d+]', '', phone.strip())
+    
+    # Already in E.164 format with +972
+    if cleaned.startswith('+972'):
+        return cleaned
+    
+    # Has 972 prefix but missing +
+    if cleaned.startswith('972') and len(cleaned) >= 12:
+        return '+' + cleaned
+    
+    # Israeli local format (starts with 0)
+    if cleaned.startswith('0') and len(cleaned) >= 10:
+        # Remove leading 0 and add +972
+        return '+972' + cleaned[1:]
+    
+    # If it already has a different country code (starts with +), keep it
+    if cleaned.startswith('+'):
+        return cleaned
+    
+    # Fallback: assume it's missing the leading 0 for Israeli mobile
+    if len(cleaned) == 9 and cleaned[0] in '5':  # Israeli mobile without 0
+        return '+972' + cleaned
+    
+    # Return original if we can't normalize
+    log.warning(f"Could not normalize phone number: {phone}")
+    return phone
 
 outbound_bp = Blueprint("outbound", __name__)
 
@@ -206,12 +251,16 @@ def start_outbound_calls():
                 })
                 continue
             
+            # Normalize phone number to E.164 format
+            normalized_phone = normalize_israeli_phone(lead.phone_e164)
+            log.info(f"📞 Phone normalization: {lead.phone_e164} -> {normalized_phone}")
+            
             try:
                 call_log = CallLog()
                 call_log.business_id = tenant_id
                 call_log.lead_id = lead.id
                 call_log.from_number = from_phone
-                call_log.to_number = lead.phone_e164
+                call_log.to_number = normalized_phone  # Use normalized phone
                 call_log.direction = "outbound"
                 call_log.status = "initiated"
                 call_log.call_status = "initiated"
@@ -230,7 +279,7 @@ def start_outbound_calls():
                 client = get_twilio_client()
                 
                 twilio_call = client.calls.create(
-                    to=lead.phone_e164,
+                    to=normalized_phone,  # Use normalized phone
                     from_=from_phone,
                     url=webhook_url,
                     status_callback=f"https://{host}/webhook/call_status",

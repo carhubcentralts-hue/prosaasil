@@ -671,7 +671,7 @@ class CallSession(db.Model):
     """✨ Call session state - for appointment deduplication and tracking"""
     __tablename__ = "call_session"
     id = db.Column(db.Integer, primary_key=True)
-    call_sid = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    call_sid = db.Column(db.String(64), unique=True, nullable=True, index=True)  # Nullable for outbound calls
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
     

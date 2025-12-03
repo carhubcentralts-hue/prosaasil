@@ -1,0 +1,106 @@
+INFO: 104.196.221.213:0 - "GET /api/outbound_calls/counts HTTP/1.1" 200 OK
+2025-12-03 19:29:49.47
+4fd29026
+User
+🔍 AUTH DEBUG: user_id=1, role=owner, business_id=1, computed_tenant=1, impersonating=False
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-12-03 19:29:49.82
+4fd29026
+User
+Traceback (most recent call last):
+2025-12-03 19:29:49.82
+4fd29026
+User
+self.dialect.do_execute(
+
+2025-12-03 19:29:49.82
+4fd29026
+User
+cursor.execute(statement, parameters)
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-12-03 19:29:49.82
+4fd29026
+User
+psycopg2.errors.NotNullViolation: null value in column "call_sid" of relation "call_log" violates not-null constraint
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+2025-12-03 19:29:49.82
+4fd29026
+User
+Traceback (most recent call last):
+2025-12-03 19:29:49.82
+4fd29026
+User
+self.dialect.do_execute(
+2025-12-03 19:29:49.82
+4fd29026
+User
+cursor.execute(statement, parameters)
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+2025-12-03 19:29:49.82
+4fd29026
+User
+psycopg2.errors.NotNullViolation: null value in column "call_sid" of relation "call_log" violates not-null constraint
+2025-12-03 19:29:49.82
+4fd29026
+User
+DETAIL: Failing row contains (818, 1, null, +97233763805, +972549750505, initiated, null, null, 2025-12-03 17:29:49.7555, 2025-12-03 17:29:49.755505, null, null, null, null, null, 0, null, initiated, null, null, outbound, 107, null).
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 466, in execute
+2025-12-03 19:29:49.82
+4fd29026
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 642, in execute
+2025-12-03 19:29:49.82
+4fd29026
+User
+^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 19:29:49.82
+4fd29026
+User
+raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+2025-12-03 19:29:49.82
+4fd29026
+User
+return self._proxied.flush(objects=objects)
+2025-12-03 19:29:49.82
+4fd29026
+User
+return meth(
+2025-12-03 19:29:49.82
+4fd29026
+User
+_emit_insert_statements(
+2025-12-03 19:29:49.82
+4fd29026
+User
+Traceback (most recent call last):
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+2025-12-03 19:29:49.82
+4fd29026
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 4345, in flush
