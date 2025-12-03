@@ -130,6 +130,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - Summaries and transcripts saved via shared pipeline for both inbound/outbound calls
 - `_identify_business_and_get_greeting()` handles both inbound (phone resolution) and outbound (explicit business_id) with shared CallConfig loading
 - **BUILD 178 Outbound Call Control Override**: All call control settings are forcibly disabled for outbound calls - auto_end_after_lead_capture=False, auto_end_on_goodbye=False, silence_timeout=120s, smart_hangup=OFF, loop_guard=DISABLED at all 4 checkpoints. Outbound calls ONLY follow the AI prompt.
+- **BUILD 178 UI Completeness**: BusinessAISettings.tsx now includes all call control settings: bot_speaks_first, auto_end_after_lead_capture, auto_end_on_goodbye toggles, plus silence_timeout slider, silence_max_warnings selector, smart_hangup toggle, and required_lead_fields selection. Note added explaining settings only apply to inbound calls.
 
 ## Manually Tested
 - Template CRUD operations

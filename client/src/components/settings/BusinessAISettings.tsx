@@ -28,6 +28,9 @@ interface CallControlSettings {
   silence_max_warnings: number;
   smart_hangup_enabled: boolean;
   required_lead_fields: string[];
+  bot_speaks_first: boolean;
+  auto_end_after_lead_capture: boolean;
+  auto_end_on_goodbye: boolean;
 }
 
 export function BusinessAISettings() {
@@ -52,7 +55,10 @@ export function BusinessAISettings() {
     silence_timeout_sec: 15,
     silence_max_warnings: 2,
     smart_hangup_enabled: true,
-    required_lead_fields: ['name', 'phone']
+    required_lead_fields: ['name', 'phone'],
+    bot_speaks_first: false,
+    auto_end_after_lead_capture: false,
+    auto_end_on_goodbye: false
   });
   const [businessName, setBusinessName] = useState<string>('');
 
@@ -70,6 +76,9 @@ export function BusinessAISettings() {
             silence_max_warnings?: number;
             smart_hangup_enabled?: boolean;
             required_lead_fields?: string[];
+            bot_speaks_first?: boolean;
+            auto_end_after_lead_capture?: boolean;
+            auto_end_on_goodbye?: boolean;
           }>(`/api/business/current`),
           http.get<PromptData>(`/api/business/current/prompt`)
         ]);
@@ -82,7 +91,10 @@ export function BusinessAISettings() {
           silence_timeout_sec: businessData.silence_timeout_sec ?? 15,
           silence_max_warnings: businessData.silence_max_warnings ?? 2,
           smart_hangup_enabled: businessData.smart_hangup_enabled ?? true,
-          required_lead_fields: businessData.required_lead_fields ?? ['name', 'phone']
+          required_lead_fields: businessData.required_lead_fields ?? ['name', 'phone'],
+          bot_speaks_first: businessData.bot_speaks_first ?? false,
+          auto_end_after_lead_capture: businessData.auto_end_after_lead_capture ?? false,
+          auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false
         });
         
         console.log('✅ Loaded AI prompts:', promptsData);
@@ -148,7 +160,10 @@ export function BusinessAISettings() {
         silence_timeout_sec: callControl.silence_timeout_sec,
         silence_max_warnings: callControl.silence_max_warnings,
         smart_hangup_enabled: callControl.smart_hangup_enabled,
-        required_lead_fields: callControl.required_lead_fields
+        required_lead_fields: callControl.required_lead_fields,
+        bot_speaks_first: callControl.bot_speaks_first,
+        auto_end_after_lead_capture: callControl.auto_end_after_lead_capture,
+        auto_end_on_goodbye: callControl.auto_end_on_goodbye
       });
       
       alert('✅ הגדרות שליטת שיחה נשמרו בהצלחה!');
@@ -398,10 +413,73 @@ export function BusinessAISettings() {
         </div>
 
         <div className="space-y-6">
+          {/* Bot Speaks First Toggle */}
+          <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div>
+              <h4 className="font-medium text-slate-900">🎙️ ה-AI מדבר ראשון</h4>
+              <p className="text-sm text-slate-600 mt-1">
+                כאשר מופעל, ה-AI יפתח את השיחה עם הברכה ללא המתנה ללקוח. מומלץ לרוב העסקים.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={callControl.bot_speaks_first}
+                onChange={(e) => setCallControl(prev => ({ ...prev, bot_speaks_first: e.target.checked }))}
+                className="sr-only peer"
+                data-testid="checkbox-bot-speaks-first"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          {/* Auto-End Settings */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Auto-End After Lead Capture */}
+            <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
+              <div>
+                <h4 className="font-medium text-slate-900">📋 סיום אוטומטי אחרי איסוף ליד</h4>
+                <p className="text-sm text-slate-600 mt-1">
+                  סיום השיחה אחרי שנאספו כל הפרטים הנדרשים
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={callControl.auto_end_after_lead_capture}
+                  onChange={(e) => setCallControl(prev => ({ ...prev, auto_end_after_lead_capture: e.target.checked }))}
+                  className="sr-only peer"
+                  data-testid="checkbox-auto-end-lead"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              </label>
+            </div>
+
+            {/* Auto-End On Goodbye */}
+            <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">
+              <div>
+                <h4 className="font-medium text-slate-900">👋 סיום אוטומטי כשהלקוח נפרד</h4>
+                <p className="text-sm text-slate-600 mt-1">
+                  סיום כשהלקוח אומר "תודה", "ביי", "להתראות"
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={callControl.auto_end_on_goodbye}
+                  onChange={(e) => setCallControl(prev => ({ ...prev, auto_end_on_goodbye: e.target.checked }))}
+                  className="sr-only peer"
+                  data-testid="checkbox-auto-end-goodbye"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+              </label>
+            </div>
+          </div>
+
           {/* Smart Hangup Toggle */}
           <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
             <div>
-              <h4 className="font-medium text-slate-900">סיום שיחה חכם מבוסס AI</h4>
+              <h4 className="font-medium text-slate-900">🧠 סיום שיחה חכם מבוסס AI</h4>
               <p className="text-sm text-slate-600 mt-1">
                 ה-AI מחליט מתי לסיים שיחה על בסיס הקשר השיחה, לא על מילות מפתח בודדות כמו "לא צריך"
               </p>
@@ -513,6 +591,9 @@ export function BusinessAISettings() {
                   <li>מוודא שכל הפרטים הנדרשים נאספו לפני סיום</li>
                   <li>מזהה שקט ממושך ושואל בנימוס אם הלקוח עדיין בקו</li>
                 </ul>
+                <p className="text-sm mt-3 font-medium text-purple-900">
+                  📤 שים לב: הגדרות אלו חלות רק על שיחות נכנסות. שיחות יוצאות עוקבות רק אחרי הפרומפט שהוגדר בנפרד.
+                </p>
               </div>
             </div>
           </div>
