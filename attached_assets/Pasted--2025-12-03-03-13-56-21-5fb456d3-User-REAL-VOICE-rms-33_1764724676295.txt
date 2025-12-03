@@ -1,0 +1,178 @@
+
+2025-12-03 03:13:56.21
+5fb456d3
+User
+🎙️ REAL_VOICE: rms=331.0 > threshold=128.4
+2025-12-03 03:16:00.28
+5fb456d3
+User
+🔊 [REALTIME] response.audio.delta: 2668 bytes
+2025-12-03 03:16:00.35
+5fb456d3
+User
+🔊 [REALTIME] response.audio.delta: 2668 bytes
+2025-12-03 03:16:00.36
+5fb456d3
+User
+🔊 [REALTIME] response.audio.delta: 4268 bytes
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🤖 [REALTIME] AI said: באיזו עיר אתה נמצא?
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🔊 [REALTIME] response.audio.done
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🔊 [REALTIME] response.audio_transcript.done
+2025-12-03 03:16:00.37
+5fb456d3
+User
+⚠️ [LOOP GUARD] Triggered by consecutive_responses!
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🔇 [REALTIME] AI stopped speaking (response.audio.done)
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🛑 [LOOP GUARD] BLOCKING further responses until user speaks!
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🔇 [SERVER_EVENT] Sent SILENTLY to AI: [SERVER] זיהיתי שאתה חוזר על עצמך. אמור: 'לא שמעתי טוב, אפשר לחזור?' ותמתין בשקט.
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🛑 [LOOP GUARD] Blocking response.create (engaged=True, consecutive=3)
+2025-12-03 03:16:00.37
+5fb456d3
+User
+💰 [COST] AI utterance: 0.23s (16 chunks)
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🛑 [LOOP GUARD] Sent clear to Twilio
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🛑 [LOOP GUARD] Cleared TX queue
+2025-12-03 03:16:00.37
+5fb456d3
+User
+[GOODBYE CHECK] No goodbye phrase: 'באיזו עיר אתה נמצא?...'
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🔊 [REALTIME] response.output_item.done
+
+2025-12-03 03:16:00.37
+5fb456d3
+User
+🔊 [REALTIME] response.content_part.done
+2025-12-03 03:16:00.38
+5fb456d3
+User
+🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+2025-12-03 03:16:00.38
+5fb456d3
+User
+output[0]: type=message, content_types=['audio']
+2025-12-03 03:16:00.38
+5fb456d3
+User
+🧹 TX_CLEAR: SUCCESS
+2025-12-03 03:16:00.40
+5fb456d3
+User
+output[0]: type=message, content_types=['audio']
+2025-12-03 03:16:00.40
+5fb456d3
+User
+[REALTIME] event: input_audio_buffer.speech_started
+2025-12-03 03:16:00.40
+5fb456d3
+User
+[REALTIME] event: rate_limits.updated
+2025-12-03 03:16:00.45
+5fb456d3
+User
+[REALTIME] event: conversation.item.created
+2025-12-03 03:16:00.46
+5fb456d3
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=2965, voice_frames=0
+2025-12-03 03:16:00.72
+5fb456d3
+User
+💓 WS_KEEPALIVE #1 (prevents 5min timeout)
+2025-12-03 03:16:00.75
+5fb456d3
+User
+🎤 END OF UTTERANCE: 4.5s audio, conversation #0
+2025-12-03 03:16:00.75
+5fb456d3
+User
+✅ Processing complete for conversation #0
+2025-12-03 03:16:00.75
+5fb456d3
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-12-03 03:16:00.75
+5fb456d3
+User
+🧠 STATE -> PROCESSING | len=72000 | silence_ms=0
+2025-12-03 03:16:01.41
+5fb456d3
+User
+✅ Processing complete for conversation #1
+2025-12-03 03:16:01.41
+5fb456d3
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-12-03 03:16:01.41
+5fb456d3
+User
+🧠 STATE -> PROCESSING | len=10560 | silence_ms=501
+2025-12-03 03:16:01.42
+5fb456d3
+User
+[REALTIME] event: conversation.item.input_audio_transcription.completed
+2025-12-03 03:16:01.42
+5fb456d3
+User
+[SILENCE GATE] ❌ REJECTED (RMS=21 < 69): 'Thank you. Thank you.'
+2025-12-03 03:16:05.16
+5fb456d3
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 03:16:05.19
+5fb456d3
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 03:16:05.33
+5fb456d3
+User
+🔊 [REALTIME] response.audio.delta: 1600 bytes
+2025-12-03 03:16:05.42
+5fb456d3
+User
+🔊 [REALTIME] response.audio.delta: 2668 bytes
+2025-12-03 03:16:05.48
+5fb456d3
+User
+🔊 [REALTIME] response.audio.delta: 2668 bytes
+2025-12-03 03:16:05.76
+5fb456d3
+User
+🔊 [REALTIME] response.audio.delta: 2668 bytes
+2025-12-03 03:16:05.86
+5fb456d3
+User
+🔊 [REALTIME] response.audio_transcript.done
+2025-12-03 03:16:05.86
+5fb456d3
+User
+🔊 [REALTIME] response.content_part.done
