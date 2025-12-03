@@ -91,6 +91,100 @@ def _get_flask_app():
     from server.app_factory import get_process_app
     return get_process_app()
 
+# 🔥 BUILD 172: CALL STATE MACHINE - Proper lifecycle management
+from enum import Enum
+
+class CallState(Enum):
+    """Call lifecycle states for proper state machine management"""
+    WARMUP = "warmup"      # First 800ms - ignore STT results
+    ACTIVE = "active"       # Normal conversation
+    CLOSING = "closing"     # Final message sent, waiting to hang up
+    ENDED = "ended"         # Call finished, cleanup done
+
+
+# 🔥 BUILD 172: CALL CONFIG - Loaded from BusinessSettings
+@dataclass
+class CallConfig:
+    """
+    Per-call configuration loaded from BusinessSettings at call start.
+    All values come from DB - no hardcoded defaults in call logic.
+    """
+    business_id: int
+    business_name: str = ""
+    
+    # Greeting settings
+    greeting_enabled: bool = True
+    bot_speaks_first: bool = False
+    greeting_text: str = ""
+    
+    # Call control settings
+    auto_end_after_lead_capture: bool = False
+    auto_end_on_goodbye: bool = False
+    smart_hangup_enabled: bool = True
+    
+    # Timeouts
+    silence_timeout_sec: int = 15
+    silence_max_warnings: int = 2
+    max_call_duration_sec: int = 600  # 10 minutes default
+    
+    # STT/VAD tuning
+    stt_warmup_ms: int = 800  # Ignore first 800ms of STT
+    barge_in_delay_ms: int = 400  # Require 400ms of speech before barge-in
+    
+    # Required fields for lead capture
+    required_lead_fields: list = None
+    
+    # Closing sentence
+    closing_sentence: str = "תודה רבה, נציג יחזור אליך בהמשך. יום טוב!"
+    
+    def __post_init__(self):
+        if self.required_lead_fields is None:
+            self.required_lead_fields = ['name', 'phone']
+
+
+def load_call_config(business_id: int) -> CallConfig:
+    """
+    🔥 BUILD 172: Load call configuration from BusinessSettings.
+    Called at call start to get all per-business settings.
+    """
+    try:
+        from server.models_sql import Business, BusinessSettings
+        
+        business = Business.query.get(business_id)
+        if not business:
+            logger.warning(f"⚠️ [CALL CONFIG] Business {business_id} not found - using defaults")
+            return CallConfig(business_id=business_id)
+        
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        
+        config = CallConfig(
+            business_id=business_id,
+            business_name=business.name or "",
+            greeting_enabled=True,
+            bot_speaks_first=getattr(settings, 'bot_speaks_first', False) if settings else False,
+            greeting_text=business.greeting_message or "",
+            auto_end_after_lead_capture=getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
+            auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
+            smart_hangup_enabled=getattr(settings, 'smart_hangup_enabled', True) if settings else True,
+            silence_timeout_sec=getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
+            silence_max_warnings=getattr(settings, 'silence_max_warnings', 2) if settings else 2,
+            required_lead_fields=getattr(settings, 'required_lead_fields', ['name', 'phone']) if settings else ['name', 'phone'],
+            closing_sentence=getattr(settings, 'closing_sentence', None) or "תודה רבה, נציג יחזור אליך בהמשך. יום טוב!"
+        )
+        
+        logger.info(f"✅ [CALL CONFIG] Loaded for business {business_id}: "
+                   f"bot_speaks_first={config.bot_speaks_first}, "
+                   f"auto_end_goodbye={config.auto_end_on_goodbye}, "
+                   f"auto_end_lead={config.auto_end_after_lead_capture}, "
+                   f"silence_timeout={config.silence_timeout_sec}s")
+        
+        return config
+        
+    except Exception as e:
+        logger.error(f"❌ [CALL CONFIG] Error loading config for business {business_id}: {e}")
+        return CallConfig(business_id=business_id)
+
+
 # 📋 CRM CONTEXT: Track lead and appointment state during call
 @dataclass
 class CallCrmContext:
@@ -976,7 +1070,17 @@ class MediaStreamHandler:
         # 🔒 Response collision prevention - thread-safe optimistic lock
         self.response_pending_event = threading.Event()  # Thread-safe flag
         
-        # 🎯 SMART CALL CONTROL: Call behavior settings (loaded from BusinessSettings)
+        # 🔥 BUILD 172: CALL STATE MACHINE + CONFIG
+        self.call_state = CallState.WARMUP  # Start in warmup, transition to ACTIVE after 800ms
+        self.call_config: Optional[CallConfig] = None  # Loaded at call start
+        self.call_start_time = time.time()  # Track call duration
+        
+        # 🔥 BUILD 172: SILENCE TIMER - Track user/AI speech for auto-hangup
+        self._last_speech_time = time.time()  # Either user or AI speech
+        self._silence_warning_count = 0  # How many "are you there?" warnings sent
+        self._silence_check_task = None  # Background task for silence monitoring
+        
+        # 🎯 SMART CALL CONTROL: Call behavior settings (loaded from CallConfig)
         self.bot_speaks_first = False  # If True, bot plays greeting before listening
         self.auto_end_after_lead_capture = False  # If True, hang up after lead details collected
         self.auto_end_on_goodbye = False  # If True, hang up when customer says goodbye
@@ -1155,6 +1259,21 @@ class MediaStreamHandler:
             self.auto_end_on_goodbye = False
         if not hasattr(self, 'greeting_text'):
             self.greeting_text = None
+        
+        # 🔥 BUILD 172: Ensure CallConfig is set with defaults
+        if not hasattr(self, 'call_config') or self.call_config is None:
+            self.call_config = CallConfig(
+                bot_speaks_first=self.bot_speaks_first,
+                auto_end_after_lead_capture=self.auto_end_after_lead_capture,
+                auto_end_on_goodbye=self.auto_end_on_goodbye,
+                silence_timeout_sec=self.silence_timeout_sec,
+                silence_max_warnings=self.silence_max_warnings,
+                smart_hangup_enabled=self.smart_hangup_enabled,
+                required_lead_fields=self.required_lead_fields,
+                closing_sentence="תודה רבה שהתקשרת! יום נפלא!"
+            )
+            print(f"🔒 [DEFAULTS] Created fallback CallConfig")
+        
         # Force bot_speaks_first on error/timeout paths
         if force_greeting:
             self.bot_speaks_first = True
@@ -1343,6 +1462,16 @@ class MediaStreamHandler:
             else:
                 # Standard flow - AI waits for user speech first
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
+                
+                # 🔥 BUILD 172: Start warmup timer - transition to ACTIVE after 800ms
+                async def warmup_to_active():
+                    await asyncio.sleep(0.8)  # 800ms warmup
+                    if self.call_state == CallState.WARMUP and not self.hangup_triggered:
+                        self.call_state = CallState.ACTIVE
+                        print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (800ms timer)")
+                        await self._start_silence_monitor()
+                
+                asyncio.create_task(warmup_to_active())
             
             # 🚀 PHASE 2: Build full prompt in background and update session
             # 🔥 CRITICAL FIX: Wait for greeting to FINISH before sending session.update!
@@ -1760,6 +1889,12 @@ class MediaStreamHandler:
                         # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
                         print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
+                        
+                        # 🔥 BUILD 172: Transition to ACTIVE state and start silence monitor
+                        if self.call_state == CallState.WARMUP:
+                            self.call_state = CallState.ACTIVE
+                            print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (greeting done)")
+                            asyncio.create_task(self._start_silence_monitor())
                     
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
@@ -1772,6 +1907,9 @@ class MediaStreamHandler:
                     # 🔥 BUILD 171: Track when AI finished speaking for cooldown check
                     self._ai_finished_speaking_ts = time.time()
                     print(f"🔥 [BUILD 171] AI finished speaking - cooldown started ({POST_AI_COOLDOWN_MS}ms)")
+                    
+                    # 🔥 BUILD 172: Update speech time for silence detection
+                    self._update_speech_time()
                     
                     # 🔥🔥 CRITICAL FIX: Do NOT clear audio queue here!
                     # The queue may still have audio chunks that need to be sent to Twilio.
@@ -2016,6 +2154,10 @@ class MediaStreamHandler:
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                            # 🔥 BUILD 172: Transition to CLOSING state
+                            if self.call_state == CallState.ACTIVE:
+                                self.call_state = CallState.CLOSING
+                                print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (reason: {hangup_reason})")
                             print(f"📞 [BUILD 163] Pending hangup set - will disconnect after audio finishes playing")
                         
                         # 🔥 NOTE: Hangup is now triggered in response.audio.done to let audio finish!
@@ -2217,6 +2359,9 @@ class MediaStreamHandler:
                     self._consecutive_ai_responses = 0
                     self._last_user_transcript_ts = time.time()
                     self._last_user_speech_ts = time.time()  # 🔥 BUILD 170.3: Track for time-based guard
+                    
+                    # 🔥 BUILD 172: Update speech time for silence detection
+                    self._update_speech_time()
                     # 🛑 DISENGAGE LOOP GUARD - user spoke, allow AI to respond again
                     if self._loop_guard_engaged:
                         print(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
@@ -2278,6 +2423,11 @@ class MediaStreamHandler:
                                 print(f"👋 [BUILD 170.5] User said goodbye - setting goodbye_detected=True")
                                 self.goodbye_detected = True
                                 
+                                # 🔥 BUILD 172: Transition to CLOSING state when auto_end_on_goodbye is enabled
+                                if self.auto_end_on_goodbye and self.call_state == CallState.ACTIVE:
+                                    self.call_state = CallState.CLOSING
+                                    print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (user_goodbye, auto_end=True)")
+                                
                                 # If auto_end_on_goodbye is ON, send explicit instruction to AI
                                 if self.auto_end_on_goodbye:
                                     asyncio.create_task(self._send_server_event_to_ai(
@@ -2292,6 +2442,12 @@ class MediaStreamHandler:
                             if self._check_lead_captured():
                                 print(f"✅ [BUILD 163] Lead fully captured - sending polite closing instruction")
                                 self.lead_captured = True
+                                
+                                # 🔥 BUILD 172: Transition to CLOSING state
+                                if self.call_state == CallState.ACTIVE:
+                                    self.call_state = CallState.CLOSING
+                                    print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead_captured)")
+                                
                                 # 🔥 FIX: Send instruction to AI to say polite closing, THEN hang up
                                 asyncio.create_task(self._send_server_event_to_ai(
                                     "[SERVER] ✅ כל הפרטים נקלטו! סיים את השיחה בצורה מנומסת - הודה ללקוח ואמור להתראות."
@@ -5147,47 +5303,32 @@ class MediaStreamHandler:
                     else:
                         logger.info(f"[CALL-START] biz={self.business_id}, NO GREETING")
                     
-                    # 🚀 COMBINED: Load call behavior settings in same DB context (saves ~50ms!)
-                    settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
-                    if settings:
-                        self.bot_speaks_first = getattr(settings, 'bot_speaks_first', False) or False
-                        # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
-                        # This prevents audio from being sent to OpenAI before the greeting starts
-                        if self.bot_speaks_first:
-                            self.is_playing_greeting = True
-                            print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
-                        self.auto_end_after_lead_capture = getattr(settings, 'auto_end_after_lead_capture', False) or False
-                        self.auto_end_on_goodbye = getattr(settings, 'auto_end_on_goodbye', False) or False
-                        # 🎯 SMART HANGUP: Load configurable call control settings
-                        self.silence_timeout_sec = getattr(settings, 'silence_timeout_sec', 15) or 15
-                        self.silence_max_warnings = getattr(settings, 'silence_max_warnings', 2) or 2
-                        self.smart_hangup_enabled = getattr(settings, 'smart_hangup_enabled', True)
-                        if self.smart_hangup_enabled is None:
-                            self.smart_hangup_enabled = True
-                        # Load required lead fields - JSON column returns list directly
-                        required_fields = getattr(settings, 'required_lead_fields', None)
-                        if required_fields and isinstance(required_fields, list):
-                            self.required_lead_fields = required_fields
-                        else:
-                            self.required_lead_fields = ['name', 'phone']
-                    else:
-                        self.bot_speaks_first = False
-                        self.auto_end_after_lead_capture = False
-                        self.auto_end_on_goodbye = False
-                        self.silence_timeout_sec = 15
-                        self.silence_max_warnings = 2
-                        self.smart_hangup_enabled = True
-                        self.required_lead_fields = ['name', 'phone']
+                    # 🔥 BUILD 172: Load CallConfig with all settings
+                    self.call_config = load_call_config(self.business_id)
+                    
+                    # Copy config values to instance variables for backward compatibility
+                    self.bot_speaks_first = self.call_config.bot_speaks_first
+                    self.auto_end_after_lead_capture = self.call_config.auto_end_after_lead_capture
+                    self.auto_end_on_goodbye = self.call_config.auto_end_on_goodbye
+                    self.silence_timeout_sec = self.call_config.silence_timeout_sec
+                    self.silence_max_warnings = self.call_config.silence_max_warnings
+                    self.smart_hangup_enabled = self.call_config.smart_hangup_enabled
+                    self.required_lead_fields = self.call_config.required_lead_fields
+                    
+                    # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
+                    if self.bot_speaks_first:
+                        self.is_playing_greeting = True
+                        print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
                     
                     # 🔥 CRITICAL: Mark settings as loaded to prevent duplicate loading
                     self._call_settings_loaded = True
                     
                     t_end = time.time()
-                    print(f"⚡ COMBINED QUERY: biz+greeting+settings in {(t_end-t_start)*1000:.0f}ms")
+                    print(f"⚡ BUILD 172: CallConfig loaded in {(t_end-t_start)*1000:.0f}ms")
                     print(f"   bot_speaks_first={self.bot_speaks_first}, auto_end_goodbye={self.auto_end_on_goodbye}")
-                    print(f"🔍 [SETTINGS LOADED] required_lead_fields={self.required_lead_fields}")
-                    print(f"🔍 [SETTINGS LOADED] smart_hangup_enabled={self.smart_hangup_enabled}")
-                    print(f"🔍 [SETTINGS LOADED] _call_settings_loaded=True (prevents duplicate load)")
+                    print(f"   auto_end_lead={self.auto_end_after_lead_capture}, silence_timeout={self.silence_timeout_sec}s")
+                    print(f"🔍 [CONFIG] required_lead_fields={self.required_lead_fields}")
+                    print(f"🔍 [CONFIG] smart_hangup_enabled={self.smart_hangup_enabled}")
                     
                     return (self.business_id, greeting)
                 else:
@@ -5418,6 +5559,8 @@ class MediaStreamHandler:
         """
         🎯 BUILD 163: Trigger automatic call hang-up via Twilio REST API
         
+        🔥 BUILD 172 FIX: More robust - less blocking, with retry mechanism
+        
         Args:
             reason: Why the call is being hung up (for logging)
         """
@@ -5425,43 +5568,41 @@ class MediaStreamHandler:
             print(f"⚠️ [BUILD 163] Hangup already triggered - skipping")
             return
         
+        # 🔥 BUILD 172: Transition to CLOSING state
+        if self.call_state != CallState.ENDED:
+            self.call_state = CallState.CLOSING
+            print(f"📞 [STATE] Transitioning to CLOSING (reason: {reason})")
+        
         # 🔥🔥 CRITICAL PROTECTION: Don't hangup during greeting
         if self.is_playing_greeting:
-            print(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing!")
-            self.pending_hangup = False  # Clear pending hangup
-            return
-        
-        # 🔥 PROTECTION: Don't hangup while AI is speaking
-        if self.is_ai_speaking_event.is_set():
-            print(f"🛡️ [PROTECTION] BLOCKING hangup - AI still speaking!")
-            # Don't clear pending_hangup - try again later
-            return
-        
-        # 🔥 PROTECTION: Don't hangup if OpenAI audio queue still has content
-        openai_queue_size = self.realtime_audio_out_queue.qsize()
-        if openai_queue_size > 0:
-            print(f"🛡️ [PROTECTION] BLOCKING hangup - {openai_queue_size} frames in OpenAI queue!")
-            # Don't clear pending_hangup - try again later
-            return
-        
-        # 🔥 PROTECTION: Don't hangup if Twilio TX queue still has content
-        tx_queue_size = self.tx_q.qsize()
-        if tx_queue_size > 0:
-            print(f"🛡️ [PROTECTION] BLOCKING hangup - {tx_queue_size} frames in Twilio TX queue!")
-            # Don't clear pending_hangup - try again later
+            print(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing! Will retry in 1s")
+            # 🔥 BUILD 172: Schedule retry instead of just returning
+            threading.Timer(1.0, self._trigger_auto_hangup, args=(reason,)).start()
             return
         
         # 🔥 PROTECTION: Don't hangup within 3 seconds of greeting completion
-        # ONLY applies if greeting was actually played (greeting_completed_at is set)
         if self.greeting_completed_at is not None:
             elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
             if elapsed_ms < self.min_call_duration_after_greeting_ms:
-                print(f"🛡️ [PROTECTION] BLOCKING hangup - only {elapsed_ms:.0f}ms since greeting (need {self.min_call_duration_after_greeting_ms}ms)")
-                self.pending_hangup = False  # Clear pending hangup
+                remaining_ms = self.min_call_duration_after_greeting_ms - elapsed_ms
+                print(f"🛡️ [PROTECTION] BLOCKING hangup - only {elapsed_ms:.0f}ms since greeting, retry in {remaining_ms:.0f}ms")
+                threading.Timer(remaining_ms / 1000.0, self._trigger_auto_hangup, args=(reason,)).start()
                 return
-        # Note: If greeting_completed_at is None (no greeting was played), allow hangup normally
         
+        # 🔥 BUILD 172: Wait for audio to finish, but with timeout
+        # Check if audio is still playing - if so, schedule a short retry
+        openai_queue_size = self.realtime_audio_out_queue.qsize()
+        tx_queue_size = self.tx_q.qsize()
+        is_ai_speaking = self.is_ai_speaking_event.is_set()
+        
+        if is_ai_speaking or openai_queue_size > 0 or tx_queue_size > 0:
+            print(f"🛡️ [PROTECTION] Audio still playing (ai_speaking={is_ai_speaking}, openai_q={openai_queue_size}, tx_q={tx_queue_size}) - retry in 500ms")
+            threading.Timer(0.5, self._trigger_auto_hangup, args=(reason,)).start()
+            return
+        
+        # ✅ All clear - execute hangup
         self.hangup_triggered = True
+        self.call_state = CallState.ENDED
         
         # 🎯 SMART HANGUP: Detailed logging for debugging
         print(f"📞 [SMART HANGUP] === CALL ENDING ===")
@@ -5501,6 +5642,122 @@ class MediaStreamHandler:
             print(f"❌ [BUILD 163] Failed to hang up call: {e}")
             import traceback
             traceback.print_exc()
+    
+    # 🔥 BUILD 172: SILENCE MONITORING - Auto-hangup on prolonged silence
+    async def _start_silence_monitor(self):
+        """
+        Start background task to monitor for silence and auto-hangup.
+        Called after call setup is complete.
+        """
+        if self._silence_check_task is not None:
+            return  # Already running
+        
+        self._silence_check_task = asyncio.create_task(self._silence_monitor_loop())
+        print(f"🔇 [SILENCE] Monitor started (timeout={self.silence_timeout_sec}s, max_warnings={self.silence_max_warnings})")
+    
+    async def _silence_monitor_loop(self):
+        """
+        Background loop that checks for silence and triggers warnings/hangup.
+        """
+        try:
+            while self.call_state == CallState.ACTIVE and not self.hangup_triggered:
+                await asyncio.sleep(2.0)  # Check every 2 seconds
+                
+                # Skip if call is ending
+                if self.call_state in (CallState.CLOSING, CallState.ENDED):
+                    break
+                
+                # Calculate silence duration
+                silence_duration = time.time() - self._last_speech_time
+                
+                if silence_duration >= self.silence_timeout_sec:
+                    if self._silence_warning_count < self.silence_max_warnings:
+                        # Send "are you there?" warning
+                        self._silence_warning_count += 1
+                        print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
+                        
+                        # Send prompt to AI to ask if user is there
+                        await self._send_silence_warning()
+                        
+                        # Reset timer
+                        self._last_speech_time = time.time()
+                    else:
+                        # Max warnings exceeded - hangup politely
+                        print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
+                        self.call_state = CallState.CLOSING
+                        
+                        # Send closing message and hangup
+                        closing_msg = self.call_config.closing_sentence if self.call_config else "תודה רבה, יום טוב!"
+                        await self._send_text_to_ai(f"[SYSTEM] User has been silent for too long. Say goodbye: {closing_msg}")
+                        
+                        # Schedule hangup after TTS
+                        await asyncio.sleep(3.0)
+                        self._trigger_auto_hangup("silence_timeout")
+                        break
+                        
+        except asyncio.CancelledError:
+            print(f"🔇 [SILENCE] Monitor cancelled")
+        except Exception as e:
+            print(f"❌ [SILENCE] Monitor error: {e}")
+    
+    async def _send_silence_warning(self):
+        """Send a gentle 'are you there?' prompt to the AI."""
+        try:
+            warning_prompt = "[SYSTEM] User has been silent. Gently ask if they are still there: 'אתה עדיין איתי?'"
+            await self._send_text_to_ai(warning_prompt)
+        except Exception as e:
+            print(f"❌ [SILENCE] Failed to send warning: {e}")
+    
+    def _update_speech_time(self):
+        """Call this whenever user or AI speaks to reset silence timer."""
+        self._last_speech_time = time.time()
+        self._silence_warning_count = 0  # Reset warnings on any speech
+        
+        # 🔥 BUILD 172 SAFETY: Ensure we're in ACTIVE state if speech occurs
+        # This guards against edge cases where greeting fails but conversation continues
+        self._ensure_active_state_sync()
+    
+    def _ensure_active_state_sync(self):
+        """
+        🔥 BUILD 172 SAFETY GUARD: Ensure call is in ACTIVE state.
+        Called on any speech event to catch edge cases where greeting transition failed.
+        """
+        if self.call_state == CallState.WARMUP and not self.hangup_triggered:
+            self.call_state = CallState.ACTIVE
+            print(f"📞 [STATE] Safety guard: Forcing WARMUP → ACTIVE (speech detected)")
+            
+            # Start silence monitor if not already running
+            if self._silence_check_task is None:
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._start_silence_monitor())
+                    print(f"🔇 [SILENCE] Safety guard: Started monitor (was missing)")
+                except RuntimeError:
+                    # No running loop - we're in sync context
+                    print(f"🔇 [SILENCE] Cannot start monitor from sync context (will start on next async call)")
+    
+    async def _send_text_to_ai(self, text: str):
+        """
+        Send a text message to OpenAI Realtime for processing.
+        Used for system prompts and silence handling.
+        """
+        try:
+            if hasattr(self, 'openai_ws') and self.openai_ws:
+                msg = {
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": text}]
+                    }
+                }
+                await self.openai_ws.send(json.dumps(msg))
+                
+                # Trigger response
+                await self.openai_ws.send(json.dumps({"type": "response.create"}))
+        except Exception as e:
+            print(f"❌ [AI] Failed to send text: {e}")
 
     def _check_goodbye_phrases(self, text: str) -> bool:
         """

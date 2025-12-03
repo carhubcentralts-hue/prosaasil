@@ -28,50 +28,13 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **AI Behavior Optimization**: Uses `gpt-4o-realtime-preview` with behavioral rules and server-side GPT-4o-mini NLP for appointment parsing and hallucination filtering.
 - **Hebrew-Optimized VAD**: Dynamic thresholding and simplified barge-in.
 - **Greeting System**: AI includes business-specific greetings.
-- **Mandatory Verification Gate (BUILD 168)**: AI must recite ALL collected field values before hangup is allowed. User must confirm with multilingual response (Hebrew/English/Arabic) before call can end.
-- **Dynamic Lead Field Prompts**: Verification prompts reference business-specific `required_lead_fields` from database.
-- **Whisper Hallucination Filter**: Blocks pure English words fabricated from Hebrew audio (e.g., "Bye", "Thank you").
+- **Verification Gates**: AI must confirm collected field values before hangup and confirm each piece of information immediately after hearing it.
+- **Whisper Hallucination Filter**: Blocks pure English words fabricated from Hebrew audio.
 - **Multi-Language Support**: AI responds in Hebrew by default but switches to caller's language when requested.
-- **BUILD 169 - Voice Call Quality Improvements** (Architect-Reviewed):
-  - **Barge-in Protection**: Increased from 220ms to 700ms (35 frames) to prevent AI cutoff on background noise. Fixed hardcoded value to use configurable constant.
-  - **STT Segment Merging**: 800ms debounce window with max length (100 chars) and long pause flush (1.5s) to prevent over-merging distinct intents.
-  - **Enhanced Noise Filter**: Expanded Hebrew whitelist includes fillers (יאללה, סבבה, דקה), numbers (אחד-עשר), and natural elongations (אמממ, אההה). Blocks English hallucinations.
-  - **Gibberish Detection**: Only filters 4+ repeated identical letters, allows natural elongations.
-  - **Semantic Loop Detection**: Tracks AI response similarity (>70%) with 15-char minimum length floor to avoid false positives on short confirmations.
-  - **Mishearing Protection**: Triggers clarification after 2 consecutive "לא הבנתי" responses (reduced from 3 for better UX).
-  - **Call Session Logging**: Unique session IDs (SES-XXXXXXXX) for connect/disconnect tracking.
-- **BUILD 170 - Silence Hallucination Prevention & Mandatory Verification**:
-  - **Stricter VAD**: Threshold raised from 0.6 to 0.75, silence duration raised from 500ms to 1200ms to prevent false triggers.
-  - **Low-RMS Gate**: Tracks audio RMS levels and rejects transcripts that arrive when audio was actually silent (prevents Whisper hallucinating on silence).
-  - **Mandatory Per-Field Verification**: AI must repeat back and confirm EVERY field immediately after collecting it, even if the data looks wrong or doesn't match expectations. The AI may have misheard - the caller will correct if needed.
-  - **Final Summary**: After all fields are individually confirmed, AI provides a final summary and waits for confirmation before closing.
-- **BUILD 170.3 - Voice Call Quality Fixes** (Architect-Reviewed):
-  - **Relaxed LOOP GUARD**: Increased max consecutive AI responses from 3 to 5. Added 8-second time window check - only triggers if user hasn't spoken in 8+ seconds.
-  - **Lowered RMS Thresholds**: MIN_SPEECH_RMS reduced from 200 to 60, RMS_SILENCE_THRESHOLD from 120 to 40, VAD_RMS from 150 to 80. Hebrew speech can be quiet.
-  - **Relaxed SILENCE GATE**: Only rejects transcripts with RMS < 15 (near-zero silence). Removed overly aggressive speech_threshold*0.5 check.
-  - **Better Loop Guard Tracking**: Added `_last_user_speech_ts` to track when user last spoke, preventing false loop triggers during natural conversation pauses.
-  - **Less Aggressive Mishearing Detection**: Back to 3 consecutive "לא הבנתי" responses before triggering clarification (was 2).
-- **BUILD 170.4 - Hebrew Grammar & Natural Speech**:
-  - **Improved System Prompt**: Compact English prompt with clear behavioral rules. Verify at END only (not per field) to avoid annoying customers.
-  - **Hebrew Normalization Dictionary**: 80+ common STT mistakes auto-corrected (numbers, cities, names, days, confirmations).
-  - **Expanded Whitelist**: Days of week, numbers (feminine/masculine), time words, service words, greetings added.
-  - **Smarter Filter Logic**: Allow any text with 2+ Hebrew characters (not just whitelist). Priority: Hebrew > hallucinations > gibberish.
-  - **Phrase Detection**: Phrases starting with valid words now pass through (e.g., "בסדר גמור" passes because starts with "בסדר").
-  - **Language Switch Rule**: Speak Hebrew by default, switch only if caller explicitly says they don't understand (in any language), stay in new language for entire call.
-- **BUILD 170.5 - Fixed Call Hangup & Always-Verify**:
-  - **Fixed Hangup Logic**: Removed verification gate blocking auto-hangup. Now respects business settings properly.
-  - **Priority-Based Hangup**: 1) User goodbye 2) auto_end_on_goodbye setting 3) auto_end_after_lead_capture setting 4) verification_confirmed.
-  - **Better Logging**: Detailed logging when hangup is blocked, showing all relevant flags.
-  - **Always-Verify Prompt**: AI now confirms EACH piece of information immediately after hearing it.
-  - **STT Error Handling**: AI repeats info even if it seems wrong - caller will correct if needed.
-  - **Confirmation Flow**: Wait for "כן" after each field before moving to next.
-- **BUILD 171 - Critical Silence Hallucination Fix & Dashboard Stability** (Architect-Reviewed):
-  - **Stricter RMS Thresholds**: RMS_SILENCE_THRESHOLD raised from 40 to 100, MIN_SPEECH_RMS from 60 to 120. Prevents Whisper from hallucinating on silence.
-  - **Consecutive Frame Requirement**: Added MIN_CONSECUTIVE_VOICE_FRAMES = 5 - audio only sent to OpenAI after 5 consecutive frames above threshold. Prevents isolated noise from triggering transcription.
-  - **Post-AI Cooldown**: Added POST_AI_COOLDOWN_MS = 800ms - transcripts arriving within 800ms of AI finishing are rejected (impossible response time = hallucination).
-  - **Three-Layer Defense**: Combined RMS gating + consecutive frames + cooldown provides robust protection against silence hallucinations.
-  - **Dashboard Stats Fix**: Fixed week_ago date/datetime type mismatch by using datetime.combine(). Wrapped each query in try-except with fallback to 0.
-  - **Resilient Endpoints**: Dashboard stats and activity endpoints now return partial data on query failures instead of 500 errors. Error logging identifies which query failed.
+- **Voice Call Quality Improvements**: Includes barge-in protection, STT segment merging, enhanced noise filtering, gibberish detection, semantic loop detection, and mishearing protection.
+- **Silence Hallucination Prevention**: Stricter VAD thresholds, low-RMS gate, and a three-layer defense combining RMS gating, consecutive frames, and a post-AI cooldown.
+- **Hebrew Grammar & Natural Speech**: Improved system prompt, Hebrew normalization dictionary, expanded whitelist for valid speech, smarter filter logic, phrase detection, and language switch rules.
+- **Call Control State Machine**: Implemented with WARMUP/ACTIVE/CLOSING/ENDED states for controlled call lifecycle management, silence monitoring, and functional hangup settings.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -82,17 +45,8 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **UI Navigation**: Consolidated AI prompt editing into System Settings, restricted by role.
 - **RBAC Sidebar**: Dynamic visibility for "Business Management" and "User Management".
 - **Role-Based Routing**: Smart default redirects based on user roles.
-- **BUILD 170 - Leads UX Improvements**:
-  - **Optimized Lead Search**: Filters only by name or phone number (partial match works - e.g., "075" finds any number containing "075").
-  - **Fast Status Updates**: Optimistic UI updates for instant feedback (no 6-second delay).
-  - **Notes Tab**: New "הערות" tab in lead detail page for free-text notes, images, and file attachments (session-local storage).
-- **BUILD 170.1 - WhatsApp Chat UI Fixes**:
-  - **Message Colors**: Outgoing messages (green, right side), incoming messages (white/gray, left side) - proper WhatsApp-like styling.
-  - **Toggle AI Endpoint**: Added `/api/whatsapp/toggle-ai` endpoint for frontend compatibility with AI on/off toggle per conversation.
-  - **Message Alignment**: Fixed RTL alignment - outgoing messages now appear on the right, incoming on the left.
-  - **AI Prompt Fallback Fix**: Fixed issue where AI was always returning static "קיבלתי את ההודעה" instead of using business prompt. Now properly falls back through: Agent SDK → Regular AI (DB prompt) → Business name fallback → Static message.
-  - **Database Session Fix**: Fixed `customer_number` NOT NULL constraint violation that poisoned DB sessions and broke AI responses. Added proper rollback handling.
-  - **Notes Tab Sync Fix**: Fixed issue where saved notes would disappear - now properly syncs with lead data after save.
+- **Leads UX Improvements**: Optimized lead search, fast status updates, and a notes tab for free-text notes, images, and file attachments.
+- **WhatsApp Chat UI Fixes**: Proper WhatsApp-like styling for messages, toggle AI endpoint, correct message alignment, AI prompt fallback, and database session fixes.
 
 ## Feature Specifications
 - **Call Logging**: Comprehensive tracking.

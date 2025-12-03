@@ -1,0 +1,104 @@
+🔧 Developer Brief – Final polish for Realtime Hebrew calls (no architecture changes)
+
+Context
+
+The current Twilio + OpenAI Realtime setup is working well overall, but there are a few remaining issues:
+	•	The assistant does not fully respect the call settings configured in the UI (per business).
+	•	Sometimes near the end of the call, the assistant gets cut off and then stays silent instead of clearly closing and hanging up.
+	•	The first transcription at the start of the call is often wrong/noisy, then things stabilize.
+	•	We want the assistant to speak and understand Hebrew at a very high, human-like level (good grammar, spelling, and contextual understanding).
+	•	We do not want a big refactor – only targeted tuning.
+
+Please implement the following focused improvements.
+
+⸻
+
+1️⃣ Respect per-business call settings from the UI
+
+Goal: The realtime call behavior must follow the business settings in the UI (per business / per phone number).
+	1.	Identify the model/structure where call settings are stored (for example):
+	•	greeting_enabled / greeting_text
+	•	max_call_duration_seconds
+	•	max_assistant_turns
+	•	silence_timeout_before_hangup
+	•	require_final_confirmation (yes/no)
+	•	language / locale (he-IL, etc.)
+	2.	When a call starts (/webhook/incoming_call or when opening the Twilio media WebSocket):
+	•	Resolve the business (business_id) and load its call settings from the DB.
+	•	Build a CallConfig / ConversationConfig object with all relevant settings.
+	•	Attach this config to the call/session state so it’s available in:
+	•	incoming_call handler
+	•	realtime / media-stream handler
+	•	call_status / stream_ended webhooks
+	3.	Replace hard-coded values in the call logic (max loops, timeouts, hangup behavior) with values from this CallConfig.
+If a setting is missing, use a safe default, but never ignore existing values from the UI.
+
+⸻
+
+2️⃣ Clean, reliable hangup behavior (no “stuck in silence” at the end)
+
+Goal: The assistant should either finish with a clear closing sentence and hang up, or keep the conversation going. It should never get stuck in permanent silence.
+	1.	Introduce explicit call states, for example:
+	•	ACTIVE – normal conversation
+	•	CLOSING – final sentence sent, call about to end
+	•	ENDED – call fully finished, resources cleaned
+	2.	When the assistant decides to end the call (after collecting all required data and giving the final summary):
+	•	Set state to CLOSING.
+	•	Send the closing TTS sentence to the user.
+	•	After TTS is done (or after a small safety delay, e.g. 1–2 seconds), trigger Twilio hangup:
+	•	either by returning <Hangup> in TwiML, or
+	•	calling Twilio’s REST API to end the call.
+	•	Then set state to ENDED and close the Realtime session.
+	3.	In call_status / stream_ended webhooks:
+	•	If Twilio reports the call as completed, busy, no-answer etc., always:
+	•	mark state as ENDED
+	•	close the Realtime connection
+	•	stop any timers and background tasks for that call
+	4.	Add a simple silence-based auto-hangup using CallConfig.silence_timeout_before_hangup:
+	•	Track last_user_speech_time and last_assistant_speech_time.
+	•	If state is ACTIVE and there was no user speech and no assistant speech for more than silence_timeout_before_hangup seconds:
+	•	send a short polite closing sentence (configured per business or default),
+	•	then hang up as above.
+
+This should eliminate the “it got cut and stayed silent forever” behavior.
+
+⸻
+
+3️⃣ Improve STT quality (especially first utterance) + VAD / barge-in tuning
+
+Goal: The first user transcription should be more reliable, and the assistant should react to real speech, not noise, without over-complicating the pipeline.
+
+3.1 First-transcription warmup
+	1.	At the beginning of the media stream, for the first 600–800 ms:
+	•	Treat STT results as “warmup”:
+	•	Do not use the very first fragment as the final user answer.
+	•	Either ignore the first fragment or require at least one more STT segment close in time that matches / reinforces it.
+	2.	Only after this short warmup window, start treating STT output as normal user input.
+
+This alone often fixes the “first line is wrong, then it stabilizes” issue.
+
+⸻
+
+3.2 Simple VAD tuning (keep it minimal)
+	1.	At the start of the call, use the first ~1 second of audio to measure baseline noise RMS and calculate a dynamic silence threshold:
+	•	silence_threshold = baseline_rms + margin (e.g. +15–20 units above baseline)
+	2.	Maintain a small sliding window (e.g. 250–400 ms).
+Mark user_is_speaking = True only if:
+	•	RMS in that window is consistently above silence_threshold.
+	3.	Only send audio chunks to STT / Realtime as “user speech” when user_is_speaking == True.
+Very short spikes / low-energy noise → ignored.
+	4.	Keep this logic simple and contained in the audio processing layer.
+No need for a complex DSP solution — just a basic threshold + short window.
+
+⸻
+
+3.3 Barge-in behavior
+	1.	When the assistant is speaking (TTS in progress), allow barge-in only if:
+	•	user_is_speaking == True for at least ~300–500 ms,
+	•	not on tiny blips.
+	2.	When barge-in is detected:
+	•	Stop TTS cleanly.
+	•	Capture the full utterance (until VAD says speech ended).
+	•	Then send the captured text to the model as the user’s reply.
+
+This keeps the assistant responsive but avoids cutting itself off for every background sound.
