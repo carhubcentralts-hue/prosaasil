@@ -158,7 +158,9 @@ def dashboard_stats():
         })
         
     except Exception as e:
+        import traceback
         logger.error(f"Error in dashboard_stats: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": "internal_server_error"}), 500
 
 @api_adapter_bp.route('/api/dashboard/activity', methods=['GET'])
