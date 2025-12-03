@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin } from 'lucide-react';
+import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
 import { Button } from '../../shared/components/ui/Button';
@@ -21,6 +21,7 @@ const TABS = [
   { key: 'calls', label: 'שיחות טלפון', icon: Phone },
   { key: 'appointments', label: 'פגישות', icon: Calendar },
   { key: 'reminders', label: 'משימות', icon: CheckCircle2 },
+  { key: 'notes', label: 'הערות', icon: FileText },  // ✅ BUILD 170: Free-text notes tab
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -461,6 +462,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
         {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
         {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
+        {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
       </div>
 
       {/* WhatsApp Chat Modal */}
@@ -1787,6 +1789,201 @@ function ActivityTab({ activities }: { activities: LeadActivity[] }) {
           </ul>
         </div>
       )}
+    </Card>
+  );
+}
+
+// ✅ BUILD 170: Notes Tab - Free text, files, and images
+interface NotesTabProps {
+  lead: Lead;
+  onUpdate: () => void;
+}
+
+interface NoteAttachment {
+  id: string;
+  type: 'image' | 'file';
+  name: string;
+  url: string;
+  size?: number;
+}
+
+function NotesTab({ lead, onUpdate }: NotesTabProps) {
+  const [notes, setNotes] = useState<string>(lead.notes || '');
+  const [attachments, setAttachments] = useState<NoteAttachment[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const imageInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setNotes(e.target.value);
+    setHasChanges(true);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await http.patch(`/api/leads/${lead.id}`, { notes });
+      setHasChanges(false);
+      onUpdate();
+    } catch (error) {
+      console.error('Failed to save notes:', error);
+      alert('שגיאה בשמירת ההערות');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'file') => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const newAttachment: NoteAttachment = {
+          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type,
+          name: file.name,
+          url: event.target?.result as string,
+          size: file.size
+        };
+        setAttachments(prev => [...prev, newAttachment]);
+        setHasChanges(true);
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    e.target.value = '';
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+    setHasChanges(true);
+  };
+
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <Card className="p-4 sm:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900 flex items-center gap-2">
+          <FileText className="w-5 h-5 text-gray-500" />
+          הערות חופשיות
+        </h3>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => imageInputRef.current?.click()}
+            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            title="הוסף תמונה"
+            data-testid="button-add-image"
+          >
+            <ImageIcon className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            title="הוסף קובץ"
+            data-testid="button-add-file"
+          >
+            <Upload className="w-5 h-5" />
+          </button>
+          {hasChanges && (
+            <Button
+              onClick={handleSave}
+              disabled={saving}
+              size="sm"
+              data-testid="button-save-notes"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  שומר...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  שמור
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => handleFileSelect(e, 'image')}
+        data-testid="input-image-upload"
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => handleFileSelect(e, 'file')}
+        data-testid="input-file-upload"
+      />
+
+      <textarea
+        value={notes}
+        onChange={handleNotesChange}
+        placeholder="הוסף הערות, רעיונות, או כל מידע נוסף על הליד..."
+        className="w-full h-64 p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y text-right"
+        dir="rtl"
+        data-testid="textarea-notes"
+      />
+
+      {attachments.length > 0 && (
+        <div className="mt-4 border-t pt-4">
+          <h4 className="text-sm font-medium text-gray-700 mb-3">קבצים מצורפים</h4>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {attachments.map((attachment) => (
+              <div 
+                key={attachment.id} 
+                className="relative group border border-gray-200 rounded-lg overflow-hidden"
+                data-testid={`attachment-${attachment.id}`}
+              >
+                {attachment.type === 'image' ? (
+                  <div className="aspect-square">
+                    <img 
+                      src={attachment.url} 
+                      alt={attachment.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="aspect-square flex flex-col items-center justify-center p-3 bg-gray-50">
+                    <File className="w-8 h-8 text-gray-400 mb-2" />
+                    <span className="text-xs text-gray-600 text-center truncate w-full">{attachment.name}</span>
+                    <span className="text-xs text-gray-400">{formatFileSize(attachment.size)}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeAttachment(attachment.id)}
+                  className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  data-testid={`button-remove-attachment-${attachment.id}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-gray-400 text-center">
+        הערות וקבצים נשמרים בסשן הנוכחי בלבד
+      </p>
     </Card>
   );
 }
