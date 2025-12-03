@@ -71,6 +71,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Auto Hang-up Settings**: Options to automatically end calls after lead capture or on goodbye phrases.
 - **Bot Speaks First**: Option for the bot to play greeting before listening to the customer.
 - **Outbound AI Calls (BUILD 174)**: AI-initiated calls to leads with concurrency limits (max 3 outbound, 5 total per business). Template-based prompts with custom greeting injection. Frontend page at `/app/outbound-calls` with lead selection, template picker, and real-time call status. Call limiter service enforces limits for both inbound and outbound calls. Separate outbound AI prompt (`outbound_ai_prompt`) for business-level outbound call instructions distinct from inbound calls.
+- **Generic Webhook (BUILD 177)**: Per-business configurable webhook URL for sending call transcripts, summaries, and lead data to external services (n8n, Zapier, Monday.com, etc.). Includes HMAC signature verification, retry with backoff, and async processing.
 
 # External Dependencies
 
