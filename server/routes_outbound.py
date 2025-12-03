@@ -12,7 +12,7 @@ import logging
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
 from server.auth_api import require_api_auth
-from server.services.call_limiter import check_call_limits, get_call_counts
+from server.services.call_limiter import check_call_limits, get_call_counts, MAX_TOTAL_CALLS_PER_BUSINESS, MAX_OUTBOUND_CALLS_PER_BUSINESS
 from twilio.rest import Client
 
 log = logging.getLogger(__name__)
@@ -61,8 +61,14 @@ def get_outbound_templates():
     
     Returns list of active templates with their prompts
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
+    # For system_admin without tenant context, return empty list (they need to view a specific business)
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"templates": [], "message": "בחר עסק לצפייה בתבניות"})
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
@@ -100,8 +106,20 @@ def get_call_counts_endpoint():
         max_total: Maximum allowed total calls
         max_outbound: Maximum allowed outbound calls
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
+    # For system_admin without tenant context, return zero counts
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({
+                "active_total": 0,
+                "active_outbound": 0,
+                "max_total": MAX_TOTAL_CALLS_PER_BUSINESS,
+                "max_outbound": MAX_OUTBOUND_CALLS_PER_BUSINESS,
+                "message": "בחר עסק לצפייה בשיחות פעילות"
+            })
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
@@ -134,8 +152,14 @@ def start_outbound_calls():
         ]
     }
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
+    # system_admin without business context cannot start calls
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני הפעלת שיחות יוצאות"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     data = request.get_json()
@@ -282,8 +306,13 @@ def create_outbound_template():
     """
     Create a new outbound call template
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני יצירת תבנית"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     data = request.get_json()
@@ -338,8 +367,13 @@ def delete_outbound_template(template_id: int):
     """
     Soft delete (deactivate) an outbound call template
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני מחיקת תבנית"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:

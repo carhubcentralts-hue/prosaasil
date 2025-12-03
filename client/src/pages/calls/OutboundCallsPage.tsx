@@ -57,23 +57,36 @@ export function OutboundCallsPage() {
   const [showResults, setShowResults] = useState(false);
   const [callResults, setCallResults] = useState<CallResult[]>([]);
 
-  const { data: templates = [], isLoading: templatesLoading } = useQuery<OutboundTemplate[]>({
+  const { data: templates = [], isLoading: templatesLoading, error: templatesError } = useQuery<OutboundTemplate[]>({
     queryKey: ['/api/outbound_calls/templates'],
-    select: (data: any) => data.templates || [],
+    select: (data: any) => {
+      if (!data) return [];
+      if (Array.isArray(data)) return data;
+      if (data.templates && Array.isArray(data.templates)) return data.templates;
+      return [];
+    },
+    retry: 1,
   });
 
-  const { data: counts, isLoading: countsLoading, refetch: refetchCounts } = useQuery<CallCounts>({
+  const { data: counts, isLoading: countsLoading, refetch: refetchCounts, error: countsError } = useQuery<CallCounts>({
     queryKey: ['/api/outbound_calls/counts'],
     refetchInterval: 10000,
+    retry: 1,
   });
 
-  const { data: leadsData, isLoading: leadsLoading } = useQuery<{ leads: Lead[] }>({
+  const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery<{ leads: Lead[] }>({
     queryKey: ['/api/leads', searchQuery],
     enabled: true,
-    select: (data: any) => ({ leads: data.leads || data || [] }),
+    select: (data: any) => {
+      if (!data) return { leads: [] };
+      if (Array.isArray(data)) return { leads: data };
+      if (data.leads && Array.isArray(data.leads)) return { leads: data.leads };
+      return { leads: [] };
+    },
+    retry: 1,
   });
 
-  const leads = leadsData?.leads || [];
+  const leads = Array.isArray(leadsData?.leads) ? leadsData.leads : [];
 
   const startCallsMutation = useMutation({
     mutationFn: async (data: { lead_ids: number[], template_id?: number, custom_prompt?: string }) => {
@@ -120,14 +133,17 @@ export function OutboundCallsPage() {
     });
   };
 
-  const filteredLeads = leads.filter((lead: Lead) => {
-    if (!searchQuery) return true;
+  const filteredLeads = (Array.isArray(leads) ? leads : []).filter((lead: Lead) => {
+    if (!lead) return false;
+    if (!searchQuery) return lead.phone_e164;
     const query = searchQuery.toLowerCase();
     return (
-      (lead.full_name && lead.full_name.toLowerCase().includes(query)) ||
-      (lead.phone_e164 && lead.phone_e164.includes(query))
+      lead.phone_e164 && (
+        (lead.full_name && lead.full_name.toLowerCase().includes(query)) ||
+        lead.phone_e164.includes(query)
+      )
     );
-  }).filter((lead: Lead) => lead.phone_e164);
+  });
 
   const canStartCalls = counts 
     ? (counts.active_outbound < counts.max_outbound && counts.active_total < counts.max_total)
