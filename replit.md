@@ -55,6 +55,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Bulk Lead Deletion**: Cascade delete with transaction rollback.
 - **Auto Hang-up Settings**: Options to end calls after lead capture or on goodbye.
 - **Bot Speaks First**: Option for bot to greet before listening.
+- **Admin Business Minutes**: System-admin-only page showing phone call minutes per business, with date filtering, CSV export, and inbound/outbound breakdown. Data sourced from Twilio callbacks via CallLog.duration.
 
 # External Dependencies
 

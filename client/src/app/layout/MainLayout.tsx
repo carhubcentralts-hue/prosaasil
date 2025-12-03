@@ -17,7 +17,8 @@ import {
   Search,
   Bell,
   User,
-  Bot
+  Bot,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -76,6 +77,12 @@ const menuItems = [
     label: 'ניהול עסקים', 
     to: '/app/admin/businesses',
     roles: ['system_admin']  // ✅ BUILD 134: רק system_admin רואה רשימת כל העסקים
+  },
+  { 
+    icon: Clock, 
+    label: 'ניהול דקות', 
+    to: '/app/admin/business-minutes',
+    roles: ['system_admin']  // ✅ BUILD 180: רק system_admin רואה דקות שיחה לפי עסק
   },
   // ✅ AI Prompts moved to System Settings → AI tab (BUILD 130)
   { 

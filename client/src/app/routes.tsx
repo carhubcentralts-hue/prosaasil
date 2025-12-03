@@ -20,6 +20,7 @@ const AgentPromptsPage = lazy(() => import('../pages/Admin/AgentPromptsPage').th
 const AdminPromptsOverviewPage = lazy(() => import('../pages/Admin/AdminPromptsOverviewPage').then(m => ({ default: m.AdminPromptsOverviewPage })));
 const BusinessPromptsSelector = lazy(() => import('../pages/Admin/BusinessPromptsSelector').then(m => ({ default: m.BusinessPromptsSelector })));
 const AdminSupportPage = lazy(() => import('../pages/Admin/AdminSupportPage').then(m => ({ default: m.AdminSupportPage })));
+const BusinessMinutesPage = lazy(() => import('../pages/Admin/BusinessMinutesPage').then(m => ({ default: m.BusinessMinutesPage })));
 const CalendarPage = lazy(() => import('../pages/Calendar/CalendarPage').then(m => ({ default: m.CalendarPage })));
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 const LeadDetailPage = lazy(() => import('../pages/Leads/LeadDetailPage'));
@@ -126,6 +127,15 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['system_admin']}>
               <AdminSupportPage />
+            </RoleGuard>
+          }
+        />
+        {/* BUILD 180: Business Minutes Management - Admin only */}
+        <Route
+          path="admin/business-minutes"
+          element={
+            <RoleGuard roles={['system_admin']}>
+              <BusinessMinutesPage />
             </RoleGuard>
           }
         />

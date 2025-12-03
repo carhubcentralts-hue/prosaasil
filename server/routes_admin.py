@@ -939,3 +939,139 @@ def admin_support_phones():
     })
 
 
+@admin_bp.get("/api/admin/business-minutes")
+@require_api_auth(["system_admin"])
+def get_business_minutes():
+    """
+    BUILD 180: Admin-only endpoint for business call minutes aggregation
+    Returns phone call minutes per business based on Twilio data (CallLog.duration)
+    
+    Query params:
+      - from: ISO date (optional, defaults to 1st of current month)
+      - to: ISO date (optional, defaults to today)
+    
+    Response:
+      [
+        {
+          "business_id": 1,
+          "business_name": "עסק לדוגמה",
+          "total_seconds": 1840,
+          "total_minutes": 31,
+          "direction_breakdown": {
+            "inbound_seconds": 1600,
+            "outbound_seconds": 240
+          }
+        },
+        ...
+      ]
+    """
+    try:
+        import pytz
+        from math import ceil
+        
+        israel_tz = pytz.timezone('Asia/Jerusalem')
+        now = datetime.now(israel_tz)
+        
+        from_date_str = request.args.get('from')
+        to_date_str = request.args.get('to')
+        
+        if from_date_str:
+            try:
+                from_date = datetime.strptime(from_date_str, '%Y-%m-%d')
+            except ValueError:
+                return jsonify({"error": f"Invalid 'from' date format. Use YYYY-MM-DD"}), 400
+        else:
+            from_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        if to_date_str:
+            try:
+                to_date = datetime.strptime(to_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+            except ValueError:
+                return jsonify({"error": f"Invalid 'to' date format. Use YYYY-MM-DD"}), 400
+        else:
+            to_date = now.replace(hour=23, minute=59, second=59)
+        
+        from_date_naive = from_date.replace(tzinfo=None) if from_date.tzinfo else from_date
+        to_date_naive = to_date.replace(tzinfo=None) if to_date.tzinfo else to_date
+        
+        logger.info(f"[BUSINESS MINUTES] Querying from {from_date_naive} to {to_date_naive}")
+        
+        results = db.session.query(
+            CallLog.business_id,
+            Business.name.label('business_name'),
+            func.sum(func.coalesce(CallLog.duration, 0)).label('total_seconds'),
+            func.sum(
+                func.case(
+                    (CallLog.direction == 'inbound', func.coalesce(CallLog.duration, 0)),
+                    else_=0
+                )
+            ).label('inbound_seconds'),
+            func.sum(
+                func.case(
+                    (CallLog.direction == 'outbound', func.coalesce(CallLog.duration, 0)),
+                    else_=0
+                )
+            ).label('outbound_seconds')
+        ).join(
+            Business, CallLog.business_id == Business.id
+        ).filter(
+            CallLog.business_id.isnot(None),
+            CallLog.call_status == 'completed',
+            CallLog.duration.isnot(None),
+            CallLog.duration > 0,
+            CallLog.direction.in_(['inbound', 'outbound']),
+            CallLog.created_at >= from_date_naive,
+            CallLog.created_at <= to_date_naive
+        ).group_by(
+            CallLog.business_id,
+            Business.name
+        ).order_by(
+            func.sum(func.coalesce(CallLog.duration, 0)).desc()
+        ).all()
+        
+        response_data = []
+        total_all_seconds = 0
+        
+        for row in results:
+            total_seconds = int(row.total_seconds or 0)
+            total_minutes = ceil(total_seconds / 60.0) if total_seconds > 0 else 0
+            inbound_seconds = int(row.inbound_seconds or 0)
+            outbound_seconds = int(row.outbound_seconds or 0)
+            
+            total_all_seconds += total_seconds
+            
+            response_data.append({
+                "business_id": row.business_id,
+                "business_name": row.business_name or f"עסק #{row.business_id}",
+                "total_seconds": total_seconds,
+                "total_minutes": total_minutes,
+                "direction_breakdown": {
+                    "inbound_seconds": inbound_seconds,
+                    "inbound_minutes": ceil(inbound_seconds / 60.0) if inbound_seconds > 0 else 0,
+                    "outbound_seconds": outbound_seconds,
+                    "outbound_minutes": ceil(outbound_seconds / 60.0) if outbound_seconds > 0 else 0
+                }
+            })
+        
+        logger.info(f"[BUSINESS MINUTES] Found {len(response_data)} businesses, total {total_all_seconds} seconds")
+        
+        return jsonify({
+            "businesses": response_data,
+            "summary": {
+                "total_businesses": len(response_data),
+                "total_seconds": total_all_seconds,
+                "total_minutes": ceil(total_all_seconds / 60.0) if total_all_seconds > 0 else 0
+            },
+            "date_range": {
+                "from": from_date_naive.strftime('%Y-%m-%d'),
+                "to": to_date_naive.strftime('%Y-%m-%d')
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"[BUSINESS MINUTES] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
