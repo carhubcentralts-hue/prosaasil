@@ -143,17 +143,26 @@ def send_call_completed_webhook(
     summary: str,
     agent_name: str,
     direction: str = "inbound",
+    city: Optional[str] = None,
+    service_category: Optional[str] = None,
     metadata: Optional[Dict] = None
 ) -> bool:
     """
     Send call.completed webhook with full call data
     
-    This is the main webhook for sending call transcripts to external services
+    BUILD 177 Enhanced: Now includes phone, city, and service_category
+    
+    Args:
+        phone: Caller phone number (normalized E.164 format preferred)
+        city: Customer's city (e.g., "תל אביב")
+        service_category: Type of service/professional (e.g., "חשמלאי", "שיפוצים")
     """
     data = {
         "call_id": str(call_id) if call_id else "",
         "lead_id": str(lead_id) if lead_id else "",
         "phone": phone or "",
+        "city": city or "",
+        "service_category": service_category or "",
         "started_at": started_at.isoformat() if started_at else "",
         "ended_at": ended_at.isoformat() if ended_at else datetime.utcnow().isoformat(),
         "duration_sec": duration_sec,
@@ -163,6 +172,8 @@ def send_call_completed_webhook(
         "direction": direction,
         "metadata": metadata or {}
     }
+    
+    print(f"[WEBHOOK] 📦 Payload built: call_id={call_id}, phone={phone or 'N/A'}, city={city or 'N/A'}, service_category={service_category or 'N/A'}")
     
     return send_generic_webhook(business_id, "call.completed", data)
 

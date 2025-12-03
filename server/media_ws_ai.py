@@ -6894,30 +6894,83 @@ ALWAYS mention their name in the first sentence.
                         # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
                         print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
                         
-                        # 🔥 BUILD 177: Send Generic Webhook for external integrations (n8n, Zapier, etc.)
+                        # 🔥 BUILD 177 Enhanced: Send Generic Webhook with phone, city, service_category
                         try:
                             from server.services.generic_webhook_service import send_call_completed_webhook
+                            from server.models_sql import Lead
                             
                             lead_id = None
-                            phone = getattr(self, 'customer_phone', None) or getattr(self, 'from_number', '')
+                            city = None
+                            service_category = None
                             
+                            # 📱 Phone extraction - fallback chain
+                            phone = None
+                            # 1) From handler attributes
+                            if getattr(self, 'customer_phone', None):
+                                phone = self.customer_phone
+                            # 2) From handler from_number
+                            elif getattr(self, 'from_number', None):
+                                phone = self.from_number
+                            # 3) From CallLog
+                            elif call_log and call_log.from_number:
+                                phone = call_log.from_number
+                            
+                            # 🏠 Extract lead_id, city, service_category from CRM context and Lead
                             if hasattr(self, 'crm_context') and self.crm_context:
                                 lead_id = self.crm_context.lead_id
+                                
+                                # Try to get city/service from CRM context attributes
+                                if hasattr(self.crm_context, 'city'):
+                                    city = self.crm_context.city
+                                if hasattr(self.crm_context, 'service_category'):
+                                    service_category = self.crm_context.service_category
+                                elif hasattr(self.crm_context, 'professional'):
+                                    service_category = self.crm_context.professional
+                                
+                                # Fallback: Load from Lead model if we have lead_id
+                                if lead_id and (not city or not service_category or not phone):
+                                    try:
+                                        lead = Lead.query.get(lead_id)
+                                        if lead:
+                                            print(f"📋 [WEBHOOK] Enriching from Lead #{lead_id}")
+                                            # Phone fallback from Lead
+                                            if not phone and lead.phone_e164:
+                                                phone = lead.phone_e164
+                                                print(f"   └─ Phone from Lead: {phone}")
+                                            
+                                            # Try to extract city/service from Lead tags (JSON)
+                                            if lead.tags and isinstance(lead.tags, dict):
+                                                if not city:
+                                                    city = lead.tags.get('city') or lead.tags.get('עיר')
+                                                    if city:
+                                                        print(f"   └─ City from Lead tags: {city}")
+                                                if not service_category:
+                                                    service_category = lead.tags.get('service_category') or lead.tags.get('professional') or lead.tags.get('תחום') or lead.tags.get('מקצוע')
+                                                    if service_category:
+                                                        print(f"   └─ Service from Lead tags: {service_category}")
+                                        else:
+                                            print(f"⚠️ [WEBHOOK] Lead #{lead_id} not found in DB")
+                                    except Exception as lead_err:
+                                        import traceback
+                                        print(f"⚠️ [WEBHOOK] Could not load lead data: {lead_err}")
+                                        traceback.print_exc()
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
                                 call_id=self.call_sid,
                                 lead_id=lead_id,
-                                phone=phone,
-                                started_at=call_log.created_at,  # 🔧 FIX: Use created_at instead of start_time
-                                ended_at=call_log.updated_at,    # 🔧 FIX: Use updated_at instead of end_time
+                                phone=phone or '',
+                                started_at=call_log.created_at,
+                                ended_at=call_log.updated_at,
                                 duration_sec=call_log.duration or 0,
                                 transcript=full_conversation,
                                 summary=summary_data.get('summary', ''),
                                 agent_name=getattr(self, 'bot_name', 'Assistant'),
-                                direction=getattr(self, 'call_direction', 'inbound')
+                                direction=getattr(self, 'call_direction', 'inbound'),
+                                city=city,
+                                service_category=service_category
                             )
-                            print(f"✅ [WEBHOOK] Call completed webhook queued for business {business_id}")
+                            print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
                         except Exception as webhook_err:
                             print(f"⚠️ [WEBHOOK] Webhook error (non-blocking): {webhook_err}")
                         
