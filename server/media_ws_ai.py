@@ -607,11 +607,15 @@ SR = 8000
 # ⚡ BUILD 164B: BALANCED NOISE FILTERING - Filter noise but allow quiet speech
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
-VAD_RMS = int(os.getenv("VAD_RMS", "80"))                   # 🔥 BUILD 170.3: 80 - lower threshold for quiet Hebrew
-# 🔥 BUILD 170.3: LOWERED THRESHOLDS - Allow quiet Hebrew speech through
-RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "40"))       # 🔥 BUILD 170.3: 40 (was 120) - only true silence
-MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "60"))                     # 🔥 BUILD 170.3: 60 (was 200) - Hebrew can be quiet
+VAD_RMS = int(os.getenv("VAD_RMS", "120"))                  # 🔥 BUILD 171: 120 (was 80) - prevent hallucinations from silence
+# 🔥 BUILD 171: STRICTER THRESHOLDS - Prevent Whisper hallucinations on silence
+RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "100"))      # 🔥 BUILD 171: 100 (was 40) - block ambient noise  
+MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "120"))                    # 🔥 BUILD 171: 120 (was 60) - require real speech
 MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "700"))    # 🔥 BUILD 169: 700ms continuous speech for barge-in
+# 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT - Prevent single-frame noise triggers
+MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "5"))  # 🔥 Need 5 consecutive frames (100ms) above threshold
+# 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
+POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "800"))          # 🔥 Humans can't respond meaningfully in <800ms
 NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                      # Grace period for noise tolerance
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 164B: 150ms (balanced)
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
@@ -830,11 +834,15 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        # 🔥 BUILD 170.3: LOWERED noise thresholds for Hebrew
-        self.noise_floor = 30.0          # 🔥 BUILD 170.3: 30 (was 80) - lower baseline
-        self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 170.3: Now 60 (was 200) - Hebrew can be quiet
+        # 🔥 BUILD 171: STRICTER noise thresholds to prevent hallucinations
+        self.noise_floor = 50.0          # 🔥 BUILD 171: 50 (was 30) - higher baseline
+        self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 171: Now 120 (was 60) - require real speech
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
+        
+        # 🔥 BUILD 171: CONSECUTIVE FRAME TRACKING - Prevent noise spikes from triggering transcription
+        self._consecutive_voice_frames = 0  # Count of consecutive frames above RMS threshold
+        self._ai_finished_speaking_ts = 0.0  # When AI finished speaking (for cooldown)
         self.mark_pending = False        # האם ממתינים לסימון TTS
         self.mark_sent_ts = 0.0          # זמן שליחת סימון
         
@@ -1761,6 +1769,10 @@ class MediaStreamHandler:
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
                     
+                    # 🔥 BUILD 171: Track when AI finished speaking for cooldown check
+                    self._ai_finished_speaking_ts = time.time()
+                    print(f"🔥 [BUILD 171] AI finished speaking - cooldown started ({POST_AI_COOLDOWN_MS}ms)")
+                    
                     # 🔥🔥 CRITICAL FIX: Do NOT clear audio queue here!
                     # The queue may still have audio chunks that need to be sent to Twilio.
                     # Clearing prematurely causes greeting/response truncation!
@@ -2016,18 +2028,26 @@ class MediaStreamHandler:
                     text = normalize_hebrew_text(text)
                     
                     now_ms = time.time() * 1000
+                    now_sec = now_ms / 1000
                     
-                    # 🔥 BUILD 170.3: RELAXED LOW-RMS GATE - Only reject truly silent transcripts
-                    # Hebrew speech can be quiet - use very low threshold (15 RMS)
-                    recent_rms = getattr(self, '_recent_audio_rms', 0)
-                    ABSOLUTE_SILENCE_RMS = 15  # 🔥 BUILD 170.3: Only reject near-zero RMS
-                    
-                    # Only filter if RMS is near zero AND text is pure English hallucination
-                    if recent_rms < ABSOLUTE_SILENCE_RMS:
-                        hebrew_in_text = len(re.findall(r'[\u0590-\u05FF]', text))
-                        if hebrew_in_text == 0:  # Pure English from true silence = hallucination
-                            print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {ABSOLUTE_SILENCE_RMS}): '{text}'")
+                    # 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
+                    # Humans cannot form a coherent response in <800ms, so these are hallucinations
+                    if self._ai_finished_speaking_ts > 0:
+                        time_since_ai_finished = (now_sec - self._ai_finished_speaking_ts) * 1000
+                        if time_since_ai_finished < POST_AI_COOLDOWN_MS:
+                            print(f"🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived {time_since_ai_finished:.0f}ms after AI finished (min: {POST_AI_COOLDOWN_MS}ms)")
+                            print(f"   Rejected text: '{text[:50]}...' (likely hallucination)")
                             continue
+                    
+                    # 🔥 BUILD 171: STRICTER RMS GATE - Reject if no sustained speech detected
+                    recent_rms = getattr(self, '_recent_audio_rms', 0)
+                    consec_frames = getattr(self, '_consecutive_voice_frames', 0)
+                    ABSOLUTE_SILENCE_RMS = 30  # 🔥 BUILD 171: Raised from 15 to 30
+                    
+                    # Reject if: low RMS AND not enough consecutive frames
+                    if recent_rms < ABSOLUTE_SILENCE_RMS and consec_frames < MIN_CONSECUTIVE_VOICE_FRAMES:
+                        print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {ABSOLUTE_SILENCE_RMS}, frames={consec_frames}): '{text}'")
+                        continue
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
@@ -3433,8 +3453,22 @@ class MediaStreamHandler:
                                 self._greeting_enqueue_block_logged = True
                             continue  # Don't enqueue audio during greeting
                         
-                        # 🔥 BUILD 165: ONLY send audio above noise threshold AND not music!
-                        if not is_noise and not is_music:
+                        # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT
+                        # Track consecutive voice frames before considering it real speech
+                        # This prevents random noise spikes from triggering transcription
+                        if not is_noise and rms >= MIN_SPEECH_RMS:
+                            self._consecutive_voice_frames += 1
+                        else:
+                            # Reset on silence/noise - require sustained speech
+                            if self._consecutive_voice_frames > 0:
+                                self._consecutive_voice_frames = max(0, self._consecutive_voice_frames - 2)  # Decay slowly
+                        
+                        # 🔥 BUILD 171: Only send audio if we have enough consecutive frames OR bypass is active
+                        has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
+                        should_send_audio = (has_sustained_speech or speech_bypass_active) and not is_noise
+                        
+                        # 🔥 BUILD 165: ONLY send audio above noise threshold AND sustained speech!
+                        if should_send_audio:
                             try:
                                 # 🔍 DEBUG: Log first few frames from Twilio
                                 if not hasattr(self, '_twilio_audio_chunks_sent'):
@@ -3443,20 +3477,20 @@ class MediaStreamHandler:
                                 
                                 if self._twilio_audio_chunks_sent <= 3:
                                     first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}")
+                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, consec_frames={self._consecutive_voice_frames}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
                                 pass
                         else:
-                            # 🔥 Log noise/music rejection for debugging
+                            # 🔥 BUILD 171: Enhanced logging for debugging
                             if not hasattr(self, '_noise_reject_count'):
                                 self._noise_reject_count = 0
                             self._noise_reject_count += 1
-                            # Log every 100 rejected frames
+                            # Log every 100 rejected frames with more detail
                             if self._noise_reject_count % 100 == 0:
-                                reason = "music" if is_music else "noise"
-                                print(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} {reason} frames (rms={rms:.0f})")
+                                reason = "noise" if is_noise else f"insufficient_consec_frames({self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
+                                print(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} frames (rms={rms:.0f}, reason={reason})")
                     # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
                     elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)

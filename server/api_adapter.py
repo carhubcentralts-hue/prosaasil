@@ -56,6 +56,8 @@ def check_permissions(required_roles):
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])  # BUILD 138 FIX: Use current role names only
 def dashboard_stats():
     """BUILD 136: Business-scoped dashboard stats - uses g.tenant from @require_api_auth"""
+    import traceback
+    
     try:
         # BUILD 136 FIX: Use g.tenant populated by @require_api_auth
         tenant_id = g.tenant
@@ -84,56 +86,87 @@ def dashboard_stats():
             date_start = today
             date_end = today
         
-        week_ago = today - timedelta(days=7)
+        # 🔥 BUILD 171: Convert date objects to datetime for proper comparison
+        week_ago = datetime.combine(today - timedelta(days=7), datetime.min.time())
         
         # BUILD 135: Calls stats - FILTERED by tenant_id and date range
         from sqlalchemy import func as sql_func
         
-        calls_in_range = CallLog.query.filter(
-            CallLog.business_id == tenant_id,
-            db.func.date(CallLog.created_at) >= date_start,
-            db.func.date(CallLog.created_at) <= date_end
-        ).count()
+        # 🔥 BUILD 171: Wrap each query in try-except for better error isolation
+        try:
+            calls_in_range = CallLog.query.filter(
+                CallLog.business_id == tenant_id,
+                db.func.date(CallLog.created_at) >= date_start,
+                db.func.date(CallLog.created_at) <= date_end
+            ).count()
+        except Exception as e:
+            logger.error(f"Error in calls_in_range query: {e}")
+            calls_in_range = 0
         
-        calls_last7d = CallLog.query.filter(
-            CallLog.business_id == tenant_id,
-            CallLog.created_at >= week_ago
-        ).count()
+        try:
+            calls_last7d = CallLog.query.filter(
+                CallLog.business_id == tenant_id,
+                CallLog.created_at >= week_ago
+            ).count()
+        except Exception as e:
+            logger.error(f"Error in calls_last7d query: {e}")
+            calls_last7d = 0
         
         # Real average handle time
         avg_handle_sec = 0
         
         # BUILD 156: WhatsApp stats - COUNT UNIQUE CHATS (not messages)
-        # Count distinct phone numbers that had conversations in date range
-        whatsapp_in_range = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
-            WhatsAppMessage.business_id == tenant_id,
-            db.func.date(WhatsAppMessage.created_at) >= date_start,
-            db.func.date(WhatsAppMessage.created_at) <= date_end
-        ).scalar() or 0
+        try:
+            # Count distinct phone numbers that had conversations in date range
+            whatsapp_in_range = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
+                WhatsAppMessage.business_id == tenant_id,
+                db.func.date(WhatsAppMessage.created_at) >= date_start,
+                db.func.date(WhatsAppMessage.created_at) <= date_end
+            ).scalar() or 0
+        except Exception as e:
+            logger.error(f"Error in whatsapp_in_range query: {e}")
+            whatsapp_in_range = 0
         
-        # Count distinct phone numbers that had conversations in last 7 days
-        whatsapp_last7d = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
-            WhatsAppMessage.business_id == tenant_id,
-            WhatsAppMessage.created_at >= week_ago
-        ).scalar() or 0
+        try:
+            # Count distinct phone numbers that had conversations in last 7 days
+            whatsapp_last7d = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
+                WhatsAppMessage.business_id == tenant_id,
+                WhatsAppMessage.created_at >= week_ago
+            ).scalar() or 0
+        except Exception as e:
+            logger.error(f"Error in whatsapp_last7d query: {e}")
+            whatsapp_last7d = 0
         
-        # BUILD 156: Count unique chats with unread messages (not individual messages)
-        unread = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
-            WhatsAppMessage.business_id == tenant_id,
-            WhatsAppMessage.status == 'received'
-        ).scalar() or 0
+        try:
+            # BUILD 156: Count unique chats with unread messages (not individual messages)
+            unread = db.session.query(sql_func.count(sql_func.distinct(WhatsAppMessage.to_number))).filter(
+                WhatsAppMessage.business_id == tenant_id,
+                WhatsAppMessage.status == 'received'
+            ).scalar() or 0
+        except Exception as e:
+            logger.error(f"Error in unread query: {e}")
+            unread = 0
         
         # BUILD 135: Real revenue stats - FILTERED by tenant_id
         from sqlalchemy import func
-        revenue_this_month = Payment.query.with_entities(func.sum(Payment.amount)).filter(
-            Payment.business_id == tenant_id,
-            func.extract('month', Payment.created_at) == today.month,
-            func.extract('year', Payment.created_at) == today.year
-        ).scalar() or 0
-        revenue_ytd = Payment.query.with_entities(func.sum(Payment.amount)).filter(
-            Payment.business_id == tenant_id,
-            func.extract('year', Payment.created_at) == today.year
-        ).scalar() or 0
+        try:
+            revenue_this_month = Payment.query.with_entities(func.sum(Payment.amount)).filter(
+                Payment.business_id == tenant_id,
+                func.extract('month', Payment.created_at) == today.month,
+                func.extract('year', Payment.created_at) == today.year
+            ).scalar() or 0
+        except Exception as e:
+            logger.error(f"Error in revenue_this_month query: {e}")
+            revenue_this_month = 0
+            
+        try:
+            revenue_ytd = Payment.query.with_entities(func.sum(Payment.amount)).filter(
+                Payment.business_id == tenant_id,
+                func.extract('year', Payment.created_at) == today.year
+            ).scalar() or 0
+        except Exception as e:
+            logger.error(f"Error in revenue_ytd query: {e}")
+            revenue_ytd = 0
         
         return jsonify({
             "calls": {
@@ -158,7 +191,6 @@ def dashboard_stats():
         })
         
     except Exception as e:
-        import traceback
         logger.error(f"Error in dashboard_stats: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"error": "internal_server_error"}), 500
@@ -167,6 +199,8 @@ def dashboard_stats():
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])  # BUILD 138 FIX: Use current role names only
 def dashboard_activity():
     """BUILD 136: Business-scoped recent activity - uses g.tenant from @require_api_auth"""
+    import traceback
+    
     try:
         # BUILD 136 FIX: Use g.tenant populated by @require_api_auth
         tenant_id = g.tenant
@@ -194,23 +228,32 @@ def dashboard_activity():
             date_start = today
             date_end = today
         
+        # 🔥 BUILD 171: Wrap each query with error handling
         # BUILD 135: Get recent WhatsApp messages - FILTERED by tenant_id and date
-        recent_whatsapp = WhatsAppMessage.query.filter(
-            WhatsAppMessage.business_id == tenant_id,
-            db.func.date(WhatsAppMessage.created_at) >= date_start,
-            db.func.date(WhatsAppMessage.created_at) <= date_end
-        ).order_by(
-            WhatsAppMessage.created_at.desc()
-        ).limit(20).all()
+        try:
+            recent_whatsapp = WhatsAppMessage.query.filter(
+                WhatsAppMessage.business_id == tenant_id,
+                db.func.date(WhatsAppMessage.created_at) >= date_start,
+                db.func.date(WhatsAppMessage.created_at) <= date_end
+            ).order_by(
+                WhatsAppMessage.created_at.desc()
+            ).limit(20).all()
+        except Exception as e:
+            logger.error(f"Error fetching whatsapp messages: {e}")
+            recent_whatsapp = []
         
         # BUILD 135: Get recent calls - FILTERED by tenant_id and date
-        recent_calls = CallLog.query.filter(
-            CallLog.business_id == tenant_id,
-            db.func.date(CallLog.created_at) >= date_start,
-            db.func.date(CallLog.created_at) <= date_end
-        ).order_by(
-            CallLog.created_at.desc()
-        ).limit(20).all()
+        try:
+            recent_calls = CallLog.query.filter(
+                CallLog.business_id == tenant_id,
+                db.func.date(CallLog.created_at) >= date_start,
+                db.func.date(CallLog.created_at) <= date_end
+            ).order_by(
+                CallLog.created_at.desc()
+            ).limit(20).all()
+        except Exception as e:
+            logger.error(f"Error fetching calls: {e}")
+            recent_calls = []
         
         activities = []
         
