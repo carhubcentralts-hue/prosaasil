@@ -178,6 +178,15 @@ export function OutboundCallsPage() {
         </div>
       </div>
 
+      {(leadsError || templatesError || countsError) && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <XCircle className="h-5 w-5 text-red-600" />
+          <span className="text-red-800">
+            שגיאה בטעינת נתונים. נסה לרענן את הדף או לבחור עסק אחר.
+          </span>
+        </div>
+      )}
+
       {!canStartCalls && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 text-yellow-600" />
