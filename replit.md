@@ -63,6 +63,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Message Colors**: Outgoing messages (green, right side), incoming messages (white/gray, left side) - proper WhatsApp-like styling.
   - **Toggle AI Endpoint**: Added `/api/whatsapp/toggle-ai` endpoint for frontend compatibility with AI on/off toggle per conversation.
   - **Message Alignment**: Fixed RTL alignment - outgoing messages now appear on the right, incoming on the left.
+  - **AI Prompt Fallback Fix**: Fixed issue where AI was always returning static "קיבלתי את ההודעה" instead of using business prompt. Now properly falls back through: Agent SDK → Regular AI (DB prompt) → Business name fallback → Static message.
 
 ## Feature Specifications
 - **Call Logging**: Comprehensive tracking.

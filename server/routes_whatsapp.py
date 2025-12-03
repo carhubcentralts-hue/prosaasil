@@ -695,12 +695,14 @@ def baileys_webhook():
                     log.warning(f"⚠️ Could not load conversation history: {e}")
                 
                 # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
+                # ✅ BUILD 170.1: Improved error handling - use DB prompt even on fallback!
+                ai_start = time.time()
+                response_text = None
+                
+                from server.services.ai_service import get_ai_service
+                ai_service = get_ai_service()
+                
                 try:
-                    ai_start = time.time()
-                    
-                    from server.services.ai_service import get_ai_service
-                    ai_service = get_ai_service()
-                    
                     ai_response = ai_service.generate_response_with_agent(
                         message=message_text,
                         business_id=business_id,
@@ -729,10 +731,33 @@ def baileys_webhook():
                     ai_duration = time.time() - ai_start
                     print(f"✅ Agent response ({ai_duration:.2f}s): {str(response_text)[:50]}...", flush=True)
                 except Exception as e:
-                    print(f"⚠️ Agent response failed, using fallback: {e}", flush=True)
+                    print(f"⚠️ Agent failed, trying regular AI response: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
-                    response_text = "שלום! קיבלתי את ההודעה שלך. נציג יחזור אליך בהקדם."
+                    
+                    # ✅ BUILD 170.1: Fallback to regular AI (which uses DB prompt!)
+                    try:
+                        response_text = ai_service.generate_response(
+                            message=message_text,
+                            business_id=business_id,
+                            context={
+                                'phone': from_number,
+                                'customer_name': customer.name if customer else None,
+                                'previous_messages': previous_messages
+                            },
+                            channel='whatsapp'
+                        )
+                        print(f"✅ Fallback AI response: {str(response_text)[:50]}...", flush=True)
+                    except Exception as e2:
+                        print(f"⚠️ Regular AI also failed: {e2}", flush=True)
+                        # ✅ Last resort - but still try to use business name!
+                        try:
+                            from server.models_sql import Business
+                            business = Business.query.get(business_id)
+                            biz_name = business.name if business else "אנחנו"
+                            response_text = f"שלום! תודה שפנית ל{biz_name}. נחזור אליך בהקדם."
+                        except:
+                            response_text = "שלום! קיבלתי את ההודעה שלך. נחזור אליך בהקדם."
                 
                 # Send response via Baileys
                 send_start = time.time()
