@@ -41,14 +41,13 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
         return ("", "")  # Return empty - let AI handle naturally
 
 
-def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
+def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
     """
     Build system prompt for OpenAI Realtime API based on business settings
     
     Args:
         business_id: Business ID
         db_session: Optional SQLAlchemy session (for transaction safety)
-        call_direction: "inbound" or "outbound" - determines which prompt to use
     
     Returns:
         System prompt in Hebrew for the AI assistant
@@ -77,18 +76,11 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         # Load business policy (slot size, opening hours, etc.)
         policy = get_business_policy(business_id, prompt_text=None, db_session=db_session)
         
-        logger.info(f"📋 Building Realtime prompt for {business_name} (business_id={business_id}, direction={call_direction})")
+        logger.info(f"📋 Building Realtime prompt for {business_name} (business_id={business_id})")
         
-        # 🔥 BUILD 174: Load custom prompt from DB based on call direction
+        # 🔥 Load custom prompt from DB (just like WhatsApp)
         core_instructions = ""
-        
-        # 🔥 For OUTBOUND calls, use outbound_ai_prompt first
-        if call_direction == "outbound" and settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
-            core_instructions = settings.outbound_ai_prompt.strip()
-            logger.info(f"✅ Using OUTBOUND prompt from DB for business {business_id} ({len(core_instructions)} chars)")
-        
-        # For INBOUND calls or if no outbound prompt, use regular ai_prompt
-        if not core_instructions and settings and settings.ai_prompt and settings.ai_prompt.strip():
+        if settings and settings.ai_prompt and settings.ai_prompt.strip():
             import json
             try:
                 if settings.ai_prompt.strip().startswith('{'):
@@ -107,13 +99,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.ai_prompt
         
         if not core_instructions:
-            logger.error(f"❌ No prompt in DB for business {business_id} (direction={call_direction})")
-            if call_direction == "outbound":
-                core_instructions = f"""אתה נציג מכירות יוזם של "{business_name}". 
-אתה מתקשר ללקוח כדי להציע שירותים או לתאם פגישה.
-דבר בעברית, היה אדיב וקצר."""
-            else:
-                core_instructions = f"""אתה נציג טלפוני של "{business_name}". עונה בעברית, קצר וברור."""
+            logger.error(f"❌ No 'calls' prompt in DB for business {business_id}")
+            core_instructions = f"""אתה נציג טלפוני של "{business_name}". עונה בעברית, קצר וברור."""
         
         # Replace placeholders
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
