@@ -25,6 +25,7 @@ const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 const LeadDetailPage = lazy(() => import('../pages/Leads/LeadDetailPage'));
 const WhatsAppPage = lazy(() => import('../pages/wa/WhatsAppPage').then(m => ({ default: m.WhatsAppPage })));
 const CallsPage = lazy(() => import('../pages/calls/CallsPage').then(m => ({ default: m.CallsPage })));
+const OutboundCallsPage = lazy(() => import('../pages/calls/OutboundCallsPage').then(m => ({ default: m.OutboundCallsPage })));
 const CrmPage = lazy(() => import('../pages/crm/CrmPage').then(m => ({ default: m.CrmPage })));
 const BillingPage = lazy(() => import('../pages/billing/BillingPage').then(m => ({ default: m.BillingPage })));
 const UsersPage = lazy(() => import('../pages/users/UsersPage').then(m => ({ default: m.UsersPage })));
@@ -181,6 +182,16 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <CallsPage />
+            </RoleGuard>
+          }
+        />
+        
+        {/* BUILD 174: Outbound Calls */}
+        <Route
+          path="outbound-calls"
+          element={
+            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
+              <OutboundCallsPage />
             </RoleGuard>
           }
         />

@@ -3,7 +3,7 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, User, Business
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, User, Business, CallLog
 from server.db import db
 from server.auth_api import require_api_auth
 from datetime import datetime, timezone
@@ -249,12 +249,18 @@ def list_leads():
         except ValueError:
             pass
     
-    # Order by Kanban board: status first, then order_index within status
-    query = query.order_by(Lead.status, Lead.order_index)
+    # Order by created_at DESC for faster sorting (indexed column)
+    # BUILD 174: Performance optimization - avoid ORDER BY on multiple columns
+    query = query.order_by(Lead.created_at.desc())
     
-    # Pagination
+    # Pagination - BUILD 174: Optimize count query
     offset = (page - 1) * page_size
-    total = query.count()
+    
+    # Use a lighter count query - only count IDs (faster)
+    count_query = query.with_entities(Lead.id)
+    total = count_query.count()
+    
+    # Fetch leads with pagination
     leads = query.offset(offset).limit(page_size).all()
     
     # Format response
@@ -1159,33 +1165,56 @@ def bulk_delete_leads():
         LeadReminder.query.filter(LeadReminder.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
         
         # Delete LeadNote records (has cascade but be explicit)
-        LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
+        # BUILD 173: Handle missing table on older production DBs
+        try:
+            LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
+        except Exception as note_err:
+            err_str = str(note_err).lower()
+            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_notes' in err_str:
+                log.warning(f"⚠️ LeadNote delete skipped (table does not exist)")
+            else:
+                log.error(f"❌ LeadNote delete error: {note_err}")
+                raise  # Re-raise unexpected errors
         
         # Delete LeadMergeCandidate records
-        LeadMergeCandidate.query.filter(
-            db.or_(
-                LeadMergeCandidate.lead_id.in_(actual_lead_ids),
-                LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
+        # BUILD 173: Handle missing table on older production DBs
+        try:
+            LeadMergeCandidate.query.filter(
+                db.or_(
+                    LeadMergeCandidate.lead_id.in_(actual_lead_ids),
+                    LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
+                )
+            ).delete(synchronize_session=False)
+        except Exception as merge_err:
+            err_str = str(merge_err).lower()
+            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_merge_candidates' in err_str:
+                log.warning(f"⚠️ LeadMergeCandidate delete skipped (table does not exist)")
+            else:
+                log.error(f"❌ LeadMergeCandidate delete error: {merge_err}")
+                raise  # Re-raise unexpected errors
+        
+        # Clear lead_id references in WhatsAppConversation (set to NULL)
+        # BUILD 174: Handle missing models gracefully - use WhatsAppConversation which has lead_id
+        try:
+            from server.models_sql import WhatsAppConversation
+            WhatsAppConversation.query.filter(WhatsAppConversation.lead_id.in_(actual_lead_ids)).update(
+                {"lead_id": None}, synchronize_session=False
             )
-        ).delete(synchronize_session=False)
+        except Exception as wa_err:
+            err_str = str(wa_err).lower()
+            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'cannot import' in err_str:
+                log.warning(f"⚠️ WhatsApp conversation clear skipped (table/model not available)")
+            else:
+                log.warning(f"⚠️ WhatsApp conversation clear skipped: {wa_err}")
         
-        # Clear lead_id references in WhatsAppSession (set to NULL)
-        from server.models_sql import WhatsAppSession
-        WhatsAppSession.query.filter(WhatsAppSession.lead_id.in_(actual_lead_ids)).update(
-            {"lead_id": None}, synchronize_session=False
-        )
-        
-        # Clear lead_id references in Task (set to NULL)
-        from server.models_sql import Task
-        Task.query.filter(Task.lead_id.in_(actual_lead_ids)).update(
-            {"lead_id": None}, synchronize_session=False
-        )
-        
-        # Clear lead_id references in RealtimeCallContext (set to NULL)
-        from server.models_sql import RealtimeCallContext
-        RealtimeCallContext.query.filter(RealtimeCallContext.lead_id.in_(actual_lead_ids)).update(
-            {"lead_id": None}, synchronize_session=False
-        )
+        # Clear lead_id references in CallLog (set to NULL)
+        # BUILD 174: CallLog has lead_id for outbound calls
+        try:
+            CallLog.query.filter(CallLog.lead_id.in_(actual_lead_ids)).update(
+                {"lead_id": None}, synchronize_session=False
+            )
+        except Exception as call_err:
+            log.warning(f"⚠️ CallLog clear skipped: {call_err}")
         
         # Now delete the leads
         deleted_count = 0

@@ -79,6 +79,8 @@ class CallLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"))
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
+    outbound_template_id = db.Column(db.Integer, db.ForeignKey("outbound_call_templates.id"), nullable=True)  # BUILD 174: Template used for outbound call
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     from_number = db.Column(db.String(64), index=True)
     to_number = db.Column(db.String(64))  # ✅ BUILD 88: Added to_number field
@@ -91,6 +93,10 @@ class CallLog(db.Model):
     status = db.Column(db.String(32), default="received")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # BUILD 174: Relationships for outbound calls
+    lead = db.relationship("Lead", backref=db.backref("call_logs", lazy="dynamic"), foreign_keys="[CallLog.lead_id]")
+    outbound_template = db.relationship("OutboundCallTemplate", backref=db.backref("calls", lazy="dynamic"), foreign_keys="[CallLog.outbound_template_id]")
 
 class ConversationTurn(db.Model):
     """תורות שיחה - כל הודעה בשיחה טלפונית או WhatsApp"""
@@ -109,7 +115,8 @@ class ConversationTurn(db.Model):
 class BusinessSettings(db.Model):
     __tablename__ = "business_settings"
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
-    ai_prompt = db.Column(db.Text)
+    ai_prompt = db.Column(db.Text)  # AI prompt for inbound calls
+    outbound_ai_prompt = db.Column(db.Text)  # 🔥 BUILD 174: AI prompt for outbound calls (separate from inbound)
     model = db.Column(db.String(50), default="gpt-4o-mini")  # AI model for prompts
     max_tokens = db.Column(db.Integer, default=120)  # ⚡ BUILD 105: Optimized for faster responses (was 150)
     temperature = db.Column(db.Float, default=0.7)   # AI temperature setting (0-2)
@@ -147,6 +154,29 @@ class BusinessSettings(db.Model):
     
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class OutboundCallTemplate(db.Model):
+    """
+    BUILD 174: Outbound call templates for AI-initiated calls
+    תבניות לשיחות יוצאות - מאפשר להגדיר מטרות שונות לשיחות יוצאות
+    """
+    __tablename__ = "outbound_call_templates"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)  # e.g., "תיאום פגישה", "בירור חוב", "חידוש שירות"
+    description = db.Column(db.String(500))  # Short description for UI
+    prompt_text = db.Column(db.Text, nullable=False)  # Hebrew AI behavior instructions
+    greeting_template = db.Column(db.Text)  # Optional custom greeting: "שלום {{lead_name}}, כאן..."
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    business = db.relationship("Business", backref="outbound_templates")
+    
+    __table_args__ = (
+        db.Index('idx_business_template_active', 'business_id', 'is_active'),
+    )
+
 
 class FAQ(db.Model):
     """Business-specific FAQs for fast-path responses"""
