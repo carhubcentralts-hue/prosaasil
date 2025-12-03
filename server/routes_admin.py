@@ -541,30 +541,31 @@ def admin_leads():
             query = query.filter(Lead.owner_user_id == owner_user_id)
         
         if search:
-            # Build search conditions safely
+            # ✅ BUILD 170: Search only by name or phone number (partial match)
             conditions = []
             
-            # Check for name field
+            # Check for name fields
             name_field = getattr(Lead, 'full_name', None)
             if name_field is None:
                 name_field = getattr(Lead, 'name', None)
             if name_field is not None:
                 conditions.append(name_field.ilike(f'%{search}%'))
             
-            # Check for phone field
+            # Also search first_name and last_name separately
+            if hasattr(Lead, 'first_name'):
+                conditions.append(Lead.first_name.ilike(f'%{search}%'))
+            if hasattr(Lead, 'last_name'):
+                conditions.append(Lead.last_name.ilike(f'%{search}%'))
+            
+            # Check for phone field - partial match (e.g., "075" finds any number containing "075")
             phone_field = getattr(Lead, 'phone_e164', None)
             if phone_field is None:
                 phone_field = getattr(Lead, 'phone', None)
             if phone_field is not None:
                 conditions.append(phone_field.ilike(f'%{search}%'))
             
-            # Always add email and business name
-            conditions.extend([
-                Lead.email.ilike(f'%{search}%'),
-                Business.name.ilike(f'%{search}%')
-            ])
-            
-            query = query.filter(or_(*conditions))
+            if conditions:
+                query = query.filter(or_(*conditions))
         
         # Count total
         total = query.count()

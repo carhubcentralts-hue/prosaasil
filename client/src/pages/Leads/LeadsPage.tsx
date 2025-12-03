@@ -79,6 +79,7 @@ export default function LeadsPage() {
     updateLead,
     deleteLead,
     refreshLeads,
+    setLeads,  // ✅ BUILD 170: For optimistic status updates
   } = useLeads(filters);
   
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -169,12 +170,33 @@ export default function LeadsPage() {
   };
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
+    // ✅ BUILD 170: Optimistic update - immediately update UI without waiting for server
+    setEditingStatus(null);
+    
+    // Find the old status for potential rollback
+    const oldLead = leads.find(l => l.id === leadId);
+    const oldStatus = oldLead?.status;
+    
+    // Optimistically update the local state immediately
+    setLeads(prevLeads => 
+      prevLeads.map(lead => 
+        lead.id === leadId ? { ...lead, status: newStatus } : lead
+      )
+    );
+    
     try {
-      setEditingStatus(null);
+      // Send update to server in background
       await http.post(`/api/leads/${leadId}/status`, { status: newStatus });
-      await updateLead(leadId, { status: newStatus });
     } catch (error) {
+      // Rollback on error
       console.error('Failed to update lead status:', error);
+      if (oldStatus) {
+        setLeads(prevLeads => 
+          prevLeads.map(lead => 
+            lead.id === leadId ? { ...lead, status: oldStatus } : lead
+          )
+        );
+      }
       alert('שגיאה בעדכון הסטטוס');
     }
   };
@@ -332,7 +354,7 @@ export default function LeadsPage() {
           <div className="relative flex-1 sm:max-w-md">
             <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
-              placeholder="חפש לפי שם, טלפון או מייל..."
+              placeholder="חפש לפי שם או טלפון..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pr-10 text-right"

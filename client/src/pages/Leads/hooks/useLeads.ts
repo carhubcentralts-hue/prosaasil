@@ -13,6 +13,7 @@ interface UseLeadsResult {
   deleteLead: (leadId: number) => Promise<void>;
   moveLead: (leadId: number, moveData: MoveLeadRequest) => Promise<void>;
   refreshLeads: () => Promise<void>;
+  setLeads: React.Dispatch<React.SetStateAction<Lead[]>>;  // ✅ BUILD 170: Expose for optimistic updates
 }
 
 interface LeadStats {
@@ -163,6 +164,7 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
     deleteLead,
     moveLead,
     refreshLeads,
+    setLeads,  // ✅ BUILD 170: Expose for optimistic updates
   };
 }
 

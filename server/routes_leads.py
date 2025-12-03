@@ -224,14 +224,14 @@ def list_leads():
         query = query.filter(Lead.owner_user_id == owner_filter)
     
     if q_filter:
-        # Search in name, phone, email
+        # ✅ BUILD 170: Search only by name or phone number (partial match)
+        # Remove email from search, phone partial match works (e.g., "075" finds any number containing "075")
         search_term = f"%{q_filter}%"
         query = query.filter(
             or_(
                 Lead.first_name.ilike(search_term),
                 Lead.last_name.ilike(search_term),
-                Lead.phone_e164.ilike(search_term),
-                Lead.email.ilike(search_term)
+                Lead.phone_e164.ilike(search_term)
             )
         )
     
