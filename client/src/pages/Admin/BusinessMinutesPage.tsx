@@ -295,7 +295,8 @@ export function BusinessMinutesPage() {
             <p className="text-slate-500 mt-1">לא נמצאו שיחות בטווח התאריכים שנבחר</p>
           </div>
         ) : (
-          <table className="w-full" data-testid="table-business-minutes">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[700px]" data-testid="table-business-minutes">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4 text-right text-sm font-semibold text-slate-700">מספר עסק</th>
@@ -398,6 +399,7 @@ export function BusinessMinutesPage() {
               </tr>
             </tfoot>
           </table>
+          </div>
         )}
       </div>
     </div>
