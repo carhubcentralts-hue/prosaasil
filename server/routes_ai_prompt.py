@@ -273,13 +273,17 @@ def get_current_business_prompt():
     try:
         from flask import g
         
+        # BUILD 177: Enhanced debugging for external server issues
+        logger.info(f"[PROMPT GET] g.tenant={g.get('tenant')}, session keys={list(session.keys())}")
+        
         tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')
         if not tenant_id:
             user = session.get('al_user', {})
             tenant_id = user.get('business_id')
+            logger.info(f"[PROMPT GET] Fallback to al_user.business_id={tenant_id}")
         
         if not tenant_id:
-            logger.warning("No tenant_id found in get_current_business_prompt")
+            logger.warning(f"No tenant_id found. g.tenant={g.get('tenant')}, session.user={session.get('user')}, session.al_user={session.get('al_user')}")
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
         
         logger.info(f"Loading prompts for business {tenant_id}")
