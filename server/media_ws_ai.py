@@ -2025,28 +2025,43 @@ class MediaStreamHandler:
                     # 2. Block English hallucinations
                     # 3. Block gibberish (but allow natural elongations like "אמממ")
                     
-                    # ✅ WHITELIST: Expanded Hebrew words that are VALID responses
-                    # Per architect: Added יאללה, סבבה, דקה, numbers, and other common fillers
+                    # ✅ BUILD 170.4: EXPANDED WHITELIST - More Hebrew words
                     valid_short_hebrew = [
                         # Basic confirmations
-                        "כן", "לא", "רגע", "שניה", "טוב", "בסדר", "תודה", "סליחה", "יופי", "נכון",
-                        # Common fillers (architect feedback)
-                        "יאללה", "סבבה", "דקה", "אוקיי", "או קיי", "אוקי", "סבבה",
+                        "כן", "לא", "רגע", "שניה", "שנייה", "טוב", "בסדר", "תודה", "סליחה", "יופי", "נכון",
+                        "מעולה", "בדיוק", "בסדר גמור", "אשמח", "אין בעיה", "ברור",
+                        # Common fillers
+                        "יאללה", "סבבה", "דקה", "אוקיי", "או קיי", "אוקי", "אה", "אהה", "אמ",
                         # Questions
-                        "מה", "איפה", "מתי", "למה", "איך", "כמה", "מי", "איזה", "איזו",
-                        # Pronouns
-                        "זה", "אני", "אתה", "את", "הוא", "היא", "אנחנו", "הם", "הן",
+                        "מה", "איפה", "מתי", "למה", "איך", "כמה", "מי", "איזה", "איזו", "מה זה", "למה לא",
+                        # Pronouns and common words
+                        "זה", "אני", "אתה", "את", "הוא", "היא", "אנחנו", "הם", "הן", "לי", "לך", "שלי", "שלך",
+                        "עכשיו", "היום", "מחר", "אתמול", "פה", "שם", "כאן",
                         # Greetings
-                        "שלום", "ביי", "להתראות", "בבקשה", "היי", "הלו",
-                        # Numbers (Hebrew)
-                        "אחד", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע", "עשר",
-                        "אפס", "מאה", "אלף",
-                        # Natural elongations (NOT gibberish - per architect)
-                        "אמממ", "אההה", "אממ", "אהה"
+                        "שלום", "ביי", "להתראות", "בבקשה", "היי", "הלו", "בוקר טוב", "ערב טוב",
+                        # Numbers (Hebrew) - include feminine forms too
+                        "אחד", "אחת", "שתיים", "שניים", "שלוש", "שלושה", "ארבע", "ארבעה",
+                        "חמש", "חמישה", "שש", "שישה", "שבע", "שבעה", "שמונה", "תשע", "תשעה",
+                        "עשר", "עשרה", "אחד עשר", "שתים עשרה", "עשרים", "שלושים", "ארבעים", "חמישים",
+                        "אפס", "מאה", "אלף", "מיליון",
+                        # Days of week
+                        "ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת",
+                        "יום ראשון", "יום שני", "יום שלישי", "יום רביעי", "יום חמישי", "יום שישי",
+                        # Time-related
+                        "בוקר", "צהריים", "ערב", "לילה", "שעה", "דקות", "חצי", "רבע",
+                        # Service-related
+                        "תור", "פגישה", "תאריך", "זמן", "שירות", "בדיקה",
+                        # Natural elongations
+                        "אמממ", "אההה", "אממ", "אהה", "הממ", "ווו",
+                        # Short responses
+                        "כמובן", "בטח", "ודאי", "אולי", "לפעמים", "תמיד", "אף פעם",
                     ]
                     
                     text_stripped = text.strip()
                     is_valid_short_hebrew = text_stripped in valid_short_hebrew
+                    
+                    # 🔥 BUILD 170.4: Also check if it STARTS WITH a valid word (for phrases)
+                    starts_with_valid = any(text_stripped.startswith(word) for word in valid_short_hebrew if len(word) > 2)
                     
                     # 🛡️ Check if text is PURE English (likely hallucination from Hebrew audio)
                     hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', text))
@@ -2076,14 +2091,22 @@ class MediaStreamHandler:
                     # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
                     is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
                     
-                    # DECISION: Filter or pass?
+                    # 🔥 BUILD 170.4: IMPROVED FILTER LOGIC
+                    # Priority: Allow Hebrew > Block hallucinations > Block gibberish
                     should_filter = False
                     filter_reason = ""
                     
-                    if is_valid_short_hebrew:
-                        # ✅ ALWAYS allow valid short Hebrew words
+                    # First check: If has Hebrew characters and meaningful length, probably valid
+                    has_meaningful_hebrew = hebrew_chars >= 2 and len(text) >= 3
+                    
+                    if is_valid_short_hebrew or starts_with_valid:
+                        # ✅ ALWAYS allow valid short Hebrew words or phrases starting with them
                         should_filter = False
-                        print(f"✅ [NOISE FILTER] ALLOWED short Hebrew: '{text}'")
+                        print(f"✅ [NOISE FILTER] ALLOWED Hebrew: '{text}'")
+                    elif has_meaningful_hebrew and not is_gibberish:
+                        # ✅ Has Hebrew characters and not gibberish - probably valid
+                        should_filter = False
+                        print(f"✅ [NOISE FILTER] ALLOWED (has Hebrew): '{text}'")
                     elif is_hallucination:
                         should_filter = True
                         filter_reason = "hallucination"
@@ -2094,8 +2117,8 @@ class MediaStreamHandler:
                         should_filter = True
                         filter_reason = "too_short_or_punctuation"
                     elif is_pure_english:
-                        # Pure English in Hebrew call - suspicious but may be valid
-                        should_filter = True  # 🔥 Now filtering pure English
+                        # Pure English in Hebrew call - suspicious
+                        should_filter = True
                         filter_reason = "pure_english_hallucination"
                     
                     if should_filter:
