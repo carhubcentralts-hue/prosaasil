@@ -6895,8 +6895,8 @@ class MediaStreamHandler:
                                 call_id=self.call_sid,
                                 lead_id=lead_id,
                                 phone=phone,
-                                started_at=call_log.start_time,
-                                ended_at=call_log.end_time,
+                                started_at=call_log.created_at,  # 🔧 FIX: Use created_at instead of start_time
+                                ended_at=call_log.updated_at,    # 🔧 FIX: Use updated_at instead of end_time
                                 duration_sec=call_log.duration or 0,
                                 transcript=full_conversation,
                                 summary=summary_data.get('summary', ''),

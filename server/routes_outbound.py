@@ -10,6 +10,7 @@ Endpoints:
 import os
 import re
 import logging
+from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
 from server.auth_api import require_api_auth
@@ -269,12 +270,13 @@ def start_outbound_calls():
                 
                 lead_name = lead.full_name or "לקוח"
                 
+                # 🔧 BUILD 177: URL-encode Hebrew characters to prevent Twilio 400 errors
                 webhook_url = f"https://{host}/webhook/outbound_call"
                 webhook_url += f"?call_id={call_log.id}"
                 webhook_url += f"&lead_id={lead.id}"
-                webhook_url += f"&lead_name={lead_name}"
+                webhook_url += f"&lead_name={quote(lead_name, safe='')}"
                 webhook_url += f"&business_id={tenant_id}"
-                webhook_url += f"&business_name={business_name}"
+                webhook_url += f"&business_name={quote(business_name, safe='')}"
                 
                 client = get_twilio_client()
                 
