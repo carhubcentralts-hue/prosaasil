@@ -284,7 +284,7 @@ export function MainLayout() {
           'md:relative md:translate-x-0 md:w-72 md:shadow-sm md:border-l md:border-slate-200',
           sidebarOpen ? 'translate-x-0' : 'translate-x-full'
         )}
-        style={{ height: '100vh' }}
+        style={{ height: '100dvh', maxHeight: '-webkit-fill-available' }}
         role="navigation"
         aria-label="תפריט ראשי"
         aria-expanded={sidebarOpen ? 'true' : 'false'}
@@ -344,31 +344,33 @@ export function MainLayout() {
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 py-6 overflow-y-auto min-h-0">
-          {filteredMenuItems.map((item, index) => {
-            const isActive = !!(item.to && location.pathname === item.to);
-            return (
-              <SidebarItem
-                key={index}
-                icon={<item.icon className="h-5 w-5" />}
-                label={item.label}
-                to={item.to}
-                active={isActive}
-                onClick={() => {
-                  if (item.to) {
-                    navigate(item.to);
-                    // Always close sidebar after navigation (mobile AND desktop)
-                    setTimeout(() => setSidebarOpen(false), 100);
-                  }
-                }}
-                navigate={navigate}
-              />
-            );
-          })}
+        {/* Navigation - scrollable with safe area padding */}
+        <nav className="flex-1 py-6 overflow-y-auto min-h-0 pb-safe">
+          <div className="space-y-1">
+            {filteredMenuItems.map((item, index) => {
+              const isActive = !!(item.to && location.pathname === item.to);
+              return (
+                <SidebarItem
+                  key={index}
+                  icon={<item.icon className="h-5 w-5" />}
+                  label={item.label}
+                  to={item.to}
+                  active={isActive}
+                  onClick={() => {
+                    if (item.to) {
+                      navigate(item.to);
+                      // Always close sidebar after navigation (mobile AND desktop)
+                      setTimeout(() => setSidebarOpen(false), 100);
+                    }
+                  }}
+                  navigate={navigate}
+                />
+              );
+            })}
+          </div>
           
-          {/* Logout in navigation - more visible */}
-          <div className="px-2 mt-4">
+          {/* Logout in navigation - more visible, with extra bottom padding for mobile */}
+          <div className="px-2 mt-4 pb-20 md:pb-4">
             <button
               className="w-full flex items-center px-4 py-3 text-red-600 rounded-xl hover:bg-red-50 transition-all duration-200 font-medium border border-red-200"
               onClick={() => {

@@ -968,12 +968,15 @@ def get_business_minutes():
     try:
         import pytz
         from math import ceil
+        from sqlalchemy import case
         
         israel_tz = pytz.timezone('Asia/Jerusalem')
         now = datetime.now(israel_tz)
         
         from_date_str = request.args.get('from')
         to_date_str = request.args.get('to')
+        
+        logger.info(f"[BUSINESS MINUTES] Request params: from={from_date_str}, to={to_date_str}")
         
         if from_date_str:
             try:
@@ -1001,13 +1004,13 @@ def get_business_minutes():
             Business.name.label('business_name'),
             func.sum(func.coalesce(CallLog.duration, 0)).label('total_seconds'),
             func.sum(
-                func.case(
+                case(
                     (CallLog.direction == 'inbound', func.coalesce(CallLog.duration, 0)),
                     else_=0
                 )
             ).label('inbound_seconds'),
             func.sum(
-                func.case(
+                case(
                     (CallLog.direction == 'outbound', func.coalesce(CallLog.duration, 0)),
                     else_=0
                 )
