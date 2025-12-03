@@ -203,7 +203,7 @@ def _build_slot_description(slot_size_min: int) -> str:
         return f"כל {slot_size_min} דק'"
 
 
-def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: list = None) -> str:
+def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None) -> str:
     """
     BUILD 168: FINAL SYSTEM PROMPT - EXACT USER SPECIFICATION
     """

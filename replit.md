@@ -40,6 +40,11 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Semantic Loop Detection**: Tracks AI response similarity (>70%) with 15-char minimum length floor to avoid false positives on short confirmations.
   - **Mishearing Protection**: Triggers clarification after 2 consecutive "לא הבנתי" responses (reduced from 3 for better UX).
   - **Call Session Logging**: Unique session IDs (SES-XXXXXXXX) for connect/disconnect tracking.
+- **BUILD 170 - Silence Hallucination Prevention & Mandatory Verification**:
+  - **Stricter VAD**: Threshold raised from 0.6 to 0.75, silence duration raised from 500ms to 1200ms to prevent false triggers.
+  - **Low-RMS Gate**: Tracks audio RMS levels and rejects transcripts that arrive when audio was actually silent (prevents Whisper hallucinating on silence).
+  - **Mandatory Per-Field Verification**: AI must repeat back and confirm EVERY field immediately after collecting it, even if the data looks wrong or doesn't match expectations. The AI may have misheard - the caller will correct if needed.
+  - **Final Summary**: After all fields are individually confirmed, AI provides a final summary and waits for confirmation before closing.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
