@@ -2392,8 +2392,10 @@ class MediaStreamHandler:
                         # 🛡️ BUILD 168: If user says correction words, reset verification
                         correction_words = ["לא", "רגע", "שנייה", "לא נכון", "טעות", "תתקן", "לשנות"]
                         if any(word in transcript_lower for word in correction_words):
-                            print(f"🔄 [BUILD 168] User wants CORRECTION - verification_confirmed = False")
+                            print(f"🔄 [BUILD 168] User wants CORRECTION - resetting verification state")
                             self.verification_confirmed = False
+                            # 🔥 FIX: Also reset the prompt flag so we can send a new verification request
+                            self._verification_prompt_sent = False
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
