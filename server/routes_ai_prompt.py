@@ -269,12 +269,17 @@ def update_business_prompt(business_id):
 @csrf.exempt
 @require_api_auth(['system_admin', 'owner', 'admin'])
 def get_current_business_prompt():
-    """Get AI prompt for current business - Business (Impersonated)"""
+    """Get AI prompt for current business"""
     try:
         from flask import g
+        
         tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')
+        if not tenant_id:
+            user = session.get('al_user', {})
+            tenant_id = user.get('business_id')
         
         if not tenant_id:
+            logger.warning("No tenant_id found in get_current_business_prompt")
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
         
         logger.info(f"Loading prompts for business {tenant_id}")
@@ -335,12 +340,18 @@ def get_prompt_history(business_id):
         return jsonify({"error": "שגיאה בטעינת ההיסטוריה"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt/history', methods=['GET'])
-@csrf.exempt  # GET requests don't need CSRF
-@require_api_auth(['business'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def get_current_prompt_history():
-    """Get prompt history for current business - Business (Impersonated)"""
+    """Get prompt history for current business"""
     try:
-        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
+        from flask import g
+        
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')
+        if not tenant_id:
+            user = session.get('al_user', {})
+            tenant_id = user.get('business_id')
+        
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
             
