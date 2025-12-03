@@ -873,9 +873,18 @@ def send_manual_message():
         if not send_result:
             return {"ok": False, "error": "empty_response_from_provider"}, 500
         
-        if send_result.get('status') == 'sent':
+        # 🔥 FIX BUILD 181: Accept multiple success states from Twilio/Baileys
+        # Providers return: 'sent', 'queued', 'accepted', or just a message_id/sid
+        provider_status = send_result.get('status', '')
+        success_statuses = {'sent', 'queued', 'accepted', 'delivered'}
+        has_message_id = send_result.get('sid') or send_result.get('message_id')
+        is_success = provider_status in success_statuses or has_message_id
+        
+        if is_success:
             # שמירת ההודעה בבסיס הנתונים
             clean_number = to_number.replace('@s.whatsapp.net', '')
+            # Normalize status for DB storage
+            db_status = provider_status if provider_status in success_statuses else 'sent'
             try:
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
@@ -884,8 +893,8 @@ def send_manual_message():
                 wa_msg.message_type = 'text'
                 wa_msg.direction = 'outbound'
                 wa_msg.provider = send_result.get('provider', 'unknown')
-                wa_msg.provider_message_id = send_result.get('sid')
-                wa_msg.status = 'sent'
+                wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
+                wa_msg.status = db_status
                 
                 db.session.add(wa_msg)
                 db.session.commit()
@@ -909,17 +918,19 @@ def send_manual_message():
                     "ok": True, 
                     "message_id": None,
                     "provider": send_result.get('provider'),
+                    "status": db_status,
                     "warning": "message_sent_but_db_save_failed"
                 }
             
             return {
                 "ok": True, 
                 "message_id": wa_msg.id,
-                "provider": send_result.get('provider')
+                "provider": send_result.get('provider'),
+                "status": db_status
             }
         else:
             error_msg = send_result.get('error', 'send_failed')
-            log.error(f"[WA-SEND] Provider returned error: {error_msg}")
+            log.error(f"[WA-SEND] Provider returned error status '{provider_status}': {error_msg}")
             return {
                 "ok": False, 
                 "error": error_msg
