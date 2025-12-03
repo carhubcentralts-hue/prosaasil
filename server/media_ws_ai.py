@@ -5612,23 +5612,35 @@ ALWAYS mention their name in the first sentence.
         🎯 BUILD 163: Trigger automatic call hang-up via Twilio REST API
         
         🔥 BUILD 172 FIX: More robust - less blocking, with retry mechanism
+        🔥 BUILD 178: Fixed log spam - limit retries and reduce logging
         
         Args:
             reason: Why the call is being hung up (for logging)
         """
-        if self.hangup_triggered:
-            print(f"⚠️ [BUILD 163] Hangup already triggered - skipping")
+        # 🔥 BUILD 178: Track retry count to prevent infinite loops
+        if not hasattr(self, '_hangup_retry_count'):
+            self._hangup_retry_count = 0
+        
+        # 🔥 BUILD 178: Stop if already hung up or exceeded max retries (30 retries = 15 seconds)
+        if self.hangup_triggered or self.call_state == CallState.ENDED:
             return
         
-        # 🔥 BUILD 172: Transition to CLOSING state
-        if self.call_state != CallState.ENDED:
+        if self._hangup_retry_count > 30:
+            print(f"⚠️ [BUILD 178] Max hangup retries exceeded - forcing hangup")
+            self.hangup_triggered = True
+            self.call_state = CallState.ENDED
+            return
+        
+        # 🔥 BUILD 172: Transition to CLOSING state (only log first time)
+        if self.call_state != CallState.ENDED and self.call_state != CallState.CLOSING:
             self.call_state = CallState.CLOSING
             print(f"📞 [STATE] Transitioning to CLOSING (reason: {reason})")
         
         # 🔥🔥 CRITICAL PROTECTION: Don't hangup during greeting
         if self.is_playing_greeting:
-            print(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing! Will retry in 1s")
-            # 🔥 BUILD 172: Schedule retry instead of just returning
+            if self._hangup_retry_count == 0:
+                print(f"🛡️ [PROTECTION] BLOCKING hangup - greeting still playing")
+            self._hangup_retry_count += 1
             threading.Timer(1.0, self._trigger_auto_hangup, args=(reason,)).start()
             return
         
@@ -5637,18 +5649,22 @@ ALWAYS mention their name in the first sentence.
             elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
             if elapsed_ms < self.min_call_duration_after_greeting_ms:
                 remaining_ms = self.min_call_duration_after_greeting_ms - elapsed_ms
-                print(f"🛡️ [PROTECTION] BLOCKING hangup - only {elapsed_ms:.0f}ms since greeting, retry in {remaining_ms:.0f}ms")
+                if self._hangup_retry_count == 0:
+                    print(f"🛡️ [PROTECTION] BLOCKING hangup - only {elapsed_ms:.0f}ms since greeting")
+                self._hangup_retry_count += 1
                 threading.Timer(remaining_ms / 1000.0, self._trigger_auto_hangup, args=(reason,)).start()
                 return
         
         # 🔥 BUILD 172: Wait for audio to finish, but with timeout
-        # Check if audio is still playing - if so, schedule a short retry
         openai_queue_size = self.realtime_audio_out_queue.qsize()
         tx_queue_size = self.tx_q.qsize()
         is_ai_speaking = self.is_ai_speaking_event.is_set()
         
         if is_ai_speaking or openai_queue_size > 0 or tx_queue_size > 0:
-            print(f"🛡️ [PROTECTION] Audio still playing (ai_speaking={is_ai_speaking}, openai_q={openai_queue_size}, tx_q={tx_queue_size}) - retry in 500ms")
+            # 🔥 BUILD 178: Only log every 5th retry to reduce spam
+            if self._hangup_retry_count % 10 == 0:
+                print(f"🛡️ [PROTECTION] Waiting for audio (ai={is_ai_speaking}, oai_q={openai_queue_size}, tx_q={tx_queue_size}) retry #{self._hangup_retry_count}")
+            self._hangup_retry_count += 1
             threading.Timer(0.5, self._trigger_auto_hangup, args=(reason,)).start()
             return
         
