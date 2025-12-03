@@ -117,6 +117,13 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - `client/src/app/layout/MainLayout.tsx` - Added sidebar item "שיחות יוצאות"
 - `client/src/app/routes.tsx` - Added `/app/outbound-calls` route
 
+## WebSocket Integration (media_ws_ai.py)
+- Extracts outbound parameters (`direction`, `lead_id`, `lead_name`, `template_id`, `business_name`) from Twilio customParameters
+- Loads template prompt from database for outbound calls
+- Injects lead context into AI prompt (business name, lead name)
+- Uses pre-existing `lead_id` for CRM context (no duplicate lead creation)
+- Summaries and transcripts saved via shared pipeline for both inbound/outbound calls
+
 ## Manually Tested
 - Template CRUD operations
 - Lead selection with limit enforcement (1-3 leads max)
@@ -124,3 +131,4 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - Hebrew error messages for limit violations
 - Sidebar navigation to outbound calls page
 - Inbound call flow unchanged when under limits
+- WebSocket handler processes outbound parameters correctly

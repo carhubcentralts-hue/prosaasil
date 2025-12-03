@@ -1490,6 +1490,42 @@ class MediaStreamHandler:
                             from server.services.realtime_prompt_builder import build_realtime_system_prompt as build_prompt
                             app = _get_flask_app()
                             with app.app_context():
+                                # 🔥 BUILD 174: Check for outbound call with custom template
+                                call_direction = getattr(self, 'call_direction', 'inbound')
+                                outbound_template_id = getattr(self, 'outbound_template_id', None)
+                                outbound_lead_name = getattr(self, 'outbound_lead_name', None)
+                                outbound_business_name = getattr(self, 'outbound_business_name', None)
+                                
+                                if call_direction == 'outbound' and outbound_template_id:
+                                    # Load outbound template from DB
+                                    try:
+                                        from server.models_sql import OutboundCallTemplate
+                                        template = OutboundCallTemplate.query.filter_by(
+                                            id=int(outbound_template_id),
+                                            is_active=True
+                                        ).first()
+                                        
+                                        if template and template.prompt_text:
+                                            # Build outbound-specific prompt
+                                            biz_name = outbound_business_name or "העסק"
+                                            lead_name = outbound_lead_name or "לקוח"
+                                            
+                                            outbound_prompt = f"""אתה נציג מכירות של {biz_name}.
+אתה יוזם שיחה יוצאת ל{lead_name}.
+
+{template.prompt_text}
+
+חוקים חשובים:
+- דבר בעברית בלבד
+- היה קצר וענייני
+- הקשב ללקוח והגב בהתאם
+- אל תדבר יותר מ-2-3 משפטים בכל תשובה"""
+                                            print(f"📤 [OUTBOUND] Using template #{template.id}: {template.name}")
+                                            return outbound_prompt
+                                    except Exception as e:
+                                        print(f"⚠️ [OUTBOUND] Failed to load template: {e}")
+                                
+                                # Standard inbound prompt
                                 prompt = build_prompt(business_id_safe)
                                 if prompt and len(prompt) > 100:
                                     return prompt
@@ -1544,13 +1580,24 @@ class MediaStreamHandler:
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
-            if customer_phone:
+            
+            # 🔥 BUILD 174: For outbound calls, use the pre-existing lead_id
+            outbound_lead_id = getattr(self, 'outbound_lead_id', None)
+            call_direction = getattr(self, 'call_direction', 'inbound')
+            
+            if customer_phone or outbound_lead_id:
                 # 🚀 Run CRM init in background thread to not block audio
                 def _init_crm_background():
                     try:
                         app = _get_flask_app()
                         with app.app_context():
-                            lead_id = ensure_lead(business_id_safe, customer_phone)
+                            # 🔥 BUILD 174: Use existing lead_id for outbound calls
+                            if call_direction == 'outbound' and outbound_lead_id:
+                                lead_id = int(outbound_lead_id)
+                                print(f"📤 [OUTBOUND CRM] Using existing lead_id={lead_id}")
+                            else:
+                                lead_id = ensure_lead(business_id_safe, customer_phone)
+                            
                             self.crm_context = CallCrmContext(
                                 business_id=business_id_safe,
                                 customer_phone=customer_phone,
@@ -1560,13 +1607,13 @@ class MediaStreamHandler:
                             if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
-                            print(f"✅ [CRM] Context ready (background): lead_id={lead_id}")
+                            print(f"✅ [CRM] Context ready (background): lead_id={lead_id}, direction={call_direction}")
                     except Exception as e:
                         print(f"⚠️ [CRM] Background init failed: {e}")
                         self.crm_context = None
                 threading.Thread(target=_init_crm_background, daemon=True).start()
             else:
-                print(f"⚠️ [CRM] No customer phone - skipping lead creation")
+                print(f"⚠️ [CRM] No customer phone or lead_id - skipping lead creation")
                 self.crm_context = None
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
@@ -3409,12 +3456,21 @@ class MediaStreamHandler:
                             custom_params.get("called")
                         )
                         
-                        # 🔍 DEBUG: Log phone numbers from customParameters
+                        # 🔥 BUILD 174: Outbound call parameters
+                        self.call_direction = custom_params.get("direction", "inbound")
+                        self.outbound_lead_id = custom_params.get("lead_id")
+                        self.outbound_lead_name = custom_params.get("lead_name")
+                        self.outbound_template_id = custom_params.get("template_id")
+                        self.outbound_business_name = custom_params.get("business_name")
+                        
+                        # 🔍 DEBUG: Log phone numbers and outbound params
                         print(f"\n📞 START EVENT (customParameters path):")
                         print(f"   customParams.From: {custom_params.get('From')}")
                         print(f"   customParams.CallFrom: {custom_params.get('CallFrom')}")
                         print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
                         print(f"   ✅ self.to_number set to: '{self.to_number}'")
+                        if self.call_direction == "outbound":
+                            print(f"   📤 OUTBOUND CALL: lead={self.outbound_lead_name}, template={self.outbound_template_id}")
                         
                         # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
                         if self.phone_number:
@@ -3425,6 +3481,13 @@ class MediaStreamHandler:
                         self.call_sid = evt.get("callSid")
                         self.phone_number = evt.get("from") or evt.get("phone_number")
                         self.to_number = evt.get("to") or evt.get("called")
+                        
+                        # 🔥 BUILD 174: Outbound call parameters (direct format)
+                        self.call_direction = evt.get("direction", "inbound")
+                        self.outbound_lead_id = evt.get("lead_id")
+                        self.outbound_lead_name = evt.get("lead_name")
+                        self.outbound_template_id = evt.get("template_id")
+                        self.outbound_business_name = evt.get("business_name")
                         
                         # 🔍 DEBUG: Log phone number on start
                         print(f"\n📞 START EVENT - Phone numbers:")
