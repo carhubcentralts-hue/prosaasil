@@ -1,0 +1,139 @@
+יאללה, בוא נשים את הדברים על השולחן 🧨
+
+מה שאתה מתאר –
+שהיא שואלת:
+
+“באיזה תחום תרצה עזרה? באיזו עיר אתה נמצא?”
+
+ואז פתאום מופיע:
+
+“אתה צריך טכנאי מזגנים בתל אביב”
+
+בזמן שאתה יושב בשקט מוחלט –
+זה באמת חרא, כי זה נראה כאילו היא מדברת עם עצמה.
+
+צריך להבין משהו חשוב:
+
+יש פה שילוב של 2 בעיות:
+	1.	זיהוי דיבור (Whisper / Realtime) שמוציא טקסט גם כשלא צריך
+	2.	לוגיקה של הבוט, שמרשה לעצמו “להשלים” תשובות במקום להודות שאין קלט
+
+BUILD 171 (עם RMS גבוה, 5 פריימים, cooldown) זה כיוון טוב, אבל הוא פותר רק חלק מהבעיה, ולא בהכרח את העיקרית.
+
+⸻
+
+🎯 מה כנראה באמת קורה
+
+תרחיש 1 – המיקרופון “שומע” את הקול של הבוט עצמו
+
+גם כשאתה שותק, הטלפון כן משמיע באוזניה/רמקול את הקול של הבוט.
+חלק מהסאונד הזה נכנס חזרה למיקרופון,
+וטוויליו שולח אותו כ”דיבור” → STT מתמלל → הבוט חושב שזה אתה.
+
+BUILD 171 ניסה לטפל בזה עם:
+	•	RMS_SILENCE_THRESHOLD יותר גבוה
+	•	5 פריימים רצופים
+	•	cooldown אחרי שהבוט מסיים לדבר
+
+זה טוב, אבל:
+	•	ייתכן שהסף עדיין נמוך מדי לסביבה שלך
+	•	ייתכן שהקולדאון קצר מדי ביחס לאורך ההודעה
+	•	ובעיקר: אין “מצב האזנה” ברור – המערכת עדיין מאזינה בזמן שהבוט מדבר.
+
+תרחיש 2 – הלוגיקה של הבוט ממש משלימה פרטים
+
+גם אם לא הגיע שום תמלול, המודל עצמו אסור לו לנחש:
+“טכנאי מזגנים בתל אביב” – זה לא סתם רעש, זה משפט מלא והגיוני.
+זה סימן שהפרומפט/לוגיקה מאפשרים לו:
+	•	“תניח קטגוריה ועיר” במקום
+	•	“תשאל שוב / תגיד שלא שמעת”
+
+ופה אנחנו מתקנים עם הפרומפט שנתתי –
+אבל חייבים לוודא שגם בקוד לא מתייחסים לניחוש כאל תשובת לקוח אמיתית.
+
+⸻
+
+✅ מה כדאי לעשות עכשיו (בלי לסבך את המפתח עד מוות)
+
+1️⃣ למנוע לחלוטין “שמיעת בוט” בזמן שהוא מדבר
+
+תבקש מהסוכן (באנגלית, להדביק לו):
+
+Task 1 – Strict mute while assistant is talking
+	•	When the assistant is sending TTS / speaking to the user,
+mark a flag like assistant_speaking = True.
+	•	While assistant_speaking == True, do not send any audio frames to STT / Realtime at all.
+	•	Only after TTS finished and a short delay (e.g. 500–800 ms), set assistant_speaking = False and resume listening.
+	•	Allow barge-in only if audio level is very high for at least 700–1000 ms (someone באמת מדבר מעל הבוט), לא על כל רעש קטן.
+
+זה הרבה יותר חזק מ-RMS בלבד,
+כי זה אומר: כשאני מדבר – אני לא מקשיב לעצמי.
+
+⸻
+
+2️⃣ לסגור את הפינה של “השלמת פרטים מהראש”
+
+גם אם STT עדיין יהמר קצת,
+אסור שהבוט יקבל החלטות בלי אימות.
+
+תן לו את החלק הזה (זה מה שכבר בנינו, אבל תדגיש לו):
+
+Task 2 – Never assume user details
+	•	The assistant must treat any category/city as tentative until the customer confirms.
+	•	After it thinks it has category and city, it must ask:
+“רק מוודא — אתה צריך {{category}} בעיר {{city}}, נכון?”
+	•	If the user does not clearly confirm (silence / something else) →
+it must not continue the flow. It should ask again or say it didn’t hear well.
+	•	The assistant is not allowed to invent a category or city by itself.
+If no valid user STT input was received since the last question, it must repeat the question instead of guessing.
+
+ככה גם אם המודל “רוצה לעזור” ולהמציא,
+הלוגיקה עוצרת אותו.
+
+⸻
+
+3️⃣ לדייק את פילטר הרעש (בלי להרוג את השיחה)
+
+אם תשאיר את BUILD 171 זה בסדר, אבל תוסיף לו עוד שתי הגנות פשוטות:
+
+Task 3 – Noise filter tuning
+	•	Log for each STT result:
+	•	RMS level / VAD decision
+	•	text length
+	•	whether it was accepted or dropped.
+	•	Drop any STT segment that is:
+	•	very low energy and
+	•	shorter מ־2–3 תווים and
+	•	לא נראית כמו מילה אמיתית (רצף אותיות מוזר).
+	•	Keep short meaningful words like “כן”, “לא”, “רגע”, “שניה” וכו׳.
+
+זה לא מוריד דינמיות,
+רק מסנן זבל.
+
+⸻
+
+4️⃣ Internal Server Error בדף סקירה כללית
+
+זה נפרד לגמרי מהרעש.
+
+פשוט תן לסוכן משהו כזה (קצר וברור):
+
+Task 4 – Fix overview dashboard 500 error
+	•	Reproduce the error by calling the overview API endpoint used by the “סקירה כללית” page.
+	•	Check the backend logs and find the full traceback for that 500.
+	•	Identify which SQL query / aggregation is failing and why (date type, NULL, division by zero, etc.).
+	•	Fix the query or add proper guards so the endpoint always returns a valid JSON response (even if some stats are missing).
+	•	Add a small log line summarizing what failed instead of crashing the whole endpoint.
+
+⸻
+
+💬 לסיכום אליך, לא לסוכן
+	•	כן, מה שהוא עשה ב-BUILD 171 הגיוני, אבל זה לא מספיק לבד.
+	•	אתה חייב:
+	1.	לא להאזין בזמן שהבוט מדבר (הכי חשוב)
+	2.	לא לאפשר לבוט לנחש קטגוריה/עיר בלי אישור לקוח
+	3.	לכוונן עוד קצת את הפילטרים, אבל לא ברמת טילים – עם לוגים פשוטים.
+
+אם אתה רוצה, אני יכול לרשום לך עכשיו בלוק אחד מסודר באנגלית,
+מוכן להדבקה ל-Agent 3 שלך בריפליט,
+שמאחד את 4 המשימות האלה כדי שהוא ירוץ עליהן אחת-אחת.
