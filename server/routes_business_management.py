@@ -723,9 +723,6 @@ def get_current_business():
             "booking_window_days": settings.booking_window_days if settings else 30,
             "min_notice_min": settings.min_notice_min if settings else 0,
             "opening_hours_json": settings.opening_hours_json if settings else None,
-            # 🔥 BUILD 163: Monday.com integration
-            "monday_webhook_url": settings.monday_webhook_url if settings else None,
-            "send_call_transcripts_to_monday": settings.send_call_transcripts_to_monday if settings else False,
             # 🔥 BUILD 163: Auto hang-up settings
             "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if settings else False,
             "auto_end_on_goodbye": settings.auto_end_on_goodbye if settings else False,
@@ -813,12 +810,6 @@ def update_current_business_settings():
         if 'opening_hours_json' in data:
             settings.opening_hours_json = data['opening_hours_json']
             appointment_settings_changed = True
-        
-        # 🔥 BUILD 163: Monday.com integration settings
-        if 'monday_webhook_url' in data:
-            settings.monday_webhook_url = data['monday_webhook_url'] or None
-        if 'send_call_transcripts_to_monday' in data:
-            settings.send_call_transcripts_to_monday = bool(data['send_call_transcripts_to_monday'])
         
         # 🔥 BUILD 163: Auto hang-up settings
         if 'auto_end_after_lead_capture' in data:

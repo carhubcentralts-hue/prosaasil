@@ -64,9 +64,6 @@ interface BusinessSettings {
   address: string;
   working_hours: string;
   timezone: string;
-  // BUILD 163: Monday.com integration
-  monday_webhook_url?: string | null;
-  send_call_transcripts_to_monday?: boolean;
   // BUILD 163: Auto hang-up settings
   auto_end_after_lead_capture?: boolean;
   auto_end_on_goodbye?: boolean;
@@ -134,9 +131,6 @@ export function SettingsPage() {
     address: 'Tel Aviv, Israel',
     working_hours: '09:00-18:00',
     timezone: 'Asia/Jerusalem',
-    // BUILD 163: Monday.com integration
-    monday_webhook_url: '',
-    send_call_transcripts_to_monday: false,
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture: false,
     auto_end_on_goodbye: false,
@@ -202,9 +196,6 @@ export function SettingsPage() {
     booking_window_days: number;
     min_notice_min: number;
     opening_hours_json?: Record<string, string[][]>;
-    // BUILD 163: Monday.com integration
-    monday_webhook_url?: string | null;
-    send_call_transcripts_to_monday?: boolean;
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture?: boolean;
     auto_end_on_goodbye?: boolean;
@@ -225,9 +216,6 @@ export function SettingsPage() {
         address: businessData.address || '',
         working_hours: businessData.working_hours || '09:00-18:00',
         timezone: businessData.timezone || 'Asia/Jerusalem',
-        // BUILD 163: Monday.com integration
-        monday_webhook_url: businessData.monday_webhook_url || '',
-        send_call_transcripts_to_monday: businessData.send_call_transcripts_to_monday || false,
         // BUILD 163: Auto hang-up settings
         auto_end_after_lead_capture: businessData.auto_end_after_lead_capture || false,
         auto_end_on_goodbye: businessData.auto_end_on_goodbye || false,
@@ -504,45 +492,6 @@ export function SettingsPage() {
                     onChange={(e) => setBusinessSettings({...businessSettings, address: e.target.value})}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                </div>
-              </div>
-            </Card>
-
-            {/* BUILD 163: Monday.com Integration Card */}
-            <Card className="p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">אינטגרציה עם Monday.com</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                כשהאפשרות מופעלת, תמלולי שיחות יישלחו אוטומטית ל-Monday.com אחרי סיום כל שיחה.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Monday Webhook URL</label>
-                  <input
-                    type="url"
-                    value={businessSettings.monday_webhook_url || ''}
-                    onChange={(e) => setBusinessSettings({...businessSettings, monday_webhook_url: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    dir="ltr"
-                    placeholder="https://hooks.monday.com/workflows/..."
-                    data-testid="input-monday-webhook-url"
-                  />
-                </div>
-                
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <h4 className="font-medium text-gray-900">שלח תמלולי שיחות אוטומטית ל-Monday</h4>
-                    <p className="text-sm text-gray-600">כל שיחה מוקלטת תישלח ל-Monday.com בסיומה</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={businessSettings.send_call_transcripts_to_monday || false}
-                      onChange={(e) => setBusinessSettings({...businessSettings, send_call_transcripts_to_monday: e.target.checked})}
-                      className="sr-only peer"
-                      data-testid="checkbox-monday-transcripts"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
                 </div>
               </div>
             </Card>

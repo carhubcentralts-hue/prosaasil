@@ -6880,27 +6880,6 @@ class MediaStreamHandler:
                         # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
                         print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
                         
-                        # 🔥 BUILD 176: Send to Monday.com if enabled
-                        try:
-                            from server.services.monday_webhook_service import send_call_transcript_to_monday
-                            from server.models_sql import Business
-                            
-                            business = Business.query.get(business_id)
-                            if business and full_conversation:
-                                print(f"[MONDAY] 🔍 Checking Monday webhook from realtime finalization...")
-                                send_call_transcript_to_monday(
-                                    business=business,
-                                    call=call_log,
-                                    transcript=full_conversation
-                                )
-                            else:
-                                if not business:
-                                    print(f"[MONDAY] ⚠️ Business not found for Monday webhook: {business_id}")
-                                if not full_conversation:
-                                    print(f"[MONDAY] ⚠️ No transcript for Monday webhook: {self.call_sid}")
-                        except Exception as monday_err:
-                            print(f"[MONDAY] ❌ Monday webhook failed (non-blocking): {monday_err}")
-                        
                 except Exception as e:
                     print(f"❌ Failed to finalize call: {e}")
                     import traceback
