@@ -3,7 +3,7 @@ API Adapter Layer - Frontend Compatibility
 שכבת מתאם API - התאמה לפרונט-אנד
 """
 from flask import Blueprint, jsonify, request, session, g  # BUILD 136: Added g for @require_api_auth
-from server.models_sql import Business, CallLog, WhatsAppMessage, Customer, User, Payment, db
+from server.models_sql import Business, CallLog, WhatsAppMessage, Customer, User, Payment, Lead, db
 from server.auth_api import require_api_auth  # BUILD 136: Added for proper authentication
 from datetime import datetime, timedelta
 import logging
@@ -212,14 +212,28 @@ def dashboard_activity():
         
         activities = []
         
+        # BUILD 170: Cache lead lookups by customer_id to avoid N+1 queries
+        customer_to_lead = {}
+        
         # Add WhatsApp activities (with None check for created_at)
         for msg in recent_whatsapp:
             if msg.created_at:  # Only add if created_at is not None
                 msg_body = msg.body or ""  # Use 'body' field, not 'message_body'
+                
+                # Look up the actual Lead ID from customer_id
+                lead_id = None
+                customer_id = getattr(msg, 'customer_id', None)
+                if customer_id:
+                    if customer_id not in customer_to_lead:
+                        # Look up lead by customer_id
+                        lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
+                        customer_to_lead[customer_id] = lead.id if lead else None
+                    lead_id = customer_to_lead.get(customer_id)
+                
                 activities.append({
                     "ts": msg.created_at.isoformat() + "Z",
                     "type": "whatsapp",
-                    "leadId": getattr(msg, 'customer_id', None),
+                    "leadId": lead_id,
                     "preview": msg_body[:50] + "..." if len(msg_body) > 50 else msg_body,
                     "provider": getattr(msg, 'provider', "baileys")  # Default provider
                 })
@@ -227,10 +241,19 @@ def dashboard_activity():
         # Add call activities (with None check for created_at)
         for call in recent_calls:
             if call.created_at:  # Only add if created_at is not None
+                # Look up the actual Lead ID from customer_id
+                lead_id = None
+                customer_id = call.customer_id
+                if customer_id:
+                    if customer_id not in customer_to_lead:
+                        lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
+                        customer_to_lead[customer_id] = lead.id if lead else None
+                    lead_id = customer_to_lead.get(customer_id)
+                
                 activities.append({
                     "ts": call.created_at.isoformat() + "Z",
                     "type": "call", 
-                    "leadId": call.customer_id,
+                    "leadId": lead_id,
                     "preview": f"שיחה - {call.status}",
                     "provider": "twilio"
                 })

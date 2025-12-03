@@ -660,8 +660,6 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
             </div>
           )}
           
-          {/* Notes Section */}
-          <NotesSection lead={lead} />
         </Card>
       </div>
 

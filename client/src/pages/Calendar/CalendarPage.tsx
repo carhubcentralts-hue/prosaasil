@@ -88,6 +88,8 @@ export function CalendarPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [filterDate, setFilterDate] = useState<string>('');  // ✅ BUILD 144: Date filter
+  const [filterDateFrom, setFilterDateFrom] = useState<string>('');  // ✅ BUILD 170: Date range filter
+  const [filterDateTo, setFilterDateTo] = useState<string>('');  // ✅ BUILD 170: Date range filter
   
   // Modal states
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
@@ -132,15 +134,30 @@ export function CalendarPage() {
     const matchesStatus = filterStatus === 'all' || appointment.status === filterStatus;
     const matchesType = filterType === 'all' || appointment.appointment_type === filterType;
     
-    // ✅ BUILD 144: Date filter - when date selected from calendar or filter
+    // ✅ BUILD 144 + 170: Date filter - single date or date range
     let matchesDate = true;
-    if (filterDate) {
-      const appointmentDate = new Date(appointment.start_time).toDateString();
+    const appointmentDate = new Date(appointment.start_time);
+    
+    // Date range filter takes priority
+    if (filterDateFrom || filterDateTo) {
+      if (filterDateFrom && filterDateTo) {
+        const from = new Date(filterDateFrom);
+        const to = new Date(filterDateTo);
+        to.setHours(23, 59, 59, 999); // Include full day
+        matchesDate = appointmentDate >= from && appointmentDate <= to;
+      } else if (filterDateFrom) {
+        const from = new Date(filterDateFrom);
+        matchesDate = appointmentDate >= from;
+      } else if (filterDateTo) {
+        const to = new Date(filterDateTo);
+        to.setHours(23, 59, 59, 999);
+        matchesDate = appointmentDate <= to;
+      }
+    } else if (filterDate) {
       const filterDateObj = new Date(filterDate).toDateString();
-      matchesDate = appointmentDate === filterDateObj;
+      matchesDate = appointmentDate.toDateString() === filterDateObj;
     } else if (selectedDate) {
-      const appointmentDate = new Date(appointment.start_time).toDateString();
-      matchesDate = appointmentDate === selectedDate.toDateString();
+      matchesDate = appointmentDate.toDateString() === selectedDate.toDateString();
     }
     
     return matchesSearch && matchesStatus && matchesType && matchesDate;
@@ -152,10 +169,12 @@ export function CalendarPage() {
     setFilterDate(''); // Clear manual date filter when clicking calendar
   };
   
-  // ✅ BUILD 144: Clear all date filters
+  // ✅ BUILD 144 + 170: Clear all date filters including range
   const clearDateFilter = () => {
     setSelectedDate(null);
     setFilterDate('');
+    setFilterDateFrom('');
+    setFilterDateTo('');
   };
 
   // Get appointments for a specific date - use raw appointments, not filtered, to always show calendar dots
@@ -406,17 +425,46 @@ export function CalendarPage() {
               <option value="call_followup">מעקב שיחה</option>
             </select>
             
-            {/* ✅ BUILD 144: Date filter */}
-            <input
-              type="date"
-              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={filterDate}
-              onChange={(e) => {
-                setFilterDate(e.target.value);
-                setSelectedDate(null);
-              }}
-              data-testid="input-filter-date"
-            />
+            {/* ✅ BUILD 170: Date range filter */}
+            <div className="flex items-center gap-2 w-full">
+              <div className="flex-1">
+                <label className="text-xs text-slate-500 mb-1 block">מתאריך</label>
+                <input
+                  type="date"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  value={filterDateFrom}
+                  onChange={(e) => {
+                    setFilterDateFrom(e.target.value);
+                    setSelectedDate(null);
+                    setFilterDate('');
+                  }}
+                  data-testid="input-filter-date-from"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-slate-500 mb-1 block">עד תאריך</label>
+                <input
+                  type="date"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  value={filterDateTo}
+                  onChange={(e) => {
+                    setFilterDateTo(e.target.value);
+                    setSelectedDate(null);
+                    setFilterDate('');
+                  }}
+                  data-testid="input-filter-date-to"
+                />
+              </div>
+              {(filterDateFrom || filterDateTo) && (
+                <button
+                  className="mt-5 text-slate-500 hover:text-slate-700"
+                  onClick={clearDateFilter}
+                  data-testid="button-clear-date-filter"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
 
             <div className="flex bg-slate-100 rounded-lg p-1 w-full">
               {(['month', 'week', 'day'] as const).map((view) => (
@@ -484,17 +532,46 @@ export function CalendarPage() {
               <option value="call_followup">מעקב שיחה</option>
             </select>
             
-            {/* ✅ BUILD 144: Date filter */}
-            <input
-              type="date"
-              className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              value={filterDate}
-              onChange={(e) => {
-                setFilterDate(e.target.value);
-                setSelectedDate(null);
-              }}
-              data-testid="input-filter-date-desktop"
-            />
+            {/* ✅ BUILD 170: Date range filter */}
+            <div className="flex items-center gap-2">
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">מתאריך</label>
+                <input
+                  type="date"
+                  className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  value={filterDateFrom}
+                  onChange={(e) => {
+                    setFilterDateFrom(e.target.value);
+                    setSelectedDate(null);
+                    setFilterDate('');
+                  }}
+                  data-testid="input-filter-date-from-desktop"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">עד תאריך</label>
+                <input
+                  type="date"
+                  className="border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  value={filterDateTo}
+                  onChange={(e) => {
+                    setFilterDateTo(e.target.value);
+                    setSelectedDate(null);
+                    setFilterDate('');
+                  }}
+                  data-testid="input-filter-date-to-desktop"
+                />
+              </div>
+              {(filterDateFrom || filterDateTo) && (
+                <button
+                  className="mt-5 text-slate-500 hover:text-slate-700"
+                  onClick={clearDateFilter}
+                  data-testid="button-clear-date-filter-desktop"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              )}
+            </div>
 
             {/* View Toggle */}
             <div className="flex bg-slate-100 rounded-lg p-1 flex-shrink-0">
@@ -629,7 +706,13 @@ export function CalendarPage() {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div className="flex flex-col gap-1">
               <h3 className="text-lg font-semibold text-slate-900">
-                {selectedDate || filterDate ? (
+                {filterDateFrom || filterDateTo ? (
+                  <>
+                    פגישות {filterDateFrom && `מ-${new Date(filterDateFrom).toLocaleDateString('he-IL')}`}
+                    {filterDateTo && ` עד ${new Date(filterDateTo).toLocaleDateString('he-IL')}`}
+                    {' '}({filteredAppointments.length})
+                  </>
+                ) : selectedDate || filterDate ? (
                   <>
                     פגישות ליום {(selectedDate || new Date(filterDate)).toLocaleDateString('he-IL', {
                       weekday: 'long',
@@ -641,8 +724,8 @@ export function CalendarPage() {
                   <>כל הפגישות ({filteredAppointments.length})</>
                 )}
               </h3>
-              {/* ✅ BUILD 144: Clear date filter button */}
-              {(selectedDate || filterDate) && (
+              {/* ✅ BUILD 144 + 170: Clear date filter button */}
+              {(selectedDate || filterDate || filterDateFrom || filterDateTo) && (
                 <button
                   className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
                   onClick={clearDateFilter}
