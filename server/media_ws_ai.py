@@ -1103,6 +1103,7 @@ class MediaStreamHandler:
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
+        self._verification_prompt_sent = False  # Tracks if we already asked for verification
 
     def _init_streaming_stt(self):
         """
@@ -2441,22 +2442,35 @@ class MediaStreamHandler:
                                 asyncio.create_task(self._fallback_hangup_after_timeout(10, "user_goodbye"))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
+                        # 🔥 BUILD 172 FIX: Only close after customer CONFIRMS the details!
                         if self.auto_end_after_lead_capture and not self.pending_hangup and not self.lead_captured:
                             if self._check_lead_captured():
-                                print(f"✅ [BUILD 163] Lead fully captured - sending polite closing instruction")
-                                self.lead_captured = True
-                                
-                                # 🔥 BUILD 172: Transition to CLOSING state
-                                if self.call_state == CallState.ACTIVE:
-                                    self.call_state = CallState.CLOSING
-                                    print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead_captured)")
-                                
-                                # 🔥 FIX: Send instruction to AI to say polite closing, THEN hang up
-                                asyncio.create_task(self._send_server_event_to_ai(
-                                    "[SERVER] ✅ כל הפרטים נקלטו! סיים את השיחה בצורה מנומסת - הודה ללקוח ואמור להתראות."
-                                ))
-                                # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
-                                asyncio.create_task(self._fallback_hangup_after_timeout(10, "lead_captured"))
+                                # 🔥 CRITICAL: Check if customer already confirmed the details
+                                if self.verification_confirmed:
+                                    # ✅ Customer confirmed - NOW we can close
+                                    print(f"✅ [BUILD 163] Lead captured AND confirmed - closing call")
+                                    self.lead_captured = True
+                                    
+                                    # 🔥 BUILD 172: Transition to CLOSING state
+                                    if self.call_state == CallState.ACTIVE:
+                                        self.call_state = CallState.CLOSING
+                                        print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead_captured + confirmed)")
+                                    
+                                    # Send polite closing instruction
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        "[SERVER] ✅ הלקוח אישר את הפרטים! סיים בצורה מנומסת - הודה ללקוח ואמור להתראות."
+                                    ))
+                                    asyncio.create_task(self._fallback_hangup_after_timeout(10, "lead_captured_confirmed"))
+                                else:
+                                    # ⏳ Fields collected but NOT confirmed yet - ask for verification
+                                    # Only ask once (track with a flag)
+                                    if not getattr(self, '_verification_prompt_sent', False):
+                                        self._verification_prompt_sent = True
+                                        print(f"⏳ [BUILD 172] Lead fields collected - waiting for customer confirmation")
+                                        # AI should verify the details - don't close yet!
+                                        asyncio.create_task(self._send_server_event_to_ai(
+                                            "[SYSTEM] פרטים נאספו אבל הלקוח עדיין לא אישר! חזור על הפרטים ושאל 'האם הפרטים נכונים?' - המתן לאישור לפני סיום."
+                                        ))
                     
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
