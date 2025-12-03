@@ -31,7 +31,7 @@ def get_twilio_client():
     return Client(account_sid, auth_token)
 
 
-def get_business_phone(business_id: int) -> str:
+def get_business_phone(business_id: int) -> str | None:
     """Get the business phone number for outbound calls"""
     business = Business.query.get(business_id)
     if business and business.phone_e164:
