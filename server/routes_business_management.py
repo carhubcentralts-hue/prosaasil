@@ -739,7 +739,7 @@ def get_current_business():
         return jsonify({"error": "Internal server error"}), 500
 
 @biz_mgmt_bp.route('/api/business/current/settings', methods=['PUT'])
-@csrf.exempt  # ✅ Exempt from CSRF for authenticated API
+@csrf.exempt
 @require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business'])
 def update_current_business_settings():
     """Update current business settings"""
@@ -750,10 +750,15 @@ def update_current_business_settings():
         if not data:
             return jsonify({"error": "Invalid JSON data"}), 400
             
-        # Get business_id from context
-        business_id = getattr(g, 'business_id', None)
+        business_id = g.get('tenant') or getattr(g, 'business_id', None)
+        if not business_id:
+            user = session.get('user', {}) or session.get('al_user', {})
+            business_id = session.get('impersonated_tenant_id') or user.get('business_id')
+        
         if not business_id:
             return jsonify({"error": "No business context found"}), 400
+        
+        logger.info(f"Updating settings for business {business_id}")
             
         business = Business.query.filter_by(id=business_id).first()
         if not business:
