@@ -1384,24 +1384,42 @@ class MediaStreamHandler:
             biz_name = getattr(self, 'business_name', None) or "העסק"
             # business_id should be set by now (either from DB or defaults)
             business_id_safe = self.business_id if self.business_id is not None else 1
-            has_custom_greeting = greeting_text is not None and len(str(greeting_text).strip()) > 0
             
-            if has_custom_greeting:
-                if DEBUG: print(f"⏱️ [PARALLEL] Using greeting: '{greeting_text[:50]}...'")
-            else:
-                if DEBUG: print(f"⏱️ [PARALLEL] No custom greeting - AI will improvise (biz='{biz_name}')")
+            # 🔥 BUILD 178: Check for outbound call - use personalized greeting!
+            call_direction = getattr(self, 'call_direction', 'inbound')
+            outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
-            # Build greeting-only prompt with the actual greeting (or improvise instruction)
-            if has_custom_greeting:
+            if call_direction == 'outbound' and outbound_lead_name:
+                # 🎯 OUTBOUND CALL: Use personalized greeting with lead's name
+                print(f"📤 [OUTBOUND GREETING] Building greeting for lead: {outbound_lead_name}")
                 greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
+
+🎤 ברכה יוצאת (אמור בדיוק!):
+"שלום {outbound_lead_name}, אני מתקשר מ{biz_name}. איך אתה?"
+
+זו שיחה יוצאת - אתה מתקשר ללקוח, לא הוא התקשר אליך.
+חוקים: קצר מאוד (1-2 משפטים). המתן לתשובת הלקוח."""
+                has_custom_greeting = True  # Treat as custom greeting for token calculation
+            else:
+                # INBOUND CALL: Use regular greeting logic
+                has_custom_greeting = greeting_text is not None and len(str(greeting_text).strip()) > 0
+                
+                if has_custom_greeting:
+                    if DEBUG: print(f"⏱️ [PARALLEL] Using greeting: '{greeting_text[:50]}...'")
+                else:
+                    if DEBUG: print(f"⏱️ [PARALLEL] No custom greeting - AI will improvise (biz='{biz_name}')")
+                
+                # Build greeting-only prompt with the actual greeting (or improvise instruction)
+                if has_custom_greeting:
+                    greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
 
 🎤 ברכה (אמור בדיוק!):
 "{greeting_text}"
 
 חוקים: קצר מאוד (1-2 משפטים). אם הלקוח שותק - שתוק."""
-            else:
-                # No custom greeting - AI should improvise a brief intro
-                greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
+                else:
+                    # No custom greeting - AI should improvise a brief intro
+                    greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
 
 🎤 פתיחה: הזדהה בקצרה כנציג של {biz_name} ושאל במה תוכל לעזור.
 
