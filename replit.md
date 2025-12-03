@@ -65,6 +65,13 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Always-Verify Prompt**: AI now confirms EACH piece of information immediately after hearing it.
   - **STT Error Handling**: AI repeats info even if it seems wrong - caller will correct if needed.
   - **Confirmation Flow**: Wait for "כן" after each field before moving to next.
+- **BUILD 171 - Critical Silence Hallucination Fix & Dashboard Stability** (Architect-Reviewed):
+  - **Stricter RMS Thresholds**: RMS_SILENCE_THRESHOLD raised from 40 to 100, MIN_SPEECH_RMS from 60 to 120. Prevents Whisper from hallucinating on silence.
+  - **Consecutive Frame Requirement**: Added MIN_CONSECUTIVE_VOICE_FRAMES = 5 - audio only sent to OpenAI after 5 consecutive frames above threshold. Prevents isolated noise from triggering transcription.
+  - **Post-AI Cooldown**: Added POST_AI_COOLDOWN_MS = 800ms - transcripts arriving within 800ms of AI finishing are rejected (impossible response time = hallucination).
+  - **Three-Layer Defense**: Combined RMS gating + consecutive frames + cooldown provides robust protection against silence hallucinations.
+  - **Dashboard Stats Fix**: Fixed week_ago date/datetime type mismatch by using datetime.combine(). Wrapped each query in try-except with fallback to 0.
+  - **Resilient Endpoints**: Dashboard stats and activity endpoints now return partial data on query failures instead of 500 errors. Error logging identifies which query failed.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
