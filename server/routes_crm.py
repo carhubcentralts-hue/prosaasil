@@ -219,6 +219,91 @@ def api_thread_messages(thread_id):
     except Exception as e:
         return jsonify({"error": str(e), "messages": []}), 500
 
+@crm_bp.post("/api/crm/threads/<thread_id>/message")
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def api_send_thread_message(thread_id):
+    """Send a message to a WhatsApp thread - BUILD 170.1"""
+    import logging
+    log = logging.getLogger("crm")
+    
+    try:
+        from server.whatsapp_provider import get_whatsapp_service
+        
+        business_id = get_business_id()
+        if not business_id:
+            return jsonify({"success": False, "error": "no_business_id"}), 400
+        
+        data = request.get_json()
+        text = data.get('text', '').strip()
+        provider = data.get('provider', 'baileys')
+        
+        if not text:
+            return jsonify({"success": False, "error": "empty_message"}), 400
+        
+        # Normalize phone number
+        to_number = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
+        formatted_number = f"{to_number}@s.whatsapp.net"
+        
+        # Get WhatsApp service
+        tenant_id = f"business_{business_id}"
+        try:
+            wa_service = get_whatsapp_service(tenant_id=tenant_id)
+        except Exception as e:
+            log.error(f"[CRM-SEND] Failed to get WhatsApp service: {e}")
+            return jsonify({"success": False, "error": f"whatsapp_service_unavailable"}), 503
+        
+        # Send message
+        try:
+            send_result = wa_service.send_message(formatted_number, text, tenant_id=tenant_id)
+        except Exception as e:
+            log.error(f"[CRM-SEND] Send message failed: {e}")
+            return jsonify({"success": False, "error": f"send_failed: {str(e)}"}), 500
+        
+        if not send_result or send_result.get('status') != 'sent':
+            error_msg = send_result.get('error', 'send_failed') if send_result else 'empty_response'
+            return jsonify({"success": False, "error": error_msg}), 500
+        
+        # Save message to database
+        try:
+            wa_msg = WhatsAppMessage()
+            wa_msg.business_id = business_id
+            wa_msg.to_number = to_number
+            wa_msg.body = text
+            wa_msg.message_type = 'text'
+            wa_msg.direction = 'out'
+            wa_msg.provider = send_result.get('provider', provider)
+            wa_msg.provider_message_id = send_result.get('sid')
+            wa_msg.status = 'sent'
+            
+            db.session.add(wa_msg)
+            db.session.commit()
+            
+            # Track session
+            from server.services.whatsapp_session_service import update_session_activity
+            try:
+                update_session_activity(
+                    business_id=int(business_id),
+                    customer_wa_id=to_number,
+                    direction="out",
+                    provider=send_result.get('provider', 'baileys')
+                )
+            except Exception as e:
+                log.warning(f"⚠️ Session tracking failed: {e}")
+                
+        except Exception as db_error:
+            log.error(f"[CRM-SEND] DB save failed: {db_error}")
+            db.session.rollback()
+        
+        log.info(f"[CRM-SEND] Message sent to {to_number} successfully")
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        import traceback
+        log = logging.getLogger("crm")
+        log.error(f"[CRM-SEND] Error: {e}")
+        log.error(traceback.format_exc())
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @crm_bp.get("/api/crm/threads/<thread_id>/summary")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_thread_summary(thread_id):
