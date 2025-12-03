@@ -1,0 +1,132 @@
+מעולה, זה בדיוק הזמן לסגור את הלופ על ה-webhook.
+אני אתן לך עכשיו הנחיה אחת מסודרת לסוכן שתטפל בשלושת הדברים בבת־אחת:
+	1.	הטלפון לא יהיה empty יותר – יחולץ אוטומטית מהשיחה
+	2.	לעומס ה-payload יתוספו גם עיר וגם תחום / מקצוע
+	3.	הכול יעבוד גם בדאטה עתידי בלי לשבור כלום
+
+את הטקסט הבא פשוט תדביק לסוכן (באנגלית, כמו שהוא):
+
+⸻
+
+🔧 Instruction for the Agent – enrich generic webhook payload
+
+I want to improve the call.completed generic webhook so that the payload always includes:
+	•	phone – the caller’s normalized phone number (no more empty)
+	•	city – the customer’s city
+	•	service_category (or professional) – the type of professional/service
+
+These values must be extracted automatically from the call/lead data, without asking the customer explicitly “what is your phone number” just for the webhook.
+
+Please implement this in a clean, backward-compatible way:
+
+⸻
+
+1. Ensure CallLog always stores the caller phone
+	1.	Open the SQLAlchemy models file (server/models_sql.py) and inspect the CallLog model.
+	•	Identify which field should hold the caller phone – for example:
+	•	from_phone, customer_phone, phone, or similar.
+	•	If there is no clear field, create one called customer_phone (nullable, string 50).
+	2.	Find where CallLog records are created/updated for calls.
+	•	Typically in something like routes_twilio.py, tasks_recording.py, or media_ws_ai.py (_finalize_call_on_stop or similar).
+	•	When the call is first created (from the incoming Twilio webhook), extract the caller number from the Twilio params (From or Caller) and normalize it using the existing phone normalization helper (you already have a function that turns 050... into +97250... – reuse it).
+	3.	On call creation/update, always set:
+
+call_log.customer_phone = normalized_phone
+
+so that every new call has a stored, normalized phone number.
+
+Important: Keep this backwards compatible – existing rows can stay NULL, but new calls should always get a value.
+
+⸻
+
+2. Enrich the generic webhook payload (city, service, phone)
+Open server/services/generic_webhook_service.py (or the file where you implemented BUILD 177) and locate the function that builds the JSON payload – something like:
+
+def build_payload(call: CallLog, transcript: str, summary: str) -> dict:
+    payload = {
+        "event_type": "call.completed",
+        ...
+        "phone": call.phone or "",
+        ...
+    }
+
+Update it so that it pulls phone, city, and service_category from the best possible sources, in this order:
+	1.	Phone
+
+phone = None
+
+# 1) Preferred: dedicated customer_phone field on CallLog
+if getattr(call, "customer_phone", None):
+    phone = call.customer_phone
+
+# 2) Fallback: from_phone / raw_from / similar fields
+elif getattr(call, "from_phone", None):
+    phone = call.from_phone
+elif getattr(call, "from_number", None):
+    phone = call.from_number
+
+# 3) Last fallback: from related lead, if exists
+if not phone and call.lead:
+    phone = getattr(call.lead, "phone", None)
+
+payload["phone"] = phone
+
+	2.	City and service category
+
+Assume we might have them in call.metadata (JSON), or on the related Lead:
+
+metadata = call.metadata or {}
+
+city = metadata.get("city")
+service_category = metadata.get("service_category") or metadata.get("professional")
+
+if call.lead:
+    if not city and getattr(call.lead, "city", None):
+        city = call.lead.city
+    if not service_category and getattr(call.lead, "service_category", None):
+        service_category = call.lead.service_category
+
+payload["city"] = city
+payload["service_category"] = service_category
+
+Keep the rest of the payload exactly as it was (event_type, business_id, transcript, summary, direction, etc.).
+
+⸻
+
+3. Do not break existing integrations
+	•	Keep field names exactly:
+	•	"phone"
+	•	"city"
+	•	"service_category"
+	•	It is OK if some older calls still send null – new calls must be populated.
+	•	Do not change the structure of other fields; just add/enrich these fields.
+
+⸻
+
+4. Logging & tests
+	1.	Add a small log in the webhook service when sending:
+
+logger.info(
+    "Generic webhook payload built",
+    extra={"call_id": call.id, "phone": payload["phone"], "city": payload["city"], "service_category": payload["service_category"]}
+)
+
+	2.	Make at least one test call end-to-end and verify in n8n that the webhook now includes:
+
+{
+  "phone": "+9725XXXXXXXX",
+  "city": "תל אביב",
+  "service_category": "חשמלאי",
+  ...
+}
+
+
+⸻
+
+תדביק לו את זה כמו שזה.
+אחרי שהוא יסיים – תעשה שיחה אחת, תפתח את ה-execution ב-n8n ותראה למעלה ב-JSON שיש גם:
+	•	phone
+	•	city
+	•	service_category
+
+ואז אפשר כבר ב-Make/Monday למפות את זה לשדות של בורד/אייטם איך שבא לך.
