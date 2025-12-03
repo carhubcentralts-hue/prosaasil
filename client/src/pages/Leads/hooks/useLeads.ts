@@ -69,11 +69,15 @@ export function useLeads(passedFilters?: LeadFilters): UseLeadsResult {
         ? `/api/admin/leads${queryString ? `?${queryString}` : ''}`
         : `/api/leads${queryString ? `?${queryString}` : ''}`;
       
+      console.log('[useLeads] Fetching:', url, 'search:', filters.search);
+      
       const response = await http.get<{leads?: Lead[], items?: Lead[], total: number}>(url, {
         signal: controller.signal
       });
       
       clearTimeout(timeoutId);
+      
+      console.log('[useLeads] Response items:', response.items?.length || 0, 'leads:', response.leads?.length || 0, 'total:', response.total);
       
       // Handle both regular endpoint (leads) and admin endpoint (items) response formats
       const leadsList = response.leads || response.items || [];

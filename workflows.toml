@@ -4,4 +4,4 @@ author = "agent"
 mode = "parallel"
 
 [workflows.run]
-command = "bash ./start_dev.sh"
+command = "uvicorn asgi:app --host 0.0.0.0 --port 5000 --ws websockets --timeout-keep-alive 75"
