@@ -1490,7 +1490,22 @@ class MediaStreamHandler:
                             from server.services.realtime_prompt_builder import build_realtime_system_prompt as build_prompt
                             app = _get_flask_app()
                             with app.app_context():
-                                prompt = build_prompt(business_id_safe)
+                                # 🔥 BUILD 174: Check for outbound call with custom template
+                                call_direction = getattr(self, 'call_direction', 'inbound')
+                                outbound_template_id = getattr(self, 'outbound_template_id', None)
+                                outbound_lead_name = getattr(self, 'outbound_lead_name', None)
+                                outbound_business_name = getattr(self, 'outbound_business_name', None)
+                                
+                                # 🔥 BUILD 174: Use dedicated outbound_ai_prompt from BusinessSettings
+                                # The prompt builder now handles outbound vs inbound prompts!
+                                prompt = build_prompt(business_id_safe, call_direction=call_direction)
+                                
+                                # For outbound calls with template, prepend lead context
+                                if call_direction == 'outbound' and outbound_lead_name:
+                                    lead_context = f"אתה מתקשר ל{outbound_lead_name}.\n\n"
+                                    prompt = lead_context + prompt
+                                    print(f"📤 [OUTBOUND] Using outbound prompt with lead context: {outbound_lead_name}")
+                                
                                 if prompt and len(prompt) > 100:
                                     return prompt
                                 return None
@@ -1544,13 +1559,24 @@ class MediaStreamHandler:
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
-            if customer_phone:
+            
+            # 🔥 BUILD 174: For outbound calls, use the pre-existing lead_id
+            outbound_lead_id = getattr(self, 'outbound_lead_id', None)
+            call_direction = getattr(self, 'call_direction', 'inbound')
+            
+            if customer_phone or outbound_lead_id:
                 # 🚀 Run CRM init in background thread to not block audio
                 def _init_crm_background():
                     try:
                         app = _get_flask_app()
                         with app.app_context():
-                            lead_id = ensure_lead(business_id_safe, customer_phone)
+                            # 🔥 BUILD 174: Use existing lead_id for outbound calls
+                            if call_direction == 'outbound' and outbound_lead_id:
+                                lead_id = int(outbound_lead_id)
+                                print(f"📤 [OUTBOUND CRM] Using existing lead_id={lead_id}")
+                            else:
+                                lead_id = ensure_lead(business_id_safe, customer_phone)
+                            
                             self.crm_context = CallCrmContext(
                                 business_id=business_id_safe,
                                 customer_phone=customer_phone,
@@ -1560,13 +1586,13 @@ class MediaStreamHandler:
                             if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
-                            print(f"✅ [CRM] Context ready (background): lead_id={lead_id}")
+                            print(f"✅ [CRM] Context ready (background): lead_id={lead_id}, direction={call_direction}")
                     except Exception as e:
                         print(f"⚠️ [CRM] Background init failed: {e}")
                         self.crm_context = None
                 threading.Thread(target=_init_crm_background, daemon=True).start()
             else:
-                print(f"⚠️ [CRM] No customer phone - skipping lead creation")
+                print(f"⚠️ [CRM] No customer phone or lead_id - skipping lead creation")
                 self.crm_context = None
             
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
@@ -3409,12 +3435,22 @@ class MediaStreamHandler:
                             custom_params.get("called")
                         )
                         
-                        # 🔍 DEBUG: Log phone numbers from customParameters
+                        # 🔥 BUILD 174: Outbound call parameters
+                        self.call_direction = custom_params.get("direction", "inbound")
+                        self.outbound_lead_id = custom_params.get("lead_id")
+                        self.outbound_lead_name = custom_params.get("lead_name")
+                        self.outbound_template_id = custom_params.get("template_id")
+                        self.outbound_business_id = custom_params.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
+                        self.outbound_business_name = custom_params.get("business_name")
+                        
+                        # 🔍 DEBUG: Log phone numbers and outbound params
                         print(f"\n📞 START EVENT (customParameters path):")
                         print(f"   customParams.From: {custom_params.get('From')}")
                         print(f"   customParams.CallFrom: {custom_params.get('CallFrom')}")
                         print(f"   ✅ self.phone_number set to: '{self.phone_number}'")
                         print(f"   ✅ self.to_number set to: '{self.to_number}'")
+                        if self.call_direction == "outbound":
+                            print(f"   📤 OUTBOUND CALL: lead={self.outbound_lead_name}, template={self.outbound_template_id}")
                         
                         # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
                         if self.phone_number:
@@ -3425,6 +3461,14 @@ class MediaStreamHandler:
                         self.call_sid = evt.get("callSid")
                         self.phone_number = evt.get("from") or evt.get("phone_number")
                         self.to_number = evt.get("to") or evt.get("called")
+                        
+                        # 🔥 BUILD 174: Outbound call parameters (direct format)
+                        self.call_direction = evt.get("direction", "inbound")
+                        self.outbound_lead_id = evt.get("lead_id")
+                        self.outbound_lead_name = evt.get("lead_name")
+                        self.outbound_template_id = evt.get("template_id")
+                        self.outbound_business_id = evt.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
+                        self.outbound_business_name = evt.get("business_name")
                         
                         # 🔍 DEBUG: Log phone number on start
                         print(f"\n📞 START EVENT - Phone numbers:")
@@ -5284,32 +5328,53 @@ class MediaStreamHandler:
             to_number = getattr(self, 'to_number', None)
             t_start = time.time()
             
-            print(f"⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number={to_number}")
+            # 🔒 BUILD 174 SECURITY: For outbound calls, use explicit business_id (NOT phone resolution)
+            # This prevents tenant cross-contamination when multiple businesses share same Twilio number
+            call_direction = getattr(self, 'call_direction', 'inbound')
+            outbound_business_id = getattr(self, 'outbound_business_id', None)
             
             app = _get_flask_app()
             with app.app_context():
                 business = None
                 
-                if to_number:
-                    normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+                if call_direction == 'outbound' and outbound_business_id:
+                    # 🔒 OUTBOUND CALL: Use explicit business_id (NOT phone-based resolution)
+                    print(f"🔒 OUTBOUND CALL: Using explicit business_id={outbound_business_id} (NOT phone-based resolution)")
+                    try:
+                        business_id_int = int(outbound_business_id)
+                        business = Business.query.get(business_id_int)
+                        if business:
+                            print(f"✅ OUTBOUND: Loaded business {business.name} (id={business.id})")
+                        else:
+                            logger.error(f"❌ OUTBOUND: Business {outbound_business_id} NOT FOUND - security violation?")
+                            return (None, None)
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"❌ OUTBOUND: Invalid business_id={outbound_business_id}: {e}")
+                        return (None, None)
+                else:
+                    # INBOUND CALL: Use phone-based resolution
+                    print(f"⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number={to_number}")
                     
-                    business = Business.query.filter(
-                        or_(
-                            Business.phone_e164 == to_number,
-                            Business.phone_e164 == normalized_phone
-                        )
-                    ).first()
+                    if to_number:
+                        normalized_phone = to_number.strip().replace('-', '').replace(' ', '')
+                        
+                        business = Business.query.filter(
+                            or_(
+                                Business.phone_e164 == to_number,
+                                Business.phone_e164 == normalized_phone
+                            )
+                        ).first()
+                        
+                        if business:
+                            print(f"✅ מצא עסק: {business.name} (id={business.id})")
                     
-                    if business:
-                        print(f"✅ מצא עסק: {business.name} (id={business.id})")
-                
-                if not business:
-                    from server.services.business_resolver import resolve_business_with_fallback
-                    to_num_safe = to_number or ''
-                    resolved_id, status = resolve_business_with_fallback('twilio_voice', to_num_safe)
-                    logger.warning(f"[CALL-WARN] No business for {to_number}, resolver: biz={resolved_id} ({status})")
-                    if resolved_id:
-                        business = Business.query.get(resolved_id)
+                    if not business:
+                        from server.services.business_resolver import resolve_business_with_fallback
+                        to_num_safe = to_number or ''
+                        resolved_id, status = resolve_business_with_fallback('twilio_voice', to_num_safe)
+                        logger.warning(f"[CALL-WARN] No business for {to_number}, resolver: biz={resolved_id} ({status})")
+                        if resolved_id:
+                            business = Business.query.get(resolved_id)
                 
                 if business:
                     self.business_id = business.id

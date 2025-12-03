@@ -12,7 +12,7 @@ import logging
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
 from server.auth_api import require_api_auth
-from server.services.call_limiter import check_call_limits, get_call_counts
+from server.services.call_limiter import check_call_limits, get_call_counts, MAX_TOTAL_CALLS_PER_BUSINESS, MAX_OUTBOUND_CALLS_PER_BUSINESS
 from twilio.rest import Client
 
 log = logging.getLogger(__name__)
@@ -61,8 +61,14 @@ def get_outbound_templates():
     
     Returns list of active templates with their prompts
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
+    # For system_admin without tenant context, return empty list (they need to view a specific business)
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"templates": [], "message": "בחר עסק לצפייה בתבניות"})
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
@@ -100,8 +106,20 @@ def get_call_counts_endpoint():
         max_total: Maximum allowed total calls
         max_outbound: Maximum allowed outbound calls
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
+    # For system_admin without tenant context, return zero counts
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({
+                "active_total": 0,
+                "active_outbound": 0,
+                "max_total": MAX_TOTAL_CALLS_PER_BUSINESS,
+                "max_outbound": MAX_OUTBOUND_CALLS_PER_BUSINESS,
+                "message": "בחר עסק לצפייה בשיחות פעילות"
+            })
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
@@ -116,13 +134,12 @@ def get_call_counts_endpoint():
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def start_outbound_calls():
     """
-    Start outbound AI calls to selected leads
+    Start outbound AI calls to selected leads.
+    Uses outbound_ai_prompt from business settings.
     
     Request body:
     {
-        "lead_ids": [123, 456, 789],  // 1-3 leads
-        "template_id": 10,            // Required: outbound template ID
-        "custom_prompt": "..."        // Optional: override prompt text
+        "lead_ids": [123, 456, 789]  // 1-3 leads
     }
     
     Returns:
@@ -134,8 +151,13 @@ def start_outbound_calls():
         ]
     }
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני הפעלת שיחות יוצאות"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     data = request.get_json()
@@ -143,8 +165,6 @@ def start_outbound_calls():
         return jsonify({"error": "נתונים חסרים"}), 400
     
     lead_ids = data.get("lead_ids", [])
-    template_id = data.get("template_id")
-    custom_prompt = data.get("custom_prompt")
     
     if not lead_ids or not isinstance(lead_ids, list):
         return jsonify({"error": "יש לבחור לפחות ליד אחד"}), 400
@@ -152,25 +172,11 @@ def start_outbound_calls():
     if len(lead_ids) > 3:
         return jsonify({"error": "ניתן לבחור עד שלושה לידים לשיחות יוצאות במקביל"}), 400
     
-    if not template_id and not custom_prompt:
-        return jsonify({"error": "יש לבחור תבנית שיחה או להזין הנחיות מותאמות"}), 400
-    
     allowed, error_msg = check_call_limits(tenant_id, len(lead_ids))
     if not allowed:
         return jsonify({"error": error_msg}), 429
     
     try:
-        template = None
-        if template_id:
-            template = OutboundCallTemplate.query.filter_by(
-                id=template_id,
-                business_id=tenant_id,
-                is_active=True
-            ).first()
-            
-            if not template:
-                return jsonify({"error": "תבנית השיחה לא נמצאה"}), 404
-        
         leads = Lead.query.filter(
             Lead.id.in_(lead_ids),
             Lead.tenant_id == tenant_id
@@ -201,29 +207,25 @@ def start_outbound_calls():
                 continue
             
             try:
-                call_log = CallLog(
-                    business_id=tenant_id,
-                    lead_id=lead.id,
-                    outbound_template_id=template.id if template else None,
-                    from_number=from_phone,
-                    to_number=lead.phone_e164,
-                    direction="outbound",
-                    status="initiated",
-                    call_status="initiated"
-                )
+                call_log = CallLog()
+                call_log.business_id = tenant_id
+                call_log.lead_id = lead.id
+                call_log.from_number = from_phone
+                call_log.to_number = lead.phone_e164
+                call_log.direction = "outbound"
+                call_log.status = "initiated"
+                call_log.call_status = "initiated"
                 db.session.add(call_log)
                 db.session.flush()
                 
-                prompt_text = custom_prompt or (template.prompt_text if template else "")
                 lead_name = lead.full_name or "לקוח"
                 
                 webhook_url = f"https://{host}/webhook/outbound_call"
                 webhook_url += f"?call_id={call_log.id}"
                 webhook_url += f"&lead_id={lead.id}"
                 webhook_url += f"&lead_name={lead_name}"
+                webhook_url += f"&business_id={tenant_id}"
                 webhook_url += f"&business_name={business_name}"
-                if template:
-                    webhook_url += f"&template_id={template.id}"
                 
                 client = get_twilio_client()
                 
@@ -282,8 +284,13 @@ def create_outbound_template():
     """
     Create a new outbound call template
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני יצירת תבנית"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     data = request.get_json()
@@ -302,14 +309,13 @@ def create_outbound_template():
         return jsonify({"error": "הנחיות לשיחה חובה"}), 400
     
     try:
-        template = OutboundCallTemplate(
-            business_id=tenant_id,
-            name=name,
-            description=description,
-            prompt_text=prompt_text,
-            greeting_template=greeting_template,
-            is_active=True
-        )
+        template = OutboundCallTemplate()
+        template.business_id = tenant_id
+        template.name = name
+        template.description = description
+        template.prompt_text = prompt_text
+        template.greeting_template = greeting_template
+        template.is_active = True
         db.session.add(template)
         db.session.commit()
         
@@ -338,8 +344,13 @@ def delete_outbound_template(template_id: int):
     """
     Soft delete (deactivate) an outbound call template
     """
-    tenant_id = g.tenant
+    from flask import session
+    tenant_id = g.get('tenant')
+    
     if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני מחיקת תבנית"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
     
     try:
