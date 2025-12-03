@@ -55,6 +55,10 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **UI Navigation**: Consolidated AI prompt editing into System Settings, restricted by role.
 - **RBAC Sidebar**: Dynamic visibility for "Business Management" and "User Management".
 - **Role-Based Routing**: Smart default redirects based on user roles.
+- **BUILD 170 - Leads UX Improvements**:
+  - **Optimized Lead Search**: Filters only by name or phone number (partial match works - e.g., "075" finds any number containing "075").
+  - **Fast Status Updates**: Optimistic UI updates for instant feedback (no 6-second delay).
+  - **Notes Tab**: New "הערות" tab in lead detail page for free-text notes, images, and file attachments (session-local storage).
 
 ## Feature Specifications
 - **Call Logging**: Comprehensive tracking.
