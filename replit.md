@@ -45,6 +45,12 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Low-RMS Gate**: Tracks audio RMS levels and rejects transcripts that arrive when audio was actually silent (prevents Whisper hallucinating on silence).
   - **Mandatory Per-Field Verification**: AI must repeat back and confirm EVERY field immediately after collecting it, even if the data looks wrong or doesn't match expectations. The AI may have misheard - the caller will correct if needed.
   - **Final Summary**: After all fields are individually confirmed, AI provides a final summary and waits for confirmation before closing.
+- **BUILD 170.3 - Voice Call Quality Fixes** (Architect-Reviewed):
+  - **Relaxed LOOP GUARD**: Increased max consecutive AI responses from 3 to 5. Added 8-second time window check - only triggers if user hasn't spoken in 8+ seconds.
+  - **Lowered RMS Thresholds**: MIN_SPEECH_RMS reduced from 200 to 60, RMS_SILENCE_THRESHOLD from 120 to 40, VAD_RMS from 150 to 80. Hebrew speech can be quiet.
+  - **Relaxed SILENCE GATE**: Only rejects transcripts with RMS < 15 (near-zero silence). Removed overly aggressive speech_threshold*0.5 check.
+  - **Better Loop Guard Tracking**: Added `_last_user_speech_ts` to track when user last spoke, preventing false loop triggers during natural conversation pauses.
+  - **Less Aggressive Mishearing Detection**: Back to 3 consecutive "לא הבנתי" responses before triggering clarification (was 2).
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
