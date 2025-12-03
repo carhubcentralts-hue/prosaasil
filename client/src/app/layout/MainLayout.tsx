@@ -5,6 +5,7 @@ import {
   Users, 
   MessageCircle, 
   Phone, 
+  PhoneOutgoing,
   Building2, 
   CreditCard, 
   Settings, 
@@ -49,6 +50,12 @@ const menuItems = [
     icon: Phone, 
     label: 'שיחות',
     to: '/app/calls',
+    roles: ['system_admin', 'owner', 'admin', 'agent']
+  },
+  { 
+    icon: PhoneOutgoing, 
+    label: 'שיחות יוצאות',
+    to: '/app/outbound-calls',
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 

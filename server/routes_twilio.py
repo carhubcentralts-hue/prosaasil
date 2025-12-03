@@ -378,6 +378,20 @@ def incoming_call():
             print(f"❌ No active business found for to_number={to_number}")
             business_id = None  # Will create call_log without business association
     
+    # BUILD 174: Check inbound call concurrency limits
+    if business_id:
+        try:
+            from server.services.call_limiter import check_inbound_call_limit
+            allowed, reject_message = check_inbound_call_limit(business_id)
+            if not allowed:
+                logger.warning(f"📵 INCOMING_CALL REJECTED: business {business_id} at limit")
+                vr = VoiceResponse()
+                vr.say(reject_message, language="he-IL", voice="Google.he-IL-Wavenet-C")
+                vr.hangup()
+                return _twiml(vr)
+        except Exception as e:
+            logger.error(f"⚠️ Call limit check failed: {e} - allowing call")
+    
     if call_sid and from_number:
         try:
             # בדוק אם כבר קיים (למקרה של retry)
@@ -452,6 +466,79 @@ def incoming_call():
     print(f"🔥 TWIML_FULL={twiml_str[:500]}")
     
     return _twiml(vr)
+
+@csrf.exempt
+@twilio_bp.route("/webhook/outbound_call", methods=["POST", "GET"])
+@require_twilio_signature
+def outbound_call():
+    """
+    BUILD 174: Webhook for outbound AI calls
+    Similar to incoming_call but with outbound-specific handling:
+    - Sets direction=outbound
+    - Uses lead name and template prompt
+    """
+    start_time = time.time()
+    
+    if request.method == "GET":
+        call_sid = request.args.get("CallSid", "")
+        lead_id = request.args.get("lead_id", "")
+        lead_name = request.args.get("lead_name", "")
+        business_name = request.args.get("business_name", "")
+        template_id = request.args.get("template_id", "")
+    else:
+        call_sid = request.form.get("CallSid", "")
+        lead_id = request.args.get("lead_id", "")
+        lead_name = request.args.get("lead_name", "")
+        business_name = request.args.get("business_name", "")
+        template_id = request.args.get("template_id", "")
+    
+    from_number = request.form.get("From", "") or request.args.get("From", "")
+    to_number = request.form.get("To", "") or request.args.get("To", "")
+    
+    logger.info(f"📞 OUTBOUND_CALL webhook: call_sid={call_sid}, lead={lead_name}, template={template_id}")
+    
+    if call_sid:
+        try:
+            existing = CallLog.query.filter_by(call_sid=call_sid).first()
+            if existing:
+                existing.status = "in_progress"
+                existing.call_status = "in-progress"
+                db.session.commit()
+                logger.info(f"✅ Updated outbound call_log for {call_sid}")
+        except Exception as e:
+            logger.error(f"⚠️ Failed to update outbound call_log: {e}")
+            db.session.rollback()
+    
+    public_host = os.environ.get('PUBLIC_HOST', '').replace('https://', '').replace('http://', '').rstrip('/')
+    if public_host:
+        host = public_host
+    else:
+        host = (
+            request.headers.get("X-Forwarded-Host") or 
+            os.environ.get('REPLIT_DEV_DOMAIN') or 
+            os.environ.get('REPLIT_DOMAINS', '').split(',')[0] or 
+            request.host
+        ).split(",")[0].strip()
+    
+    vr = VoiceResponse()
+    
+    connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
+    stream = connect.stream(url=f"wss://{host}/ws/twilio-media")
+    
+    stream.parameter(name="CallSid", value=call_sid)
+    stream.parameter(name="To", value=to_number or "unknown")
+    stream.parameter(name="direction", value="outbound")
+    stream.parameter(name="lead_id", value=lead_id)
+    stream.parameter(name="lead_name", value=lead_name)
+    stream.parameter(name="business_name", value=business_name)
+    if template_id:
+        stream.parameter(name="template_id", value=template_id)
+    
+    response_time_ms = int((time.time() - start_time) * 1000)
+    logger.info(f"✅ outbound_call webhook: {response_time_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
+    
+    return _twiml(vr)
+
 
 @csrf.exempt
 @twilio_bp.route("/webhook/stream_ended", methods=["POST"])
