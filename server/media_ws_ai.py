@@ -631,6 +631,140 @@ STATE_LISTEN = "LISTENING"
 STATE_THINK  = "THINKING"
 STATE_SPEAK  = "SPEAKING"
 
+# 🔥 BUILD 170.4: HEBREW DICTIONARY - Normalize common STT mistakes
+HEBREW_NORMALIZATION = {
+    # Common misrecognitions - numbers
+    "אחת": "אחד",
+    "שתים": "שתיים",
+    "שלש": "שלוש",
+    "ארבה": "ארבע",
+    "חמישה": "חמש",
+    "שישה": "שש",
+    "שבעה": "שבע",
+    "שמנה": "שמונה",
+    "תשעה": "תשע",
+    "עשרה": "עשר",
+    # Common greeting variations
+    "שלומ": "שלום",
+    "שאלום": "שלום",
+    "שלים": "שלום",
+    "היי יי": "היי",
+    "הלוו": "הלו",
+    "הלוא": "הלו",
+    # Confirmation words
+    "קן": "כן",
+    "קאן": "כן",
+    "יאן": "כן",
+    "נקון": "נכון",
+    "נכונ": "נכון",
+    "בסדור": "בסדר",
+    "בסדור גמור": "בסדר גמור",
+    "ביידיוק": "בדיוק",
+    "בידיוק": "בדיוק",
+    "יופיי": "יופי",
+    "יאפי": "יופי",
+    # Negation
+    "לאא": "לא",
+    "לוא": "לא",
+    # Common words
+    "טודה": "תודה",
+    "טודא": "תודה",
+    "תודא": "תודה",
+    "רגאע": "רגע",
+    "רגאה": "רגע",
+    "שניה": "שנייה",
+    "שניא": "שנייה",
+    "אוקי": "אוקיי",
+    "או קי": "אוקיי",
+    "אוו קי": "אוקיי",
+    "סבאבה": "סבבה",
+    "סאבאבה": "סבבה",
+    "יאללה": "יאללה",  # Keep as is
+    "יאלא": "יאללה",
+    "יאלאה": "יאללה",
+    # Request words
+    "בבקשא": "בבקשה",
+    "בבאקשה": "בבקשה",
+    "בואקשה": "בבקשה",
+    # Goodbye
+    "ביי יי": "ביי",
+    "ביייי": "ביי",
+    "להיתראות": "להתראות",
+    "להתאאות": "להתראות",
+    # Question words
+    "למא": "למה",
+    "לאמה": "למה",
+    "מאתי": "מתי",
+    "מאתיי": "מתי",
+    "אייפה": "איפה",
+    "אייפא": "איפה",
+    "כאמה": "כמה",
+    "קאמה": "כמה",
+    "מאה": "מה",
+    # Service-related
+    "פאגישה": "פגישה",
+    "פגישא": "פגישה",
+    "טורר": "תור",
+    "תאור": "תור",
+    # Time-related
+    "דאקה": "דקה",
+    "דאקות": "דקות",
+    "שאעה": "שעה",
+    "שאעות": "שעות",
+    "יאום": "יום",
+    "יאומים": "ימים",
+    # Days of week
+    "ראאשון": "ראשון",
+    "שאני": "שני",
+    "שאלישי": "שלישי",
+    "רביאעי": "רביעי",
+    "חאמישי": "חמישי",
+    "שיאשי": "שישי",
+    "שאבת": "שבת",
+    # Names - common variations
+    "משא": "משה",
+    "יאוסי": "יוסי",
+    "יאוסף": "יוסף",
+    "דאני": "דני",
+    "דאניאל": "דניאל",
+    "מיכאאל": "מיכאל",
+    "אאלי": "אלי",
+    "שאי": "שי",
+    # Cities
+    "תאל אביב": "תל אביב",
+    "תאל-אביב": "תל אביב",
+    "יארושלים": "ירושלים",
+    "יארושאלים": "ירושלים",
+    "חאיפה": "חיפה",
+    "באר שאבע": "באר שבע",
+    "באאר שבע": "באר שבע",
+    "ראמת גן": "רמת גן",
+    "ראמאת גן": "רמת גן",
+    "פאתח תקווה": "פתח תקווה",
+    "פאתח תיקווה": "פתח תקווה",
+    "נאתניה": "נתניה",
+    "נאתאניה": "נתניה",
+    "אאשדוד": "אשדוד",
+    "אאשקלון": "אשקלון",
+    "חאדרה": "חדרה",
+    "קאריות": "קריות",
+}
+
+def normalize_hebrew_text(text: str) -> str:
+    """
+    BUILD 170.4: Normalize Hebrew STT output using dictionary
+    """
+    if not text:
+        return text
+    
+    result = text
+    for wrong, correct in HEBREW_NORMALIZATION.items():
+        # Case insensitive replace (Hebrew doesn't have case, but for mixed text)
+        if wrong in result.lower():
+            result = result.replace(wrong, correct)
+    
+    return result
+
 class MediaStreamHandler:
     def __init__(self, ws):
         self.ws = ws
@@ -1867,6 +2001,10 @@ class MediaStreamHandler:
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
+                    
+                    # 🔥 BUILD 170.4: Apply Hebrew normalization
+                    text = normalize_hebrew_text(text)
+                    
                     now_ms = time.time() * 1000
                     
                     # 🔥 BUILD 170.3: RELAXED LOW-RMS GATE - Only reject truly silent transcripts
