@@ -2177,11 +2177,19 @@ class MediaStreamHandler:
                             print(f"✅ [HANGUP] User confirmed all details - disconnecting")
                         
                         # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
-                        # This allows AI to end the call politely even without explicit user goodbye
-                        elif self.auto_end_on_goodbye and ai_polite_closing_detected:
-                            hangup_reason = "ai_goodbye_auto_end"
-                            should_hangup = True
-                            print(f"✅ [HANGUP BUILD 176] AI said goodbye with auto_end_on_goodbye=True - disconnecting")
+                        # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
+                        # Also requires either: user confirmed, lead captured, OR meaningful conversation happened
+                        elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
+                            # Additional guard: must have some interaction (user spoken + either confirmed or lead info)
+                            has_meaningful_interaction = (
+                                self.verification_confirmed or 
+                                self.lead_captured or 
+                                len(self.conversation_history) >= 4  # At least 2 exchanges
+                            )
+                            if has_meaningful_interaction:
+                                hangup_reason = "ai_goodbye_auto_end"
+                                should_hangup = True
+                                print(f"✅ [HANGUP BUILD 176] AI said goodbye with auto_end_on_goodbye=True + user interaction - disconnecting")
                         
                         # Log when AI says closing but we're blocking hangup
                         elif ai_polite_closing_detected:
