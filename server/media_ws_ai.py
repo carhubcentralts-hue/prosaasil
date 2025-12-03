@@ -1436,9 +1436,13 @@ class MediaStreamHandler:
             
             # 🔥 FIX: Calculate max_tokens based on greeting length
             # Long greetings (14 seconds = ~280 words in Hebrew) need 500+ tokens
-            greeting_length = len(greeting_text) if has_custom_greeting else 0
+            # 🔥 BUILD 178: For outbound calls, use greeting_prompt length instead of greeting_text
+            if call_direction == 'outbound':
+                greeting_length = len(greeting_prompt) if greeting_prompt else 100
+            else:
+                greeting_length = len(greeting_text) if (has_custom_greeting and greeting_text) else 0
             greeting_max_tokens = max(200, min(600, greeting_length // 2 + 150))  # Scale with greeting length
-            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars")
+            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
             await client.configure_session(
                 instructions=greeting_prompt,
@@ -2086,9 +2090,14 @@ ALWAYS mention their name in the first sentence.
                         # 1. Too many consecutive AI responses AND user silent for >8s, OR
                         # 2. AI is semantically repeating itself (long responses only), OR
                         # 3. AI has been confused 3+ times in a row (BUILD 170.3: back to 3)
+                        # 🔥 BUILD 178: More lenient for outbound calls (user might not have answered yet)
+                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                        max_consecutive = 8 if is_outbound else self._max_consecutive_ai_responses  # 8 for outbound, 5 for inbound
+                        min_repeats_for_guard = 5 if is_outbound else 3  # More lenient for outbound
+                        
                         should_engage_guard = (
-                            (self._consecutive_ai_responses >= self._max_consecutive_ai_responses and user_silent_long_time) or
-                            (is_repeating and self._consecutive_ai_responses >= 3) or
+                            (self._consecutive_ai_responses >= max_consecutive and user_silent_long_time) or
+                            (is_repeating and self._consecutive_ai_responses >= min_repeats_for_guard) or
                             self._mishearing_count >= 3  # 🔥 BUILD 170.3: Back to 3 for less blocking
                         )
                         
@@ -2629,8 +2638,11 @@ ALWAYS mention their name in the first sentence.
                 print(f"🔔 [APPOINTMENT] Message content: {message_text}")
             
             # 🔥 BUILD 165: LOOP GUARD - Block if engaged or too many consecutive responses
-            if self._loop_guard_engaged or self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
-                print(f"🛑 [LOOP GUARD] Blocking response.create (engaged={self._loop_guard_engaged}, consecutive={self._consecutive_ai_responses})")
+            # 🔥 BUILD 178: More lenient for outbound calls
+            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            max_consecutive = 8 if is_outbound else self._max_consecutive_ai_responses
+            if self._loop_guard_engaged or self._consecutive_ai_responses >= max_consecutive:
+                print(f"🛑 [LOOP GUARD] Blocking response.create (engaged={self._loop_guard_engaged}, consecutive={self._consecutive_ai_responses}, max={max_consecutive})")
                 return
             
             # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
