@@ -58,6 +58,13 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Smarter Filter Logic**: Allow any text with 2+ Hebrew characters (not just whitelist). Priority: Hebrew > hallucinations > gibberish.
   - **Phrase Detection**: Phrases starting with valid words now pass through (e.g., "בסדר גמור" passes because starts with "בסדר").
   - **Language Switch Rule**: Speak Hebrew by default, switch only if caller explicitly says they don't understand (in any language), stay in new language for entire call.
+- **BUILD 170.5 - Fixed Call Hangup & Always-Verify**:
+  - **Fixed Hangup Logic**: Removed verification gate blocking auto-hangup. Now respects business settings properly.
+  - **Priority-Based Hangup**: 1) User goodbye 2) auto_end_on_goodbye setting 3) auto_end_after_lead_capture setting 4) verification_confirmed.
+  - **Better Logging**: Detailed logging when hangup is blocked, showing all relevant flags.
+  - **Always-Verify Prompt**: AI now confirms EACH piece of information immediately after hearing it.
+  - **STT Error Handling**: AI repeats info even if it seems wrong - caller will correct if needed.
+  - **Confirmation Flow**: Wait for "כן" after each field before moving to next.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
