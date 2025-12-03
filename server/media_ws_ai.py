@@ -6933,14 +6933,32 @@ ALWAYS mention their name in the first sentence.
                             
                             # 🏠 Extract lead_id, city, service_category from multiple sources
                             
-                            # Source 1: lead_capture_state (collected during conversation)
+                            # 🔍 FIRST: Extract service from transcript using KNOWN professionals list
+                            # This takes priority because lead_capture_state might have garbage from AI questions
+                            known_professionals = ['חשמלאי', 'אינסטלטור', 'שיפוצניק', 'מנקה', 'הובלות', 'מנעולן',
+                                                   'טכנאי מזגנים', 'גנן', 'צבעי', 'רצף', 'נגר', 'אלומיניום',
+                                                   'טכנאי מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנאי',
+                                                   'שיפוצים', 'ניקיון', 'גינון', 'צביעה', 'ריצוף', 'נגרות']
+                            
+                            if full_conversation:
+                                for prof in known_professionals:
+                                    if prof in full_conversation:
+                                        service_category = prof
+                                        print(f"🎯 [WEBHOOK] Found known professional in transcript: {prof}")
+                                        break
+                            
+                            # Source 1: lead_capture_state (collected during conversation) - for city/phone only
                             lead_state = getattr(self, 'lead_capture_state', {}) or {}
                             if lead_state:
                                 print(f"📋 [WEBHOOK] Lead capture state: {lead_state}")
                                 if not city:
                                     city = lead_state.get('city') or lead_state.get('עיר')
+                                # Only use service from lead_state if we didn't find a known professional
                                 if not service_category:
-                                    service_category = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
+                                    raw_service = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
+                                    # Filter out AI question fragments
+                                    if raw_service and raw_service not in ['תרצה עזרה', 'תרצו עזרה', 'אתה צריך', 'אתם צריכים']:
+                                        service_category = raw_service
                                 if not phone:
                                     phone = lead_state.get('phone') or lead_state.get('טלפון')
                             
