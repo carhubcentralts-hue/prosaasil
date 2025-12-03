@@ -1159,33 +1159,15 @@ def bulk_delete_leads():
         LeadReminder.query.filter(LeadReminder.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
         
         # Delete LeadNote records (has cascade but be explicit)
-        # BUILD 173: Handle missing table on older production DBs
-        try:
-            LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
-        except Exception as note_err:
-            err_str = str(note_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_notes' in err_str:
-                log.warning(f"⚠️ LeadNote delete skipped (table does not exist)")
-            else:
-                log.error(f"❌ LeadNote delete error: {note_err}")
-                raise  # Re-raise unexpected errors
+        LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
         
         # Delete LeadMergeCandidate records
-        # BUILD 173: Handle missing table on older production DBs
-        try:
-            LeadMergeCandidate.query.filter(
-                db.or_(
-                    LeadMergeCandidate.lead_id.in_(actual_lead_ids),
-                    LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
-                )
-            ).delete(synchronize_session=False)
-        except Exception as merge_err:
-            err_str = str(merge_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_merge_candidates' in err_str:
-                log.warning(f"⚠️ LeadMergeCandidate delete skipped (table does not exist)")
-            else:
-                log.error(f"❌ LeadMergeCandidate delete error: {merge_err}")
-                raise  # Re-raise unexpected errors
+        LeadMergeCandidate.query.filter(
+            db.or_(
+                LeadMergeCandidate.lead_id.in_(actual_lead_ids),
+                LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
+            )
+        ).delete(synchronize_session=False)
         
         # Clear lead_id references in WhatsAppSession (set to NULL)
         from server.models_sql import WhatsAppSession

@@ -1032,7 +1032,7 @@ def global_search():
 @crm_bp.get("/api/crm/tasks")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def get_crm_tasks():
-    """Get all CRM tasks for the current business - BUILD 172: Fixed N+1 query"""
+    """Get all CRM tasks for the current business"""
     try:
         business_id = get_business_id()
         if not business_id:
@@ -1041,7 +1041,6 @@ def get_crm_tasks():
         # Get query parameters
         status_filter = request.args.get('status')  # todo/doing/done
         lead_id = request.args.get('lead_id', type=int)
-        limit = min(int(request.args.get('limit', 100)), 500)  # Default 100, max 500
         
         # Build query
         query = CRMTask.query.filter_by(business_id=business_id)
@@ -1052,36 +1051,33 @@ def get_crm_tasks():
         if lead_id:
             query = query.filter_by(lead_id=lead_id)
         
-        tasks = query.order_by(CRMTask.created_at.desc()).limit(limit).all()
+        tasks = query.order_by(CRMTask.created_at.desc()).all()
         
-        # BUILD 172: Batch prefetch leads and customers to avoid N+1 queries
-        lead_ids = list(set(t.lead_id for t in tasks if t.lead_id))
-        customer_ids = list(set(t.customer_id for t in tasks if t.customer_id))
-        
-        lead_map = {}
-        customer_map = {}
-        
-        if lead_ids:
-            leads = Lead.query.filter(Lead.id.in_(lead_ids)).all()
-            for lead in leads:
-                lead_map[lead.id] = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-        
-        if customer_ids:
-            customers = Customer.query.filter(Customer.id.in_(customer_ids)).all()
-            for customer in customers:
-                customer_map[customer.id] = customer.name
-        
-        # Build result with pre-fetched data
+        # Get related data
         result = []
         for task in tasks:
+            # Get lead/customer name if exists
+            owner_name = None
+            lead_name = None
+            
+            if task.lead_id:
+                lead = Lead.query.get(task.lead_id)
+                if lead:
+                    lead_name = lead.full_name or f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+            
+            if task.customer_id:
+                customer = Customer.query.get(task.customer_id)
+                if customer:
+                    owner_name = customer.name
+            
             result.append({
                 "id": str(task.id),
                 "title": task.title,
                 "description": task.description,
                 "status": task.status,
                 "priority": task.priority,
-                "owner_name": customer_map.get(task.customer_id),
-                "lead_name": lead_map.get(task.lead_id),
+                "owner_name": owner_name,
+                "lead_name": lead_name,
                 "assigned_to": task.assigned_to,
                 "due_date": task.due_date.isoformat() if task.due_date else None,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
