@@ -3,7 +3,7 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, User, Business
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, User, Business
 from server.db import db
 from server.auth_api import require_api_auth
 from datetime import datetime, timezone
@@ -1461,3 +1461,199 @@ def delete_general_reminder(reminder_id):
     db.session.commit()
     
     return jsonify({"message": "Reminder deleted successfully"})
+
+
+# === LEAD NOTES API ===
+# BUILD 172: Permanent notes with edit/delete and file attachments
+
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10MB limit
+
+@leads_bp.route("/api/leads/<int:lead_id>/notes", methods=["GET"])
+@require_api_auth()
+def get_lead_notes(lead_id):
+    """Get all notes for a lead - excludes WhatsApp/call logs, only manual notes"""
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    
+    notes = LeadNote.query.filter_by(lead_id=lead_id, tenant_id=tenant_id).order_by(
+        LeadNote.created_at.desc()
+    ).all()
+    
+    return jsonify({
+        "success": True,
+        "notes": [{
+            "id": note.id,
+            "content": note.content,
+            "attachments": note.attachments or [],
+            "created_at": note.created_at.isoformat() if note.created_at else None,
+            "updated_at": note.updated_at.isoformat() if note.updated_at else None
+        } for note in notes]
+    })
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/notes", methods=["POST"])
+@require_api_auth()
+def create_lead_note(lead_id):
+    """Create a new note for a lead"""
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    
+    data = request.get_json()
+    if not data or not data.get('content', '').strip():
+        return jsonify({"error": "Note content is required"}), 400
+    
+    user = get_current_user()
+    
+    note = LeadNote()
+    note.lead_id = lead_id
+    note.tenant_id = tenant_id
+    note.content = data['content'].strip()
+    note.attachments = data.get('attachments', [])
+    note.created_by = user.get('id') if user else None
+    
+    db.session.add(note)
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "note": {
+            "id": note.id,
+            "content": note.content,
+            "attachments": note.attachments or [],
+            "created_at": note.created_at.isoformat() if note.created_at else None,
+            "updated_at": note.updated_at.isoformat() if note.updated_at else None
+        }
+    }), 201
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>", methods=["PATCH"])
+@require_api_auth()
+def update_lead_note(lead_id, note_id):
+    """Update an existing note"""
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    note = LeadNote.query.filter_by(id=note_id, lead_id=lead_id, tenant_id=tenant_id).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    if 'content' in data:
+        note.content = data['content'].strip()
+    
+    if 'attachments' in data:
+        note.attachments = data['attachments']
+    
+    note.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "note": {
+            "id": note.id,
+            "content": note.content,
+            "attachments": note.attachments or [],
+            "created_at": note.created_at.isoformat() if note.created_at else None,
+            "updated_at": note.updated_at.isoformat() if note.updated_at else None
+        }
+    })
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>", methods=["DELETE"])
+@require_api_auth()
+def delete_lead_note(lead_id, note_id):
+    """Delete a note"""
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    note = LeadNote.query.filter_by(id=note_id, lead_id=lead_id, tenant_id=tenant_id).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+    
+    db.session.delete(note)
+    db.session.commit()
+    
+    return jsonify({"success": True, "message": "Note deleted successfully"})
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>/upload", methods=["POST"])
+@require_api_auth()
+def upload_note_attachment(lead_id, note_id):
+    """Upload file attachment to a note - max 10MB"""
+    import base64
+    import uuid
+    import os
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    note = LeadNote.query.filter_by(id=note_id, lead_id=lead_id, tenant_id=tenant_id).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+    
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+    
+    # Check file size
+    file.seek(0, 2)  # Seek to end
+    size = file.tell()
+    file.seek(0)  # Reset to start
+    
+    if size > MAX_FILE_SIZE_BYTES:
+        return jsonify({"error": f"File too large. Maximum size is 10MB"}), 400
+    
+    # Generate unique filename
+    filename = file.filename or 'file'
+    ext = os.path.splitext(filename)[1]
+    unique_name = f"{uuid.uuid4()}{ext}"
+    
+    # Save to uploads directory
+    uploads_dir = os.path.join(os.getcwd(), 'uploads', 'notes', str(tenant_id))
+    os.makedirs(uploads_dir, exist_ok=True)
+    
+    file_path = os.path.join(uploads_dir, unique_name)
+    file.save(file_path)
+    
+    # Determine file type
+    file_type = 'image' if file.content_type and file.content_type.startswith('image/') else 'file'
+    
+    # Add to note attachments
+    attachment = {
+        "id": str(uuid.uuid4()),
+        "name": file.filename,
+        "url": f"/uploads/notes/{tenant_id}/{unique_name}",
+        "type": file_type,
+        "size": size
+    }
+    
+    attachments = note.attachments or []
+    attachments.append(attachment)
+    note.attachments = attachments
+    note.updated_at = datetime.utcnow()
+    
+    db.session.commit()
+    
+    return jsonify({
+        "success": True,
+        "attachment": attachment
+    })

@@ -1793,7 +1793,7 @@ function ActivityTab({ activities }: { activities: LeadActivity[] }) {
   );
 }
 
-// ✅ BUILD 170: Notes Tab - Free text, files, and images
+// ✅ BUILD 172: Notes Tab - Permanent notes with edit/delete and file attachments
 interface NotesTabProps {
   lead: Lead;
   onUpdate: () => void;
@@ -1807,66 +1807,131 @@ interface NoteAttachment {
   size?: number;
 }
 
+interface LeadNoteItem {
+  id: number;
+  content: string;
+  attachments: NoteAttachment[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 function NotesTab({ lead, onUpdate }: NotesTabProps) {
-  const [notes, setNotes] = useState<string>(lead.notes || '');
-  const [attachments, setAttachments] = useState<NoteAttachment[]>([]);
+  const [notes, setNotes] = useState<LeadNoteItem[]>([]);
+  const [newNoteContent, setNewNoteContent] = useState('');
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editContent, setEditContent] = useState('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  const imageInputRef = React.useRef<HTMLInputElement>(null);
 
-  // ✅ BUILD 170.1: Sync notes state when lead changes (after save or refresh)
   useEffect(() => {
-    if (!hasChanges) {
-      setNotes(lead.notes || '');
-    }
-  }, [lead.notes, hasChanges]);
+    fetchNotes();
+  }, [lead.id]);
 
-  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setNotes(e.target.value);
-    setHasChanges(true);
+  const fetchNotes = async () => {
+    try {
+      setLoading(true);
+      const response = await http.get<{ success: boolean; notes: LeadNoteItem[] }>(`/api/leads/${lead.id}/notes`);
+      if (response.success) {
+        setNotes(response.notes);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notes:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleSave = async () => {
+  const handleSaveNewNote = async () => {
+    if (!newNoteContent.trim()) return;
+    
     setSaving(true);
     try {
-      await http.patch(`/api/leads/${lead.id}`, { notes });
-      setHasChanges(false);
-      onUpdate();
+      const response = await http.post<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes`, {
+        content: newNoteContent.trim()
+      });
+      if (response.success) {
+        setNotes([response.note, ...notes]);
+        setNewNoteContent('');
+      }
     } catch (error) {
-      console.error('Failed to save notes:', error);
-      alert('שגיאה בשמירת ההערות');
+      console.error('Failed to save note:', error);
+      alert('שגיאה בשמירת ההערה');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'file') => {
-    const files = e.target.files;
-    if (!files) return;
+  const handleUpdateNote = async (noteId: number) => {
+    if (!editContent.trim()) return;
+    
+    try {
+      const response = await http.patch<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes/${noteId}`, {
+        content: editContent.trim()
+      });
+      if (response.success) {
+        setNotes(notes.map(n => n.id === noteId ? response.note : n));
+        setEditingId(null);
+        setEditContent('');
+      }
+    } catch (error) {
+      console.error('Failed to update note:', error);
+      alert('שגיאה בעדכון ההערה');
+    }
+  };
 
-    Array.from(files).forEach(file => {
+  const handleDeleteNote = async (noteId: number) => {
+    if (!confirm('האם למחוק את ההערה?')) return;
+    
+    try {
+      await http.delete(`/api/leads/${lead.id}/notes/${noteId}`);
+      setNotes(notes.filter(n => n.id !== noteId));
+    } catch (error) {
+      console.error('Failed to delete note:', error);
+      alert('שגיאה במחיקת ההערה');
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, noteId?: number) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    
+    if (file.size > MAX_FILE_SIZE) {
+      alert('הקובץ גדול מדי. הגודל המקסימלי הוא 10MB');
+      e.target.value = '';
+      return;
+    }
+
+    if (!noteId) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        const newAttachment: NoteAttachment = {
-          id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type,
+        const attachment: NoteAttachment = {
+          id: `temp-${Date.now()}`,
+          type: file.type.startsWith('image/') ? 'image' : 'file',
           name: file.name,
           url: event.target?.result as string,
           size: file.size
         };
-        setAttachments(prev => [...prev, newAttachment]);
-        setHasChanges(true);
+        setNewNoteContent(prev => prev + `\n[קובץ מצורף: ${file.name}]`);
       };
       reader.readAsDataURL(file);
-    });
+    }
     
     e.target.value = '';
   };
 
-  const removeAttachment = (id: string) => {
-    setAttachments(prev => prev.filter(a => a.id !== id));
-    setHasChanges(true);
+  const startEditing = (note: LeadNoteItem) => {
+    setEditingId(note.id);
+    setEditContent(note.content);
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditContent('');
   };
 
   const formatFileSize = (bytes?: number) => {
@@ -1883,113 +1948,153 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
           <FileText className="w-5 h-5 text-gray-500" />
           הערות חופשיות
         </h3>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => imageInputRef.current?.click()}
-            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            title="הוסף תמונה"
-            data-testid="button-add-image"
-          >
-            <ImageIcon className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            title="הוסף קובץ"
-            data-testid="button-add-file"
-          >
-            <Upload className="w-5 h-5" />
-          </button>
-          {hasChanges && (
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              size="sm"
-              data-testid="button-save-notes"
+      </div>
+
+      {/* New note input */}
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <textarea
+          value={newNoteContent}
+          onChange={(e) => setNewNoteContent(e.target.value)}
+          placeholder="הוסף הערה חדשה..."
+          className="w-full h-24 p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y text-right bg-white"
+          dir="rtl"
+          data-testid="textarea-new-note"
+        />
+        <div className="flex items-center justify-between mt-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+              title="הוסף קובץ (עד 10MB)"
+              data-testid="button-add-file"
             >
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  שומר...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  שמור
-                </>
-              )}
-            </Button>
-          )}
+              <Upload className="w-5 h-5" />
+            </button>
+            <span className="text-xs text-gray-400">מקסימום 10MB לקובץ</span>
+          </div>
+          <Button
+            onClick={handleSaveNewNote}
+            disabled={saving || !newNoteContent.trim()}
+            size="sm"
+            data-testid="button-save-new-note"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 ml-2 animate-spin" />
+                שומר...
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4 ml-2" />
+                הוסף הערה
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
       <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={(e) => handleFileSelect(e, 'image')}
-        data-testid="input-image-upload"
-      />
-      <input
         ref={fileInputRef}
         type="file"
-        multiple
         className="hidden"
-        onChange={(e) => handleFileSelect(e, 'file')}
+        onChange={(e) => handleFileSelect(e)}
         data-testid="input-file-upload"
       />
 
-      <textarea
-        value={notes}
-        onChange={handleNotesChange}
-        placeholder="הוסף הערות, רעיונות, או כל מידע נוסף על הליד..."
-        className="w-full h-64 p-4 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y text-right"
-        dir="rtl"
-        data-testid="textarea-notes"
-      />
-
-      {attachments.length > 0 && (
-        <div className="mt-4 border-t pt-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-3">קבצים מצורפים</h4>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {attachments.map((attachment) => (
-              <div 
-                key={attachment.id} 
-                className="relative group border border-gray-200 rounded-lg overflow-hidden"
-                data-testid={`attachment-${attachment.id}`}
-              >
-                {attachment.type === 'image' ? (
-                  <div className="aspect-square">
-                    <img 
-                      src={attachment.url} 
-                      alt={attachment.name}
-                      className="w-full h-full object-cover"
-                    />
+      {/* Notes list */}
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        </div>
+      ) : notes.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <FileText className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+          <p>אין הערות עדיין</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {notes.map((note) => (
+            <div 
+              key={note.id} 
+              className="p-4 bg-white border border-gray-200 rounded-lg"
+              data-testid={`note-${note.id}`}
+            >
+              {editingId === note.id ? (
+                <div>
+                  <textarea
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    className="w-full h-24 p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 resize-y text-right"
+                    dir="rtl"
+                    data-testid={`textarea-edit-note-${note.id}`}
+                  />
+                  <div className="flex items-center gap-2 mt-2 justify-end">
+                    <Button size="sm" variant="secondary" onClick={cancelEditing}>
+                      ביטול
+                    </Button>
+                    <Button size="sm" onClick={() => handleUpdateNote(note.id)}>
+                      <Save className="w-4 h-4 ml-2" />
+                      שמור
+                    </Button>
                   </div>
-                ) : (
-                  <div className="aspect-square flex flex-col items-center justify-center p-3 bg-gray-50">
-                    <File className="w-8 h-8 text-gray-400 mb-2" />
-                    <span className="text-xs text-gray-600 text-center truncate w-full">{attachment.name}</span>
-                    <span className="text-xs text-gray-400">{formatFileSize(attachment.size)}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => startEditing(note)}
+                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                        title="ערוך"
+                        data-testid={`button-edit-note-${note.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="מחק"
+                        data-testid={`button-delete-note-${note.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <span className="text-xs text-gray-400">
+                      {note.created_at ? formatDate(note.created_at) : ''}
+                    </span>
                   </div>
-                )}
-                <button
-                  onClick={() => removeAttachment(attachment.id)}
-                  className="absolute top-1 left-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                  data-testid={`button-remove-attachment-${attachment.id}`}
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
+                  <p className="mt-2 text-gray-700 whitespace-pre-wrap text-right" dir="rtl">
+                    {note.content}
+                  </p>
+                  
+                  {note.attachments && note.attachments.length > 0 && (
+                    <div className="mt-3 pt-3 border-t">
+                      <div className="flex flex-wrap gap-2">
+                        {note.attachments.map((att) => (
+                          <a
+                            key={att.id}
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-sm text-gray-600 hover:bg-gray-200"
+                          >
+                            <File className="w-3 h-3" />
+                            {att.name}
+                            {att.size && <span className="text-xs text-gray-400">({formatFileSize(att.size)})</span>}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
       <p className="mt-4 text-xs text-gray-400 text-center">
-        הערות וקבצים נשמרים בסשן הנוכחי בלבד
+        הערות נשמרות לצמיתות על הליד
       </p>
     </Card>
   );

@@ -389,6 +389,27 @@ class LeadActivity(db.Model):
     at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
 
+class LeadNote(db.Model):
+    """Individual notes for leads - separate from WhatsApp/call logs
+    BUILD 172: Permanent notes with edit/delete and file attachments
+    """
+    __tablename__ = "lead_notes"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    content = db.Column(db.Text, nullable=False)
+    attachments = db.Column(db.JSON, default=list)  # [{id, name, url, type, size}]
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    
+    __table_args__ = (
+        db.Index('idx_lead_notes_lead', 'lead_id', 'created_at'),
+    )
+
 class LeadMergeCandidate(db.Model):
     """Potential duplicate leads for merging"""
     __tablename__ = "lead_merge_candidates"
