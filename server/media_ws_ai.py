@@ -1440,12 +1440,12 @@ class MediaStreamHandler:
             # 🔥 BUILD 179: Outbound calls need MUCH higher token limits for sales pitches!
             if call_direction == 'outbound':
                 greeting_length = len(greeting_prompt) if greeting_prompt else 100
-                # Outbound: Allow up to 4096 tokens for long sales pitches
-                greeting_max_tokens = 4096
-                print(f"📤 [OUTBOUND] Using HIGH token limit: max_tokens={greeting_max_tokens}")
             else:
                 greeting_length = len(greeting_text) if (has_custom_greeting and greeting_text) else 0
-                greeting_max_tokens = max(200, min(600, greeting_length // 2 + 150))  # Scale with greeting length
+            
+            # 🔥 BUILD 179: max_tokens=4096 for ALL calls (both inbound and outbound)
+            # This prevents AI from being cut off mid-sentence
+            greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
             await client.configure_session(
@@ -1580,13 +1580,11 @@ ALWAYS mention their name in the first sentence.
                         # 🎯 VOICE CONSISTENCY: Explicitly re-send voice to ensure it doesn't reset
                         voice_to_use = getattr(self, '_call_voice', 'shimmer')
                         
-                        # 🔥 BUILD 179: Dynamic token limit - outbound needs MUCH more tokens!
+                        # 🔥 BUILD 179: max_tokens=4096 for BOTH inbound and outbound
+                        # This prevents AI from being cut off mid-sentence
+                        session_max_tokens = 4096
                         current_call_direction = getattr(self, 'call_direction', 'inbound')
-                        if current_call_direction == 'outbound':
-                            session_max_tokens = 4096  # Outbound: long sales pitches
-                            print(f"📤 [OUTBOUND] session.update with HIGH max_tokens={session_max_tokens}")
-                        else:
-                            session_max_tokens = 300  # Inbound: short responses
+                        print(f"📞 [{current_call_direction.upper()}] session.update with max_tokens={session_max_tokens}")
                         
                         await client.send_event({
                             "type": "session.update",
