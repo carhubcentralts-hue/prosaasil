@@ -1863,6 +1863,21 @@ class MediaStreamHandler:
                     text = raw_text.strip()
                     now_ms = time.time() * 1000
                     
+                    # 🔥 BUILD 170: LOW-RMS GATE - Drop transcripts from silence
+                    # If recent audio RMS was below speech threshold, this is likely a Whisper hallucination
+                    recent_rms = getattr(self, '_recent_audio_rms', 0)
+                    speech_threshold = getattr(self, 'vad_threshold', MIN_SPEECH_RMS) if hasattr(self, 'vad_threshold') else MIN_SPEECH_RMS
+                    
+                    # Check if transcript arrived from actual speech or silence
+                    if recent_rms < speech_threshold * 0.5:  # Well below speech threshold
+                        hebrew_in_text = len(re.findall(r'[\u0590-\u05FF]', text))
+                        if hebrew_in_text == 0:  # Pure English from silence = hallucination
+                            print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {speech_threshold*0.5:.0f}): '{text}'")
+                            continue
+                        elif len(text) < 3:  # Very short from silence = hallucination
+                            print(f"[SILENCE GATE] ❌ REJECTED short from silence: '{text}'")
+                            continue
+                    
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
                     # 1. Allow short Hebrew words (expanded list per architect feedback)
                     # 2. Block English hallucinations
@@ -3176,6 +3191,14 @@ class MediaStreamHandler:
                     # 🔥 BUILD 165: NOISE GATE BEFORE SENDING TO AI!
                     # Calculate RMS first to decide if we should send audio at all
                     rms = audioop.rms(pcm16, 2)
+                    
+                    # 🔥 BUILD 170: Track recent RMS for silence gate in transcription handler
+                    # Use exponential moving average for smooth tracking
+                    if not hasattr(self, '_recent_audio_rms'):
+                        self._recent_audio_rms = rms
+                    else:
+                        # EMA with alpha=0.3 for quick response
+                        self._recent_audio_rms = 0.3 * rms + 0.7 * self._recent_audio_rms
                     
                     # 🛡️ CRITICAL: Block pure noise BEFORE sending to OpenAI
                     # This prevents Whisper/Realtime from hallucinating on background noise

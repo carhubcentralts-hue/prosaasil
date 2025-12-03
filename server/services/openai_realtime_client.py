@@ -278,8 +278,8 @@ class OpenAIRealtimeClient:
         voice: str = "alloy",
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.6,
-        silence_duration_ms: int = 500,
+        vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
+        silence_duration_ms: int = 1200,  # 🔥 BUILD 170: Raised from 500ms to reduce false triggers
         temperature: float = 0.18,
         max_tokens: int = 300
     ):
