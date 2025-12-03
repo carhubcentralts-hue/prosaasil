@@ -89,6 +89,7 @@ def get_business_prompt(business_id):
             
             return jsonify({
                 "calls_prompt": calls_prompt,
+                "outbound_calls_prompt": settings.outbound_ai_prompt or "",  # 🔥 BUILD 174
                 "whatsapp_prompt": whatsapp_prompt,
                 "greeting_message": business.greeting_message or "",
                 "whatsapp_greeting": business.whatsapp_greeting or "",
@@ -101,6 +102,7 @@ def get_business_prompt(business_id):
             default_prompt = business.system_prompt or "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."  # ✅ כללי - לא מניח סוג עסק!
             return jsonify({
                 "calls_prompt": default_prompt,
+                "outbound_calls_prompt": "",  # 🔥 BUILD 174
                 "whatsapp_prompt": default_prompt,
                 "greeting_message": business.greeting_message or "",
                 "whatsapp_greeting": business.whatsapp_greeting or "",
@@ -127,8 +129,9 @@ def update_business_prompt(business_id):
         if not data:
             return jsonify({"error": "חסרים נתונים"}), 400
         
-        # שדות אופציונליים: calls_prompt, whatsapp_prompt, greeting_message, whatsapp_greeting
+        # שדות אופציונליים: calls_prompt, outbound_calls_prompt, whatsapp_prompt, greeting_message, whatsapp_greeting
         calls_prompt = data.get('calls_prompt')
+        outbound_calls_prompt = data.get('outbound_calls_prompt')  # 🔥 BUILD 174
         whatsapp_prompt = data.get('whatsapp_prompt')
         greeting_message = data.get('greeting_message')
         whatsapp_greeting = data.get('whatsapp_greeting')
@@ -144,6 +147,8 @@ def update_business_prompt(business_id):
         # ולידציות שרת - לפי ההנחיות
         if calls_prompt and len(calls_prompt) > 10000:
             return jsonify({"error": "פרומפט שיחות ארוך מדי (מקסימום 10,000 תווים)"}), 400
+        if outbound_calls_prompt and len(outbound_calls_prompt) > 10000:
+            return jsonify({"error": "פרומפט שיחות יוצאות ארוך מדי (מקסימום 10,000 תווים)"}), 400
         if whatsapp_prompt and len(whatsapp_prompt) > 10000:
             return jsonify({"error": "פרומפט וואטסאפ ארוך מדי (מקסימום 10,000 תווים)"}), 400
         
@@ -203,6 +208,10 @@ def update_business_prompt(business_id):
             settings.updated_by = user_id
             settings.updated_at = datetime.utcnow()
         
+        # 🔥 BUILD 174: Save outbound calls prompt separately
+        if outbound_calls_prompt is not None:
+            settings.outbound_ai_prompt = outbound_calls_prompt
+        
         # Get next version number
         latest_revision = PromptRevisions.query.filter_by(
             tenant_id=business_id
@@ -237,6 +246,7 @@ def update_business_prompt(business_id):
         return jsonify({
             "success": True,  # ✅ תיקון: הוספת success field שהfrontend מצפה לו
             "calls_prompt": current_prompts.get('calls', ''),
+            "outbound_calls_prompt": settings.outbound_ai_prompt or "",  # 🔥 BUILD 174
             "whatsapp_prompt": current_prompts.get('whatsapp', ''),
             "greeting_message": business.greeting_message or "",
             "whatsapp_greeting": business.whatsapp_greeting or "",
