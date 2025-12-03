@@ -1500,11 +1500,25 @@ class MediaStreamHandler:
                                 # The prompt builder now handles outbound vs inbound prompts!
                                 prompt = build_prompt(business_id_safe, call_direction=call_direction)
                                 
-                                # For outbound calls with template, prepend lead context
+                                # 🔥 BUILD 177: For outbound calls, add personalized greeting with lead name
                                 if call_direction == 'outbound' and outbound_lead_name:
-                                    lead_context = f"אתה מתקשר ל{outbound_lead_name}.\n\n"
-                                    prompt = lead_context + prompt
-                                    print(f"📤 [OUTBOUND] Using outbound prompt with lead context: {outbound_lead_name}")
+                                    # Add lead-specific context and greeting instruction at the START
+                                    lead_greeting_context = f"""🎯 OUTBOUND CALL - CRITICAL INSTRUCTIONS:
+You are CALLING the customer, not receiving a call.
+The customer's name is: {outbound_lead_name}
+
+FIRST MESSAGE (MANDATORY):
+Start with a personalized greeting using the customer's name:
+"שלום {outbound_lead_name}, זה [your name] מ[business name]. איך אתה/את?"
+
+NEVER use generic greetings like "שלום, מה שלומך?" without the customer's name.
+ALWAYS mention their name in the first sentence.
+
+---
+
+"""
+                                    prompt = lead_greeting_context + prompt
+                                    print(f"📤 [OUTBOUND] Using outbound prompt with personalized greeting for: {outbound_lead_name}")
                                 
                                 if prompt and len(prompt) > 100:
                                     return prompt
