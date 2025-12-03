@@ -1104,6 +1104,7 @@ class MediaStreamHandler:
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
         self._verification_prompt_sent = False  # Tracks if we already asked for verification
+        self._silence_final_chance_given = False  # Tracks if we gave extra chance before silence hangup
 
     def _init_streaming_stt(self):
         """
@@ -2136,11 +2137,12 @@ class MediaStreamHandler:
                             should_hangup = True
                             print(f"✅ [HANGUP] User said goodbye, AI responded politely - disconnecting")
                         
-                        # Case 2: Lead fully captured AND setting enabled AND AI confirmed
-                        elif self.auto_end_after_lead_capture and self.lead_captured and ai_polite_closing_detected:
-                            hangup_reason = "lead_captured_auto"
+                        # Case 2: Lead fully captured AND setting enabled AND customer CONFIRMED AND AI confirmed
+                        # 🔥 BUILD 172 FIX: Added verification_confirmed check!
+                        elif self.auto_end_after_lead_capture and self.lead_captured and self.verification_confirmed and ai_polite_closing_detected:
+                            hangup_reason = "lead_captured_confirmed"
                             should_hangup = True
-                            print(f"✅ [HANGUP] Lead captured + auto_end_after_lead_capture=True - disconnecting")
+                            print(f"✅ [HANGUP] Lead captured + confirmed + auto_end=True - disconnecting")
                         
                         # Case 3: User explicitly confirmed details in summary
                         elif self.verification_confirmed and ai_polite_closing_detected:
@@ -5629,7 +5631,28 @@ class MediaStreamHandler:
                         # Reset timer
                         self._last_speech_time = time.time()
                     else:
-                        # Max warnings exceeded - hangup politely
+                        # Max warnings exceeded - check if we can hangup
+                        # 🔥 BUILD 172 FIX: Don't hangup if lead is captured but not confirmed!
+                        fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
+                        if fields_collected and not self.verification_confirmed:
+                            # Fields captured but not confirmed - give one more chance
+                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final confirmation request")
+                            self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
+                            await self._send_text_to_ai(
+                                "[SYSTEM] הלקוח שותק וטרם אישר את הפרטים. שאל בפעם אחרונה: 'אני רק צריך שתאשר את הפרטים - הכל נכון?'"
+                            )
+                            self._last_speech_time = time.time()
+                            # Mark that we gave extra chance - next time really close
+                            self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
+                            if self._silence_final_chance_given:
+                                # Already gave extra chance, now close without confirmation
+                                print(f"🔇 [SILENCE] Final chance already given - closing anyway")
+                                pass  # Fall through to close
+                            else:
+                                self._silence_final_chance_given = True
+                                continue  # Don't close yet
+                        
+                        # OK to close - either no lead, or lead confirmed, or final chance given
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
                         
@@ -5650,7 +5673,12 @@ class MediaStreamHandler:
     async def _send_silence_warning(self):
         """Send a gentle 'are you there?' prompt to the AI."""
         try:
-            warning_prompt = "[SYSTEM] User has been silent. Gently ask if they are still there: 'אתה עדיין איתי?'"
+            # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
+            fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
+            if fields_collected and not self.verification_confirmed:
+                warning_prompt = "[SYSTEM] פרטים נאספו אבל הלקוח לא אישר. שאל: 'אתה עדיין שם? רק רציתי לוודא - הפרטים שמסרת נכונים?'"
+            else:
+                warning_prompt = "[SYSTEM] User has been silent. Gently ask if they are still there: 'אתה עדיין איתי?'"
             await self._send_text_to_ai(warning_prompt)
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
