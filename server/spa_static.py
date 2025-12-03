@@ -3,7 +3,7 @@ from flask import Blueprint, send_from_directory, request, make_response, abort
 from pathlib import Path
 
 spa_bp = Blueprint("spa", __name__)
-DIST = Path(__file__).resolve().parents[1] / "dist"
+DIST = Path(__file__).resolve().parents[1] / "client" / "dist"
 
 @spa_bp.get("/assets/<path:filename>")
 def assets(filename):
