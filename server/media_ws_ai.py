@@ -607,10 +607,10 @@ SR = 8000
 # ⚡ BUILD 164B: BALANCED NOISE FILTERING - Filter noise but allow quiet speech
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
-VAD_RMS = int(os.getenv("VAD_RMS", "150"))                  # 🔥 BUILD 164B: 150 - balanced threshold
-# 🔥 CONFIGURABLE NOISE THRESHOLDS - filter noise while allowing normal speech (180-500 RMS typical)
-RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "120"))      # Below this = pure noise
-MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "200"))                    # Speech detection threshold
+VAD_RMS = int(os.getenv("VAD_RMS", "80"))                   # 🔥 BUILD 170.3: 80 - lower threshold for quiet Hebrew
+# 🔥 BUILD 170.3: LOWERED THRESHOLDS - Allow quiet Hebrew speech through
+RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "40"))       # 🔥 BUILD 170.3: 40 (was 120) - only true silence
+MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "60"))                     # 🔥 BUILD 170.3: 60 (was 200) - Hebrew can be quiet
 MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "700"))    # 🔥 BUILD 169: 700ms continuous speech for barge-in
 NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                      # Grace period for noise tolerance
 VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 164B: 150ms (balanced)
@@ -696,9 +696,9 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        # 🔥 BUILD 164B: BALANCED noise thresholds
-        self.noise_floor = 80.0          # Baseline noise (will be calibrated)
-        self.vad_threshold = MIN_SPEECH_RMS  # 200 RMS minimum for speech detection
+        # 🔥 BUILD 170.3: LOWERED noise thresholds for Hebrew
+        self.noise_floor = 30.0          # 🔥 BUILD 170.3: 30 (was 80) - lower baseline
+        self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 170.3: Now 60 (was 200) - Hebrew can be quiet
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
         self.mark_pending = False        # האם ממתינים לסימון TTS
@@ -788,7 +788,7 @@ class MediaStreamHandler:
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
         self.min_ai_talk_guard_ms = 150  # 🔥 BUILD 164B: 150ms grace period
-        self.barge_in_rms_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 164B: RMS > 200 for reliable speech
+        self.barge_in_rms_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 170.3: RMS > 60 now (was 200) - better barge-in
         self.min_voice_duration_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: 220ms continuous speech
         self.barge_in_min_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: Match min_voice_duration_ms
         self.barge_in_cooldown_ms = 500  # 🔥 BUILD 164B: Standard cooldown
@@ -799,9 +799,10 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
         self._consecutive_ai_responses = 0
-        self._max_consecutive_ai_responses = 3  # Block after 3 AI responses without user input
+        self._max_consecutive_ai_responses = 5  # 🔥 BUILD 170.3: 5 (was 3) - less aggressive blocking
         self._last_user_transcript_ts = None
         self._loop_guard_engaged = False  # 🛑 When True, ALL AI audio is blocked
+        self._last_user_speech_ts = time.time()  # 🔥 BUILD 170.3: Track when user last spoke for loop guard
         
         # 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge multiple STT segments
         self._stt_merge_buffer = []  # List of (timestamp, text) for merging
@@ -1726,17 +1727,22 @@ class MediaStreamHandler:
                         else:
                             self._mishearing_count = 0  # Reset on clear response
                         
-                        # 🔥 BUILD 165 + 169.1: ENHANCED LOOP PREVENTION
+                        # 🔥 BUILD 170.3: IMPROVED LOOP PREVENTION with time-based check
                         self._consecutive_ai_responses += 1
                         
+                        # 🔥 BUILD 170.3: Only count as "no user input" if >8 seconds since last speech
+                        last_user_ts = getattr(self, '_last_user_speech_ts', 0) or 0
+                        seconds_since_user = time.time() - last_user_ts if last_user_ts > 0 else 0
+                        user_silent_long_time = seconds_since_user > 8.0  # 8 seconds without user input
+                        
                         # Trigger loop guard if:
-                        # 1. Too many consecutive AI responses without user input, OR
+                        # 1. Too many consecutive AI responses AND user silent for >8s, OR
                         # 2. AI is semantically repeating itself (long responses only), OR
-                        # 3. AI has been confused 2+ times in a row (architect: reduced from 3)
+                        # 3. AI has been confused 3+ times in a row (BUILD 170.3: back to 3)
                         should_engage_guard = (
-                            self._consecutive_ai_responses >= self._max_consecutive_ai_responses or
-                            (is_repeating and self._consecutive_ai_responses >= 2) or
-                            self._mishearing_count >= 2  # 🔥 ARCHITECT: Reduced from 3 to 2 for faster UX
+                            (self._consecutive_ai_responses >= self._max_consecutive_ai_responses and user_silent_long_time) or
+                            (is_repeating and self._consecutive_ai_responses >= 3) or
+                            self._mishearing_count >= 3  # 🔥 BUILD 170.3: Back to 3 for less blocking
                         )
                         
                         if should_engage_guard:
@@ -1863,20 +1869,18 @@ class MediaStreamHandler:
                     text = raw_text.strip()
                     now_ms = time.time() * 1000
                     
-                    # 🔥 BUILD 170: LOW-RMS GATE - Drop transcripts from silence
-                    # If recent audio RMS was below speech threshold, this is likely a Whisper hallucination
+                    # 🔥 BUILD 170.3: RELAXED LOW-RMS GATE - Only reject truly silent transcripts
+                    # Hebrew speech can be quiet - use very low threshold (15 RMS)
                     recent_rms = getattr(self, '_recent_audio_rms', 0)
-                    speech_threshold = getattr(self, 'vad_threshold', MIN_SPEECH_RMS) if hasattr(self, 'vad_threshold') else MIN_SPEECH_RMS
+                    ABSOLUTE_SILENCE_RMS = 15  # 🔥 BUILD 170.3: Only reject near-zero RMS
                     
-                    # Check if transcript arrived from actual speech or silence
-                    if recent_rms < speech_threshold * 0.5:  # Well below speech threshold
+                    # Only filter if RMS is near zero AND text is pure English hallucination
+                    if recent_rms < ABSOLUTE_SILENCE_RMS:
                         hebrew_in_text = len(re.findall(r'[\u0590-\u05FF]', text))
-                        if hebrew_in_text == 0:  # Pure English from silence = hallucination
-                            print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {speech_threshold*0.5:.0f}): '{text}'")
+                        if hebrew_in_text == 0:  # Pure English from true silence = hallucination
+                            print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {ABSOLUTE_SILENCE_RMS}): '{text}'")
                             continue
-                        elif len(text) < 3:  # Very short from silence = hallucination
-                            print(f"[SILENCE GATE] ❌ REJECTED short from silence: '{text}'")
-                            continue
+                    # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
                     # 1. Allow short Hebrew words (expanded list per architect feedback)
@@ -2018,9 +2022,10 @@ class MediaStreamHandler:
                     # Mark that the user really spoke at least once
                     self.user_has_spoken = True
                     
-                    # 🔥 BUILD 165: LOOP PREVENTION - Reset counter when user speaks
+                    # 🔥 BUILD 170.3: LOOP PREVENTION - Reset counter when user speaks
                     self._consecutive_ai_responses = 0
                     self._last_user_transcript_ts = time.time()
+                    self._last_user_speech_ts = time.time()  # 🔥 BUILD 170.3: Track for time-based guard
                     # 🛑 DISENGAGE LOOP GUARD - user spoke, allow AI to respond again
                     if self._loop_guard_engaged:
                         print(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
