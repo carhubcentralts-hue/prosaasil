@@ -1058,7 +1058,7 @@ class MediaStreamHandler:
         # Otherwise OpenAI never gets enough audio to complete the utterance
         self._realtime_speech_active = False  # Set on speech_started, cleared on speech_stopped
         self._realtime_speech_started_ts = None  # When speech_started was received (for timeout)
-        self._realtime_speech_timeout_sec = 5.0  # Auto-clear after 5 seconds if no speech_stopped
+        self._realtime_speech_timeout_sec = 30.0  # Auto-clear after 30 seconds if no speech_stopped (was 5s - too short!)
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
