@@ -64,6 +64,8 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
   - **Toggle AI Endpoint**: Added `/api/whatsapp/toggle-ai` endpoint for frontend compatibility with AI on/off toggle per conversation.
   - **Message Alignment**: Fixed RTL alignment - outgoing messages now appear on the right, incoming on the left.
   - **AI Prompt Fallback Fix**: Fixed issue where AI was always returning static "קיבלתי את ההודעה" instead of using business prompt. Now properly falls back through: Agent SDK → Regular AI (DB prompt) → Business name fallback → Static message.
+  - **Database Session Fix**: Fixed `customer_number` NOT NULL constraint violation that poisoned DB sessions and broke AI responses. Added proper rollback handling.
+  - **Notes Tab Sync Fix**: Fixed issue where saved notes would disappear - now properly syncs with lead data after save.
 
 ## Feature Specifications
 - **Call Logging**: Comprehensive tracking.

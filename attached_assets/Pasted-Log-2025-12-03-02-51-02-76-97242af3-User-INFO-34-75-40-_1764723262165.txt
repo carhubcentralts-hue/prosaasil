@@ -1,0 +1,170 @@
+Log
+2025-12-03 02:51:02.76
+97242af3
+User
+INFO: 34.75.40.8:0 - "GET /assets/index-B6I-QUGk.js HTTP/1.1" 200 OK
+2025-12-03 02:53:40.32
+97242af3
+User
+🔔 Querying reminders for tenant_id=14, is_system_admin=False
+2025-12-03 02:53:40.32
+97242af3
+User
+🔍 AUTH DEBUG: user_id=3, role=owner, business_id=14, computed_tenant=14, impersonating=False
+2025-12-03 02:53:40.32
+97242af3
+User
+🔔 /api/notifications - tenant_id=14, g.tenant=14
+2025-12-03 02:53:40.50
+97242af3
+User
+🔔 Found 0 reminders
+2025-12-03 02:53:40.50
+97242af3
+User
+🔔 Found 0 reminders
+2025-12-03 02:53:40.52
+97242af3
+User
+INFO: 34.23.224.173:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-12-03 02:53:40.72
+97242af3
+User
+🏢 BUSINESS RESOLUTION: tenant_id=business_14 → business_id=14 (status=tenant_id)
+2025-12-03 02:53:41.02
+97242af3
+User
+🏢 BUSINESS: יהודה בורקס (ID=14)
+2025-12-03 02:53:41.02
+97242af3
+User
+🔌 get_whatsapp_service: tenant_id=business_14 → using fresh BaileysProvider
+2025-12-03 02:53:41.02
+97242af3
+User
+🏢 BUSINESS: יהודה בורקס (ID=14)
+2025-12-03 02:53:41.02
+97242af3
+User
+🔌 get_whatsapp_service: tenant_id=business_14 → using fresh BaileysProvider
+2025-12-03 02:53:41.02
+97242af3
+User
+🏢 BUSINESS: יהודה בורקס (ID=14)
+2025-12-03 02:53:41.02
+97242af3
+User
+🔌 get_whatsapp_service: tenant_id=business_14 → using fresh BaileysProvider
+2025-12-03 02:53:41.02
+97242af3
+User
+🏢 BUSINESS: יהודה בורקס (ID=14)
+2025-12-03 02:53:41.02
+97242af3
+User
+🔌 get_whatsapp_service: tenant_id=business_14 → using fresh BaileysProvider
+2025-12-03 02:53:41.02
+97242af3
+User
+🏢 BUSINESS: יהודה בורקס (ID=14)
+2025-12-03 02:53:41.02
+97242af3
+User
+🔌 get_whatsapp_service: tenant_id=business_14 → using fresh BaileysProvider
+2025-12-03 02:53:41.02
+97242af3
+User
+🏢 BUSINESS: יהודה בורקס (ID=14)
+2025-12-03 02:53:41.02
+97242af3
+User
+🔌 get_whatsapp_service: tenant_id=business_14 → using fresh BaileysProvider
+2025-12-03 02:53:41.02
+97242af3
+User
+🏢 BUSINESS: יהודה בורקס (ID=14)
+2025-12-03 02:53:41.02
+97242af3
+User
+🔌 get_whatsapp_service: tenant_id=business_14 → using fresh BaileysProvider
+2025-12-03 02:53:57.92
+97242af3
+User
+⚠️ Agent failed, trying regular AI response: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (psycopg2.errors.NotNullViolation) null value in column "customer_number" of relation "whatsapp_conversation" violates not-null constraint
+2025-12-03 02:53:57.92
+97242af3
+User
+[SQL: INSERT INTO whatsapp_conversation (business_id, provider, customer_wa_id, lead_id, started_at, last_message_at, last_customer_message_at, is_open, summary_created, summary, created_at, updated_at) VALUES (%(business_id)s, %(provider)s, %(customer_wa_id)s, %(lead_id)s, %(started_at)s, %(last_message_at)s, %(last_customer_message_at)s, %(is_open)s, %(summary_created)s, %(summary)s, %(created_at)s, %(updated_at)s) RETURNING whatsapp_conversation.id]
+2025-12-03 02:53:57.92
+97242af3
+User
+DETAIL: Failing row contains (1, 14, null, null, null, 2025-12-03 00:53:49.522769, 2025-12-03 00:53:49.522772, baileys, 972549750505, 119, 2025-12-03 00:53:49.521141, 2025-12-03 00:53:49.521143, 2025-12-03 00:53:49.521144, t, f, null).
+2025-12-03 02:53:57.92
+97242af3
+User
+[parameters: {'business_id': 14, 'provider': 'baileys', 'customer_wa_id': '972549750505', 'lead_id': 119, 'started_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 521141), 'last_message_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 521143), 'last_customer_message_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 521144), 'is_open': True, 'summary_created': False, 'summary': None, 'created_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 522769), 'updated_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 522772)}]
+2025-12-03 02:53:58.62
+97242af3
+User
+Traceback (most recent call last):
+2025-12-03 02:53:58.72
+97242af3
+User
+(Background on this error at: https://sqlalche.me/e/20/gkpj) (Background on this error at: https://sqlalche.me/e/20/7s2a)
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2241, in _execute_internal
+
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/attributes.py", line 569, in __get__
+2025-12-03 02:53:58.92
+97242af3
+User
+return self._execute_internal(
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/loading.py", line 510, in load_on_ident
+2025-12-03 02:53:58.92
+97242af3
+User
+return trans._connection_for_bind(engine, execution_options)
+2025-12-03 02:53:58.92
+97242af3
+User
+return state._load_expired(state, passive)
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/attributes.py", line 1096, in get
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+return self.impl.get(state, dict_) # type: ignore[no-any-return]
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+conn = self._connection_for_bind(bind)
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

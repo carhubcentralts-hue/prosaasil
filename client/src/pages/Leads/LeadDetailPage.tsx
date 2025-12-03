@@ -1815,6 +1815,13 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const imageInputRef = React.useRef<HTMLInputElement>(null);
 
+  // ✅ BUILD 170.1: Sync notes state when lead changes (after save or refresh)
+  useEffect(() => {
+    if (!hasChanges) {
+      setNotes(lead.notes || '');
+    }
+  }, [lead.notes, hasChanges]);
+
   const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setNotes(e.target.value);
     setHasChanges(true);

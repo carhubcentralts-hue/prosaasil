@@ -696,6 +696,12 @@ def baileys_webhook():
                 
                 # ✅ BUILD 119: Generate AI response with Agent SDK (real actions!)
                 # ✅ BUILD 170.1: Improved error handling - use DB prompt even on fallback!
+                # 🔥 BUILD 170.1: Clear any poisoned DB session before AI call!
+                try:
+                    db.session.rollback()
+                except:
+                    pass
+                
                 ai_start = time.time()
                 response_text = None
                 

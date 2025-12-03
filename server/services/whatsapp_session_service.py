@@ -99,6 +99,7 @@ def get_or_create_session(
     
     new_session = WhatsAppConversation(
         business_id=business_id,
+        customer_number=customer_wa_id,  # ✅ BUILD 170.1: Required field!
         provider=provider,
         customer_wa_id=customer_wa_id,
         lead_id=lead_id,
@@ -134,21 +135,30 @@ def update_session_activity(
     Returns:
         Updated session or None
     """
-    session, is_new = get_or_create_session(business_id, customer_wa_id, provider)
-    
-    now = datetime.utcnow()
-    session.last_message_at = now
-    
-    if direction == "in":
-        session.last_customer_message_at = now
-    
-    session.updated_at = now
-    
-    db.session.commit()
-    
-    logger.debug(f"[WA-SESSION] Updated session id={session.id} last_message_at={now} direction={direction}")
-    
-    return session
+    try:
+        session, is_new = get_or_create_session(business_id, customer_wa_id, provider)
+        
+        now = datetime.utcnow()
+        session.last_message_at = now
+        
+        if direction == "in":
+            session.last_customer_message_at = now
+        
+        session.updated_at = now
+        
+        db.session.commit()
+        
+        logger.debug(f"[WA-SESSION] Updated session id={session.id} last_message_at={now} direction={direction}")
+        
+        return session
+    except Exception as e:
+        # ✅ BUILD 170.1: Rollback on error to prevent session poisoning
+        logger.error(f"[WA-SESSION] update_session_activity failed: {e}")
+        try:
+            db.session.rollback()
+        except:
+            pass
+        raise  # Re-raise so caller knows it failed
 
 
 def close_session(session_id: int, summary: Optional[str] = None, mark_processed: bool = True) -> bool:

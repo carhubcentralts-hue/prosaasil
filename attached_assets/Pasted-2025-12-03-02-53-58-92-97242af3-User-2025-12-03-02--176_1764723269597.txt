@@ -1,0 +1,133 @@
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+conn = self._connection_for_bind(bind)
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+session.execute(
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2241, in _execute_internal
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/attributes.py", line 569, in __get__
+2025-12-03 02:53:58.92
+97242af3
+User
+[parameters: {'business_id': 14, 'provider': 'baileys', 'customer_wa_id': '972549750505', 'lead_id': 119, 'started_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 521141), 'last_message_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 521143), 'last_customer_message_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 521144), 'is_open': True, 'summary_created': False, 'summary': None, 'created_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 522769), 'updated_at': datetime.datetime(2025, 12, 3, 0, 53, 49, 522772)}]
+2025-12-03 02:53:58.92
+97242af3
+User
+return self._execute_internal(
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/loading.py", line 510, in load_on_ident
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+2025-12-03 02:53:58.92
+97242af3
+User
+sqlalchemy.exc.PendingRollbackError: This Session's transaction has been rolled back due to a previous exception during flush. To begin a new transaction with this Session, first issue Session.rollback(). Original exception was: (psycopg2.errors.NotNullViolation) null value in column "customer_number" of relation "whatsapp_conversation" violates not-null constraint
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/attributes.py", line 1126, in _fire_loader_callables
+2025-12-03 02:53:58.92
+97242af3
+User
+^^^^^^^^^^^^^^^^^^^^
+2025-12-03 02:53:58.92
+97242af3
+User
+return trans._connection_for_bind(engine, execution_options)
+2025-12-03 02:53:58.92
+97242af3
+User
+return state._load_expired(state, passive)
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/attributes.py", line 1096, in get
+2025-12-03 02:53:58.92
+97242af3
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/loading.py", line 1674, in load_scalar_attributes
+2025-12-03 02:54:09.32
+97242af3
+User
+🔍 AUTH DEBUG: user_id=3, role=owner, business_id=14, computed_tenant=14, impersonating=False
+2025-12-03 02:54:09.32
+97242af3
+User
+🔔 Querying reminders for tenant_id=14, is_system_admin=False
+2025-12-03 02:54:09.32
+97242af3
+User
+🔔 /api/notifications - tenant_id=14, g.tenant=14
+2025-12-03 02:54:09.50
+97242af3
+User
+🔔 Found 0 reminders
+2025-12-03 02:54:09.53
+97242af3
+User
+INFO: 34.23.224.173:0 - "GET /api/notifications HTTP/1.1" 200 OK
+2025-12-03 02:54:09.53
+97242af3
+User
+🔍 AUTH DEBUG: user_id=3, role=owner, business_id=14, computed_tenant=14, impersonating=False
+2025-12-03 02:54:09.75
+97242af3
+User
+INFO: 104.196.221.213:0 - "GET /api/crm/threads/972549750505/messages HTTP/1.1" 200 OK
+
+2025-12-03 02:54:10.49
+97242af3
+User
+🔍 AUTH DEBUG: user_id=3, role=owner, business_id=14, computed_tenant=14, impersonating=False
+2025-12-03 02:54:10.49
+97242af3
+User
+🔔 /api/notifications - tenant_id=14, g.tenant=14
+2025-12-03 02:54:10.49
+97242af3
+User
+🔔 Querying reminders for tenant_id=14, is_system_admin=False
+2025-12-03 02:54:10.70
+97242af3
+User
+🔔 Found 0 reminders
+2025-12-03 02:54:10.72
+97242af3
+User
+INFO: 104.196.221.213:0 - "GET /api/notifications HTTP/1.1" 200 OK
+
+Collapse
+
+Wrap

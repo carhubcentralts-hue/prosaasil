@@ -230,8 +230,11 @@ class WhatsAppConversation(db.Model):
     __tablename__ = "whatsapp_conversation"
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    customer_number = db.Column(db.String(64), nullable=False, index=True)  # ✅ BUILD 170.1: Required by DB schema
+    customer_name = db.Column(db.String(255), nullable=True)  # ✅ BUILD 170.1: Optional customer name
+    status = db.Column(db.String(32), nullable=True)  # ✅ BUILD 170.1: Optional status field
     provider = db.Column(db.String(32), default="baileys")  # baileys / meta
-    customer_wa_id = db.Column(db.String(64), nullable=False, index=True)  # Customer WhatsApp number
+    customer_wa_id = db.Column(db.String(64), nullable=True, index=True)  # Customer WhatsApp number (legacy)
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # Link to Lead if exists
     
     # Session timestamps
