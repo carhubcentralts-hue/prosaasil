@@ -79,7 +79,7 @@ class CallLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"))
-    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
+    lead_id = db.Column(db.Integer, db.ForeignKey("lead.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
     outbound_template_id = db.Column(db.Integer, db.ForeignKey("outbound_call_templates.id"), nullable=True)  # BUILD 174: Template used for outbound call
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     from_number = db.Column(db.String(64), index=True)
@@ -95,8 +95,8 @@ class CallLog(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # BUILD 174: Relationships for outbound calls
-    lead = db.relationship("Lead", backref=db.backref("call_logs", lazy="dynamic"), foreign_keys="[CallLog.lead_id]")
-    outbound_template = db.relationship("OutboundCallTemplate", backref=db.backref("calls", lazy="dynamic"), foreign_keys="[CallLog.outbound_template_id]")
+    lead = db.relationship("Lead", backref="call_logs", foreign_keys=[lead_id])
+    outbound_template = db.relationship("OutboundCallTemplate", backref="calls")
 
 class ConversationTurn(db.Model):
     """תורות שיחה - כל הודעה בשיחה טלפונית או WhatsApp"""
@@ -115,8 +115,7 @@ class ConversationTurn(db.Model):
 class BusinessSettings(db.Model):
     __tablename__ = "business_settings"
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
-    ai_prompt = db.Column(db.Text)  # AI prompt for inbound calls
-    outbound_ai_prompt = db.Column(db.Text)  # 🔥 BUILD 174: AI prompt for outbound calls (separate from inbound)
+    ai_prompt = db.Column(db.Text)
     model = db.Column(db.String(50), default="gpt-4o-mini")  # AI model for prompts
     max_tokens = db.Column(db.Integer, default=120)  # ⚡ BUILD 105: Optimized for faster responses (was 150)
     temperature = db.Column(db.Float, default=0.7)   # AI temperature setting (0-2)

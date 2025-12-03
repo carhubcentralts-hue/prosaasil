@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Phone, 
-  PhoneOutgoing,
   MessageSquare, 
   Save, 
   RefreshCw,
@@ -15,7 +14,6 @@ import { useAuth } from '../../features/auth/hooks';
 
 interface PromptData {
   calls_prompt: string;
-  outbound_calls_prompt: string;  // 🔥 BUILD 174: Separate outbound calls prompt
   whatsapp_prompt: string;
   greeting_message: string;
   whatsapp_greeting: string;
@@ -33,15 +31,13 @@ interface CallControlSettings {
 export function BusinessAISettings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<{ calls: boolean; outbound: boolean; whatsapp: boolean; callControl: boolean }>({
+  const [saving, setSaving] = useState<{ calls: boolean; whatsapp: boolean; callControl: boolean }>({
     calls: false,
-    outbound: false,
     whatsapp: false,
     callControl: false
   });
   const [prompts, setPrompts] = useState<PromptData>({
     calls_prompt: '',
-    outbound_calls_prompt: '',
     whatsapp_prompt: '',
     greeting_message: '',
     whatsapp_greeting: '',
@@ -97,19 +93,25 @@ export function BusinessAISettings() {
   }, []);
 
   // Save prompt for specific channel
-  const savePrompt = async (channel: 'calls' | 'outbound' | 'whatsapp') => {
+  const savePrompt = async (channel: 'calls' | 'whatsapp') => {
     setSaving(prev => ({ ...prev, [channel]: true }));
     
     try {
       const result = await http.put<{ success: boolean; version: number; message?: string; updated_at?: string }>(
         `/api/business/current/prompt`, 
-        { 
-          calls_prompt: prompts.calls_prompt,
-          outbound_calls_prompt: prompts.outbound_calls_prompt,
-          whatsapp_prompt: prompts.whatsapp_prompt,
-          greeting_message: prompts.greeting_message,
-          whatsapp_greeting: prompts.whatsapp_greeting
-        }
+        channel === 'calls' 
+          ? { 
+              calls_prompt: prompts.calls_prompt, 
+              whatsapp_prompt: prompts.whatsapp_prompt,
+              greeting_message: prompts.greeting_message,
+              whatsapp_greeting: prompts.whatsapp_greeting
+            }
+          : { 
+              calls_prompt: prompts.calls_prompt, 
+              whatsapp_prompt: prompts.whatsapp_prompt,
+              greeting_message: prompts.greeting_message,
+              whatsapp_greeting: prompts.whatsapp_greeting
+            }
       );
 
       if (result.success) {
@@ -119,21 +121,14 @@ export function BusinessAISettings() {
           last_updated: result.updated_at || new Date().toISOString()
         }));
         
-        const channelNames: Record<string, string> = {
-          calls: '✅ פרומפט שיחות נכנסות נשמר בהצלחה!',
-          outbound: '✅ פרומפט שיחות יוצאות נשמר בהצלחה!',
-          whatsapp: '✅ פרומפט WhatsApp נשמר בהצלחה!'
-        };
-        alert(channelNames[channel]);
+        alert(channel === 'calls' 
+          ? '✅ פרומפט שיחות נשמר בהצלחה!' 
+          : '✅ פרומפט WhatsApp נשמר בהצלחה!'
+        );
       }
     } catch (err) {
       console.error(`❌ Failed to save ${channel} prompt:`, err);
-      const channelNames: Record<string, string> = {
-        calls: 'שיחות נכנסות',
-        outbound: 'שיחות יוצאות',
-        whatsapp: 'WhatsApp'
-      };
-      alert(`שגיאה בשמירת פרומפט ${channelNames[channel]}`);
+      alert(`שגיאה בשמירת פרומפט ${channel === 'calls' ? 'שיחות' : 'WhatsApp'}`);
     } finally {
       setSaving(prev => ({ ...prev, [channel]: false }));
     }
@@ -276,112 +271,64 @@ export function BusinessAISettings() {
           </div>
         </div>
 
-        {/* Outbound Calls Prompt - BUILD 174 */}
+        {/* WhatsApp Prompt */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-              <PhoneOutgoing className="h-5 w-5 text-orange-600" />
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <MessageSquare className="h-5 w-5 text-green-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-slate-900">פרומפט שיחות יוצאות</h3>
-              <p className="text-sm text-slate-500">הנחיות ל-AI עבור שיחות שאתה יוזם</p>
+              <h3 className="text-lg font-semibold text-slate-900">פרומפט WhatsApp</h3>
+              <p className="text-sm text-slate-500">הנחיות ל-AI עבור הודעות WhatsApp</p>
             </div>
           </div>
           
+          {/* Greeting Message for WhatsApp */}
           <div className="mb-4">
-            <p className="text-sm text-slate-600 mb-2">
-              💡 פרומפט זה ישמש כאשר ה-AI מתקשר ללקוחות (שיחות יוצאות). 
-              אם לא מוגדר, המערכת תשתמש בפרומפט השיחות הנכנסות.
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              💬 הודעת פתיחה (ברכה ראשונית)
+            </label>
+            <input
+              type="text"
+              value={prompts.whatsapp_greeting}
+              onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_greeting: e.target.value }))}
+              placeholder='שלום! אני העוזרת של {{business_name}} ב-WhatsApp. איך אפשר לעזור?'
+              className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              dir="rtl"
+              data-testid="input-greeting-whatsapp"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              זו ההודעה הראשונה שהלקוח יקבל ב-WhatsApp. השתמש ב-{'{{business_name}}'} לשם העסק
             </p>
           </div>
           
           <textarea
-            value={prompts.outbound_calls_prompt}
-            onChange={(e) => setPrompts(prev => ({ ...prev, outbound_calls_prompt: e.target.value }))}
-            placeholder="הכנס הנחיות עבור AI Agent בשיחות יוצאות... לדוגמה: 'אתה נציג מכירות שמתקשר ללקוח כדי להציע שירותים. היה אדיב וקצר, הצג את הערך ללקוח.'"
-            className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+            value={prompts.whatsapp_prompt}
+            onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_prompt: e.target.value }))}
+            placeholder="הכנס הנחיות עבור AI Agent בהודעות WhatsApp..."
+            className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500"
             dir="rtl"
-            data-testid="textarea-prompt-outbound"
+            data-testid="textarea-prompt-whatsapp"
           />
           
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
             <p className="text-xs text-slate-500">
-              {prompts.outbound_calls_prompt.length} תווים
+              {prompts.whatsapp_prompt.length} תווים
             </p>
             <button
-              onClick={() => savePrompt('outbound')}
-              disabled={saving.outbound}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              data-testid="button-save-outbound-prompt"
+              onClick={() => savePrompt('whatsapp')}
+              disabled={saving.whatsapp}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              data-testid="button-save-whatsapp-prompt"
             >
-              {saving.outbound ? (
+              {saving.whatsapp ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              {saving.outbound ? 'שומר...' : 'שמור פרומפט יוצאות'}
+              {saving.whatsapp ? 'שומר...' : 'שמור פרומפט WhatsApp'}
             </button>
           </div>
-        </div>
-      </div>
-
-      {/* WhatsApp Prompt - Full Width */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-            <MessageSquare className="h-5 w-5 text-green-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">פרומפט WhatsApp</h3>
-            <p className="text-sm text-slate-500">הנחיות ל-AI עבור הודעות WhatsApp</p>
-          </div>
-        </div>
-        
-        {/* Greeting Message for WhatsApp */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            💬 הודעת פתיחה (ברכה ראשונית)
-          </label>
-          <input
-            type="text"
-            value={prompts.whatsapp_greeting}
-            onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_greeting: e.target.value }))}
-            placeholder='שלום! אני העוזרת של {{business_name}} ב-WhatsApp. איך אפשר לעזור?'
-            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-            dir="rtl"
-            data-testid="input-greeting-whatsapp"
-          />
-          <p className="text-xs text-slate-500 mt-1">
-            זו ההודעה הראשונה שהלקוח יקבל ב-WhatsApp. השתמש ב-{'{{business_name}}'} לשם העסק
-          </p>
-        </div>
-        
-        <textarea
-          value={prompts.whatsapp_prompt}
-          onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_prompt: e.target.value }))}
-          placeholder="הכנס הנחיות עבור AI Agent בהודעות WhatsApp..."
-          className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500"
-          dir="rtl"
-          data-testid="textarea-prompt-whatsapp"
-        />
-        
-        <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
-          <p className="text-xs text-slate-500">
-            {prompts.whatsapp_prompt.length} תווים
-          </p>
-          <button
-            onClick={() => savePrompt('whatsapp')}
-            disabled={saving.whatsapp}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            data-testid="button-save-whatsapp-prompt"
-          >
-            {saving.whatsapp ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            {saving.whatsapp ? 'שומר...' : 'שמור פרומפט WhatsApp'}
-          </button>
         </div>
       </div>
 

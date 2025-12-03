@@ -483,14 +483,12 @@ def outbound_call():
         call_sid = request.args.get("CallSid", "")
         lead_id = request.args.get("lead_id", "")
         lead_name = request.args.get("lead_name", "")
-        business_id = request.args.get("business_id", "")
         business_name = request.args.get("business_name", "")
         template_id = request.args.get("template_id", "")
     else:
         call_sid = request.form.get("CallSid", "")
         lead_id = request.args.get("lead_id", "")
         lead_name = request.args.get("lead_name", "")
-        business_id = request.args.get("business_id", "")
         business_name = request.args.get("business_name", "")
         template_id = request.args.get("template_id", "")
     
@@ -532,7 +530,6 @@ def outbound_call():
     stream.parameter(name="direction", value="outbound")
     stream.parameter(name="lead_id", value=lead_id)
     stream.parameter(name="lead_name", value=lead_name)
-    stream.parameter(name="business_id", value=business_id)
     stream.parameter(name="business_name", value=business_name)
     if template_id:
         stream.parameter(name="template_id", value=template_id)
