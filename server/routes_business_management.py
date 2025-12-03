@@ -691,11 +691,15 @@ def exit_impersonation():
 def get_current_business():
     """Get current business details for authenticated user"""
     try:
-        from flask import request, g
+        from flask import request, g, session
         
-        # Get business_id from context
-        business_id = getattr(g, 'business_id', None)
+        business_id = g.get('tenant') or getattr(g, 'business_id', None)
         if not business_id:
+            user = session.get('user', {}) or session.get('al_user', {})
+            business_id = session.get('impersonated_tenant_id') or user.get('business_id')
+        
+        if not business_id:
+            logger.warning("No business context found in get_current_business")
             return jsonify({"error": "No business context found"}), 400
             
         business = Business.query.filter_by(id=business_id).first()

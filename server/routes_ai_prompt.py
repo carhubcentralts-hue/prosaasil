@@ -285,15 +285,22 @@ def get_current_business_prompt():
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
-@require_api_auth(['system_admin', 'owner', 'admin'])  # BUILD 138: owner can update AI settings
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def update_current_business_prompt():
-    """Update AI prompt for current business - Business (Impersonated, דורש CSRF)"""
+    """Update AI prompt for current business"""
     try:
-        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
+        from flask import g
+        
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')
         if not tenant_id:
+            user = session.get('al_user', {})
+            tenant_id = user.get('business_id')
+        
+        if not tenant_id:
+            logger.warning("No tenant_id found in update_current_business_prompt")
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
         
-        # Call the internal handler directly - returns Flask Response
+        logger.info(f"Updating prompts for business {tenant_id}")
         return update_business_prompt(tenant_id)
         
     except Exception as e:
