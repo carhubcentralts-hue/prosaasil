@@ -2176,10 +2176,18 @@ class MediaStreamHandler:
                             should_hangup = True
                             print(f"✅ [HANGUP] User confirmed all details - disconnecting")
                         
+                        # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
+                        # This allows AI to end the call politely even without explicit user goodbye
+                        elif self.auto_end_on_goodbye and ai_polite_closing_detected:
+                            hangup_reason = "ai_goodbye_auto_end"
+                            should_hangup = True
+                            print(f"✅ [HANGUP BUILD 176] AI said goodbye with auto_end_on_goodbye=True - disconnecting")
+                        
                         # Log when AI says closing but we're blocking hangup
                         elif ai_polite_closing_detected:
                             print(f"🔒 [HANGUP BLOCKED] AI said closing phrase but conditions not met:")
                             print(f"   goodbye_detected={self.goodbye_detected}")
+                            print(f"   auto_end_on_goodbye={self.auto_end_on_goodbye}")
                             print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}, lead_captured={self.lead_captured}")
                             print(f"   verification_confirmed={self.verification_confirmed}")
                         
@@ -2408,11 +2416,17 @@ class MediaStreamHandler:
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
                         
-                        # 🛡️ BUILD 168: Detect user confirmation words
-                        confirmation_words = ["כן", "נכון", "בדיוק", "כן כן", "yes", "correct", "exactly", "יופי", "מסכים", "בסדר"]
+                        # 🛡️ BUILD 168: Detect user confirmation words (expanded in BUILD 176)
+                        confirmation_words = [
+                            "כן", "נכון", "בדיוק", "כן כן", "yes", "correct", "exactly", 
+                            "יופי", "מסכים", "בסדר", "מאה אחוז", "אוקיי", "אוקי", "ok",
+                            "בטח", "סבבה", "מעולה", "תודה", "תודה רבה", "הכל נכון",
+                            "זה נכון", "כן הכל", "כן כן כן", "אישור", "מאשר", "מאשרת",
+                            "סגור", "סיימנו", "סיימתי", "זהו", "נכון מאוד", "אכן"
+                        ]
                         transcript_lower = transcript.strip().lower()
                         if any(word in transcript_lower for word in confirmation_words):
-                            print(f"✅ [BUILD 168] User CONFIRMED - verification_confirmed = True")
+                            print(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
                             self.verification_confirmed = True
                         
                         # 🛡️ BUILD 168: If user says correction words, reset verification

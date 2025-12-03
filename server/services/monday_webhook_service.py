@@ -32,17 +32,31 @@ def send_call_transcript_to_monday(*, business, call, transcript: str) -> None:
         business_id = None
         business_name = "Unknown"
         
+        logger.info(f"[MONDAY] 🔍 Starting Monday webhook check for business: {getattr(business, 'id', 'N/A')}")
+        
         if hasattr(business, 'id'):
             business_id = business.id
             business_name = getattr(business, 'name', 'Unknown')
             settings = BusinessSettings.query.filter_by(tenant_id=business.id).first()
+            logger.info(f"[MONDAY] 🔍 Loaded settings for business {business_id}: settings_found={settings is not None}")
+        else:
+            logger.warning(f"[MONDAY] ⚠️ Business object has no 'id' attribute: {type(business)}")
+            return
         
         if settings:
             monday_webhook_url = settings.monday_webhook_url
             send_transcripts = settings.send_call_transcripts_to_monday
+            logger.info(f"[MONDAY] 🔍 Settings: URL={bool(monday_webhook_url)}, enabled={send_transcripts}, URL_prefix={monday_webhook_url[:50] if monday_webhook_url else 'None'}...")
+        else:
+            logger.warning(f"[MONDAY] ⚠️ No BusinessSettings found for tenant_id={business_id}")
+            return
         
-        if not monday_webhook_url or not send_transcripts:
-            logger.debug(f"[MONDAY] Skipping webhook for business {business_id}: URL={bool(monday_webhook_url)}, enabled={send_transcripts}")
+        if not monday_webhook_url:
+            logger.info(f"[MONDAY] ⏭️ Skipping - no webhook URL configured for business {business_id}")
+            return
+            
+        if not send_transcripts:
+            logger.info(f"[MONDAY] ⏭️ Skipping - send_call_transcripts_to_monday=False for business {business_id}")
             return
         
         call_data = {
@@ -64,7 +78,11 @@ def send_call_transcript_to_monday(*, business, call, transcript: str) -> None:
             "transcript": transcript
         }
         
-        logger.info(f"[MONDAY] Sending transcript to Monday for business {business_id}, call {call_data.get('call_id')}")
+        transcript_preview = transcript[:100] if transcript else "(empty)"
+        logger.info(f"[MONDAY] 📤 Sending transcript to Monday for business {business_id}, call {call_data.get('call_id')}")
+        logger.info(f"[MONDAY] 📤 Payload: call_sid={call_data.get('call_sid')}, duration={call_data.get('duration_sec')}s, transcript_len={len(transcript) if transcript else 0}")
+        logger.info(f"[MONDAY] 📤 Transcript preview: {transcript_preview}...")
+        logger.info(f"[MONDAY] 📤 Webhook URL: {monday_webhook_url}")
         
         response = requests.post(
             monday_webhook_url,
@@ -77,16 +95,16 @@ def send_call_transcript_to_monday(*, business, call, transcript: str) -> None:
         )
         
         if response.status_code >= 200 and response.status_code < 300:
-            logger.info(f"[MONDAY] ✅ Successfully sent transcript to Monday. Status: {response.status_code}")
+            logger.info(f"[MONDAY] ✅ Successfully sent transcript to Monday. Status: {response.status_code}, Response: {response.text[:100]}")
         else:
-            logger.warning(f"[MONDAY] ⚠️ Monday webhook returned status {response.status_code}: {response.text[:200]}")
+            logger.warning(f"[MONDAY] ❌ Monday webhook FAILED - Status {response.status_code}: {response.text[:200]}")
             
     except requests.exceptions.Timeout:
-        logger.warning(f"[MONDAY] ⚠️ Timeout sending transcript to Monday webhook")
+        logger.warning(f"[MONDAY] ❌ TIMEOUT sending transcript to Monday webhook (10s limit)")
     except requests.exceptions.ConnectionError as e:
-        logger.warning(f"[MONDAY] ⚠️ Connection error sending to Monday webhook: {e}")
+        logger.warning(f"[MONDAY] ❌ CONNECTION ERROR sending to Monday webhook: {e}")
     except Exception as e:
-        logger.warning(f"[MONDAY] ⚠️ Error sending transcript to Monday: {e}")
+        logger.warning(f"[MONDAY] ❌ UNEXPECTED ERROR sending transcript to Monday: {e}", exc_info=True)
 
 
 def send_whatsapp_transcript_to_monday(*, business, lead, transcript: str, conversation_id: Optional[int] = None) -> None:

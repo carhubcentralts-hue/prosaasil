@@ -207,14 +207,20 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             try:
                 from server.services.monday_webhook_service import send_call_transcript_to_monday
                 business = Business.query.filter_by(id=call_log.business_id).first()
+                log.info(f"[MONDAY] 🔍 Checking Monday webhook: business_id={call_log.business_id}, business_found={business is not None}, transcription_len={len(transcription) if transcription else 0}")
                 if business and transcription:
                     send_call_transcript_to_monday(
                         business=business,
                         call=call_log,
                         transcript=transcription
                     )
+                else:
+                    if not business:
+                        log.warning(f"[MONDAY] ⚠️ Business not found for id={call_log.business_id}")
+                    if not transcription:
+                        log.warning(f"[MONDAY] ⚠️ No transcription available for call {call_sid}")
             except Exception as monday_err:
-                log.warning(f"[MONDAY] Monday webhook failed (non-blocking): {monday_err}")
+                log.warning(f"[MONDAY] ❌ Monday webhook failed (non-blocking): {monday_err}", exc_info=True)
         
     except Exception as e:
         log.error("DB save + AI processing failed: %s", e)
