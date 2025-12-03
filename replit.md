@@ -36,7 +36,6 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Hebrew Grammar & Natural Speech**: Improved system prompt, Hebrew normalization dictionary, expanded whitelist for valid speech, smarter filter logic, phrase detection, and language switch rules.
 - **Call Control State Machine (BUILD 172)**: Single source of truth for all call settings. CallState enum (WARMUP/ACTIVE/CLOSING/ENDED) manages lifecycle. load_call_config() loads BusinessSettings once per call. All settings (bot_speaks_first, auto_end_*, silence_timeout, etc.) read from CallConfig only. Legacy `_load_call_behavior_settings()` removed. Safety guards ensure ACTIVE state on first speech. Silence monitoring with configurable warnings and polite hangup.
 - **BUILD 176 Hangup Improvements**: Enhanced call hangup logic with 4 cases: (1) user_goodbye - user said bye + AI responds, (2) lead_captured_confirmed - lead captured + confirmed + auto_end=True, (3) user_verified - user confirmed details, (4) ai_goodbye_auto_end - AI goodbye with auto_end_on_goodbye=True + meaningful user interaction (safety guards: user_has_spoken + verification OR lead captured OR 4+ conversation turns). Expanded Hebrew confirmation detection with 25+ words (כן, נכון, בדיוק, יופי, מסכים, בסדר, אוקי, תודה, מאשר, סגור, זהו, etc.).
-- **BUILD 176 Monday.com Webhook Debugging**: Comprehensive logging throughout webhook flow: settings lookup, URL/enabled flags, payload preview, HTTP response/status. Helps diagnose why transcripts may not be sent.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -69,7 +68,6 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice time.
 - **CRM Tasks**: Redesigned task board with notifications. N+1 query optimized with batch prefetch (BUILD 172).
 - **Bulk Lead Deletion**: Cascade delete for all related FK tables (LeadActivity, LeadReminder, LeadNote, LeadMergeCandidate) with proper transaction rollback.
-- **Monday.com Webhook Integration**: Per-business configurable webhook for call transcript sending.
 - **Auto Hang-up Settings**: Options to automatically end calls after lead capture or on goodbye phrases.
 - **Bot Speaks First**: Option for the bot to play greeting before listening to the customer.
 - **Outbound AI Calls (BUILD 174)**: AI-initiated calls to leads with concurrency limits (max 3 outbound, 5 total per business). Template-based prompts with custom greeting injection. Frontend page at `/app/outbound-calls` with lead selection, template picker, and real-time call status. Call limiter service enforces limits for both inbound and outbound calls. Separate outbound AI prompt (`outbound_ai_prompt`) for business-level outbound call instructions distinct from inbound calls.
@@ -81,7 +79,7 @@ ProSaaS implements a multi-tenant architecture with strict data isolation, integ
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets>=13.0**: Python library for WebSocket connections.
-- **n8n**: Workflow automation platform for custom automations.
+- **n8n**: Workflow automation platform for external integrations (Monday.com, Google Sheets, Slack, etc.) via webhooks - preferred over hardcoded integrations.
 
 # Outbound Calls – Validation Checklist (BUILD 174)
 
