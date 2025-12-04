@@ -3197,10 +3197,11 @@ ALWAYS mention their name in the first sentence.
                 return
             
             # Priority 2: Phone - ONLY ask if require_phone_before_booking is True AND no phone available
+            # 🔥 BUILD 183: Removed DTMF - always ask VERBALLY for phone, never via keypad
             if not customer_phone:
                 if require_phone_verification:
-                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Sending need_phone event")
-                    await self._send_server_event_to_ai("need_phone - שאל את הלקוח: אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)")
+                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Asking VERBALLY for phone")
+                    await self._send_server_event_to_ai("need_phone - שאל את הלקוח בקול: מה מספר הטלפון שלך? שיאמר אותו בקול, לא בלחיצות.")
                     return
                 else:
                     # 🔥 BUILD 182: Try to use caller ID one more time

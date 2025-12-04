@@ -133,7 +133,7 @@ class BusinessSettings(db.Model):
     opening_hours_json = db.Column(db.JSON, nullable=True)  # {"sun":[["10:00","20:00"]], "mon":[...], ...}
     booking_window_days = db.Column(db.Integer, default=30)  # How many days ahead can customers book
     min_notice_min = db.Column(db.Integer, default=0)  # Minimum notice time in minutes before appointment
-    require_phone_before_booking = db.Column(db.Boolean, default=False)  # 🔥 BUILD 182: Use Caller ID by default, DTMF only if enabled
+    require_phone_before_booking = db.Column(db.Boolean, default=False)  # 🔥 BUILD 182/183: Use Caller ID by default, ask verbally if enabled (NO DTMF)
     
     # 🔥 BUILD 177: Generic Webhook for external integrations (n8n, Zapier, etc.)
     generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts (fallback)
