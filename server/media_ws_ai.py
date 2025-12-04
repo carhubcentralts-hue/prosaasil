@@ -4533,14 +4533,15 @@ ALWAYS mention their name in the first sentence.
                         print(f"✅ [LOOP GUARD] User started speaking - disengaging loop guard EARLY")
                         self._loop_guard_engaged = False
                     
-                    # 🔥 BUILD 194: SUSTAINED SPEECH REQUIREMENT
+                    # 🔥 BUILD 195: SUSTAINED SPEECH REQUIREMENT
                     # Don't trigger barge-in immediately - wait 600ms to confirm it's real speech
                     # This prevents choppy audio from short noise bursts
                     self._speech_started_at = time.time()
-                    self._barge_in_pending = True  # Mark that we're waiting to confirm speech
-                    print(f"⏳ [BUILD 194] Speech detected - waiting 600ms to confirm...")
+                    self._sustained_speech_confirmed = False  # Will be set True after 600ms
+                    print(f"⏳ [BUILD 195] Speech detected - will confirm after 600ms sustained speech...")
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
+                    # Must keep sending audio so OpenAI can capture the speech
                     self._realtime_speech_active = True
                     self._realtime_speech_started_ts = time.time()
                     print(f"🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI")
@@ -4549,18 +4550,20 @@ ALWAYS mention their name in the first sentence.
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     
-                    # 🔥 BUILD 194: Check if speech was sustained (600ms+) for valid barge-in
+                    # 🔥 BUILD 195: Check if speech was sustained (600ms+) for valid input
                     SUSTAINED_SPEECH_MS = 600
                     speech_started_at = getattr(self, '_speech_started_at', 0)
                     if speech_started_at:
                         speech_duration_ms = (time.time() - speech_started_at) * 1000
                         if speech_duration_ms < SUSTAINED_SPEECH_MS:
-                            print(f"⚡ [BUILD 194] Short speech ({speech_duration_ms:.0f}ms < {SUSTAINED_SPEECH_MS}ms) - likely noise, barge-in cancelled")
-                            self._barge_in_pending = False
+                            print(f"⚡ [BUILD 195] SHORT speech ({speech_duration_ms:.0f}ms < {SUSTAINED_SPEECH_MS}ms) - likely noise, NOT valid input")
+                            self._sustained_speech_confirmed = False
                         else:
-                            print(f"✅ [BUILD 194] Sustained speech ({speech_duration_ms:.0f}ms) - valid user input")
-                            self._barge_in_pending = False
+                            print(f"✅ [BUILD 195] SUSTAINED speech ({speech_duration_ms:.0f}ms >= {SUSTAINED_SPEECH_MS}ms) - valid user input")
+                            self._sustained_speech_confirmed = True
                     
+                    # Reset timestamps
+                    self._speech_started_at = 0
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
                     # 🔥 BUILD 192: Recovery now triggered IMMEDIATELY from response.done
                     # No longer waiting for speech_stopped (which might never come if speech_started was blocked)
@@ -4792,17 +4795,22 @@ ALWAYS mention their name in the first sentence.
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
-                        # 🔥 BUILD 194: Detect AI asking verification question
-                        # Set pending_confirmation=True when AI asks for confirmation
-                        # This ensures we wait for user's "כן" before closing
+                        # 🔥 BUILD 195: Detect FINAL verification question (END OF CALL ONLY!)
+                        # Only set pending_confirmation when lead already captured AND AI asks for confirmation
+                        # This prevents casual "כן" mid-call from triggering confirmation
                         verification_phrases = [
-                            "נכון?", "נכון", "הפרטים נכונים", "זה נכון", "מוודאת", "מוודא",
-                            "רק לוודא", "רק מוודאת", "לוודא שהבנתי", "זה בסדר", "נכון שהבנתי"
+                            "נכון?", "הפרטים נכונים", "מוודאת", "מוודא",
+                            "רק לוודא", "רק מוודאת", "לוודא שהבנתי", "נכון שהבנתי"
                         ]
                         is_verification_question = any(phrase in transcript for phrase in verification_phrases)
-                        if is_verification_question:
+                        
+                        # 🔥 BUILD 195: CRITICAL - Only activate pending_confirmation at END of call
+                        # Requires: lead_captured=True (we have all the info we need)
+                        if is_verification_question and getattr(self, 'lead_captured', False):
                             self.pending_confirmation = True
-                            print(f"🔔 [BUILD 194] AI asked verification question - waiting for user confirmation")
+                            print(f"🔔 [BUILD 195] FINAL verification question (lead_captured=True) - waiting for user confirmation")
+                        elif is_verification_question:
+                            print(f"ℹ️ [BUILD 195] Verification phrase detected but lead NOT captured yet - NOT setting pending_confirmation")
                         
                         # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
                         # Added: length floor to avoid false positives on short confirmations
@@ -6953,8 +6961,27 @@ ALWAYS mention their name in the first sentence.
                             # Per architect: Increased from 220ms to prevent AI cutoff on background noise
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
+                                
+                                # 🔥 BUILD 195: Update _sustained_speech_confirmed in real-time
+                                # Check duration and set flag if >=600ms
+                                speech_started_at = getattr(self, '_speech_started_at', 0)
+                                if speech_started_at:
+                                    speech_duration_ms = (time.time() - speech_started_at) * 1000
+                                    if speech_duration_ms >= 600 and not getattr(self, '_sustained_speech_confirmed', False):
+                                        self._sustained_speech_confirmed = True
+                                        print(f"✅ [BUILD 195] Sustained speech CONFIRMED after {speech_duration_ms:.0f}ms")
+                                
                                 # 🔥 ARCHITECT FIX: Use BARGE_IN_VOICE_FRAMES constant, not hardcoded 11
                                 if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
+                                    # 🔥 BUILD 195: REQUIRE _sustained_speech_confirmed before barge-in
+                                    # This ensures we only interrupt AI for REAL speech (600ms+)
+                                    if not getattr(self, '_sustained_speech_confirmed', False):
+                                        # Not confirmed yet - check duration directly as fallback
+                                        if not speech_started_at or (time.time() - speech_started_at) * 1000 < 600:
+                                            print(f"🛡️ [BUILD 195] Barge-in BLOCKED - speech not confirmed (sustained_speech_confirmed=False)")
+                                            self.barge_in_voice_frames = 0
+                                            continue
+                                    
                                     print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= {speech_threshold:.0f}, "
                                           f"continuous={self.barge_in_voice_frames} frames ({BARGE_IN_VOICE_FRAMES*20}ms)")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
@@ -6965,6 +6992,11 @@ ALWAYS mention their name in the first sentence.
                             else:
                                 # Voice dropped below threshold - gradual reset
                                 self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 2)
+                                # 🔥 BUILD 195: Also reset sustained speech on silence
+                                if getattr(self, '_sustained_speech_confirmed', False):
+                                    self._sustained_speech_confirmed = False
+                                    self._speech_started_at = 0
+                                    print(f"🔄 [BUILD 195] Voice dropped - resetting sustained speech flag")
                     
                     # 🔥 BUILD 165: Calibration already done above (before audio routing)
                     # No duplicate calibration needed here

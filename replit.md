@@ -24,6 +24,11 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
 - **Call Quality**: Includes barge-in protection, STT segment merging, noise filtering, gibberish/semantic loop detection, mishearing protection, and silence hallucination prevention. VAD parameters are tuned for normal speech.
 - **Webhook**: Separate inbound/outbound webhook URLs with HMAC signature verification and retry logic.
 - **Conversation Flow**: Implements robust recovery for cancelled responses, smart overlap grace, and a `user_speech_seen` flag to prevent silence and drops. Includes confirmation gates and closing fence guards to prevent AI loops.
+- **BUILD 195 Confirmation & Sound Fixes**:
+  - **End-of-call confirmation gate**: `pending_confirmation` now requires `lead_captured=True` before activating. Casual "כן" mid-call is ignored - only final verification triggers confirmation.
+  - **Context-aware city rejection**: City normalizer rejects non-city words ("כן", "לא", "סבבה") with hint to reprompt.
+  - **Sustained speech tracking**: Speech <600ms logged as noise. `_sustained_speech_confirmed` flag set only after 600ms+ continuous speech.
+  - **Response grace period**: 1000ms before allowing barge-in on new AI responses.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
