@@ -3647,6 +3647,9 @@ class MediaStreamHandler:
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
         self._verification_prompt_sent = False  # Tracks if we already asked for verification
         self._silence_final_chance_given = False  # Tracks if we gave extra chance before silence hangup
+        # 🔥 BUILD 194: PENDING CONFIRMATION GATE - AI must ask verification question first
+        # Only set verification_confirmed when pending_confirmation is True
+        self.pending_confirmation = False  # True when AI asked "נכון?/הפרטים נכונים?"
 
     def _init_streaming_stt(self):
         """
@@ -4064,24 +4067,28 @@ class MediaStreamHandler:
             # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
             # No waiting for CRM, no 0.2s delay - just speak!
             if self.bot_speaks_first:
-                greeting_start_ts = time.time()
-                print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
-                self.greeting_sent = True  # Mark greeting as sent to allow audio through
-                self.is_playing_greeting = True
-                self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-                try:
-                    await client.send_event({"type": "response.create"})
-                    t_speak = time.time()
-                    # 📊 Total time from OpenAI init to response.create
-                    total_openai_ms = (t_speak - t_start) * 1000
-                    # Also log from T0 if available
-                    if hasattr(self, 't0_connected'):
-                        total_from_t0 = (t_speak - self.t0_connected) * 1000
-                        print(f"✅ [BUILD 163] response.create sent! OpenAI={total_openai_ms:.0f}ms, T0→speak={total_from_t0:.0f}ms")
-                    else:
-                        print(f"✅ [BUILD 163] response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
-                except Exception as e:
-                    print(f"❌ [BUILD 163] Failed to trigger bot speaks first: {e}")
+                # 🔥 BUILD 194: CLOSING FENCE - Don't send greeting if already closing
+                if getattr(self, 'closing_sent', False):
+                    print(f"🔒 [BUILD 194] Skipping greeting - closing already sent")
+                else:
+                    greeting_start_ts = time.time()
+                    print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
+                    self.greeting_sent = True  # Mark greeting as sent to allow audio through
+                    self.is_playing_greeting = True
+                    self._greeting_start_ts = greeting_start_ts  # Store for duration logging
+                    try:
+                        await client.send_event({"type": "response.create"})
+                        t_speak = time.time()
+                        # 📊 Total time from OpenAI init to response.create
+                        total_openai_ms = (t_speak - t_start) * 1000
+                        # Also log from T0 if available
+                        if hasattr(self, 't0_connected'):
+                            total_from_t0 = (t_speak - self.t0_connected) * 1000
+                            print(f"✅ [BUILD 163] response.create sent! OpenAI={total_openai_ms:.0f}ms, T0→speak={total_from_t0:.0f}ms")
+                        else:
+                            print(f"✅ [BUILD 163] response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                    except Exception as e:
+                        print(f"❌ [BUILD 163] Failed to trigger bot speaks first: {e}")
             else:
                 # Standard flow - AI waits for user speech first
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
@@ -4503,9 +4510,10 @@ ALWAYS mention their name in the first sentence.
                         print(f"🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing")
                         continue  # Don't process this event at all
                     
-                    # 🔥 BUILD 191: RESPONSE GRACE PERIOD - Ignore speech_started within 750ms of response.created
+                    # 🔥 BUILD 194: RESPONSE GRACE PERIOD - Ignore speech_started within 1000ms of response.created
                     # This prevents echo/noise from cancelling the response before audio starts
-                    RESPONSE_GRACE_PERIOD_MS = 750  # 🔥 BUILD 191: 750ms (was 500) - longer grace to prevent cancelled responses
+                    # 🔥 BUILD 194: Increased to 1000ms - choppy speech fix
+                    RESPONSE_GRACE_PERIOD_MS = 1000  # 🔥 BUILD 194: 1000ms (was 750) - prevent choppy interruptions
                     response_created_ts = getattr(self, '_response_created_ts', 0)
                     time_since_response = (time.time() - response_created_ts) * 1000 if response_created_ts else 99999
                     if time_since_response < RESPONSE_GRACE_PERIOD_MS and self.active_response_id:
@@ -4524,6 +4532,14 @@ ALWAYS mention their name in the first sentence.
                     if self._loop_guard_engaged:
                         print(f"✅ [LOOP GUARD] User started speaking - disengaging loop guard EARLY")
                         self._loop_guard_engaged = False
+                    
+                    # 🔥 BUILD 194: SUSTAINED SPEECH REQUIREMENT
+                    # Don't trigger barge-in immediately - wait 600ms to confirm it's real speech
+                    # This prevents choppy audio from short noise bursts
+                    self._speech_started_at = time.time()
+                    self._barge_in_pending = True  # Mark that we're waiting to confirm speech
+                    print(f"⏳ [BUILD 194] Speech detected - waiting 600ms to confirm...")
+                    
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
                     self._realtime_speech_started_ts = time.time()
@@ -4532,6 +4548,19 @@ ALWAYS mention their name in the first sentence.
                 # 🔥 BUILD 166: Clear speech active flag when speech ends
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
+                    
+                    # 🔥 BUILD 194: Check if speech was sustained (600ms+) for valid barge-in
+                    SUSTAINED_SPEECH_MS = 600
+                    speech_started_at = getattr(self, '_speech_started_at', 0)
+                    if speech_started_at:
+                        speech_duration_ms = (time.time() - speech_started_at) * 1000
+                        if speech_duration_ms < SUSTAINED_SPEECH_MS:
+                            print(f"⚡ [BUILD 194] Short speech ({speech_duration_ms:.0f}ms < {SUSTAINED_SPEECH_MS}ms) - likely noise, barge-in cancelled")
+                            self._barge_in_pending = False
+                        else:
+                            print(f"✅ [BUILD 194] Sustained speech ({speech_duration_ms:.0f}ms) - valid user input")
+                            self._barge_in_pending = False
+                    
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
                     # 🔥 BUILD 192: Recovery now triggered IMMEDIATELY from response.done
                     # No longer waiting for speech_stopped (which might never come if speech_started was blocked)
@@ -4762,6 +4791,18 @@ ALWAYS mention their name in the first sentence.
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
+                        
+                        # 🔥 BUILD 194: Detect AI asking verification question
+                        # Set pending_confirmation=True when AI asks for confirmation
+                        # This ensures we wait for user's "כן" before closing
+                        verification_phrases = [
+                            "נכון?", "נכון", "הפרטים נכונים", "זה נכון", "מוודאת", "מוודא",
+                            "רק לוודא", "רק מוודאת", "לוודא שהבנתי", "זה בסדר", "נכון שהבנתי"
+                        ]
+                        is_verification_question = any(phrase in transcript for phrase in verification_phrases)
+                        if is_verification_question:
+                            self.pending_confirmation = True
+                            print(f"🔔 [BUILD 194] AI asked verification question - waiting for user confirmation")
                         
                         # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
                         # Added: length floor to avoid false positives on short confirmations
@@ -5388,17 +5429,33 @@ ALWAYS mention their name in the first sentence.
                             print(f"🔄 [BUILD 186] Marked incoherent response - AI will ask for clarification")
                         
                         # 🛡️ BUILD 168: Detect user confirmation words (expanded in BUILD 176)
+                        # 🔥 BUILD 194: ONLY set verification_confirmed if pending_confirmation is True!
+                        # This prevents false positives when user says "כן" to other questions
                         confirmation_words = [
                             "כן", "נכון", "בדיוק", "כן כן", "yes", "correct", "exactly", 
                             "יופי", "מסכים", "בסדר", "מאה אחוז", "אוקיי", "אוקי", "ok",
-                            "בטח", "סבבה", "מעולה", "תודה", "תודה רבה", "הכל נכון",
+                            "בטח", "סבבה", "מעולה", "הכל נכון",
                             "זה נכון", "כן הכל", "כן כן כן", "אישור", "מאשר", "מאשרת",
-                            "סגור", "סיימנו", "סיימתי", "זהו", "נכון מאוד", "אכן"
+                            "נכון מאוד", "אכן"
                         ]
                         transcript_lower = transcript.strip().lower()
-                        if any(word in transcript_lower for word in confirmation_words):
-                            print(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
-                            self.verification_confirmed = True
+                        is_confirmation = any(word in transcript_lower for word in confirmation_words)
+                        
+                        if is_confirmation:
+                            # 🔥 BUILD 194: ONLY confirm if we were waiting for confirmation!
+                            if getattr(self, 'pending_confirmation', False):
+                                print(f"✅ [BUILD 194] User CONFIRMED after verification question - verification_confirmed = True")
+                                self.verification_confirmed = True
+                                self.pending_confirmation = False  # Reset - confirmation received
+                            else:
+                                # User said "כן" but we weren't asking for confirmation
+                                print(f"⚠️ [BUILD 194] User said '{transcript[:20]}' but no verification question was asked - IGNORED")
+                        else:
+                            # 🔥 BUILD 194: Any non-confirmation response resets pending_confirmation
+                            # This prevents later unrelated "כן" from triggering false confirmation
+                            if getattr(self, 'pending_confirmation', False):
+                                print(f"🔄 [BUILD 194] Non-confirmation response - resetting pending_confirmation")
+                                self.pending_confirmation = False
                         
                         # 🛡️ BUILD 168: If user says correction words, reset verification
                         correction_words = ["לא", "רגע", "שנייה", "לא נכון", "טעות", "תתקן", "לשנות"]
@@ -5576,6 +5633,11 @@ ALWAYS mention their name in the first sentence.
             if "appointment_created" in message_text:
                 print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
                 print(f"🔔 [APPOINTMENT] Message content: {message_text}")
+            
+            # 🔥 BUILD 194: CLOSING FENCE - Never send response.create after closing
+            if getattr(self, 'closing_sent', False):
+                print(f"🔒 [BUILD 194] Blocking response.create - closing already sent")
+                return
             
             # 🔥 BUILD 165: LOOP GUARD - Block if engaged or too many consecutive responses
             # 🔥 BUILD 178: COMPLETELY DISABLED for outbound calls!
@@ -8945,6 +9007,11 @@ ALWAYS mention their name in the first sentence.
         Send a text message to OpenAI Realtime for processing.
         Used for system prompts and silence handling.
         """
+        # 🔥 BUILD 194: CLOSING FENCE - Never send response.create after closing
+        if getattr(self, 'closing_sent', False):
+            print(f"🔒 [BUILD 194] Blocking _send_text_to_ai - closing already sent")
+            return
+            
         try:
             if hasattr(self, 'openai_ws') and self.openai_ws:
                 msg = {
