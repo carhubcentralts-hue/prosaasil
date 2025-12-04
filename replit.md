@@ -23,6 +23,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Multi-Tenancy**: Secure business identification and strict `tenant_id` filtering for data isolation.
 - **AI Integration**: Uses `gpt-4o-realtime-preview` for voice calls and `gpt-4o-mini` for server-side NLP, with behavioral rules and hallucination filtering.
 - **Hebrew Optimization**: Optimized VAD with dynamic thresholding, AI greeting system, Hebrew normalization dictionary, and grammar improvements.
+- **Hebrew City Normalization (BUILD 184)**: RapidFuzz-powered fuzzy matching for 120+ Israeli cities. Confidence thresholds: ≥92% auto-accept, 85-92% requires confirmation, <85% retry. Stores both raw input and canonical city name for webhook/CRM tracking.
 - **Call Quality**: Includes barge-in protection, STT segment merging, noise filtering, gibberish/semantic loop detection, mishearing protection, and silence hallucination prevention.
 - **Verification Gates**: AI confirms collected field values and information immediately after hearing it.
 - **Language Support**: Default Hebrew, switches to caller's language on request.
@@ -51,6 +52,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Enhanced Reminders System**.
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice.
+- **Appointment Validation (BUILD 184)**: Server-side validation enforces booking_window_days (max days ahead), min_notice_min (minimum notice time), and business hours. All checks use business timezone for accuracy.
 - **CRM Tasks**: Redesigned task board with notifications.
 - **Bulk Lead Deletion**: Cascade delete with transaction rollback.
 - **Auto Hang-up Settings**: Options to end calls after lead capture or on goodbye.
