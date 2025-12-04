@@ -45,7 +45,7 @@ interface BusinessMinutesResponse {
   };
 }
 
-type DateRange = 'today' | 'this_week' | 'this_month' | 'last_30_days' | 'last_month' | 'custom';
+type DateRange = 'today' | 'this_week' | 'this_month' | 'last_30_days' | 'last_month' | 'last_3_months' | 'this_year' | 'custom';
 
 export function BusinessMinutesPage() {
   const [dateRange, setDateRange] = useState<DateRange>('today');
@@ -78,6 +78,15 @@ export function BusinessMinutesPage() {
       case 'last_month':
         from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
         to = new Date(today.getFullYear(), today.getMonth(), 0);
+        break;
+      case 'last_3_months':
+        from = new Date(today);
+        from.setMonth(from.getMonth() - 3);
+        to = today;
+        break;
+      case 'this_year':
+        from = new Date(today.getFullYear(), 0, 1);
+        to = today;
         break;
       case 'custom':
         from = customFrom ? new Date(customFrom) : new Date(today.getFullYear(), today.getMonth(), 1);
@@ -215,7 +224,9 @@ export function BusinessMinutesPage() {
             <option value="this_month">מתחילת החודש</option>
             <option value="last_30_days">30 ימים אחרונים</option>
             <option value="last_month">החודש הקודם</option>
-            <option value="custom">טווח מותאם</option>
+            <option value="last_3_months">3 חודשים אחרונים</option>
+            <option value="this_year">השנה הנוכחית</option>
+            <option value="custom">טווח מותאם אישי</option>
           </select>
 
           {dateRange === 'custom' && (
