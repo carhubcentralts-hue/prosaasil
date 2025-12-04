@@ -4337,40 +4337,81 @@ ALWAYS mention their name in the first sentence.
         _greeting_block_logged = False
         _greeting_resumed_logged = False
         
-        # 🔥 BUILD 196: SNR-based audio gating to filter background noise
-        # Only send frames with good signal-to-noise ratio
+        # 🔥 BUILD 196.1: PRODUCTION-GRADE AUDIO PREPROCESSING
+        # Full implementation per developer spec for noisy environments
         import struct
         import audioop
+        import collections
         
-        # Rolling noise floor estimation (during silence)
-        noise_floor_rms = 50  # Initial estimate
-        noise_floor_alpha = 0.02  # Slow update for noise floor
-        signal_alpha = 0.3  # Faster update for signal level
+        # ════════════════════════════════════════════════════════════════
+        # 📐 CONFIGURABLE THRESHOLDS (via env vars for easy tuning)
+        # ════════════════════════════════════════════════════════════════
+        FRAME_SIZE_MS = int(os.getenv("AUDIO_FRAME_SIZE_MS", "20"))  # 20ms frames
+        NOISE_CALIBRATION_MS = int(os.getenv("NOISE_CALIBRATION_MS", "600"))  # First 600ms for calibration
+        PREROLL_MS = int(os.getenv("AUDIO_PREROLL_MS", "200"))  # 200ms pre-roll buffer
+        HANGOVER_FRAMES = int(os.getenv("AUDIO_HANGOVER_FRAMES", "4"))  # 4 frames (~80ms) hangover
         
-        # SNR thresholds
-        SNR_THRESHOLD_DB = 8  # Only send frames with SNR > 8dB
-        SNR_MUSIC_THRESHOLD_DB = 12  # Higher threshold when music detected
+        # SNR thresholds with separate start/stop for hysteresis
+        SNR_START_NORMAL = float(os.getenv("SNR_START_NORMAL", "8"))   # Start speech at 8dB
+        SNR_STOP_NORMAL = float(os.getenv("SNR_STOP_NORMAL", "5"))    # Stop speech at 5dB
+        SNR_START_MUSIC = float(os.getenv("SNR_START_MUSIC", "12"))   # Start speech at 12dB in music
+        SNR_STOP_MUSIC = float(os.getenv("SNR_STOP_MUSIC", "8"))      # Stop speech at 8dB in music
         
-        # Music detection state with hysteresis
+        # Music detection thresholds
+        MUSIC_ENTER_THRESHOLD = float(os.getenv("MUSIC_ENTER_THRESHOLD", "0.6"))
+        MUSIC_EXIT_THRESHOLD = float(os.getenv("MUSIC_EXIT_THRESHOLD", "0.45"))
+        
+        # ════════════════════════════════════════════════════════════════
+        # 🎤 STATE MACHINE: SILENCE → MAYBE_SPEECH → SPEECH
+        # ════════════════════════════════════════════════════════════════
+        STATE_SILENCE = "SILENCE"
+        STATE_MAYBE_SPEECH = "MAYBE_SPEECH"
+        STATE_SPEECH = "SPEECH"
+        
+        current_state = STATE_SILENCE
+        maybe_speech_count = 0  # Consecutive high-SNR frames in MAYBE_SPEECH
+        MAYBE_SPEECH_THRESHOLD = 3  # Need 3 consecutive frames to confirm speech
+        hangover_counter = 0  # Frames remaining in hangover
+        
+        # ════════════════════════════════════════════════════════════════
+        # 🔊 NOISE CALIBRATION (first 600ms of call)
+        # ════════════════════════════════════════════════════════════════
+        calibration_frames = []
+        CALIBRATION_FRAMES_NEEDED = NOISE_CALIBRATION_MS // FRAME_SIZE_MS  # ~30 frames
+        is_calibrated = False
+        noise_rms = 50  # Initial estimate, will be updated after calibration
+        noise_rms_slow_alpha = 0.01  # Very slow adaptation after calibration
+        
+        # ════════════════════════════════════════════════════════════════
+        # 📼 PRE-ROLL BUFFER (to capture start of words)
+        # ════════════════════════════════════════════════════════════════
+        preroll_size = PREROLL_MS // FRAME_SIZE_MS  # ~10 frames for 200ms
+        preroll_buffer = collections.deque(maxlen=preroll_size)
+        preroll_sent = False  # Track if we sent preroll for current speech segment
+        
+        # ════════════════════════════════════════════════════════════════
+        # 🔊 AGC (Automatic Gain Control) for quiet/loud callers
+        # ════════════════════════════════════════════════════════════════
+        TARGET_RMS = 2000  # Target RMS level (~-20dBFS for 16-bit)
+        caller_rms_slow = 0  # Exponential moving average of caller speech RMS
+        AGC_ALPHA = 0.1  # How fast to adapt to caller level
+        AGC_MAX_GAIN = 4.0  # Max amplification (12dB)
+        AGC_MIN_GAIN = 0.5  # Min amplification (-6dB for loud callers)
+        
+        # ════════════════════════════════════════════════════════════════
+        # 🎵 MUSIC DETECTION (with hysteresis)
+        # ════════════════════════════════════════════════════════════════
         music_detected = False
-        spectral_flatness_history = []
-        FLATNESS_WINDOW = 25  # ~500ms window for music detection
-        MUSIC_ENTER_THRESHOLD = 0.6   # Enter music mode when score > 0.6
-        MUSIC_EXIT_THRESHOLD = 0.45   # Exit music mode when score < 0.45 (hysteresis)
-        
-        # Frame energy history for spectral analysis
-        energy_history = []
-        ENERGY_WINDOW = 50  # ~1 second history
+        music_score_history = collections.deque(maxlen=25)  # ~500ms window
+        energy_history = collections.deque(maxlen=50)  # ~1 second for analysis
+        music_consecutive_count = 0  # For hysteresis
+        MUSIC_CONFIRM_FRAMES = 5  # Need 5 consecutive frames to confirm music
         
         # Counters for logging
         frames_sent = 0
-        frames_blocked_snr = 0
-        last_snr_log = 0
-        
-        # 🔥 BUILD 196: SNR hangover - allow frames for a few iterations after good SNR
-        # This prevents choppy audio when speech dips briefly below threshold
-        SNR_HANGOVER_FRAMES = 3  # Allow 3 frames (~60ms) after good SNR
-        snr_hangover_counter = 0
+        frames_blocked = 0
+        last_log_time = 0
+        total_frames = 0
         
         while not self.realtime_stop_flag:
             try:
@@ -4403,173 +4444,232 @@ ALWAYS mention their name in the first sentence.
                         print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                         _greeting_resumed_logged = True
                 
-                # 🔥 BUILD 196: Audio preprocessing pipeline
-                # μ-law → PCM16 → high-pass filter → SNR gate → send to OpenAI
+                # 🔥 BUILD 196.1: PRODUCTION-GRADE AUDIO PREPROCESSING
+                # Full pipeline: μ-law → PCM16 → bandpass → calibration → SNR → state machine → AGC → send
+                total_frames += 1
+                
                 try:
-                    # Decode base64 audio chunk
                     import base64
+                    import math
+                    import statistics
+                    
                     audio_bytes = base64.b64decode(audio_chunk)
+                    pcm_data = audioop.ulaw2lin(audio_bytes, 2)  # 16-bit PCM
                     
-                    # Convert μ-law to linear PCM for processing
-                    try:
-                        pcm_data = audioop.ulaw2lin(audio_bytes, 2)  # 16-bit PCM
-                        
-                        # 🔥 BUILD 196: SPEECH BAND FILTER (100Hz - 3400Hz)
-                        # This isolates human voice and removes:
-                        # - Bass rumble/music below 100Hz
-                        # - High-frequency noise/music above 3400Hz
-                        
-                        # Initialize filter states
-                        if not hasattr(self, '_hpf_prev_in'):
-                            self._hpf_prev_in = 0
-                            self._hpf_prev_out = 0
-                            self._lpf_prev_out = 0
-                        
-                        # Filter coefficients for 8kHz sample rate
-                        HPF_ALPHA = 0.96   # ~100Hz high-pass cutoff
-                        LPF_ALPHA = 0.75   # ~3400Hz low-pass cutoff (RC filter)
-                        
-                        filtered_samples = []
-                        samples = struct.unpack(f'<{len(pcm_data)//2}h', pcm_data)
-                        
-                        for sample in samples:
-                            # Stage 1: High-pass filter (removes bass/rumble)
-                            hp_out = HPF_ALPHA * (self._hpf_prev_out + sample - self._hpf_prev_in)
-                            self._hpf_prev_in = sample
-                            self._hpf_prev_out = hp_out
-                            
-                            # Stage 2: Low-pass filter (removes high-freq noise/music)
-                            lp_out = LPF_ALPHA * self._lpf_prev_out + (1 - LPF_ALPHA) * hp_out
-                            self._lpf_prev_out = lp_out
-                            
-                            filtered_samples.append(int(max(-32768, min(32767, lp_out))))
-                        
-                        # Convert back to bytes
-                        filtered_pcm = struct.pack(f'<{len(filtered_samples)}h', *filtered_samples)
-                        
-                        # Measure energy on filtered signal
-                        frame_rms = audioop.rms(filtered_pcm, 2)
-                        
-                        # Re-encode to μ-law for sending to OpenAI
-                        filtered_ulaw = audioop.lin2ulaw(filtered_pcm, 2)
-                        audio_chunk = base64.b64encode(filtered_ulaw).decode('ascii')
-                        
-                    except Exception as filter_err:
-                        # If filtering fails, use original audio
-                        frame_rms = 100
+                    # ════════════════════════════════════════════════════════════════
+                    # STEP 1: SPEECH BAND FILTER (100Hz - 3400Hz)
+                    # ════════════════════════════════════════════════════════════════
+                    if not hasattr(self, '_hpf_prev_in'):
+                        self._hpf_prev_in = 0
+                        self._hpf_prev_out = 0
+                        self._lpf_prev_out = 0
                     
-                    # Track energy history for music detection
+                    HPF_ALPHA = 0.96   # ~100Hz high-pass
+                    LPF_ALPHA = 0.75   # ~3400Hz low-pass
+                    
+                    samples = struct.unpack(f'<{len(pcm_data)//2}h', pcm_data)
+                    filtered_samples = []
+                    
+                    for sample in samples:
+                        hp_out = HPF_ALPHA * (self._hpf_prev_out + sample - self._hpf_prev_in)
+                        self._hpf_prev_in = sample
+                        self._hpf_prev_out = hp_out
+                        lp_out = LPF_ALPHA * self._lpf_prev_out + (1 - LPF_ALPHA) * hp_out
+                        self._lpf_prev_out = lp_out
+                        filtered_samples.append(int(max(-32768, min(32767, lp_out))))
+                    
+                    filtered_pcm = struct.pack(f'<{len(filtered_samples)}h', *filtered_samples)
+                    frame_rms = audioop.rms(filtered_pcm, 2)
+                    
+                    # ════════════════════════════════════════════════════════════════
+                    # STEP 2: NOISE CALIBRATION (first 600ms)
+                    # ════════════════════════════════════════════════════════════════
+                    if not is_calibrated:
+                        calibration_frames.append(frame_rms)
+                        if len(calibration_frames) >= CALIBRATION_FRAMES_NEEDED:
+                            # Use 20th percentile as noise floor (ignore speech bursts)
+                            sorted_rms = sorted(calibration_frames)
+                            percentile_20 = sorted_rms[len(sorted_rms) // 5]
+                            noise_rms = max(30, percentile_20)  # Min 30
+                            is_calibrated = True
+                            print(f"🎚️ [BUILD 196.1] NOISE CALIBRATED: noise_rms={noise_rms:.0f} (from {len(calibration_frames)} frames)")
+                        # During calibration, add to preroll but don't send
+                        preroll_buffer.append(audio_chunk)
+                        continue
+                    
+                    # Slowly adapt noise floor (track background changes)
+                    if current_state == STATE_SILENCE and frame_rms < noise_rms * 2:
+                        noise_rms = noise_rms_slow_alpha * frame_rms + (1 - noise_rms_slow_alpha) * noise_rms
+                        noise_rms = max(30, noise_rms)
+                    
+                    # ════════════════════════════════════════════════════════════════
+                    # STEP 3: MUSIC DETECTION (with hysteresis)
+                    # ════════════════════════════════════════════════════════════════
                     energy_history.append(frame_rms)
-                    if len(energy_history) > ENERGY_WINDOW:
-                        energy_history.pop(0)
                     
-                    # 🎵 BUILD 196: ENHANCED Music detection
-                    # Uses multiple indicators: energy variance + spectral characteristics
                     if len(energy_history) >= 20:
-                        import statistics
                         try:
                             mean_energy = statistics.mean(energy_history)
-                            std_energy = statistics.stdev(energy_history)
+                            std_energy = statistics.stdev(energy_history) if len(energy_history) > 1 else 0
+                            cv = std_energy / mean_energy if mean_energy > 0 else 1.0
                             
-                            # Indicator 1: Coefficient of variation (CV)
-                            # Music = consistent energy (low CV), Speech = variable energy (high CV)
-                            cv = std_energy / mean_energy if mean_energy > 0 else 0
-                            
-                            # Indicator 2: Periodicity detection via autocorrelation proxy
-                            # Music often has periodic beats; speech is more irregular
-                            # Simple proxy: check if energy returns to similar levels
+                            # Periodicity check
+                            periodicity = 0.5
                             if len(energy_history) >= 40:
-                                first_half = energy_history[:20]
-                                second_half = energy_history[20:40]
-                                first_mean = statistics.mean(first_half)
-                                second_mean = statistics.mean(second_half)
+                                e_list = list(energy_history)
+                                first_mean = statistics.mean(e_list[:20])
+                                second_mean = statistics.mean(e_list[20:40])
                                 periodicity = 1.0 - abs(first_mean - second_mean) / max(first_mean, second_mean, 1)
-                            else:
-                                periodicity = 0.5  # Unknown
                             
-                            # Indicator 3: Sustained energy (music tends to have constant presence)
-                            # Count how many frames are above half the mean
                             high_energy_ratio = sum(1 for e in energy_history if e > mean_energy * 0.5) / len(energy_history)
                             
-                            # Combined music score: CV < 0.5, high periodicity, sustained energy
                             music_score = 0
-                            if cv < 0.5:
-                                music_score += 0.4
-                            if periodicity > 0.7:
-                                music_score += 0.3
-                            if high_energy_ratio > 0.7:
-                                music_score += 0.3
+                            if cv < 0.5: music_score += 0.4
+                            if periodicity > 0.7: music_score += 0.3
+                            if high_energy_ratio > 0.7: music_score += 0.3
                             
-                            spectral_flatness_history.append(music_score)
-                            if len(spectral_flatness_history) > FLATNESS_WINDOW:
-                                spectral_flatness_history.pop(0)
+                            music_score_history.append(music_score)
+                            avg_music_score = statistics.mean(music_score_history) if music_score_history else 0
                             
-                            avg_music_score = statistics.mean(spectral_flatness_history) if spectral_flatness_history else 0
-                            
-                            # 🔥 BUILD 196: Hysteresis to prevent flapping
-                            # Enter music mode at 0.6, exit at 0.45
+                            # Hysteresis with consecutive frame confirmation
                             if music_detected:
-                                # Currently in music mode - exit only if below exit threshold
-                                new_music_detected = avg_music_score > MUSIC_EXIT_THRESHOLD
-                            else:
-                                # Currently in normal mode - enter only if above enter threshold
-                                new_music_detected = avg_music_score > MUSIC_ENTER_THRESHOLD
-                            
-                            if new_music_detected != music_detected:
-                                music_detected = new_music_detected
-                                if music_detected:
-                                    print(f"🎵 [BUILD 196] MUSIC DETECTED - raising SNR threshold to {SNR_MUSIC_THRESHOLD_DB}dB (score={avg_music_score:.2f}, CV={cv:.2f})")
+                                if avg_music_score < MUSIC_EXIT_THRESHOLD:
+                                    music_consecutive_count += 1
+                                    if music_consecutive_count >= MUSIC_CONFIRM_FRAMES:
+                                        music_detected = False
+                                        music_consecutive_count = 0
+                                        print(f"🎤 [BUILD 196.1] Music stopped - SNR thresholds: start={SNR_START_NORMAL}dB, stop={SNR_STOP_NORMAL}dB")
                                 else:
-                                    print(f"🎤 [BUILD 196] Music stopped - normal SNR threshold {SNR_THRESHOLD_DB}dB (score={avg_music_score:.2f})")
+                                    music_consecutive_count = 0
+                            else:
+                                if avg_music_score > MUSIC_ENTER_THRESHOLD:
+                                    music_consecutive_count += 1
+                                    if music_consecutive_count >= MUSIC_CONFIRM_FRAMES:
+                                        music_detected = True
+                                        music_consecutive_count = 0
+                                        print(f"🎵 [BUILD 196.1] MUSIC DETECTED - SNR thresholds: start={SNR_START_MUSIC}dB, stop={SNR_STOP_MUSIC}dB")
+                                else:
+                                    music_consecutive_count = 0
                         except Exception:
                             pass
                     
-                    # 🔊 BUILD 196: SNR calculation
-                    # Update noise floor during low-energy periods
+                    # ════════════════════════════════════════════════════════════════
+                    # STEP 4: SNR CALCULATION
+                    # ════════════════════════════════════════════════════════════════
+                    snr_db = 10 * math.log10((frame_rms ** 2) / (noise_rms ** 2 + 1e-10)) if noise_rms > 0 and frame_rms > 0 else 0
+                    
+                    # Select thresholds based on music detection
+                    if music_detected:
+                        snr_start = SNR_START_MUSIC
+                        snr_stop = SNR_STOP_MUSIC
+                    else:
+                        snr_start = SNR_START_NORMAL
+                        snr_stop = SNR_STOP_NORMAL
+                    
+                    # ════════════════════════════════════════════════════════════════
+                    # STEP 5: STATE MACHINE (SILENCE → MAYBE_SPEECH → SPEECH)
+                    # ════════════════════════════════════════════════════════════════
+                    prev_state = current_state
                     is_ai_speaking = self.is_ai_speaking_event.is_set()
-                    is_speech_active = getattr(self, '_realtime_speech_active', False)
                     
-                    if not is_speech_active and frame_rms < noise_floor_rms * 1.5:
-                        # Probably silence/background - update noise floor slowly
-                        noise_floor_rms = noise_floor_alpha * frame_rms + (1 - noise_floor_alpha) * noise_floor_rms
-                        noise_floor_rms = max(30, noise_floor_rms)  # Don't go below 30
+                    if current_state == STATE_SILENCE:
+                        preroll_buffer.append(audio_chunk)  # Always buffer in silence
+                        if snr_db >= snr_start:
+                            current_state = STATE_MAYBE_SPEECH
+                            maybe_speech_count = 1
                     
-                    # Compute SNR
-                    import math
-                    snr_db = 10 * math.log10(frame_rms / noise_floor_rms) if noise_floor_rms > 0 and frame_rms > 0 else 0
+                    elif current_state == STATE_MAYBE_SPEECH:
+                        preroll_buffer.append(audio_chunk)
+                        if snr_db >= snr_start:
+                            maybe_speech_count += 1
+                            if maybe_speech_count >= MAYBE_SPEECH_THRESHOLD:
+                                current_state = STATE_SPEECH
+                                preroll_sent = False
+                                print(f"🎤 [BUILD 196.1] SPEECH STARTED (SNR={snr_db:.1f}dB)")
+                        else:
+                            maybe_speech_count = 0
+                            current_state = STATE_SILENCE
                     
-                    # Use higher threshold if music detected
-                    current_threshold = SNR_MUSIC_THRESHOLD_DB if music_detected else SNR_THRESHOLD_DB
+                    elif current_state == STATE_SPEECH:
+                        if snr_db < snr_stop:
+                            hangover_counter -= 1
+                            if hangover_counter <= 0:
+                                current_state = STATE_SILENCE
+                                maybe_speech_count = 0
+                                print(f"🔇 [BUILD 196.1] SPEECH ENDED (SNR={snr_db:.1f}dB)")
+                        else:
+                            hangover_counter = HANGOVER_FRAMES  # Reset hangover
                     
-                    # 🚦 BUILD 196: Gate based on SNR with hangover
-                    # ALWAYS send if speech is active (user confirmed speaking)
-                    # Otherwise, only send if SNR is good enough OR within hangover period
-                    snr_good = snr_db > current_threshold
+                    # Log state transitions
+                    if prev_state != current_state:
+                        print(f"📊 [BUILD 196.1] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected}")
                     
-                    # Update hangover counter
-                    if snr_good or is_speech_active:
-                        snr_hangover_counter = SNR_HANGOVER_FRAMES  # Reset hangover
-                    elif snr_hangover_counter > 0:
-                        snr_hangover_counter -= 1  # Decrement hangover
+                    # ════════════════════════════════════════════════════════════════
+                    # STEP 6: DECIDE WHETHER TO SEND
+                    # ════════════════════════════════════════════════════════════════
+                    should_send = False
+                    chunk_to_send = audio_chunk
                     
-                    should_send = is_speech_active or snr_good or snr_hangover_counter > 0 or is_ai_speaking
+                    if current_state == STATE_SPEECH:
+                        should_send = True
+                        
+                        # Send pre-roll buffer first (captures start of word)
+                        if not preroll_sent and len(preroll_buffer) > 0:
+                            print(f"📼 [BUILD 196.1] Sending {len(preroll_buffer)} pre-roll frames")
+                            for preroll_chunk in preroll_buffer:
+                                await client.send_audio_chunk(preroll_chunk)
+                                frames_sent += 1
+                            preroll_buffer.clear()
+                            preroll_sent = True
+                        
+                        # ════════════════════════════════════════════════════════════════
+                        # STEP 7: AGC (Automatic Gain Control)
+                        # ════════════════════════════════════════════════════════════════
+                        if frame_rms > 0:
+                            # Update slow RMS tracker
+                            if caller_rms_slow == 0:
+                                caller_rms_slow = frame_rms
+                            else:
+                                caller_rms_slow = AGC_ALPHA * frame_rms + (1 - AGC_ALPHA) * caller_rms_slow
+                            
+                            # Calculate gain
+                            gain = TARGET_RMS / caller_rms_slow if caller_rms_slow > 0 else 1.0
+                            gain = max(AGC_MIN_GAIN, min(AGC_MAX_GAIN, gain))
+                            
+                            # Apply gain to samples
+                            if gain != 1.0:
+                                agc_samples = [int(max(-32768, min(32767, s * gain))) for s in filtered_samples]
+                                agc_pcm = struct.pack(f'<{len(agc_samples)}h', *agc_samples)
+                                agc_ulaw = audioop.lin2ulaw(agc_pcm, 2)
+                                chunk_to_send = base64.b64encode(agc_ulaw).decode('ascii')
+                            else:
+                                # Just use filtered audio
+                                filtered_ulaw = audioop.lin2ulaw(filtered_pcm, 2)
+                                chunk_to_send = base64.b64encode(filtered_ulaw).decode('ascii')
+                    
+                    elif is_ai_speaking:
+                        # Always allow during AI speaking (for echo/feedback detection)
+                        should_send = True
+                        filtered_ulaw = audioop.lin2ulaw(filtered_pcm, 2)
+                        chunk_to_send = base64.b64encode(filtered_ulaw).decode('ascii')
                     
                     if not should_send:
-                        frames_blocked_snr += 1
-                        # Log periodically with detailed status
+                        frames_blocked += 1
                         now = time.time()
-                        if now - last_snr_log > 5:
+                        if now - last_log_time > 10:
                             mode = "🎵MUSIC" if music_detected else "🎤NORMAL"
-                            print(f"🔇 [BUILD 196] SNR blocked {frames_blocked_snr} frames | {mode} mode | SNR={snr_db:.1f}dB < {current_threshold}dB | noise_floor={noise_floor_rms:.0f} | sent={frames_sent}")
-                            last_snr_log = now
-                            frames_blocked_snr = 0
-                        continue  # Don't send this frame
+                            print(f"📊 [BUILD 196.1] Stats: sent={frames_sent} blocked={frames_blocked} | {mode} | noise={noise_rms:.0f}")
+                            last_log_time = now
+                        continue
                     
                     frames_sent += 1
+                    audio_chunk = chunk_to_send
                     
                 except Exception as e:
-                    # If SNR processing fails, still send the audio
-                    print(f"⚠️ [BUILD 196] SNR processing error: {e}")
+                    # If processing fails, send original audio
+                    import traceback
+                    print(f"⚠️ [BUILD 196.1] Processing error: {e}")
+                    traceback.print_exc()
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
                 # Start timer on first chunk

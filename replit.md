@@ -35,6 +35,12 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Music Detection**: Multi-indicator system (CV, periodicity, sustained energy) with hysteresis (enter at 0.6, exit at 0.45) to prevent flapping.
   - **Gibberish Word Removal**: GIBBERISH_WORDS_TO_REMOVE set removes known hallucination words ("ידועל", "בלתי") from transcripts as soft guard.
   - **Doubled Consonant Fixes**: Hebrew dictionary corrections for noise-induced errors ("דדלתות" → "דלתות").
+- **BUILD 196.1 Production-Grade Audio Pipeline**:
+  - **Noise Calibration**: First 600ms of call used to calibrate noise floor (20th percentile). Slow adaptation after calibration to track background changes.
+  - **Pre-roll Buffer**: 200ms buffer captures start of words when transitioning SILENCE→SPEECH. Prevents missing first syllable.
+  - **State Machine**: SILENCE → MAYBE_SPEECH (3 frames) → SPEECH with separate start/stop SNR thresholds for hysteresis.
+  - **AGC (Automatic Gain Control)**: Normalizes quiet/loud callers to target level (-20dBFS). Max gain 4x, min 0.5x.
+  - **Configurable Thresholds**: All parameters exposed via env vars (SNR_START_NORMAL, SNR_STOP_NORMAL, SNR_START_MUSIC, SNR_STOP_MUSIC, HANGOVER_FRAMES, PREROLL_MS, NOISE_CALIBRATION_MS).
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
