@@ -1,20 +1,27 @@
 """
-Hebrew Phonetic Validator Service (BUILD 185)
+Hebrew Phonetic Validator Service (BUILD 186)
 
 3-layer STT accuracy improvement:
 1. Hebrew Soundex encoding
 2. Hebrew DoubleMetaphone encoding  
-3. RapidFuzz fuzzy matching with phonetic boosting
+3. RapidFuzz fuzzy matching with phonetic boosting + big-jump guard
 
 Fixes critical issues like:
 - "בית שמש" being transcribed as "מצפה רמון"
 - "צוריאל" being transcribed as "צוריה"
 - Short Hebrew names with אל endings being corrupted
+- Hebrew being transcribed as English ("Thank you", "Good luck")
+
+BUILD 186 Updates:
+- Thresholds relaxed: 90/82 (was 93/85) for better Hebrew recognition
+- Big-jump guard: blocks >15pt phonetic distance corrections
+- 2-confirm lock: values locked after 2 consistent matches
+- Extended city/name datasets with deduplication
 
 Thresholds:
-- ≥93% → auto-accept
-- 85-92% → needs confirmation
-- <85% → reject and ask to repeat
+- ≥90% → auto-accept
+- 82-90% → needs confirmation
+- <82% → reject and ask to repeat
 """
 
 from typing import Optional, List, Dict, NamedTuple
@@ -275,9 +282,11 @@ def phonetic_similarity(word1: str, word2: str) -> float:
 def validate_hebrew_word(
     raw_text: str,
     candidates: List[str],
-    auto_accept_threshold: float = 93.0,
-    confirm_threshold: float = 85.0,
-    reject_threshold: float = 85.0
+    auto_accept_threshold: float = 90.0,  # 🔥 BUILD 186: Relaxed from 93 to 90
+    confirm_threshold: float = 82.0,       # 🔥 BUILD 186: Relaxed from 85 to 82
+    reject_threshold: float = 82.0,        # 🔥 BUILD 186: Relaxed from 85 to 82
+    previous_value: Optional[str] = None,  # 🔥 BUILD 186: For big-jump detection
+    big_jump_threshold: float = 15.0       # 🔥 BUILD 186: Max phonetic distance allowed
 ) -> PhoneticResult:
     """
     Validate Hebrew word against a list of known candidates.
@@ -285,12 +294,19 @@ def validate_hebrew_word(
     Args:
         raw_text: The raw STT output to validate
         candidates: List of known valid values (cities, names)
-        auto_accept_threshold: Score >= this auto-accepts (default 93)
-        confirm_threshold: Score >= this needs confirmation (default 85)
-        reject_threshold: Score < this should reject (default 85)
+        auto_accept_threshold: Score >= this auto-accepts (default 90)
+        confirm_threshold: Score >= this needs confirmation (default 82)
+        reject_threshold: Score < this should reject (default 82)
+        previous_value: Previously confirmed value (for big-jump detection)
+        big_jump_threshold: Max phonetic distance allowed for auto-correction (default 15)
     
     Returns:
         PhoneticResult with best_match, confidence, needs_confirmation, should_reject
+    
+    BUILD 186 Big-Jump Guard:
+        If previous_value is set and best_match differs by >big_jump_threshold,
+        the match is marked as needs_confirmation to prevent STT hallucinations
+        like "בית שמש" → "מצפה רמון"
     """
     if not raw_text or not candidates:
         return PhoneticResult(
@@ -335,6 +351,24 @@ def validate_hebrew_word(
     # Determine action based on thresholds
     should_reject = best_combined < reject_threshold
     needs_confirmation = reject_threshold <= best_combined < auto_accept_threshold
+    
+    # 🔥 BUILD 186: BIG-JUMP GUARD
+    # If we have a previous value and the new match is very different, require confirmation
+    big_jump_detected = False
+    if previous_value and best_match and not should_reject:
+        previous_normalized = normalize_for_comparison(previous_value)
+        best_normalized = normalize_for_comparison(best_match)
+        
+        if previous_normalized != best_normalized:
+            # Calculate phonetic distance between previous and proposed new value
+            similarity = phonetic_similarity(previous_normalized, best_normalized)
+            distance = 100.0 - similarity
+            
+            if distance > big_jump_threshold:
+                # This is a big jump - likely STT hallucination
+                big_jump_detected = True
+                needs_confirmation = True
+                print(f"🚫 [BIG-JUMP] Blocked auto-accept: '{previous_value}' → '{best_match}' (distance={distance:.1f} > {big_jump_threshold})")
     
     return PhoneticResult(
         raw_input=raw_text,

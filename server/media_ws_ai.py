@@ -1682,15 +1682,22 @@ ALWAYS mention their name in the first sentence.
                         current_call_direction = getattr(self, 'call_direction', 'inbound')
                         print(f"📞 [{current_call_direction.upper()}] session.update with max_tokens={session_max_tokens}")
                         
+                        # 🔥 BUILD 186: CRITICAL - Preserve Hebrew transcription config!
+                        # Without this, STT defaults to English and transcribes Hebrew as "Thank you", "Good luck"
                         await client.send_event({
                             "type": "session.update",
                             "session": {
                                 "instructions": full_prompt,
                                 "voice": voice_to_use,  # 🔒 Must re-send voice to lock it
-                                "max_response_output_tokens": session_max_tokens
+                                "max_response_output_tokens": session_max_tokens,
+                                # 🔥 BUILD 186 FIX: MUST preserve Hebrew transcription config!
+                                "input_audio_transcription": {
+                                    "model": "whisper-1",
+                                    "language": "he"  # 🔒 Force Hebrew - prevents "Thank you" hallucinations
+                                }
                             }
                         })
-                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars, voice={voice_to_use} locked, max_tokens={session_max_tokens}")
+                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars, voice={voice_to_use} locked, max_tokens={session_max_tokens}, transcription=Hebrew")
                     else:
                         print(f"⚠️ [PHASE 2] Keeping minimal prompt - full prompt build failed")
                 except Exception as e:
@@ -2507,15 +2514,51 @@ ALWAYS mention their name in the first sentence.
                     hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', text))
                     english_chars = len(re.findall(r'[a-zA-Z]', text))
                     
-                    # 🛡️ Block common Whisper hallucinations (pure English from Hebrew audio)
+                    # 🛡️ BUILD 186: EXPANDED English hallucination filter
+                    # These are common Whisper mistakes when transcribing Hebrew audio as English
                     hallucination_phrases = [
-                        "bye", "bye.", "bye!", "goodbye", "thank you", "thanks", "ok", "okay",
-                        "yes", "no", "hello", "hi", "hey", "sure", "right", "yeah", "yep", "nope",
-                        "i see", "i know", "got it", "alright", "fine", "good", "great", "mm", "uh",
-                        "hmm", "um", "uh huh", "mhm"
+                        # Greetings/farewells
+                        "bye", "bye.", "bye!", "goodbye", "good bye", "hello", "hi", "hey",
+                        # Thanks
+                        "thank you", "thanks", "thank you very much", "thank you.", "thanks.",
+                        # Confirmations
+                        "ok", "okay", "o.k.", "yes", "no", "sure", "right", "yeah", "yep", "nope",
+                        "alright", "all right", "fine", "good", "great",
+                        # Understanding
+                        "i see", "i know", "got it", "understood",
+                        # Fillers
+                        "mm", "uh", "hmm", "um", "uh huh", "mhm", "uh-huh", "m-hm",
+                        # 🔥 BUILD 186: NEW patterns from actual Hebrew→English STT errors
+                        "good luck", "a bit", "blah", "blah.", "bit", "luck",
+                        "nice", "cool", "wow", "oh", "ah", "ooh", "aah",
+                        "what", "well", "so", "but", "and", "or", "the",
+                        "please", "sorry", "excuse me", "pardon",
+                        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                        # Common short misheard phrases
+                        "i'm", "it's", "that's", "there's", "here's",
+                        "come", "go", "see", "look", "wait", "stop",
+                        "really", "actually", "maybe", "probably", "definitely",
+                        "you know", "i mean", "like", "just", "so so",
+                        # Music/audio artifacts
+                        "la la", "la", "na na", "da da", "ta ta"
                     ]
-                    text_lower = text.lower().strip('.!?')
+                    text_lower = text.lower().strip('.!?, ')
+                    
+                    # 🔥 BUILD 186: Check for exact match OR if text contains ONLY English words
                     is_hallucination = text_lower in hallucination_phrases
+                    
+                    # Also check for multi-word English phrases (e.g., "Thank you very much. Thank you")
+                    if not is_hallucination and english_chars > 0 and hebrew_chars == 0:
+                        # Check if ALL words are common English words
+                        english_common_words = {"thank", "you", "very", "much", "good", "luck", "bye", 
+                                               "hello", "hi", "hey", "ok", "okay", "yes", "no", "a", "bit",
+                                               "i", "it", "is", "the", "and", "or", "but", "so", "blah",
+                                               "one", "two", "three", "four", "five", "what", "where", "when",
+                                               "nice", "well", "fine", "great", "cool", "wow", "please"}
+                        words_in_text = set(re.findall(r'[a-zA-Z]+', text_lower))
+                        if words_in_text and words_in_text.issubset(english_common_words):
+                            is_hallucination = True
+                            print(f"🚫 [BUILD 186] ENGLISH HALLUCINATION: '{text}' (all words are common English)")
                     
                     # 🔥 BUILD 169.1: Improved gibberish detection (architect feedback)
                     # Only flag as gibberish if: 4+ chars of SAME letter AND not a natural elongation
