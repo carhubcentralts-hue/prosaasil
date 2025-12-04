@@ -1134,6 +1134,13 @@ class MediaStreamHandler:
         # Updated by _update_lead_capture_state() from AI responses and DTMF
         self.lead_capture_state = {}  # e.g., {'name': 'דני', 'city': 'תל אביב', 'service_type': 'ניקיון'}
         
+        # 🔥 BUILD 185: STT CONSISTENCY FILTER - Tracks last 3 attempts for majority voting
+        # Prevents hallucinations like "בית שמש" → "מצפה רמון" by locking after 2/3 match
+        from server.services.phonetic_validator import ConsistencyFilter
+        self.stt_consistency_filter = ConsistencyFilter(max_attempts=3)
+        self.city_raw_attempts = []  # Track raw STT attempts for webhook
+        self.name_raw_attempts = []  # Track raw STT attempts for webhook
+        
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
@@ -6278,60 +6285,104 @@ ALWAYS mention their name in the first sentence.
         if not required_fields:
             return
         
-        # 🏙️ CITY EXTRACTION: Use fuzzy matching with city normalizer
-        # 🔥 BUILD 184: RapidFuzz-powered city normalization with confidence thresholds
+        # 🏙️ CITY EXTRACTION: Use 3-layer validation system
+        # 🔥 BUILD 185: Phonetic validator + Consistency filter + RapidFuzz
         if 'city' in required_fields:
             try:
-                from server.services.city_normalizer import normalize_city, get_similar_cities
+                from server.services.city_normalizer import normalize_city, get_all_city_names
+                from server.services.phonetic_validator import (
+                    validate_hebrew_word, phonetic_similarity, normalize_for_comparison
+                )
                 
-                # Normalize text for matching
-                text_normalized = text.replace('-', ' ').replace('־', ' ')
-                
-                # Try to extract city mentions using patterns
-                city_patterns = [
-                    r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',  # "מתל אביב", "בירושלים"
-                    r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',  # "גר בחיפה"
-                    r'עיר[:\s]+([א-ת\s\-]{3,20})',  # "עיר: תל אביב"
-                ]
-                
-                city_candidates = []
-                for pattern in city_patterns:
-                    matches = re.findall(pattern, text_normalized)
-                    city_candidates.extend(matches)
-                
-                # Also try the full text as potential city name
-                words = text_normalized.split()
-                for i in range(len(words)):
-                    for j in range(i+1, min(i+4, len(words)+1)):
-                        candidate = ' '.join(words[i:j])
-                        if 2 < len(candidate) < 25:
-                            city_candidates.append(candidate)
-                
-                # Find best match using fuzzy matching
-                best_match = None
-                best_confidence = 0
-                
-                for candidate in city_candidates:
-                    result = normalize_city(candidate.strip())
-                    if result.canonical and result.confidence > best_confidence:
-                        best_match = result
-                        best_confidence = result.confidence
-                
-                if best_match and best_match.canonical:
-                    # Store both raw and canonical for webhook
-                    self._update_lead_capture_state('city', best_match.canonical)
-                    self._update_lead_capture_state('raw_city', best_match.raw_input)
-                    self._update_lead_capture_state('city_confidence', best_match.confidence)
+                # 🔒 LAYER 3: Check if city is already locked by consistency filter
+                if self.stt_consistency_filter.is_city_locked():
+                    locked_city = self.stt_consistency_filter.locked_city
+                    print(f"🔒 [CITY] Already locked to '{locked_city}' - ignoring new input")
+                else:
+                    # Normalize text for matching
+                    text_normalized = text.replace('-', ' ').replace('־', ' ')
                     
-                    if best_match.needs_confirmation:
-                        # Flag that AI should confirm this city
-                        self._update_lead_capture_state('city_needs_confirmation', True)
-                        print(f"⚠️ [CITY] Needs confirmation: '{best_match.canonical}' (confidence={best_match.confidence:.0f}%)")
-                    else:
-                        print(f"✅ [CITY] Auto-accepted: '{best_match.canonical}' (confidence={best_match.confidence:.0f}%)")
+                    # Try to extract city mentions using patterns
+                    city_patterns = [
+                        r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',  # "מתל אביב", "בירושלים"
+                        r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',  # "גר בחיפה"
+                        r'עיר[:\s]+([א-ת\s\-]{3,20})',  # "עיר: תל אביב"
+                    ]
+                    
+                    city_candidates = []
+                    for pattern in city_patterns:
+                        matches = re.findall(pattern, text_normalized)
+                        city_candidates.extend(matches)
+                    
+                    # Also try the full text as potential city name
+                    words = text_normalized.split()
+                    for i in range(len(words)):
+                        for j in range(i+1, min(i+4, len(words)+1)):
+                            candidate = ' '.join(words[i:j])
+                            if 2 < len(candidate) < 25:
+                                city_candidates.append(candidate)
+                    
+                    # 🔥 LAYER 2: Phonetic validation with confidence thresholds
+                    all_cities = get_all_city_names()
+                    best_result = None
+                    best_combined_score = 0
+                    
+                    for candidate in city_candidates:
+                        candidate = candidate.strip()
+                        if not candidate:
+                            continue
+                        
+                        # Phonetic validation
+                        phonetic_result = validate_hebrew_word(
+                            candidate, all_cities,
+                            auto_accept_threshold=93.0,
+                            confirm_threshold=85.0,
+                            reject_threshold=85.0
+                        )
+                        
+                        if phonetic_result.confidence > best_combined_score:
+                            best_combined_score = phonetic_result.confidence
+                            best_result = phonetic_result
+                    
+                    if best_result:
+                        raw_city = best_result.raw_input
+                        
+                        # 🔥 LAYER 3: Add to consistency filter and check majority
+                        self.city_raw_attempts.append(raw_city)
+                        locked = self.stt_consistency_filter.add_city_attempt(raw_city)
+                        
+                        if locked:
+                            # Majority achieved - use locked value
+                            canonical = normalize_city(locked).canonical or locked
+                            self._update_lead_capture_state('city', canonical)
+                            self._update_lead_capture_state('raw_city', raw_city)
+                            self._update_lead_capture_state('city_confidence', 100.0)
+                            self._update_lead_capture_state('city_autocorrected', True)
+                            print(f"🔒 [CITY] Majority locked: '{canonical}' from {self.city_raw_attempts}")
+                        elif best_result.should_reject:
+                            # Below 85% - ask user to repeat
+                            self._update_lead_capture_state('city_needs_retry', True)
+                            print(f"❌ [CITY] Rejected '{raw_city}' (confidence={best_result.confidence:.0f}%) - ask to repeat")
+                        elif best_result.needs_confirmation:
+                            # 85-92% - needs confirmation
+                            canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
+                            self._update_lead_capture_state('city', canonical)
+                            self._update_lead_capture_state('raw_city', raw_city)
+                            self._update_lead_capture_state('city_confidence', best_result.confidence)
+                            self._update_lead_capture_state('city_needs_confirmation', True)
+                            print(f"⚠️ [CITY] Needs confirmation: '{canonical}' (confidence={best_result.confidence:.0f}%)")
+                        else:
+                            # ≥93% - auto-accept
+                            canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
+                            self._update_lead_capture_state('city', canonical)
+                            self._update_lead_capture_state('raw_city', raw_city)
+                            self._update_lead_capture_state('city_confidence', best_result.confidence)
+                            print(f"✅ [CITY] Auto-accepted: '{canonical}' (confidence={best_result.confidence:.0f}%)")
                         
             except Exception as e:
-                print(f"⚠️ [CITY] Normalizer error, falling back to basic: {e}")
+                print(f"⚠️ [CITY] Phonetic validator error, falling back to basic: {e}")
+                import traceback
+                traceback.print_exc()
         
         # 🔧 SERVICE_TYPE EXTRACTION: Look for service mentions
         # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned service (user may change mind)

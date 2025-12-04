@@ -305,3 +305,14 @@ def normalize_city(raw_city: str) -> CityMatch:
 def get_similar_cities(raw_city: str, limit: int = 3) -> List[Tuple[str, float]]:
     """Get top N similar cities for disambiguation"""
     return get_city_normalizer().get_similar_cities(raw_city, limit)
+
+
+def get_all_city_names() -> List[str]:
+    """
+    Get all city names (canonical + aliases) for phonetic validation
+    
+    Returns:
+        List of all known city names
+    """
+    normalizer = get_city_normalizer()
+    return list(normalizer._all_names)
