@@ -1842,6 +1842,14 @@ ALWAYS mention their name in the first sentence.
                         continue  # Don't process this event at all
                     print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
                     self.user_has_spoken = True
+                    # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
+                    # This prevents loop guard from triggering when user IS speaking
+                    if self._consecutive_ai_responses > 0:
+                        print(f"✅ [LOOP GUARD] User started speaking - resetting consecutive counter ({self._consecutive_ai_responses} -> 0)")
+                        self._consecutive_ai_responses = 0
+                    if self._loop_guard_engaged:
+                        print(f"✅ [LOOP GUARD] User started speaking - disengaging loop guard EARLY")
+                        self._loop_guard_engaged = False
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
                     self._realtime_speech_started_ts = time.time()
@@ -2123,9 +2131,17 @@ ALWAYS mention their name in the first sentence.
                         # 3. AI has been confused 3+ times in a row (BUILD 170.3: back to 3)
                         # 🔥 BUILD 178: COMPLETELY DISABLE loop guard for outbound calls!
                         # 🔥 BUILD 179: Also disable if call is CLOSING or hangup already triggered
+                        # 🔥 BUILD 182: Also disable during appointment scheduling flow
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                         is_closing = getattr(self, 'call_state', None) == CallState.CLOSING
                         is_hanging_up = getattr(self, 'hangup_triggered', False)
+                        
+                        # 🔥 BUILD 182: Check if appointment was recently created/scheduled
+                        crm_ctx = getattr(self, 'crm_context', None)
+                        has_appointment = crm_ctx and getattr(crm_ctx, 'has_appointment_created', False)
+                        # Also check if AI is discussing appointment (keywords in recent response)
+                        appointment_keywords = ['תור', 'פגישה', 'לקבוע', 'זמינות', 'אשר', 'מאשר']
+                        is_scheduling = any(kw in transcript for kw in appointment_keywords) if transcript else False
                         
                         if is_outbound:
                             # 🔥 OUTBOUND: Never engage loop guard - let AI talk freely
@@ -2134,6 +2150,10 @@ ALWAYS mention their name in the first sentence.
                             # 🔥 BUILD 179: Never engage loop guard during call ending
                             should_engage_guard = False
                             print(f"⏭️ [LOOP GUARD] Skipped - call is ending (closing={is_closing}, hangup={is_hanging_up})")
+                        elif has_appointment or is_scheduling:
+                            # 🔥 BUILD 182: Never engage loop guard during appointment scheduling
+                            should_engage_guard = False
+                            print(f"⏭️ [LOOP GUARD] Skipped - appointment flow (has_appointment={has_appointment}, is_scheduling={is_scheduling})")
                         else:
                             # INBOUND: Normal loop guard logic
                             max_consecutive = self._max_consecutive_ai_responses
@@ -2681,9 +2701,11 @@ ALWAYS mention their name in the first sentence.
             
             # 🔥 BUILD 165: LOOP GUARD - Block if engaged or too many consecutive responses
             # 🔥 BUILD 178: COMPLETELY DISABLED for outbound calls!
+            # 🔥 BUILD 182: Also allow appointment-related messages through
             is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-            if not is_outbound:
-                # INBOUND only: Check loop guard
+            is_appointment_msg = "appointment" in message_text.lower() or "תור" in message_text or "זמינות" in message_text
+            if not is_outbound and not is_appointment_msg:
+                # INBOUND only: Check loop guard (unless appointment-related)
                 if self._loop_guard_engaged or self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
                     print(f"🛑 [LOOP GUARD] Blocking response.create (engaged={self._loop_guard_engaged}, consecutive={self._consecutive_ai_responses})")
                     return
