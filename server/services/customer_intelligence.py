@@ -335,13 +335,16 @@ class CustomerIntelligence:
                 info['name'] = match.group(1).strip()
                 break
         
-        # אזור
-        areas = ['תל אביב', 'רמת גן', 'רמלה', 'לוד', 'בית שמש', 'מודיעין', 
-                'פתח תקווה', 'רחובות', 'הרצליה', 'ירושלים', 'חיפה', 'באר שבע']
-        for area in areas:
-            if area in text:
-                info['area'] = area
-                break
+        # אזור - 🔥 BUILD 186: Use dynamic lexicon instead of hardcoded list
+        try:
+            from server.services.hebrew_stt_validator import load_hebrew_lexicon
+            cities_set, _, _ = load_hebrew_lexicon()
+            for area in cities_set:
+                if len(area) > 2 and area in text:
+                    info['area'] = area
+                    break
+        except Exception:
+            pass  # If lexicon not available, skip area detection
         
         # סוג נכס
         property_types = ['דירה', 'חדרים', '2 חדרים', '3 חדרים', '4 חדרים', 'משרד', 'דופלקס', 'פנטהאוס']

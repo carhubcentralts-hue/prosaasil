@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
-from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish
+from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
@@ -2742,10 +2742,14 @@ ALWAYS mention their name in the first sentence.
                         
                         # Check 2: If AI asked for city, response should contain city-related words or a city name
                         if last_ai_msg and ("עיר" in last_ai_msg or "איפה" in last_ai_msg or "מאיפה" in last_ai_msg):
-                            # User should mention a city or location
-                            city_indicators = ["תל אביב", "ירושלים", "חיפה", "באר שבע", "אילת", "נתניה", "רחובות", 
-                                              "פתח תקווה", "אשדוד", "ב", "מ", "עיר", "רחוב", "שכונה"]
-                            has_location = any(ind in transcript_clean for ind in city_indicators)
+                            # 🔥 BUILD 186: Use dynamic lexicon for city detection - no hardcoded lists!
+                            cities_set, _, _ = load_hebrew_lexicon()
+                            # Generic location indicators (not city-specific)
+                            generic_indicators = ["ב", "מ", "עיר", "רחוב", "שכונה", "יישוב", "כפר", "מושב"]
+                            has_location = any(ind in transcript_clean for ind in generic_indicators)
+                            # Also check if any city from dynamic lexicon is mentioned
+                            if not has_location:
+                                has_location = any(city in transcript_clean for city in cities_set if len(city) > 2)
                             if not has_location and len(transcript_clean) < 15:
                                 # Short response with no location after city question
                                 if transcript_clean in ["תודה רבה", "תודה", "כן", "לא", "אוקי"]:
@@ -5498,16 +5502,13 @@ ALWAYS mention their name in the first sentence.
                 # קונטקסט קל - רק לרמז
                 speech_contexts=[
                     speech.SpeechContext(phrases=[
-                        # 🔥 BUILD 134: EXPANDED for accuracy - same as streaming STT
+                        # 🔥 BUILD 186: GENERIC Hebrew phrases only - NO hardcoded cities!
+                        # Cities should come from business settings, not hardcoded here
                         "שלום", "היי", "בוקר טוב", "תודה", "תודה רבה", "בבקשה",
                         "כן", "לא", "בסדר", "מעולה", "נהדר", "מצוין", "אוקיי",
-                        "דירה", "משרד", "חדרים", "שכירות", "מכירה", "קניה", "שכר",
-                        "מטר", "קומה", "מעלית", "חניה", "מרפסת", "ממד", "מחסן",
-                        "תל אביב", "ירושלים", "חיפה", "רמת גן", "פתח תקווה", "רמלה", "לוד", "מודיעין",
-                        "שקל", "שקלים", "אלף", "אלפים", "מיליון", "תקציב", "מחיר", "נדלן",
                         "תור", "פגישה", "מחר", "מחרתיים", "יום", "שבוע", "חודש",
                         "אחד", "שניים", "שלוש", "ארבע", "חמש", "שש", "עשר", "עשרים"
-                    ], boost=20.0)  # 🔥 Increased boost for better accuracy
+                    ], boost=15.0)  # Reduced boost - let Whisper do the heavy lifting
                 ]
             )
             
