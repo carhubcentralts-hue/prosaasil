@@ -67,6 +67,8 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Noise Filtering Overhaul (BUILD 187)**: Significantly increased voice detection thresholds to filter background noise and prevent false interruptions. MIN_SPEECH_RMS: 130→180, MIN_SPEECH_DURATION_MS: 700→900ms, BARGE_IN_VOICE_FRAMES: 35→45, NOISE_HOLD_MS: 150→250ms, VAD_HANGOVER_MS: 150→250ms, POST_AI_COOLDOWN_MS: 800→1200ms, MIN_CONSECUTIVE_VOICE_FRAMES: 5→7. Requires louder, longer continuous speech to trigger turn detection.
 - **OpenAI VAD Tuning (BUILD 187)**: Increased OpenAI Realtime API turn detection thresholds: vad_threshold: 0.75→0.9 (very strict, only clear speech triggers), silence_duration_ms: 700→900ms (longer pause before responding), prefix_padding_ms: 500ms (include audio before detected speech). Prevents false turn_detected from background noise.
 - **Response Grace Period (BUILD 187)**: Ignores speech_started events within 500ms of response.created. This prevents echo/noise from cancelling the response before audio starts. Critical fix for "AI gets cut off immediately" issue.
+- **Dual-Cancel Immediate Recovery (BUILD 187)**: If 2+ response cancellations occur within 2 seconds, immediately triggers new response.create bypassing all guards. Prevents "stuck silent" state from rapid-fire noise cancellations.
+- **Stuck-Response Watchdog (BUILD 187)**: Background task runs every 1.5s checking if AI has been inactive for >2s while user has spoken. If stuck, forces response.create up to 3 attempts per cycle. Last line of defense ensuring bot NEVER stays permanently silent.
 
 # External Dependencies
 
