@@ -54,20 +54,16 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
     }
     logging.getLogger("turn").info(json.dumps(payload, ensure_ascii=False))
 
-# ⚡ STREAMING STT: דיפולט מופעל בקוד, כדי שלא ניפול לסינגל-ריקווסט אם ENV לא נטען
-USE_STREAMING_STT = True
-if os.getenv("ENABLE_STREAMING_STT", "").lower() in ("false", "0", "no"):
-    USE_STREAMING_STT = False
+# 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
+USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
 ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "true").lower() in ("true", "1", "yes")
 
 # 🚀 REALTIME API MODE - OpenAI Realtime API for phone calls
-# When enabled, phone calls use OpenAI Realtime API instead of Google STT/TTS
-# WhatsApp continues to use AgentKit (not affected by this flag)
-# ✅ FIX: Default to TRUE - this is the main feature, should be enabled by default
-USE_REALTIME_API = os.getenv("USE_REALTIME_API", "true").lower() in ("true", "1", "yes")
+# 🔥 BUILD 186: ALWAYS enabled - no fallback to Google STT/TTS!
+USE_REALTIME_API = True  # FORCED TRUE - OpenAI Realtime API only!
 
 # 🎯 AGENT 3 SPEC: Force gpt-4o-realtime-preview (NOT mini)
 # This overrides any environment variable to ensure compliance
