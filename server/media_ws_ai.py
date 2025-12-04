@@ -2222,6 +2222,13 @@ ALWAYS mention their name in the first sentence.
                         if said_forbidden and (not crm_context or not crm_context.has_appointment_created):
                             print(f"⚠️ [GUARD] AI said '{transcript}' WITHOUT server approval!")
                             print(f"🛡️ [GUARD] Sending immediate correction to AI...")
+                            # 🔥 BUILD 182: Block hangup if AI confirmed but system didn't
+                            # This prevents the call from ending before appointment is actually created
+                            self._ai_said_confirmed_without_approval = True
+                            # 🔥 BUILD 182: Trigger NLP immediately to try to create the appointment
+                            # This runs in background thread and may create the appointment
+                            print(f"🔥 [GUARD] Triggering immediate NLP check to create appointment...")
+                            self._check_appointment_confirmation(transcript)
                             # Send immediate correction event
                             asyncio.create_task(self._send_server_event_to_ai(
                                 "⚠️ תיקון: התור עדיין לא אושר על ידי המערכת! אל תאשר עד שתקבל הודעה שהתור נקבע"
@@ -2258,10 +2265,20 @@ ALWAYS mention their name in the first sentence.
                         should_hangup = False
                         hangup_reason = ""
                         
-                        # 🔥 BUILD 170.5: Hangup only when proper conditions are met
+                        # 🔥 BUILD 182: Block hangup if AI confirmed appointment but system hasn't
+                        ai_said_without_approval = getattr(self, '_ai_said_confirmed_without_approval', False)
+                        crm_ctx = getattr(self, 'crm_context', None)
+                        hangup_blocked_for_appointment = False
+                        if ai_said_without_approval and (not crm_ctx or not crm_ctx.has_appointment_created):
+                            print(f"🛑 [GUARD] Blocking hangup - AI confirmed but appointment not yet created!")
+                            hangup_blocked_for_appointment = True
                         
+                        # 🔥 BUILD 170.5: Hangup only when proper conditions are met
+                        # Skip all hangup logic if appointment guard is active
+                        if hangup_blocked_for_appointment:
+                            print(f"🛑 [HANGUP] Skipping all hangup checks - waiting for appointment creation")
                         # Case 1: User explicitly said goodbye - always allow hangup after AI responds
-                        if self.goodbye_detected and ai_polite_closing_detected:
+                        elif self.goodbye_detected and ai_polite_closing_detected:
                             hangup_reason = "user_goodbye"
                             should_hangup = True
                             print(f"✅ [HANGUP] User said goodbye, AI responded politely - disconnecting")
@@ -3257,8 +3274,15 @@ ALWAYS mention their name in the first sentence.
                             crm_context.has_appointment_created = True
                             logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
                             print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
+                        
+                        # 🔥 BUILD 182: Clear the "AI confirmed without approval" flag
+                        # Now appointment is created, hangup can proceed normally
+                        if hasattr(self, '_ai_said_confirmed_without_approval'):
+                            self._ai_said_confirmed_without_approval = False
+                            print(f"✅ [BUILD 182] Cleared _ai_said_confirmed_without_approval - hangup allowed")
                             
-                            # 🔥 BUILD 146: Clear pending_slot ONLY after successful appointment creation
+                        # 🔥 BUILD 146: Clear pending_slot ONLY after successful appointment creation
+                        if crm_context:
                             crm_context.pending_slot = None
                             print(f"🧹 [CONFIRM] Cleared pending_slot after successful creation")
                         
