@@ -280,6 +280,7 @@ class OpenAIRealtimeClient:
         output_audio_format: str = "g711_ulaw",
         vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
         silence_duration_ms: int = 1200,  # 🔥 BUILD 170: Raised from 500ms to reduce false triggers
+        prefix_padding_ms: int = 300,  # 🔥 BUILD 187: Include audio before speech detection (reduces false positives)
         temperature: float = 0.18,
         max_tokens: int = 300
     ):
@@ -295,6 +296,7 @@ class OpenAIRealtimeClient:
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
             vad_threshold: Voice activity detection threshold (0-1)
             silence_duration_ms: Silence duration to detect end of speech
+            prefix_padding_ms: Audio to include before speech detection (reduces false positives)
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
         """
@@ -318,7 +320,7 @@ class OpenAIRealtimeClient:
                 "type": "server_vad",
                 "threshold": vad_threshold,
                 "silence_duration_ms": silence_duration_ms,
-                "prefix_padding_ms": 300
+                "prefix_padding_ms": prefix_padding_ms
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
