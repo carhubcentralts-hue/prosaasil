@@ -3265,10 +3265,27 @@ ALWAYS mention their name in the first sentence.
                             
                             print(f"❌ [FLOW STEP 10] FAILED - {error_type}: {error_msg}")
                             
+                            # 🔥 BUILD 182: Check if AI already said confirmation
+                            ai_already_confirmed = getattr(self, '_ai_said_confirmed_without_approval', False)
+                            
                             # 🔥 CRITICAL: Send appropriate server event based on error type
                             if error_type == "need_phone":
-                                logger.info(f"📞 [DTMF VERIFICATION] Requesting phone via DTMF - AI will ask user to press digits")
-                                await self._send_server_event_to_ai("חסר מספר טלפון. שאל: 'אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)'")
+                                if ai_already_confirmed:
+                                    # 🔥 BUILD 182: AI already said "קבעתי" - don't ask for DTMF!
+                                    # Just apologize and try to proceed with Caller ID
+                                    print(f"⚠️ [BUILD 182] AI already confirmed - NOT asking for DTMF!")
+                                    caller_id = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                                    if caller_id:
+                                        print(f"📞 [BUILD 182] Using Caller ID as fallback: {caller_id}")
+                                        # Retry with Caller ID
+                                        customer_phone = caller_id
+                                    else:
+                                        # Proceed without phone - appointment already "confirmed" to customer
+                                        await self._send_server_event_to_ai("✅ התור נקבע. הפרטים יישלחו אליך בהמשך.")
+                                        return
+                                else:
+                                    logger.info(f"📞 [DTMF VERIFICATION] Requesting phone via DTMF - AI will ask user to press digits")
+                                    await self._send_server_event_to_ai("חסר מספר טלפון. שאל: 'אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)'")
                             else:
                                 await self._send_server_event_to_ai(f"❌ שגיאה: {error_msg}")
                             return

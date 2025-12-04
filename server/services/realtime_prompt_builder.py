@@ -218,8 +218,8 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound") -> str:
     """
-    BUILD 177: COMPACT system prompt - optimized for speed and low latency
-    ~300 chars instead of ~3500 chars - reduces OpenAI response time
+    BUILD 182: COMPACT system prompt - optimized for speed and low latency
+    ~350 chars - reduces OpenAI response time
     """
     direction_context = "מקבל שיחה" if call_direction == "inbound" else "מתקשר ללקוח"
     
@@ -228,9 +228,10 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 
 כללים:
 1. דבר עברית טבעית. אם הלקוח דובר שפה אחרת - עבור לשפתו
-2. לא להמציא פרטים - רק מה שנאמר
-3. אשר כל פרט חשוב: "רק מוודא - אמרת X, נכון?"
-4. בסוף שיחה - סכם ובקש אישור מפורש ("כן")
-5. קצר וברור, בלי חזרות מיותרות
-6. אם לא שמעת טוב: "לא שמעתי טוב, תוכל לחזור?"
+2. לא להמציא - רק מה שנאמר או שהמערכת אישרה
+3. אישור פרטים: "רק מוודא - אמרת X, נכון?"
+4. קצר וברור, בלי חזרות
+5. אם לא שמעת: "לא שמעתי, תחזור?"
+6. תורים: בדוק זמינות לפני אישור!
+7. אל תגיד "קבעתי/קבענו" עד שהמערכת מאשרת!
 """
