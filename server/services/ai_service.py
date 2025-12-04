@@ -570,7 +570,7 @@ class AIService:
                 if ai_response:
                     ai_response = ai_response.strip()
                 else:
-                    ai_response = "מצטער, לא הצלחתי לייצר תגובה כרגע."
+                    ai_response = ""  # Empty - let caller handle
                 logger.info(f"AI response generated for business {business_id}: {len(ai_response)} chars")
                 return ai_response
                 
@@ -584,16 +584,22 @@ class AIService:
             logger.error(f"🔴 AI_GENERATION_FAILED: {type(e).__name__}: {str(e)[:200]}")
             return self._get_fallback_response(message)
     
-    def _get_fallback_response(self, message: str) -> str:
-        """תגובת חירום אם ה-AI נכשל"""
-        message_lower = message.lower().strip()
-        
-        if any(word in message_lower for word in ["שלום", "היי", "הלו"]):
-            return "שלום! איך אוכל לעזור לך?"  # ✅ כללי - לא חושף שם עסק שגוי
-        elif any(word in message_lower for word in ["דירה", "בית", "נכס"]):
-            return "אשמח לעזור לך! אתה מחפש לקניה או השכרה? באיזה אזור?"
-        else:
-            return "תודה על הפנייה! אחזור אליך בהקדם עם מענה מפורט."
+    def _get_fallback_response(self, message: str, business_id: int = None) -> str:
+        """Emergency fallback if AI fails - uses business settings"""
+        try:
+            if business_id:
+                from server.models_sql import Business
+                business = Business.query.get(business_id)
+                if business:
+                    fallback = business.greeting_message or business.whatsapp_greeting
+                    if fallback and fallback.strip():
+                        return fallback
+                    # Use business name as absolute minimum
+                    if business.name:
+                        return business.name
+        except:
+            pass
+        return None  # Return None to signal caller to skip/handle
     
     def _get_calendar_availability(self, business_id: int) -> str:
         """בדיקת זמינות בלוח השנה ל-7 ימים הקרובים"""

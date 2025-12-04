@@ -767,14 +767,22 @@ def baileys_webhook():
                         print(f"✅ Fallback AI response: {str(response_text)[:50]}...", flush=True)
                     except Exception as e2:
                         print(f"⚠️ Regular AI also failed: {e2}", flush=True)
-                        # ✅ Last resort - but still try to use business name!
+                        # ✅ Last resort - use business whatsapp_greeting or greeting_message
                         try:
                             from server.models_sql import Business
                             business = Business.query.get(business_id)
-                            biz_name = business.name if business else "אנחנו"
-                            response_text = f"שלום! תודה שפנית ל{biz_name}. נחזור אליך בהקדם."
+                            if business:
+                                # Use whatsapp_greeting first, then greeting_message, then name
+                                response_text = business.whatsapp_greeting or business.greeting_message or f"{business.name}" if business.name else ""
+                            else:
+                                response_text = None  # Don't send if no business
                         except:
-                            response_text = "שלום! קיבלתי את ההודעה שלך. נחזור אליך בהקדם."
+                            response_text = None  # Don't send on error
+                        
+                        # 🔥 Guard: Don't send empty messages
+                        if not response_text or not response_text.strip():
+                            log.warning(f"⚠️ No fallback response available - skipping send")
+                            return jsonify({"status": "ok", "skipped": True}), 200
                 
                 # Send response via Baileys
                 send_start = time.time()

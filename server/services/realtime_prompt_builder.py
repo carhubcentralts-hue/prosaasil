@@ -67,7 +67,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         except Exception as db_error:
             logger.error(f"❌ DB error loading business {business_id}: {db_error}")
-            return _get_fallback_prompt()
+            return _get_fallback_prompt(business_id)
         
         if not business:
             raise ValueError(f"Business {business_id} not found")
@@ -168,12 +168,33 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         logger.error(f"❌ Error building Realtime prompt: {e}")
         import traceback
         traceback.print_exc()
-        return _get_fallback_prompt()
+        return _get_fallback_prompt(business_id)
 
 
-def _get_fallback_prompt() -> str:
-    """Minimal fallback prompt - generic, no business type assumptions"""
-    return """You are a professional, friendly service representative. Respond in HEBREW, be brief and clear. Help the customer with what they need."""
+def _get_fallback_prompt(business_id: int = None) -> str:
+    """Minimal fallback prompt - tries to use business settings first"""
+    try:
+        if business_id:
+            from server.models_sql import Business, BusinessSettings
+            business = Business.query.get(business_id)
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            
+            # Try to get prompt from settings
+            if settings and settings.ai_prompt and settings.ai_prompt.strip():
+                return settings.ai_prompt
+            
+            # Try business.system_prompt
+            if business and business.system_prompt and business.system_prompt.strip():
+                return business.system_prompt
+            
+            # Build minimal prompt from business name
+            if business and business.name:
+                return f"You are a representative of {business.name}. Respond in HEBREW, be brief and helpful."
+    except:
+        pass
+    
+    # Absolute minimal - no business info available
+    return "Respond in HEBREW, be brief and helpful."
 
 
 def _build_hours_description(policy) -> str:

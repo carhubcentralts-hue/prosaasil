@@ -134,8 +134,8 @@ class CallConfig:
     # Required fields for lead capture
     required_lead_fields: list = None
     
-    # Closing sentence
-    closing_sentence: str = "תודה רבה, נציג יחזור אליך בהמשך. יום טוב!"
+    # Closing sentence - loaded from BusinessSettings, no hardcoded default
+    closing_sentence: str = ""
     
     def __post_init__(self):
         if self.required_lead_fields is None:
@@ -169,7 +169,7 @@ def load_call_config(business_id: int) -> CallConfig:
             silence_timeout_sec=getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             silence_max_warnings=getattr(settings, 'silence_max_warnings', 2) if settings else 2,
             required_lead_fields=getattr(settings, 'required_lead_fields', ['name', 'phone']) if settings else ['name', 'phone'],
-            closing_sentence=getattr(settings, 'closing_sentence', None) or "תודה רבה, נציג יחזור אליך בהמשך. יום טוב!"
+            closing_sentence=getattr(settings, 'closing_sentence', None) or business.greeting_message or ""
         )
         
         logger.info(f"✅ [CALL CONFIG] Loaded for business {business_id}: "
@@ -1277,7 +1277,7 @@ class MediaStreamHandler:
                 silence_max_warnings=self.silence_max_warnings,
                 smart_hangup_enabled=self.smart_hangup_enabled,
                 required_lead_fields=self.required_lead_fields,
-                closing_sentence="תודה רבה שהתקשרת! יום נפלא!"
+                closing_sentence=""
             )
             print(f"🔒 [DEFAULTS] Created fallback CallConfig for business={self.business_id}")
         
@@ -6043,8 +6043,16 @@ ALWAYS mention their name in the first sentence.
                         self.call_state = CallState.CLOSING
                         
                         # Send closing message and hangup
-                        closing_msg = self.call_config.closing_sentence if self.call_config else "תודה רבה, יום טוב!"
-                        await self._send_text_to_ai(f"[SYSTEM] User has been silent for too long. Say goodbye: {closing_msg}")
+                        closing_msg = ""
+                        if self.call_config and self.call_config.closing_sentence:
+                            closing_msg = self.call_config.closing_sentence
+                        elif self.call_config and self.call_config.greeting_text:
+                            closing_msg = self.call_config.greeting_text  # Use greeting as fallback
+                        
+                        if closing_msg:
+                            await self._send_text_to_ai(f"[SYSTEM] User has been silent for too long. Say goodbye: {closing_msg}")
+                        else:
+                            await self._send_text_to_ai("[SYSTEM] User has been silent for too long. Say a brief goodbye in Hebrew.")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
