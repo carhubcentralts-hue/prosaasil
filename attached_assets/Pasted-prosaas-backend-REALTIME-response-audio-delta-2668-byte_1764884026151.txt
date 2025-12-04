@@ -1,0 +1,253 @@
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | [WA-SESSION] 📱 Check #1: Found 0 stale sessions to process
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | ✅ Call log already exists for CA3285fb9d9ad6272721029b0da666509f
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | ✅ CustomerIntelligence SUCCESS: customer_id=7, lead_id=79, was_created=False
+prosaas-backend  | ✅ Recording started for CA3285fb9d9ad6272721029b0da666509f: REaf7e01951deb3189eac58232fd76ead6
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 📏 [PROMPT] Final length: 3186 chars
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | ⏳ [PHASE 2] Waiting for greeting to finish before session.update...
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 6936 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🎤 [GREETING] Greeting finished at 1764883944.026 (duration: 1329ms)
+prosaas-backend  | ✅ [GREETING] Barge-in now ENABLED for rest of call
+prosaas-backend  | 🛡️ [PROTECTION] Greeting completed - hangup blocked for 3000ms
+prosaas-backend  | 📞 [STATE] Transitioned WARMUP → ACTIVE (greeting done)
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (1200ms)
+prosaas-backend  | 🔇 [SILENCE] Monitor started (timeout=5s, max_warnings=2)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: שלום! זה מאתר המנעולן. איזה סוג שירות אתה צריך?
+prosaas-backend  | 🎙️ REAL_VOICE: rms=311.0 > threshold=119.7
+prosaas-backend  | [REALTIME] sending audio TO OpenAI: chunk#1, μ-law bytes=160, first5=1f 18 19 1f 31, rms=5202, consec_frames=7
+prosaas-backend  | [REALTIME] sending audio TO OpenAI: chunk#2, μ-law bytes=160, first5=af a0 9b 9c a9, rms=8166, consec_frames=8
+prosaas-backend  | [REALTIME] sending audio TO OpenAI: chunk#3, μ-law bytes=160, first5=1a 1a 1f 35 b2, rms=7269, consec_frames=9
+prosaas-backend  | ✅ Updated call_log with customer_id=7
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=6471, voice_frames=0
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_needs_retry=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True'}
+prosaas-backend  | ❌ [CITY] Rejected 'שלום!' (confidence=70%) - ask to repeat
+prosaas-backend  | 🛡️ [PROTECTION] Ignoring AI goodbye - only 1604ms since greeting
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'שלום! זה מאתר המנעולן. איזה סו...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (1200ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | ✅ [PHASE 2] Greeting finished after 1.9s - now updating session
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_started
+prosaas-backend  | 🎤 [REALTIME] User started speaking - setting user_has_spoken=True
+prosaas-backend  | ✅ [LOOP GUARD] User started speaking - resetting consecutive counter (1 -> 0)
+prosaas-backend  | 🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI
+prosaas-backend  | 📞 [INBOUND] session.update with max_tokens=4096
+prosaas-backend  | ✅ [PHASE 2] Session updated with full prompt: 3186 chars, voice=shimmer locked, max_tokens=4096, transcription=Hebrew
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=432, voice_frames=0
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_stopped
+prosaas-backend  | 🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+prosaas-backend  | [REALTIME] event: input_audio_buffer.committed
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjBE2M1oRwCvBEO...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjBE2M1oRwCvBEO... status=in_progress modalities=['audio', 'text'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_started
+prosaas-backend  | 🛡️ [BUILD 187 GRACE] Ignoring speech_started - only 345ms since response.created (grace=500ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (1200ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: ובאיזו עיר
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=378, voice_frames=0
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_needs_retry=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True'}
+prosaas-backend  | ❌ [CITY] Rejected 'עיר' (confidence=54%) - ask to repeat
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'ובאיזו עיר...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (1200ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=cancelled, output_count=1, details={'type': 'cancelled', 'reason': 'turn_detected'}
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | 🎙️ REAL_VOICE: rms=260.0 > threshold=119.7
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=583, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=3936, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 100 frames (rms=79, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=509, voice_frames=0
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | [REALTIME] event: conversation.item.input_audio_transcription.completed
+prosaas-backend  | ✅ [NOISE FILTER] ALLOWED (has Hebrew): 'בוא נשר, אין סבבה?'
+prosaas-backend  | [NOISE FILTER] ✅ ACCEPTED: 'בוא נשר, אין סבבה?' (hebrew=13, english=0)
+prosaas-backend  | 💰 [COST] User utterance: 5.20s (226 chunks total)
+prosaas-backend  | 👤 [REALTIME] User said: בוא נשר, אין סבבה?
+prosaas-backend  | ✅ [BUILD 176] User CONFIRMED with 'בוא נשר, אין סבבה?' - verification_confirmed = True
+prosaas-backend  | 🎙️ REAL_VOICE: rms=275.0 > threshold=119.7
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=208, voice_frames=0
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.6:39664 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | ✅ [LEAD STATE] Updated: city=נשר
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'city': 'נשר'}
+prosaas-backend  | ✅ [LEAD STATE] Updated: raw_city=נשר,
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'city': 'נשר', 'raw_city': 'נשר,'}
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_confidence=88.28571428571429
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'city': 'נשר', 'raw_city': 'נשר,', 'city_confidence': '88.28571428571429'}
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_needs_confirmation=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'city': 'נשר', 'raw_city': 'נשר,', 'city_confidence': '88.28571428571429', 'city_needs_confirmation': 'True'}
+prosaas-backend  | ⚠️ [CITY] Needs confirmation: 'נשר' (confidence=88%)
+prosaas-backend  | 🔍 [DEBUG] Calling NLP after user transcript: 'בוא נשר, אין סבבה?...'
+prosaas-backend  | 🔍 [DEBUG] _check_appointment_confirmation called with transcript: 'בוא נשר, אין סבבה?...'
+prosaas-backend  | 🔍 [DEBUG] Conversation history length: 3
+prosaas-backend  | 🔍 [DEBUG] User messages for hash: ['בוא נשר, אין סבבה?']
+prosaas-backend  | 🔍 [DEBUG] Current conversation hash: 3db87489...
+prosaas-backend  | 🔍 [DEBUG] First NLP run - processing
+prosaas-backend  | 🔍 [NLP] ✅ WILL PROCESS new conversation state (hash=3db87489...)
+prosaas-backend  | 🔍 [DEBUG] CRM context exists: False
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'בוא נשר, אין סבבה?...'
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=נשר']
+prosaas-backend  | [SAFETY] Transcription successful (total failures: 0)
+prosaas-backend  | 🔍 [NLP] ▶️ Analyzing conversation for appointment intent...
+prosaas-backend  | 🔍 [NLP] Conversation history has 3 messages
+prosaas-backend  | 🔍 [NLP] Last 3 messages: [{'speaker': 'ai', 'text': 'שלום! זה מאתר המנעולן. איזה סוג שירות אתה צריך?', 'ts': 1764883944.0261939}, {'speaker': 'ai', 'text': 'ובאיזו עיר', 'ts': 1764883946.922452}, {'speaker': 'user', 'text': 'בוא נשר, אין סבבה?', 'ts': 1764883950.829076}]
+prosaas-backend  | 💓 WS_KEEPALIVE #1 (prevents 5min timeout)
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_stopped
+prosaas-backend  | 🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+prosaas-backend  | [REALTIME] event: input_audio_buffer.committed
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjBE7bOJRuHp3Kz...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjBE7bOJRuHp3Kz... status=in_progress modalities=['audio', 'text'] output_format=g711_ulaw
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_started
+prosaas-backend  | 🛡️ [BUILD 187 GRACE] Ignoring speech_started - only 30ms since response.created (grace=500ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=cancelled, output_count=0, details={'type': 'cancelled', 'reason': 'turn_detected'}
+prosaas-backend  | 🔄 [BUILD 187] Response cancelled with NO audio! Scheduling recovery...
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=71, voice_frames=0
+prosaas-backend  | 🔍 [NLP] ◀️ NLP result: {'action': 'none', 'date': 'null', 'time': 'null', 'name': 'null', 'phone': 'null', 'confidence': 0.0}
+prosaas-backend  | 📭 [NLP] No appointment action detected (action=none)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=152, voice_frames=0
+prosaas-backend  | [REALTIME] event: conversation.item.input_audio_transcription.completed
+prosaas-backend  | ✅ [NOISE FILTER] ALLOWED Hebrew: 'אני צריך לחורד דדלתות'
+prosaas-backend  | [NOISE FILTER] ✅ ACCEPTED: 'אני צריך לחורד דדלתות' (hebrew=18, english=0)
+prosaas-backend  | 📝 [SEGMENT MERGE] FLUSH - long pause (2208ms)
+prosaas-backend  | 💰 [COST] User utterance: 1.57s (275 chunks total)
+prosaas-backend  | 👤 [REALTIME] User said: אני צריך לחורד דדלתות
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_needs_retry=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'city': 'נשר', 'raw_city': 'נשר,', 'city_confidence': '88.28571428571429', 'city_needs_confirmation': 'True'}
+prosaas-backend  | ❌ [CITY] Rejected 'צריך' (confidence=47%) - ask to repeat
+prosaas-backend  | 🔍 [DEBUG] Calling NLP after user transcript: 'אני צריך לחורד דדלתות...'
+prosaas-backend  | 🔍 [DEBUG] _check_appointment_confirmation called with transcript: 'אני צריך לחורד דדלתות...'
+prosaas-backend  | 🔍 [DEBUG] Conversation history length: 4
+prosaas-backend  | 🔍 [DEBUG] User messages for hash: ['בוא נשר, אין סבבה?', 'אני צריך לחורד דדלתות']
+prosaas-backend  | 🔍 [DEBUG] Current conversation hash: 3f2bc24e...
+prosaas-backend  | 🔍 [DEBUG] Hash changed (3db87489 → 3f2bc24e) - processing
+prosaas-backend  | 🔍 [NLP] ✅ WILL PROCESS new conversation state (hash=3f2bc24e...)
+prosaas-backend  | 🔍 [DEBUG] CRM context exists: False
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'אני צריך לחורד דדלתות...'
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=נשר']
+prosaas-backend  | [SAFETY] Transcription successful (total failures: 0)
+prosaas-backend  | 🔍 [NLP] ▶️ Analyzing conversation for appointment intent...
+prosaas-backend  | 🔍 [NLP] Conversation history has 4 messages
+prosaas-backend  | 🔍 [NLP] Last 3 messages: [{'speaker': 'ai', 'text': 'ובאיזו עיר', 'ts': 1764883946.922452}, {'speaker': 'user', 'text': 'בוא נשר, אין סבבה?', 'ts': 1764883950.829076}, {'speaker': 'user', 'text': 'אני צריך לחורד דדלתות', 'ts': 1764883953.037633}]
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 200 frames (rms=44, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=25, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=259.0 > threshold=119.7
+prosaas-backend  | 🔍 [NLP] ◀️ NLP result: {'action': 'none', 'date': 'null', 'time': 'null', 'name': 'null', 'phone': 'null', 'confidence': 0.0}
+prosaas-backend  | 📭 [NLP] No appointment action detected (action=none)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=16, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 300 frames (rms=19, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=20, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=26, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=211.0 > threshold=119.7
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 400 frames (rms=188, reason=insufficient_consec_frames(1/7))
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=61, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=101, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 500 frames (rms=19, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=137, voice_frames=0
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 7.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=נשר']
+prosaas-backend  | 🎙️ REAL_VOICE: rms=1410.0 > threshold=119.7
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=20, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=17, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 600 frames (rms=36, reason=noise)
+prosaas-backend  | 💓 WS_KEEPALIVE #2 (prevents 5min timeout)
+prosaas-backend  | INFO:     127.0.0.1:56112 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=16, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=11, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 700 frames (rms=18, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=15, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=2098.0 > threshold=119.7
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=471, voice_frames=0
+prosaas-backend  | 🔇 [SILENCE] Warning 2/2 after 6.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=נשר']
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 800 frames (rms=37, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=10, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=9, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 900 frames (rms=10, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=11, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=11, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 1000 frames (rms=11, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=12, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=190.0 > threshold=119.7
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=נשר']
+prosaas-backend  | 🔇 [SILENCE] Max warnings exceeded - initiating polite hangup
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=15, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 1100 frames (rms=10, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=9, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=22, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 1200 frames (rms=12, reason=noise)
+prosaas-backend  | 🎙️ REAL_VOICE: rms=204.0 > threshold=119.7
+prosaas-backend  | 💓 WS_KEEPALIVE #3 (prevents 5min timeout)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=3491, voice_frames=0
+prosaas-backend  | 📞 [SMART HANGUP] === CALL ENDING ===
+prosaas-backend  | 📞 [SMART HANGUP] Reason: silence_timeout
+prosaas-backend  | 📞 [SMART HANGUP] Lead captured: False
+prosaas-backend  | 📞 [SMART HANGUP] Goodbye detected: False
+prosaas-backend  | 📞 [SMART HANGUP] Lead state: {'city_needs_retry': 'True', 'city': 'נשר', 'raw_city': 'נשר,', 'city_confidence': '88.28571428571429', 'city_needs_confirmation': 'True'}
+prosaas-backend  | 📞 [SMART HANGUP] Required fields: ['city', 'service_type']
+prosaas-backend  | 📞 [SMART HANGUP] ===================
+prosaas-backend  | ✅ [BUILD 163] Call CA3285fb... hung up successfully: silence_timeout
+prosaas-backend  | WS_STOP sid=MZ70692701ca2def80c5ac8fd2e4d3b693 rx=1691 tx=232
+prosaas-backend  | 📞 [SES-96f3c5b7] CALL ENDED - duration=33.7s, business_id=10, rx=1691, tx=232
+prosaas-backend  | 📤 [REALTIME] Audio sender ended
+prosaas-backend  | 📝 [REALTIME] Text sender ended
+prosaas-backend  | STREAM_ENDED call=CA3285fb9d9ad6272721029b0da666509f stream=N/A status=N/A
+prosaas-backend  | INFO:     172.18.0.6:40806 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+prosaas-backend  | ✅ Found existing recording for CA3285fb9d9ad6272721029b0da666509f: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/REaf7e01951deb3189eac58232fd76ead6.json
+prosaas-backend  | INFO:     172.18.0.6:40820 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+prosaas-backend  | 🧹 Waiting for 5 background threads...
+prosaas-backend  | ✅ Recording queued for processing: CA3285fb9d9ad6272721029b0da666509f
+prosaas-backend  | INFO:   
