@@ -156,7 +156,12 @@ def load_call_config(business_id: int) -> CallConfig:
             logger.warning(f"⚠️ [CALL CONFIG] Business {business_id} not found - using defaults")
             return CallConfig(business_id=business_id)
         
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        # 🔥 BUILD 186 FIX: Handle missing columns gracefully
+        settings = None
+        try:
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        except Exception as db_err:
+            logger.warning(f"⚠️ [CALL CONFIG] Could not load settings for {business_id} (DB schema issue): {db_err}")
         
         config = CallConfig(
             business_id=business_id,

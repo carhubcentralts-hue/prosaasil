@@ -83,9 +83,13 @@ def get_business_phone(business_id: int) -> str | None:
     if business and business.phone_e164:
         return business.phone_e164
     
-    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-    if settings and settings.phone_number:
-        return settings.phone_number
+    # 🔥 BUILD 186 FIX: Handle missing columns gracefully
+    try:
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        if settings and settings.phone_number:
+            return settings.phone_number
+    except Exception as db_err:
+        log.warning(f"⚠️ Could not load settings for {business_id} (DB schema issue): {db_err}")
     
     return None
 

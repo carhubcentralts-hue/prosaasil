@@ -479,7 +479,15 @@ def save_whatsapp_prompt(business_id):
     if not business:
         return {"ok": False, "error": "business_not_found"}, 404
     
-    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+    # 🔥 BUILD 186 FIX: Handle missing columns gracefully - continue with new settings
+    settings = None
+    try:
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+    except Exception as db_err:
+        import logging
+        logging.warning(f"⚠️ Could not load settings for {business_id} (DB schema issue): {db_err}")
+        # Continue - will create new settings row below
+    
     if not settings:
         settings = BusinessSettings()
         settings.tenant_id = business_id

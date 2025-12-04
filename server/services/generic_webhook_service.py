@@ -56,7 +56,14 @@ def send_generic_webhook(
     
     try:
         if not webhook_url:
-            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            # 🔥 BUILD 186 FIX: Handle missing columns gracefully
+            settings = None
+            try:
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            except Exception as db_err:
+                print(f"[WEBHOOK] Could not load settings for business {business_id} (DB schema issue): {db_err}")
+                return False
+            
             if not settings:
                 print(f"[WEBHOOK] No settings found for business {business_id}")
                 return False
