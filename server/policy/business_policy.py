@@ -46,7 +46,7 @@ DEFAULT_POLICY = BusinessPolicy(
     },
     booking_window_days=30,
     min_notice_min=0,
-    require_phone_before_booking=True  # 🔥 Phone required by default
+    require_phone_before_booking=False  # 🔥 BUILD 182: Use Caller ID by default, DTMF only if enabled
 )
 
 def parse_policy_from_prompt(prompt: str) -> Dict[str, Any]:

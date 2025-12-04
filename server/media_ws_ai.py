@@ -3080,10 +3080,21 @@ ALWAYS mention their name in the first sentence.
             print(f"✅ [FLOW STEP 4] OK - Date/time valid: {date_iso} {time_str}")
             
             # ✅ STEP 2: Check if we have customer name and phone
-            # Customer phone should be available from call context
-            customer_phone = crm_context.customer_phone if crm_context else None
+            # 🔥 BUILD 182: Phone priority: 1) crm_context, 2) DTMF, 3) Caller ID
+            customer_phone = None
+            if crm_context and crm_context.customer_phone:
+                customer_phone = crm_context.customer_phone
+                print(f"📝 [FLOW STEP 5] Phone from crm_context: {customer_phone}")
+            elif hasattr(self, 'customer_phone_dtmf') and self.customer_phone_dtmf:
+                customer_phone = self.customer_phone_dtmf
+                print(f"📝 [FLOW STEP 5] Phone from DTMF: {customer_phone}")
+            elif hasattr(self, 'phone_number') and self.phone_number:
+                # 🔥 BUILD 182: Use Caller ID as fallback!
+                customer_phone = self.phone_number
+                print(f"📝 [FLOW STEP 5] Phone from Caller ID: {customer_phone}")
+            
             print(f"📝 [FLOW STEP 5] Checking customer info:")
-            print(f"📝 [FLOW STEP 5]   - phone from context: {customer_phone}")
+            print(f"📝 [FLOW STEP 5]   - phone: {customer_phone}")
             print(f"📝 [FLOW STEP 5]   - name from NLP: {customer_name}")
             
             # 🔥 FALLBACK: If NLP didn't extract name, check temp cache and crm_context
@@ -3099,25 +3110,41 @@ ALWAYS mention their name in the first sentence.
                         crm_context.customer_name = customer_name
                         print(f"📝 [FLOW STEP 5]   - hydrated temp cache → crm_context")
             
-            # 🔥 STRICT SEQUENCING: Ask for name FIRST, then phone (never both!)
+            # 🔥 BUILD 182: Check if business requires phone verification via DTMF
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(self.business_id)
+            require_phone_verification = getattr(policy, 'require_phone_before_booking', False)
+            print(f"📝 [FLOW STEP 5.5] Business setting require_phone_before_booking: {require_phone_verification}")
+            
+            # 🔥 BUILD 182: If we have caller ID and phone verification is NOT required, use it!
+            if not customer_phone and hasattr(self, 'phone_number') and self.phone_number and not require_phone_verification:
+                customer_phone = self.phone_number
+                print(f"📝 [FLOW STEP 5.5] Using Caller ID (no phone verification required): {customer_phone}")
+            
+            # 🔥 Check if all required data is complete
             print(f"📝 [FLOW STEP 6] Checking if all data is complete...")
-            if not customer_name or not customer_phone:
-                # Missing name or phone - ask AI to collect it IN ORDER
-                print(f"📝 [FLOW STEP 6] Missing customer info:")
-                print(f"📝 [FLOW STEP 6]   - name: {customer_name or 'MISSING!'}")
-                print(f"📝 [FLOW STEP 6]   - phone: {customer_phone or 'MISSING!'}")
-                
-                # Priority 1: Name (ALWAYS ask for name first!)
-                if not customer_name:
-                    print(f"❌ [FLOW STEP 6] BLOCKED - Need name first! Sending need_name event")
-                    await self._send_server_event_to_ai("need_name - שאל את הלקוח: על איזה שם לרשום את התור?")
-                    return
-                
-                # Priority 2: Phone (only after we have name!)
-                if not customer_phone:
-                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone! Sending need_phone event")
+            
+            # Priority 1: Name (ALWAYS ask for name first!)
+            if not customer_name:
+                print(f"❌ [FLOW STEP 6] BLOCKED - Need name first! Sending need_name event")
+                await self._send_server_event_to_ai("need_name - שאל את הלקוח: על איזה שם לרשום את התור?")
+                return
+            
+            # Priority 2: Phone - ONLY ask if require_phone_before_booking is True AND no phone available
+            if not customer_phone:
+                if require_phone_verification:
+                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Sending need_phone event")
                     await self._send_server_event_to_ai("need_phone - שאל את הלקוח: אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)")
                     return
+                else:
+                    # 🔥 BUILD 182: Try to use caller ID one more time
+                    if hasattr(self, 'phone_number') and self.phone_number:
+                        customer_phone = self.phone_number
+                        print(f"📝 [FLOW STEP 6] Using Caller ID as phone: {customer_phone}")
+                    else:
+                        print(f"⚠️ [FLOW STEP 6] No phone available but require_phone_before_booking=False")
+                        print(f"⚠️ [FLOW STEP 6] Proceeding without phone (will use empty string)")
+                        customer_phone = ""
             
             print(f"")
             print(f"✅ [FLOW STEP 6] ALL DATA COMPLETE!")
@@ -3149,8 +3176,7 @@ ALWAYS mention their name in the first sentence.
             ))
             
             # 🔥 CRITICAL: Use slot_size_min from business policy (NOT hardcoded 1 hour!)
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(self.business_id)
+            # Note: policy already loaded at STEP 5.5
             slot_duration_min = policy.slot_size_min  # 15, 30, or 60 minutes from DB settings
             end_dt = start_dt + timedelta(minutes=slot_duration_min)
             
