@@ -16,8 +16,10 @@ import { cn } from '../../shared/utils/cn';
 interface DirectionBreakdown {
   inbound_seconds: number;
   inbound_minutes: number;
+  inbound_calls: number;
   outbound_seconds: number;
   outbound_minutes: number;
+  outbound_calls: number;
 }
 
 interface BusinessMinutesData {
@@ -25,6 +27,7 @@ interface BusinessMinutesData {
   business_name: string;
   total_seconds: number;
   total_minutes: number;
+  total_calls: number;
   direction_breakdown: DirectionBreakdown;
 }
 
@@ -34,6 +37,7 @@ interface BusinessMinutesResponse {
     total_businesses: number;
     total_seconds: number;
     total_minutes: number;
+    total_calls: number;
   };
   date_range: {
     from: string;
@@ -128,13 +132,15 @@ export function BusinessMinutesPage() {
   const handleExportCSV = () => {
     if (!data?.businesses) return;
     
-    const headers = ['מספר עסק', 'שם עסק', 'סה"כ שניות', 'סה"כ דקות', 'דקות נכנסות', 'דקות יוצאות'];
+    const headers = ['מספר עסק', 'שם עסק', 'סה"כ שניות', 'סה"כ דקות', 'שיחות נכנסות', 'דקות נכנסות', 'שיחות יוצאות', 'דקות יוצאות'];
     const rows = data.businesses.map(b => [
       b.business_id,
       b.business_name,
       b.total_seconds,
       b.total_minutes,
+      b.direction_breakdown.inbound_calls || 0,
       b.direction_breakdown.inbound_minutes,
+      b.direction_breakdown.outbound_calls || 0,
       b.direction_breakdown.outbound_minutes
     ]);
     
@@ -205,8 +211,8 @@ export function BusinessMinutesPage() {
             data-testid="select-date-range"
           >
             <option value="today">היום</option>
-            <option value="this_week">השבוע</option>
-            <option value="this_month">החודש הנוכחי</option>
+            <option value="this_week">7 ימים אחרונים</option>
+            <option value="this_month">מתחילת החודש</option>
             <option value="last_30_days">30 ימים אחרונים</option>
             <option value="last_month">החודש הקודם</option>
             <option value="custom">טווח מותאם</option>
@@ -233,8 +239,13 @@ export function BusinessMinutesPage() {
           )}
 
           {data?.date_range && (
-            <div className="text-sm text-slate-500">
-              מציג: {new Date(data.date_range.from).toLocaleDateString('he-IL')} - {new Date(data.date_range.to).toLocaleDateString('he-IL')}
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-slate-500">
+                מציג: {new Date(data.date_range.from).toLocaleDateString('he-IL')} - {new Date(data.date_range.to).toLocaleDateString('he-IL')}
+              </div>
+              <span className="text-xs text-slate-400">
+                ({Math.ceil((new Date(data.date_range.to).getTime() - new Date(data.date_range.from).getTime()) / (1000 * 60 * 60 * 24)) + 1} ימים)
+              </span>
             </div>
           )}
         </div>
@@ -347,14 +358,14 @@ export function BusinessMinutesPage() {
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <PhoneIncoming className="h-4 w-4 text-green-500" />
-                      <span className="font-medium text-green-700">{business.direction_breakdown.inbound_minutes}</span>
+                      <span className="font-medium text-green-700">{business.direction_breakdown.inbound_calls}</span>
                       <span className="text-xs text-slate-400">({formatSeconds(business.direction_breakdown.inbound_seconds)})</span>
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <PhoneOutgoing className="h-4 w-4 text-blue-500" />
-                      <span className="font-medium text-blue-700">{business.direction_breakdown.outbound_minutes}</span>
+                      <span className="font-medium text-blue-700">{business.direction_breakdown.outbound_calls}</span>
                       <span className="text-xs text-slate-400">({formatSeconds(business.direction_breakdown.outbound_seconds)})</span>
                     </div>
                   </td>
@@ -379,7 +390,7 @@ export function BusinessMinutesPage() {
                   <div className="flex items-center gap-2">
                     <PhoneIncoming className="h-4 w-4 text-green-500" />
                     <span className="font-bold text-green-700">
-                      {data.businesses.reduce((sum, b) => sum + b.direction_breakdown.inbound_minutes, 0)}
+                      {data.businesses.reduce((sum, b) => sum + (b.direction_breakdown.inbound_calls || 0), 0)}
                     </span>
                   </div>
                 </td>
@@ -387,7 +398,7 @@ export function BusinessMinutesPage() {
                   <div className="flex items-center gap-2">
                     <PhoneOutgoing className="h-4 w-4 text-blue-500" />
                     <span className="font-bold text-blue-700">
-                      {data.businesses.reduce((sum, b) => sum + b.direction_breakdown.outbound_minutes, 0)}
+                      {data.businesses.reduce((sum, b) => sum + (b.direction_breakdown.outbound_calls || 0), 0)}
                     </span>
                   </div>
                 </td>

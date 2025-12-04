@@ -981,7 +981,7 @@ def get_business_minutes():
     try:
         import pytz
         from math import ceil
-        from sqlalchemy import case
+        from sqlalchemy import case, or_
         
         israel_tz = pytz.timezone('Asia/Jerusalem')
         now = datetime.now(israel_tz)
@@ -1012,19 +1012,37 @@ def get_business_minutes():
         
         logger.info(f"[BUSINESS MINUTES] Querying from {from_date_naive} to {to_date_naive}")
         
+        # 🔥 BUILD 181: Fixed outbound direction matching - include 'outbound-api' variant
+        # Twilio may send: 'inbound', 'outbound', or 'outbound-api' for programmatic outbound calls
         results = db.session.query(
             CallLog.business_id,
             Business.name.label('business_name'),
+            func.count(CallLog.id).label('total_calls'),
             func.sum(func.coalesce(CallLog.duration, 0)).label('total_seconds'),
+            # Inbound calls count and duration
+            func.sum(
+                case(
+                    (CallLog.direction == 'inbound', 1),
+                    else_=0
+                )
+            ).label('inbound_calls'),
             func.sum(
                 case(
                     (CallLog.direction == 'inbound', func.coalesce(CallLog.duration, 0)),
                     else_=0
                 )
             ).label('inbound_seconds'),
+            # Outbound calls count and duration
             func.sum(
                 case(
-                    (CallLog.direction == 'outbound', func.coalesce(CallLog.duration, 0)),
+                    (CallLog.direction.like('outbound%'), 1),
+                    else_=0
+                )
+            ).label('outbound_calls'),
+            func.sum(
+                case(
+                    # Match any outbound variant: 'outbound', 'outbound-api', 'outbound-dial'
+                    (CallLog.direction.like('outbound%'), func.coalesce(CallLog.duration, 0)),
                     else_=0
                 )
             ).label('outbound_seconds')
@@ -1035,7 +1053,11 @@ def get_business_minutes():
             CallLog.call_status == 'completed',
             CallLog.duration.isnot(None),
             CallLog.duration > 0,
-            CallLog.direction.in_(['inbound', 'outbound']),
+            # Include all inbound and outbound variants
+            or_(
+                CallLog.direction == 'inbound',
+                CallLog.direction.like('outbound%')
+            ),
             CallLog.created_at >= from_date_naive,
             CallLog.created_at <= to_date_naive
         ).group_by(
@@ -1047,25 +1069,33 @@ def get_business_minutes():
         
         response_data = []
         total_all_seconds = 0
+        total_all_calls = 0
         
         for row in results:
             total_seconds = int(row.total_seconds or 0)
             total_minutes = ceil(total_seconds / 60.0) if total_seconds > 0 else 0
+            total_calls = int(row.total_calls or 0)
             inbound_seconds = int(row.inbound_seconds or 0)
+            inbound_calls = int(row.inbound_calls or 0)
             outbound_seconds = int(row.outbound_seconds or 0)
+            outbound_calls = int(row.outbound_calls or 0)
             
             total_all_seconds += total_seconds
+            total_all_calls += total_calls
             
             response_data.append({
                 "business_id": row.business_id,
                 "business_name": row.business_name or f"עסק #{row.business_id}",
                 "total_seconds": total_seconds,
                 "total_minutes": total_minutes,
+                "total_calls": total_calls,
                 "direction_breakdown": {
                     "inbound_seconds": inbound_seconds,
                     "inbound_minutes": ceil(inbound_seconds / 60.0) if inbound_seconds > 0 else 0,
+                    "inbound_calls": inbound_calls,
                     "outbound_seconds": outbound_seconds,
-                    "outbound_minutes": ceil(outbound_seconds / 60.0) if outbound_seconds > 0 else 0
+                    "outbound_minutes": ceil(outbound_seconds / 60.0) if outbound_seconds > 0 else 0,
+                    "outbound_calls": outbound_calls
                 }
             })
         
@@ -1076,7 +1106,8 @@ def get_business_minutes():
             "summary": {
                 "total_businesses": len(response_data),
                 "total_seconds": total_all_seconds,
-                "total_minutes": ceil(total_all_seconds / 60.0) if total_all_seconds > 0 else 0
+                "total_minutes": ceil(total_all_seconds / 60.0) if total_all_seconds > 0 else 0,
+                "total_calls": total_all_calls
             },
             "date_range": {
                 "from": from_date_naive.strftime('%Y-%m-%d'),
