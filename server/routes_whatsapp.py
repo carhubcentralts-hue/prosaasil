@@ -404,9 +404,17 @@ def get_conversation(phone_number):
         # Format messages for frontend
         formatted_messages = []
         for m in msgs:
+            # 🔥 BUILD 180: Normalize direction to 'in' or 'out'
+            # Backend sometimes saves 'inbound'/'outbound', normalize for frontend
+            direction = m.direction or 'in'
+            if direction in ['outbound', 'out']:
+                direction = 'out'
+            else:
+                direction = 'in'
+            
             formatted_messages.append({
                 "id": str(m.id),
-                "direction": m.direction,  # 'in' or 'out'
+                "direction": direction,  # 'in' or 'out'
                 "content_text": m.body or "",
                 "sent_at": m.created_at.isoformat() if m.created_at else None,
                 "status": m.status or "sent",
@@ -564,10 +572,11 @@ def baileys_webhook():
                 
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
                 # Sometimes Baileys sends bot's outbound messages back as "incoming"
-                recent_outbound = WhatsAppMessage.query.filter_by(
-                    business_id=business_id,
-                    to_number=from_number,
-                    direction='outbound'
+                # 🔥 BUILD 180: Check both 'out' and 'outbound' for backwards compatibility
+                recent_outbound = WhatsAppMessage.query.filter(
+                    WhatsAppMessage.business_id == business_id,
+                    WhatsAppMessage.to_number == from_number,
+                    WhatsAppMessage.direction.in_(['out', 'outbound'])
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
                 if recent_outbound:
@@ -600,11 +609,12 @@ def baileys_webhook():
                 log.info(f"✅ {action} customer/lead for {from_number}")
                 
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
-                existing_msg = WhatsAppMessage.query.filter_by(
-                    business_id=business_id,
-                    to_number=from_number,
-                    body=message_text,
-                    direction='inbound'
+                # 🔥 BUILD 180: Check both 'in' and 'inbound' for backwards compatibility
+                existing_msg = WhatsAppMessage.query.filter(
+                    WhatsAppMessage.business_id == business_id,
+                    WhatsAppMessage.to_number == from_number,
+                    WhatsAppMessage.body == message_text,
+                    WhatsAppMessage.direction.in_(['in', 'inbound'])
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
                 # Skip if same message was received in last 10 seconds (webhook retry)
@@ -620,7 +630,7 @@ def baileys_webhook():
                 wa_msg.to_number = from_number
                 wa_msg.body = message_text
                 wa_msg.message_type = 'text'
-                wa_msg.direction = 'inbound'
+                wa_msg.direction = 'in'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = 'baileys'
                 wa_msg.status = 'received'
                 db.session.add(wa_msg)
@@ -684,8 +694,9 @@ def baileys_webhook():
                     ).order_by(WhatsAppMessage.created_at.desc()).limit(10).all()
                     
                     # Format as conversation (reversed to chronological order)
+                    # 🔥 BUILD 180: Handle both 'in'/'inbound' and 'out'/'outbound' for backwards compatibility
                     for msg_hist in reversed(recent_msgs):
-                        if msg_hist.direction == 'inbound':
+                        if msg_hist.direction in ['in', 'inbound']:
                             previous_messages.append(f"לקוח: {msg_hist.body}")
                         else:
                             previous_messages.append(f"עוזר: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
@@ -785,7 +796,7 @@ def baileys_webhook():
                     out_msg.to_number = from_number
                     out_msg.body = response_text
                     out_msg.message_type = 'text'
-                    out_msg.direction = 'outbound'
+                    out_msg.direction = 'out'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                     out_msg.provider = 'baileys'
                     out_msg.status = 'sent'
                     db.session.add(out_msg)
@@ -891,7 +902,7 @@ def send_manual_message():
                 wa_msg.to_number = clean_number
                 wa_msg.body = message
                 wa_msg.message_type = 'text'
-                wa_msg.direction = 'outbound'
+                wa_msg.direction = 'out'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = send_result.get('provider', 'unknown')
                 wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
                 wa_msg.status = db_status

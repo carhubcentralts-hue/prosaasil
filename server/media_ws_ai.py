@@ -6120,19 +6120,32 @@ ALWAYS mention their name in the first sentence.
         
         # 🔧 SERVICE_TYPE EXTRACTION: Look for service mentions
         # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned service (user may change mind)
+        # 🔥 BUILD 180: Filter out AI question fragments to prevent false extraction
         if 'service_type' in required_fields:
-            service_indicators = ['שירות', 'טיפול', 'תחום', 'עבודה', 'פרויקט', 'בעיה']
-            service_patterns = [
-                r'(?:שירות|טיפול|תחום)\s+(?:של\s+)?([א-ת\s]{2,20})',  # "שירות ניקיון"
-                r'ב(?:תחום|נושא)\s+(?:של\s+)?([א-ת\s]{2,20})',  # "בתחום השיפוצים"
+            # Skip if this looks like an AI question (contains question indicators)
+            ai_question_indicators = [
+                'איזה סוג שירות', 'מה השירות', 'באיזה תחום', 'מה אתה צריך',
+                'איך אני יכול לעזור', 'במה אוכל לעזור', 'מה הבעיה', 'איזה שירות אתה'
             ]
-            for pattern in service_patterns:
-                match = re.search(pattern, text)
-                if match:
-                    service = match.group(1).strip()
-                    if len(service) > 2:
-                        self._update_lead_capture_state('service_type', service)
-                        break
+            is_ai_question = any(indicator in text for indicator in ai_question_indicators)
+            
+            if not is_ai_question:
+                # 🔥 BUILD 180: Look for AI CONFIRMATION patterns like "אתה צריך X, נכון?"
+                confirmation_patterns = [
+                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,25})(?:[\s,]+נכון|[\s,]+בעיר|[\s,]+ב)',  # "אתה צריך קיצור דלתות, נכון?"
+                    r'(?:שירות|טיפול)\s+(?:של\s+)?([א-ת\s]{3,25})(?:[\s,]+נכון|[\s,]+בעיר|[\s,]+ב)',  # "שירות ניקיון, נכון?"
+                    r'ב(?:תחום|נושא)\s+(?:של\s+)?([א-ת\s]{3,25})',  # "בתחום השיפוצים"
+                ]
+                for pattern in confirmation_patterns:
+                    match = re.search(pattern, text)
+                    if match:
+                        service = match.group(1).strip()
+                        # 🔥 Filter out question fragments and generic words
+                        question_fragments = ['אתה צריך', 'צריכים', 'צריך', 'תרצה', 'תרצו', 'רוצה', 'רוצים']
+                        if len(service) > 3 and service not in question_fragments:
+                            self._update_lead_capture_state('service_type', service)
+                            print(f"✅ [LEAD STATE] Extracted service_type from confirmation: {service}")
+                            break
         
         # 💰 BUDGET EXTRACTION: Look for budget/price mentions
         if 'budget' in required_fields and 'budget' not in self.lead_capture_state:
@@ -6230,6 +6243,14 @@ ALWAYS mention their name in the first sentence.
             'email': 'customer_email',
         }
         
+        # 🔥 BUILD 180: Invalid values that should be rejected as "not captured"
+        # These are AI question fragments that got incorrectly extracted
+        invalid_values = [
+            'אתה צריך', 'צריכים', 'צריך', 'תרצה', 'תרצו', 'רוצה', 'רוצים',
+            'תרצה עזרה', 'תרצו עזרה', 'אתם צריכים', 'מה אתה צריך', 'איזה סוג',
+            'באיזה תחום', 'מה השירות', 'איך אני יכול', 'במה אוכל'
+        ]
+        
         # Check which fields are missing
         missing_fields = []
         collected_values = []
@@ -6243,6 +6264,12 @@ ALWAYS mention their name in the first sentence.
                 crm_attr = field_to_crm_attr.get(field)
                 if crm_attr:
                     value = getattr(crm_context, crm_attr, None)
+            
+            # 🔥 BUILD 180: Validate that value is not an AI question fragment
+            if value and field in ['service_type', 'service_category']:
+                if value.strip() in invalid_values or len(value.strip()) < 4:
+                    print(f"⚠️ [VALIDATION] Rejecting invalid {field} value: '{value}'")
+                    value = None
             
             if value:
                 collected_values.append(f"{field}={value}")
@@ -7063,15 +7090,40 @@ ALWAYS mention their name in the first sentence.
                             
                             # 🏠 Extract lead_id, city, service_category from multiple sources
                             
-                            # 🔍 FIRST: Extract service from transcript using KNOWN professionals list
-                            # This takes priority because lead_capture_state might have garbage from AI questions
-                            # 🔥 BUILD 179: Find the LAST mentioned professional (user may change mind)
-                            known_professionals = ['חשמלאי', 'אינסטלטור', 'שיפוצניק', 'מנקה', 'הובלות', 'מנעולן',
-                                                   'טכנאי מזגנים', 'גנן', 'צבעי', 'רצף', 'נגר', 'אלומיניום',
-                                                   'טכנאי מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנאי',
-                                                   'שיפוצים', 'ניקיון', 'גינון', 'צביעה', 'ריצוף', 'נגרות']
+                            # 🔍 FIRST: Extract service from AI CONFIRMATION patterns in transcript
+                            # Pattern: "אתה צריך X בעיר Y" or "רק מוודא – אתה צריך X בעיר Y"
+                            # This extracts the SPECIFIC service requested, not just generic professional type
+                            # 🔥 BUILD 180: Priority to AI confirmation patterns for accurate service extraction
+                            import re
                             
                             if full_conversation:
+                                # Look for AI confirmation patterns - get LAST occurrence
+                                confirmation_patterns = [
+                                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,30})(?:\s+בעיר|\s+ב)',  # "אתה צריך קיצור דלתות בעיר"
+                                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,30})(?:,?\s+נכון)',  # "אתה צריך קיצור דלתות, נכון?"
+                                    r'שירות(?:\s+של)?\s+([א-ת\s]{3,30})(?:\s+בעיר|\s+ב)',  # "שירות קיצור דלתות בעיר"
+                                ]
+                                
+                                for pattern in confirmation_patterns:
+                                    matches = list(re.finditer(pattern, full_conversation))
+                                    if matches:
+                                        last_match = matches[-1]  # Get LAST occurrence
+                                        extracted_service = last_match.group(1).strip()
+                                        # Filter out question fragments
+                                        question_fragments = ['אתה צריך', 'צריכים', 'צריך', 'תרצה', 'תרצו', 'רוצה', 'רוצים']
+                                        if extracted_service and len(extracted_service) > 3 and extracted_service not in question_fragments:
+                                            service_category = extracted_service
+                                            print(f"🎯 [WEBHOOK] Extracted SPECIFIC service from AI confirmation: '{service_category}'")
+                                            break
+                            
+                            # FALLBACK: Extract service from known professionals list
+                            # 🔥 BUILD 179: Find the LAST mentioned professional (user may change mind)
+                            if not service_category and full_conversation:
+                                known_professionals = ['חשמלאי', 'אינסטלטור', 'שיפוצניק', 'מנקה', 'הובלות', 'מנעולן',
+                                                       'טכנאי מזגנים', 'גנן', 'צבעי', 'רצף', 'נגר', 'אלומיניום',
+                                                       'טכנאי מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנאי',
+                                                       'שיפוצים', 'ניקיון', 'גינון', 'צביעה', 'ריצוף', 'נגרות',
+                                                       'קיצור דלתות', 'החלפת מנעול', 'פתיחת דלת', 'התקנת דלת']
                                 # Find LAST occurrence of any professional
                                 last_prof_pos = -1
                                 last_prof = None
