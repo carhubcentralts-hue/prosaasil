@@ -7236,41 +7236,26 @@ ALWAYS mention their name in the first sentence.
         return bytes(out)
     
     def _detect_area(self, text: str) -> str:
-        """זיהוי אזור מהטקסט של הלקוח"""
-        text = text.lower()
+        """BUILD 186: זיהוי אזור מהטקסט - 100% DYNAMIC from JSON!"""
+        if not text:
+            return ""
         
-        # מרכז הארץ
-        if any(word in text for word in ["תל אביב", "דיזנגוף", "פלורנטין", "נווה צדק"]):
-            return "תל אביב"
-        elif any(word in text for word in ["רמת גן", "גבעתיים", "הבורסה"]):
-            return "רמת גן/גבעתיים"
-        elif any(word in text for word in ["הרצליה", "פיתוח"]):
-            return "הרצליה"
+        text_lower = text.lower()
+        
+        try:
+            from server.services.appointment_parser import _load_dynamic_area_patterns
+            area_patterns = _load_dynamic_area_patterns()
             
-        # מרכז ודרום
-        elif any(word in text for word in ["רמלה"]):
-            return "רמלה"
-        elif any(word in text for word in ["לוד"]):
-            return "לוד"
-        elif any(word in text for word in ["פתח תקווה", "פתח תקוה"]):
-            return "פתח תקווה"
-        elif any(word in text for word in ["מודיעין"]):
-            return "מודיעין"
-        elif any(word in text for word in ["רחובות"]):
-            return "רחובות"
+            for area_name, keywords in area_patterns.items():
+                if any(keyword.lower() in text_lower for keyword in keywords):
+                    return area_name
+        except Exception as e:
+            print(f"⚠️ [AREA] Error loading dynamic patterns: {e}")
             
-        # אזור ירושלים
-        elif any(word in text for word in ["בית שמש"]):
-            return "בית שמש"
-        elif any(word in text for word in ["מעלה אדומים"]):
-            return "מעלה אדומים"
-        elif any(word in text for word in ["ירושלים"]):
-            return "ירושלים"
-            
-        return ""  # Return empty string instead of None
+        return ""
     
     def _analyze_lead_completeness(self) -> dict:
-        """✅ ניתוח השלמת מידע ליד לתיאום פגישה"""
+        """BUILD 186: ניתוח השלמת מידע ליד לתיאום פגישה - 100% DYNAMIC!"""
         collected_info = {
             'area': False,
             'property_type': False, 
@@ -7285,9 +7270,14 @@ ALWAYS mention their name in the first sentence.
         if hasattr(self, 'conversation_history') and self.conversation_history:
             full_conversation = ' '.join([turn['user'] + ' ' + turn['bot'] for turn in self.conversation_history])
             
-            # זיהוי אזור
-            if any(area in full_conversation for area in ['תל אביב', 'רמת גן', 'רמלה', 'לוד', 'בית שמש', 'מודיעין', 'פתח תקווה', 'רחובות', 'הרצליה', 'ירושלים']):
-                collected_info['area'] = True
+            # 🔥 BUILD 186: זיהוי אזור DYNAMIC from JSON!
+            try:
+                from server.services.appointment_parser import _load_dynamic_area_patterns
+                area_patterns = _load_dynamic_area_patterns()
+                if any(area.lower() in full_conversation.lower() for area in area_patterns.keys()):
+                    collected_info['area'] = True
+            except:
+                pass
             
             # זיהוי סוג נכס
             if any(prop_type in full_conversation for prop_type in ['דירה', 'חדרים', '2 חדרים', '3 חדרים', '4 חדרים', 'משרד', 'דופלקס']):
