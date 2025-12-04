@@ -1098,6 +1098,12 @@ class MediaStreamHandler:
         self._realtime_speech_started_ts = None  # When speech_started was received (for timeout)
         self._realtime_speech_timeout_sec = 30.0  # Auto-clear after 30 seconds if no speech_stopped (was 5s - too short!)
         
+        # 🔥 BUILD 187: CANCELLED RESPONSE RECOVERY
+        # When response is cancelled before any audio is sent (turn_detected), we need to trigger new response
+        self._cancelled_response_needs_recovery = False
+        self._cancelled_response_recovery_ts = 0
+        self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
@@ -1930,6 +1936,15 @@ ALWAYS mention their name in the first sentence.
                         if status == "cancelled" and not self.user_has_spoken:
                             _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
                             # greeting_sent stays True to bypass GUARD for next response
+                        
+                        # 🔥 BUILD 187: RECOVERY for cancelled responses with NO audio!
+                        # When user speaks/noise triggers turn_detected BEFORE AI sends any audio,
+                        # the response gets cancelled and no new one is created = silence.
+                        # Solution: Schedule a recovery response.create after short delay
+                        if status == "cancelled" and len(output) == 0 and self.user_has_spoken:
+                            _orig_print(f"🔄 [BUILD 187] Response cancelled with NO audio! Scheduling recovery...", flush=True)
+                            self._cancelled_response_needs_recovery = True
+                            self._cancelled_response_recovery_ts = time.time()
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
@@ -1982,6 +1997,26 @@ ALWAYS mention their name in the first sentence.
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    # 🔥 BUILD 187: Check if we need recovery after cancelled response
+                    if self._cancelled_response_needs_recovery:
+                        print(f"🔄 [BUILD 187] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for OpenAI...")
+                        # Schedule a delayed recovery check in a separate task
+                        async def _recovery_check():
+                            await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
+                            # Only trigger recovery if still needed and no new response was created
+                            if self._cancelled_response_needs_recovery and self.active_response_id is None:
+                                print(f"🔄 [BUILD 187] RECOVERY: Triggering response.create (no response in {self._cancelled_response_recovery_delay_sec}s)")
+                                try:
+                                    await client.send_event({"type": "response.create"})
+                                except Exception as e:
+                                    print(f"⚠️ [BUILD 187] Recovery failed: {e}")
+                                finally:
+                                    self._cancelled_response_needs_recovery = False
+                            else:
+                                self._cancelled_response_needs_recovery = False
+                                print(f"🔄 [BUILD 187] Recovery not needed - new response already created")
+                        asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
                 if event_type == "response.created":
@@ -1995,6 +2030,10 @@ ALWAYS mention their name in the first sentence.
                     if response_id:
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+                        # 🔥 BUILD 187: Clear recovery flag - new response was created!
+                        if self._cancelled_response_needs_recovery:
+                            print(f"🔄 [BUILD 187] New response created - cancelling recovery")
+                            self._cancelled_response_needs_recovery = False
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
