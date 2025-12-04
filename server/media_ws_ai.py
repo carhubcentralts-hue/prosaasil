@@ -4426,14 +4426,41 @@ ALWAYS mention their name in the first sentence.
                             _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
                             # greeting_sent stays True to bypass GUARD for next response
                         
-                        # 🔥 BUILD 187: RECOVERY for cancelled responses with NO audio!
-                        # When user speaks/noise triggers turn_detected BEFORE AI sends any audio,
-                        # the response gets cancelled and no new one is created = silence.
-                        # Solution: Schedule a recovery response.create after short delay
+                        # 🔥 BUILD 192: IMMEDIATE RECOVERY for cancelled responses with NO audio!
+                        # When turn_detected cancels response BEFORE AI sends any audio = silence.
+                        # OLD BUG: We waited for speech_stopped, but if speech_started was blocked
+                        # by grace period, speech_stopped never came → no recovery!
+                        # FIX: Trigger recovery IMMEDIATELY from response.done with cancelled
                         if status == "cancelled" and len(output) == 0 and self.user_has_spoken:
-                            _orig_print(f"🔄 [BUILD 187] Response cancelled with NO audio! Scheduling recovery...", flush=True)
-                            self._cancelled_response_needs_recovery = True
-                            self._cancelled_response_recovery_ts = time.time()
+                            _orig_print(f"🔄 [BUILD 192] Response cancelled with NO audio! Triggering IMMEDIATE recovery...", flush=True)
+                            
+                            # 🔥 BUILD 192: IMMEDIATE recovery - don't wait for speech_stopped!
+                            async def _immediate_recovery():
+                                # Short delay to let any pending events settle
+                                await asyncio.sleep(0.8)  # 800ms delay
+                                
+                                # Guard 1: Check if AI is already speaking
+                                if self.is_ai_speaking_event.is_set():
+                                    _orig_print(f"🔄 [BUILD 192] Recovery skipped - AI already speaking", flush=True)
+                                    return
+                                # Guard 2: Check if there's a pending response
+                                if self.response_pending_event.is_set():
+                                    _orig_print(f"🔄 [BUILD 192] Recovery skipped - response pending", flush=True)
+                                    return
+                                # Guard 3: Check if speech is active (user still talking)
+                                if getattr(self, '_realtime_speech_active', False):
+                                    _orig_print(f"🔄 [BUILD 192] Recovery skipped - user still speaking", flush=True)
+                                    return
+                                
+                                # All guards passed - trigger recovery
+                                _orig_print(f"🔄 [BUILD 192] RECOVERY: Triggering response.create NOW!", flush=True)
+                                try:
+                                    await client.send_event({"type": "response.create"})
+                                    _orig_print(f"✅ [BUILD 192] RECOVERY SUCCESS: response.create sent!", flush=True)
+                                except Exception as e:
+                                    _orig_print(f"⚠️ [BUILD 192] Recovery failed: {e}", flush=True)
+                            
+                            asyncio.create_task(_immediate_recovery())
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
@@ -4497,43 +4524,8 @@ ALWAYS mention their name in the first sentence.
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
-                    
-                    # 🔥 BUILD 187: Check if we need recovery after cancelled response
-                    if self._cancelled_response_needs_recovery:
-                        print(f"🔄 [BUILD 187] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for OpenAI...")
-                        # Schedule a delayed recovery check in a separate task
-                        async def _recovery_check():
-                            await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
-                            # 🛡️ BUILD 187 HARDENED: Multiple guards to prevent double triggers
-                            # Guard 1: Check if recovery is still needed
-                            if not self._cancelled_response_needs_recovery:
-                                print(f"🔄 [BUILD 187] Recovery cancelled - flag cleared")
-                                return
-                            # Guard 2: Check if AI is already speaking
-                            if self.is_ai_speaking_event.is_set():
-                                self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - AI already speaking")
-                                return
-                            # Guard 3: Check if there's a pending response
-                            if self.response_pending_event.is_set():
-                                self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - response pending")
-                                return
-                            # Guard 4: Check if speech is active (user still talking)
-                            if self._realtime_speech_active:
-                                self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - user still speaking")
-                                return
-                            
-                            # All guards passed - trigger recovery
-                            print(f"🔄 [BUILD 187] RECOVERY: Triggering response.create (no response in {self._cancelled_response_recovery_delay_sec}s)")
-                            try:
-                                await client.send_event({"type": "response.create"})
-                            except Exception as e:
-                                print(f"⚠️ [BUILD 187] Recovery failed: {e}")
-                            finally:
-                                self._cancelled_response_needs_recovery = False
-                        asyncio.create_task(_recovery_check())
+                    # 🔥 BUILD 192: Recovery now triggered IMMEDIATELY from response.done
+                    # No longer waiting for speech_stopped (which might never come if speech_started was blocked)
                 
                 # 🔥 Track response ID for barge-in cancellation
                 if event_type == "response.created":
