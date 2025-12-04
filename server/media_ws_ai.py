@@ -245,6 +245,38 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             # Naive datetime - assume it's in business local time
             print(f"🔍 [VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
         
+        # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
+        now = datetime.now(business_tz)
+        
+        # Check minimum notice time
+        if policy.min_notice_min > 0:
+            min_allowed_time = now + timedelta(minutes=policy.min_notice_min)
+            if requested_dt.tzinfo is None:
+                # Make requested_dt timezone-aware for comparison
+                requested_dt_aware = business_tz.localize(requested_dt)
+            else:
+                requested_dt_aware = requested_dt
+            
+            if requested_dt_aware < min_allowed_time:
+                print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
+                return False
+            else:
+                print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
+        
+        # Check booking window (max days ahead)
+        if policy.booking_window_days > 0:
+            max_booking_date = now + timedelta(days=policy.booking_window_days)
+            if requested_dt.tzinfo is None:
+                requested_dt_aware = business_tz.localize(requested_dt)
+            else:
+                requested_dt_aware = requested_dt
+            
+            if requested_dt_aware > max_booking_date:
+                print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
+                return False
+            else:
+                print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
+        
         # 🔥 STEP 1: Check business hours (skip for 24/7)
         if not policy.allow_24_7:
             # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
@@ -1102,6 +1134,13 @@ class MediaStreamHandler:
         # Updated by _update_lead_capture_state() from AI responses and DTMF
         self.lead_capture_state = {}  # e.g., {'name': 'דני', 'city': 'תל אביב', 'service_type': 'ניקיון'}
         
+        # 🔥 BUILD 185: STT CONSISTENCY FILTER - Tracks last 3 attempts for majority voting
+        # Prevents hallucinations like "בית שמש" → "מצפה רמון" by locking after 2/3 match
+        from server.services.phonetic_validator import ConsistencyFilter
+        self.stt_consistency_filter = ConsistencyFilter(max_attempts=3)
+        self.city_raw_attempts = []  # Track raw STT attempts for webhook
+        self.name_raw_attempts = []  # Track raw STT attempts for webhook
+        
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
@@ -1643,15 +1682,22 @@ ALWAYS mention their name in the first sentence.
                         current_call_direction = getattr(self, 'call_direction', 'inbound')
                         print(f"📞 [{current_call_direction.upper()}] session.update with max_tokens={session_max_tokens}")
                         
+                        # 🔥 BUILD 186: CRITICAL - Preserve Hebrew transcription config!
+                        # Without this, STT defaults to English and transcribes Hebrew as "Thank you", "Good luck"
                         await client.send_event({
                             "type": "session.update",
                             "session": {
                                 "instructions": full_prompt,
                                 "voice": voice_to_use,  # 🔒 Must re-send voice to lock it
-                                "max_response_output_tokens": session_max_tokens
+                                "max_response_output_tokens": session_max_tokens,
+                                # 🔥 BUILD 186 FIX: MUST preserve Hebrew transcription config!
+                                "input_audio_transcription": {
+                                    "model": "whisper-1",
+                                    "language": "he"  # 🔒 Force Hebrew - prevents "Thank you" hallucinations
+                                }
                             }
                         })
-                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars, voice={voice_to_use} locked, max_tokens={session_max_tokens}")
+                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars, voice={voice_to_use} locked, max_tokens={session_max_tokens}, transcription=Hebrew")
                     else:
                         print(f"⚠️ [PHASE 2] Keeping minimal prompt - full prompt build failed")
                 except Exception as e:
@@ -2468,15 +2514,51 @@ ALWAYS mention their name in the first sentence.
                     hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', text))
                     english_chars = len(re.findall(r'[a-zA-Z]', text))
                     
-                    # 🛡️ Block common Whisper hallucinations (pure English from Hebrew audio)
+                    # 🛡️ BUILD 186: EXPANDED English hallucination filter
+                    # These are common Whisper mistakes when transcribing Hebrew audio as English
                     hallucination_phrases = [
-                        "bye", "bye.", "bye!", "goodbye", "thank you", "thanks", "ok", "okay",
-                        "yes", "no", "hello", "hi", "hey", "sure", "right", "yeah", "yep", "nope",
-                        "i see", "i know", "got it", "alright", "fine", "good", "great", "mm", "uh",
-                        "hmm", "um", "uh huh", "mhm"
+                        # Greetings/farewells
+                        "bye", "bye.", "bye!", "goodbye", "good bye", "hello", "hi", "hey",
+                        # Thanks
+                        "thank you", "thanks", "thank you very much", "thank you.", "thanks.",
+                        # Confirmations
+                        "ok", "okay", "o.k.", "yes", "no", "sure", "right", "yeah", "yep", "nope",
+                        "alright", "all right", "fine", "good", "great",
+                        # Understanding
+                        "i see", "i know", "got it", "understood",
+                        # Fillers
+                        "mm", "uh", "hmm", "um", "uh huh", "mhm", "uh-huh", "m-hm",
+                        # 🔥 BUILD 186: NEW patterns from actual Hebrew→English STT errors
+                        "good luck", "a bit", "blah", "blah.", "bit", "luck",
+                        "nice", "cool", "wow", "oh", "ah", "ooh", "aah",
+                        "what", "well", "so", "but", "and", "or", "the",
+                        "please", "sorry", "excuse me", "pardon",
+                        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                        # Common short misheard phrases
+                        "i'm", "it's", "that's", "there's", "here's",
+                        "come", "go", "see", "look", "wait", "stop",
+                        "really", "actually", "maybe", "probably", "definitely",
+                        "you know", "i mean", "like", "just", "so so",
+                        # Music/audio artifacts
+                        "la la", "la", "na na", "da da", "ta ta"
                     ]
-                    text_lower = text.lower().strip('.!?')
+                    text_lower = text.lower().strip('.!?, ')
+                    
+                    # 🔥 BUILD 186: Check for exact match OR if text contains ONLY English words
                     is_hallucination = text_lower in hallucination_phrases
+                    
+                    # Also check for multi-word English phrases (e.g., "Thank you very much. Thank you")
+                    if not is_hallucination and english_chars > 0 and hebrew_chars == 0:
+                        # Check if ALL words are common English words
+                        english_common_words = {"thank", "you", "very", "much", "good", "luck", "bye", 
+                                               "hello", "hi", "hey", "ok", "okay", "yes", "no", "a", "bit",
+                                               "i", "it", "is", "the", "and", "or", "but", "so", "blah",
+                                               "one", "two", "three", "four", "five", "what", "where", "when",
+                                               "nice", "well", "fine", "great", "cool", "wow", "please"}
+                        words_in_text = set(re.findall(r'[a-zA-Z]+', text_lower))
+                        if words_in_text and words_in_text.issubset(english_common_words):
+                            is_hallucination = True
+                            print(f"🚫 [BUILD 186] ENGLISH HALLUCINATION: '{text}' (all words are common English)")
                     
                     # 🔥 BUILD 169.1: Improved gibberish detection (architect feedback)
                     # Only flag as gibberish if: 4+ chars of SAME letter AND not a natural elongation
@@ -3197,10 +3279,12 @@ ALWAYS mention their name in the first sentence.
                 return
             
             # Priority 2: Phone - ONLY ask if require_phone_before_booking is True AND no phone available
+            # 🔥 BUILD 186: Ask for DTMF (keypad) only when require_phone_before_booking=True
+            # Otherwise, use Caller ID automatically - no verbal phone extraction needed!
             if not customer_phone:
                 if require_phone_verification:
-                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Sending need_phone event")
-                    await self._send_server_event_to_ai("need_phone - שאל את הלקוח: אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)")
+                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Asking via DTMF")
+                    await self._send_server_event_to_ai("need_phone_dtmf - בקש מהלקוח להקליד את מספר הטלפון שלו על המקשים ולסיים בסולמית (#).")
                     return
                 else:
                     # 🔥 BUILD 182: Try to use caller ID one more time
@@ -6245,41 +6329,104 @@ ALWAYS mention their name in the first sentence.
         if not required_fields:
             return
         
-        # 🏙️ CITY EXTRACTION: Look for city mentions (comprehensive Israeli city list)
-        # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned city (user may change mind)
+        # 🏙️ CITY EXTRACTION: Use 3-layer validation system
+        # 🔥 BUILD 185: Phonetic validator + Consistency filter + RapidFuzz
         if 'city' in required_fields:
-            # Comprehensive list of Israeli cities and towns
-            israeli_cities = [
-                # Major cities
-                'תל אביב', 'ירושלים', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'אשדוד', 'נתניה',
-                'באר שבע', 'בני ברק', 'חולון', 'רמת גן', 'אשקלון', 'רחובות', 'בת ים',
-                'הרצליה', 'כפר סבא', 'רעננה', 'לוד', 'נצרת', 'עכו', 'אילת', 'מודיעין',
-                # Gush Dan
-                'גבעתיים', 'רמת השרון', 'הוד השרון', 'פתח תקוה', 'ראש העין', 'יהוד',
-                'אור יהודה', 'קרית אונו', 'גני תקווה', 'רמלה', 'יבנה', 'נס ציונה',
-                # Sharon
-                'נתניה', 'רעננה', 'כפר סבא', 'הוד השרון', 'הרצליה', 'רמת השרון',
-                # South
-                'אשקלון', 'אשדוד', 'שדרות', 'נתיבות', 'אופקים', 'דימונה', 'ערד', 'מצפה רמון',
-                'קרית גת', 'קרית מלאכי', 'גדרה', 'באר שבע',
-                # North
-                'חיפה', 'נהריה', 'עכו', 'כרמיאל', 'נצרת', 'עפולה', 'טבריה', 'צפת',
-                'קריית שמונה', 'בית שאן', 'מגדל העמק', 'נצרת עילית', 'קריית אתא',
-                'קריית ביאליק', 'קריית מוצקין', 'קריית ים', 'טירת כרמל', 'נשר',
-                # Jerusalem area
-                'ירושלים', 'בית שמש', 'מעלה אדומים', 'גבעת זאב', 'אריאל', 'מודיעין',
-                # Other
-                'אלעד', 'ביתר עילית', 'מודיעין עילית', 'בית שאן', 'קצרין', 'חריש'
-            ]
-            
-            # Normalize text for matching
-            text_normalized = text.replace('-', ' ').replace('־', ' ')
-            
-            for city in israeli_cities:
-                # Check for city name in text (with word boundaries)
-                if city in text_normalized:
-                    self._update_lead_capture_state('city', city)
-                    break
+            try:
+                from server.services.city_normalizer import normalize_city, get_all_city_names
+                from server.services.phonetic_validator import (
+                    validate_hebrew_word, phonetic_similarity, normalize_for_comparison
+                )
+                
+                # 🔒 LAYER 3: Check if city is already locked by consistency filter
+                if self.stt_consistency_filter.is_city_locked():
+                    locked_city = self.stt_consistency_filter.locked_city
+                    print(f"🔒 [CITY] Already locked to '{locked_city}' - ignoring new input")
+                else:
+                    # Normalize text for matching
+                    text_normalized = text.replace('-', ' ').replace('־', ' ')
+                    
+                    # Try to extract city mentions using patterns
+                    city_patterns = [
+                        r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',  # "מתל אביב", "בירושלים"
+                        r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',  # "גר בחיפה"
+                        r'עיר[:\s]+([א-ת\s\-]{3,20})',  # "עיר: תל אביב"
+                    ]
+                    
+                    city_candidates = []
+                    for pattern in city_patterns:
+                        matches = re.findall(pattern, text_normalized)
+                        city_candidates.extend(matches)
+                    
+                    # Also try the full text as potential city name
+                    words = text_normalized.split()
+                    for i in range(len(words)):
+                        for j in range(i+1, min(i+4, len(words)+1)):
+                            candidate = ' '.join(words[i:j])
+                            if 2 < len(candidate) < 25:
+                                city_candidates.append(candidate)
+                    
+                    # 🔥 LAYER 2: Phonetic validation with confidence thresholds
+                    all_cities = get_all_city_names()
+                    best_result = None
+                    best_combined_score = 0
+                    
+                    for candidate in city_candidates:
+                        candidate = candidate.strip()
+                        if not candidate:
+                            continue
+                        
+                        # Phonetic validation
+                        phonetic_result = validate_hebrew_word(
+                            candidate, all_cities,
+                            auto_accept_threshold=93.0,
+                            confirm_threshold=85.0,
+                            reject_threshold=85.0
+                        )
+                        
+                        if phonetic_result.confidence > best_combined_score:
+                            best_combined_score = phonetic_result.confidence
+                            best_result = phonetic_result
+                    
+                    if best_result:
+                        raw_city = best_result.raw_input
+                        
+                        # 🔥 LAYER 3: Add to consistency filter and check majority
+                        self.city_raw_attempts.append(raw_city)
+                        locked = self.stt_consistency_filter.add_city_attempt(raw_city)
+                        
+                        if locked:
+                            # Majority achieved - use locked value
+                            canonical = normalize_city(locked).canonical or locked
+                            self._update_lead_capture_state('city', canonical)
+                            self._update_lead_capture_state('raw_city', raw_city)
+                            self._update_lead_capture_state('city_confidence', 100.0)
+                            self._update_lead_capture_state('city_autocorrected', True)
+                            print(f"🔒 [CITY] Majority locked: '{canonical}' from {self.city_raw_attempts}")
+                        elif best_result.should_reject:
+                            # Below 85% - ask user to repeat
+                            self._update_lead_capture_state('city_needs_retry', True)
+                            print(f"❌ [CITY] Rejected '{raw_city}' (confidence={best_result.confidence:.0f}%) - ask to repeat")
+                        elif best_result.needs_confirmation:
+                            # 85-92% - needs confirmation
+                            canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
+                            self._update_lead_capture_state('city', canonical)
+                            self._update_lead_capture_state('raw_city', raw_city)
+                            self._update_lead_capture_state('city_confidence', best_result.confidence)
+                            self._update_lead_capture_state('city_needs_confirmation', True)
+                            print(f"⚠️ [CITY] Needs confirmation: '{canonical}' (confidence={best_result.confidence:.0f}%)")
+                        else:
+                            # ≥93% - auto-accept
+                            canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
+                            self._update_lead_capture_state('city', canonical)
+                            self._update_lead_capture_state('raw_city', raw_city)
+                            self._update_lead_capture_state('city_confidence', best_result.confidence)
+                            print(f"✅ [CITY] Auto-accepted: '{canonical}' (confidence={best_result.confidence:.0f}%)")
+                        
+            except Exception as e:
+                print(f"⚠️ [CITY] Phonetic validator error, falling back to basic: {e}")
+                import traceback
+                traceback.print_exc()
         
         # 🔧 SERVICE_TYPE EXTRACTION: Look for service mentions
         # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned service (user may change mind)
@@ -6550,9 +6697,9 @@ ALWAYS mention their name in the first sentence.
             print(f"⚠️ Phone normalization failed for: {phone_number}")
             phone_to_show = phone_number
         
-        # 🔥 FIX: Send DTMF phone as SYSTEM event (not user message) so AI accepts it!
-        # AI is configured to reject verbal phone numbers and only accept DTMF keys
-        # By sending as system event, we bypass AI's strict "press keys" validation
+        # 🔥 BUILD 186: Send DTMF phone as SYSTEM event (not user message)
+        # DTMF is only used when require_phone_before_booking=True
+        # Otherwise, Caller ID is used automatically (no verbal/DTMF needed)
         
         # 🚀 REALTIME API: Send via system event (not user message!)
         if USE_REALTIME_API:
@@ -7336,10 +7483,15 @@ ALWAYS mention their name in the first sentence.
                             
                             # Source 1: lead_capture_state (collected during conversation) - for city/phone only
                             lead_state = getattr(self, 'lead_capture_state', {}) or {}
+                            raw_city = None
+                            city_confidence = None
                             if lead_state:
                                 print(f"📋 [WEBHOOK] Lead capture state: {lead_state}")
                                 if not city:
                                     city = lead_state.get('city') or lead_state.get('עיר')
+                                # 🔥 BUILD 184: Get raw_city and confidence from city normalizer
+                                raw_city = lead_state.get('raw_city')
+                                city_confidence = lead_state.get('city_confidence')
                                 # Only use service from lead_state if we didn't find a known professional
                                 if not service_category:
                                     raw_service = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
@@ -7395,24 +7547,37 @@ ALWAYS mention their name in the first sentence.
                                 import re
                                 transcript_text = full_conversation.replace('\n', ' ')
                                 
-                                # Extract city from transcript (common Israeli cities)
-                                # 🔥 BUILD 179: Find the LAST mentioned city (user may change mind)
+                                # Extract city from transcript using fuzzy matching
+                                # 🔥 BUILD 184: Use city normalizer with RapidFuzz
                                 if not city:
-                                    city_names = ['תל אביב', 'ירושלים', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'אשדוד', 
-                                                  'נתניה', 'באר שבע', 'בני ברק', 'חולון', 'רמת גן', 'אשקלון',
-                                                  'רחובות', 'בת ים', 'הרצליה', 'כפר סבא', 'רעננה', 'לוד', 'רמלה',
-                                                  'נצרת', 'עכו', 'אילת', 'מודיעין', 'גבעתיים', 'הוד השרון',
-                                                  'קריית שמונה', 'קריית אתא', 'קריית ביאליק', 'קריית מוצקין', 'קריית ים']
-                                    last_city_pos = -1
-                                    last_city = None
-                                    for city_name in city_names:
-                                        pos = transcript_text.rfind(city_name)  # rfind = LAST occurrence
-                                        if pos > last_city_pos:
-                                            last_city_pos = pos
-                                            last_city = city_name
-                                    if last_city:
-                                        city = last_city
-                                        print(f"   └─ LAST city from transcript: {city} (pos={last_city_pos})")
+                                    try:
+                                        from server.services.city_normalizer import normalize_city
+                                        # Extract potential city mentions from transcript
+                                        city_patterns = [
+                                            r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',
+                                            r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',
+                                        ]
+                                        city_candidates = []
+                                        for pattern in city_patterns:
+                                            matches = re.findall(pattern, transcript_text)
+                                            city_candidates.extend(matches)
+                                        
+                                        # Find best match
+                                        best_match = None
+                                        best_confidence = 0
+                                        for candidate in city_candidates:
+                                            result = normalize_city(candidate.strip())
+                                            if result.canonical and result.confidence > best_confidence:
+                                                best_match = result
+                                                best_confidence = result.confidence
+                                        
+                                        if best_match and best_match.canonical:
+                                            city = best_match.canonical
+                                            raw_city = best_match.raw_input
+                                            city_confidence = best_match.confidence
+                                            print(f"   └─ City from transcript (fuzzy): {city} (confidence={city_confidence:.0f}%)")
+                                    except Exception as e:
+                                        print(f"   └─ City normalizer error: {e}")
                                 
                                 # Extract service/professional from transcript
                                 # 🔥 BUILD 179: Find the LAST mentioned service (user may change mind)
@@ -7431,6 +7596,11 @@ ALWAYS mention their name in the first sentence.
                                         service_category = last_service
                                         print(f"   └─ LAST service from transcript: {service_category} (pos={last_service_pos})")
                             
+                            # 🔥 BUILD 185: Pass consistency filter data to webhook
+                            city_raw_attempts = getattr(self, 'city_raw_attempts', [])
+                            name_raw_attempts = getattr(self, 'name_raw_attempts', [])
+                            city_autocorrected = lead_state.get('city_autocorrected', False) if lead_state else False
+                            
                             send_call_completed_webhook(
                                 business_id=business_id,
                                 call_id=self.call_sid,
@@ -7444,7 +7614,12 @@ ALWAYS mention their name in the first sentence.
                                 agent_name=getattr(self, 'bot_name', 'Assistant'),
                                 direction=getattr(self, 'call_direction', 'inbound'),
                                 city=city,
-                                service_category=service_category
+                                service_category=service_category,
+                                raw_city=raw_city,
+                                city_confidence=city_confidence,
+                                city_raw_attempts=city_raw_attempts,
+                                city_autocorrected=city_autocorrected,
+                                name_raw_attempts=name_raw_attempts
                             )
                             print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
                         except Exception as webhook_err:

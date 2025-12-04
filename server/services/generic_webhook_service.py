@@ -9,7 +9,7 @@ import os
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -31,7 +31,8 @@ def send_generic_webhook(
     business_id: int,
     event_type: str,
     data: Dict[str, Any],
-    webhook_url: Optional[str] = None
+    webhook_url: Optional[str] = None,
+    direction: Optional[str] = None  # 🔥 BUILD 183: "inbound" or "outbound" for call direction routing
 ) -> bool:
     """
     Send webhook to external service (n8n, Zapier, etc.)
@@ -41,6 +42,12 @@ def send_generic_webhook(
         event_type: Event type (e.g., "call.completed", "lead.created")
         data: Payload data to send
         webhook_url: Optional webhook URL (if not provided, fetches from BusinessSettings)
+        direction: Call direction for routing ("inbound" or "outbound")
+    
+    🔥 BUILD 183: Webhook Routing Logic:
+        - Inbound calls: Use inbound_webhook_url, fallback to generic_webhook_url
+        - Outbound calls: Use outbound_webhook_url ONLY - if not set, NO webhook sent
+        - Non-call events: Use generic_webhook_url
     
     Returns:
         True if successful, False otherwise
@@ -50,10 +57,29 @@ def send_generic_webhook(
     try:
         if not webhook_url:
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-            if not settings or not settings.generic_webhook_url:
-                print(f"[WEBHOOK] No webhook URL configured for business {business_id}")
+            if not settings:
+                print(f"[WEBHOOK] No settings found for business {business_id}")
                 return False
-            webhook_url = settings.generic_webhook_url
+            
+            # 🔥 BUILD 183: Route webhook by call direction
+            if direction == "outbound":
+                # Outbound calls: ONLY use outbound_webhook_url - no fallback
+                webhook_url = getattr(settings, 'outbound_webhook_url', None)
+                if not webhook_url:
+                    print(f"[WEBHOOK] No outbound webhook URL configured for business {business_id} - skipping")
+                    return False
+            elif direction == "inbound":
+                # Inbound calls: Use inbound_webhook_url, fallback to generic
+                webhook_url = getattr(settings, 'inbound_webhook_url', None) or settings.generic_webhook_url
+                if not webhook_url:
+                    print(f"[WEBHOOK] No inbound/generic webhook URL configured for business {business_id}")
+                    return False
+            else:
+                # Non-call events or unspecified: Use generic webhook
+                if not settings.generic_webhook_url:
+                    print(f"[WEBHOOK] No webhook URL configured for business {business_id}")
+                    return False
+                webhook_url = settings.generic_webhook_url
         
         if not webhook_url:
             return False
@@ -145,23 +171,41 @@ def send_call_completed_webhook(
     direction: str = "inbound",
     city: Optional[str] = None,
     service_category: Optional[str] = None,
+    raw_city: Optional[str] = None,
+    city_confidence: Optional[float] = None,
+    city_raw_attempts: Optional[List[str]] = None,
+    city_autocorrected: bool = False,
+    name_raw_attempts: Optional[List[str]] = None,
     metadata: Optional[Dict] = None
 ) -> bool:
     """
     Send call.completed webhook with full call data
     
     BUILD 177 Enhanced: Now includes phone, city, and service_category
+    BUILD 184: Added raw_city and city_confidence from fuzzy matching
+    BUILD 185: Added city_raw_attempts, city_autocorrected, name_raw_attempts
+              for STT accuracy tracking and majority voting
     
     Args:
         phone: Caller phone number (normalized E.164 format preferred)
-        city: Customer's city (e.g., "תל אביב")
+        city: Canonical city name (e.g., "תל אביב")
         service_category: Type of service/professional (e.g., "חשמלאי", "שיפוצים")
+        raw_city: Raw city input from customer before normalization
+        city_confidence: Fuzzy matching confidence score (0-100)
+        city_raw_attempts: List of all raw STT attempts for city (for debugging)
+        city_autocorrected: Whether majority voting was used to correct STT
+        name_raw_attempts: List of all raw STT attempts for name (for debugging)
     """
     data = {
         "call_id": str(call_id) if call_id else "",
         "lead_id": str(lead_id) if lead_id else "",
         "phone": phone or "",
         "city": city or "",
+        "raw_city": raw_city or "",
+        "city_confidence": city_confidence if city_confidence is not None else "",
+        "city_raw_attempts": city_raw_attempts or [],
+        "city_autocorrected": city_autocorrected,
+        "name_raw_attempts": name_raw_attempts or [],
         "service_category": service_category or "",
         "started_at": started_at.isoformat() if started_at else "",
         "ended_at": ended_at.isoformat() if ended_at else datetime.utcnow().isoformat(),
@@ -173,9 +217,10 @@ def send_call_completed_webhook(
         "metadata": metadata or {}
     }
     
-    print(f"[WEBHOOK] 📦 Payload built: call_id={call_id}, phone={phone or 'N/A'}, city={city or 'N/A'}, service_category={service_category or 'N/A'}")
+    print(f"[WEBHOOK] 📦 Payload built: call_id={call_id}, phone={phone or 'N/A'}, city={city or 'N/A'}, direction={direction}")
     
-    return send_generic_webhook(business_id, "call.completed", data)
+    # 🔥 BUILD 183: Pass direction for webhook routing
+    return send_generic_webhook(business_id, "call.completed", data, direction=direction)
 
 
 def send_lead_created_webhook(

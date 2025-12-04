@@ -96,6 +96,9 @@ interface IntegrationSettings {
   google_tts_enabled: boolean;
   // BUILD 177: Generic Webhook
   generic_webhook_url?: string;
+  // BUILD 183: Separate webhooks for inbound/outbound
+  inbound_webhook_url?: string;
+  outbound_webhook_url?: string;
 }
 
 interface AISettings {
@@ -151,7 +154,10 @@ export function SettingsPage() {
     google_stt_enabled: true,
     google_tts_enabled: true,
     // BUILD 177: Generic Webhook
-    generic_webhook_url: ''
+    generic_webhook_url: '',
+    // BUILD 183: Separate webhooks
+    inbound_webhook_url: '',
+    outbound_webhook_url: ''
   });
 
   const [aiSettings, setAISettings] = useState<AISettings>({
@@ -202,6 +208,9 @@ export function SettingsPage() {
     opening_hours_json?: Record<string, string[][]>;
     // BUILD 177: Generic Webhook
     generic_webhook_url?: string | null;
+    // BUILD 183: Separate webhooks
+    inbound_webhook_url?: string | null;
+    outbound_webhook_url?: string | null;
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture?: boolean;
     auto_end_on_goodbye?: boolean;
@@ -238,10 +247,13 @@ export function SettingsPage() {
         opening_hours_json: businessData.opening_hours_json
       });
 
-      // BUILD 177: Load webhook URL
+      // BUILD 177: Load webhook URLs
+      // BUILD 183: Load separate inbound/outbound webhooks
       setIntegrationSettings(prev => ({
         ...prev,
-        generic_webhook_url: businessData.generic_webhook_url || ''
+        generic_webhook_url: businessData.generic_webhook_url || '',
+        inbound_webhook_url: businessData.inbound_webhook_url || '',
+        outbound_webhook_url: businessData.outbound_webhook_url || ''
       }));
 
       // ✅ Load working days from opening_hours_json
@@ -895,33 +907,71 @@ export function SettingsPage() {
               )}
             </Card>
 
-            {/* Generic Webhook - BUILD 177 */}
+            {/* Generic Webhook - BUILD 177 + BUILD 183: Separate inbound/outbound */}
             <Card className="p-6">
               <div className="flex items-center gap-3 mb-4">
                 <Link2 className="w-6 h-6 text-orange-600" />
-                <h3 className="text-lg font-semibold text-gray-900">Webhook כללי</h3>
-                <Badge variant={integrationSettings.generic_webhook_url ? 'success' : 'default'}>
-                  {integrationSettings.generic_webhook_url ? 'מוגדר' : 'לא מוגדר'}
+                <h3 className="text-lg font-semibold text-gray-900">הגדרות Webhook</h3>
+                <Badge variant={(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.generic_webhook_url) ? 'success' : 'default'}>
+                  {(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.generic_webhook_url) ? 'מוגדר' : 'לא מוגדר'}
                 </Badge>
               </div>
               
               <p className="text-sm text-gray-600 mb-4">
-                כתובת Webhook לקבלת תמלילי שיחות, סיכומים ונתוני לידים בסיום כל שיחה.
+                הגדר כתובות Webhook נפרדות לשיחות נכנסות ויוצאות, או כתובת כללית לשתיהן.
                 ניתן לחבר ל-n8n, Zapier, Monday.com או כל שירות אחר.
               </p>
               
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">כתובת Webhook</label>
+                {/* Inbound Webhook */}
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <label className="block text-sm font-medium text-blue-800 mb-2">
+                    📞 Webhook לשיחות נכנסות
+                  </label>
+                  <input
+                    type="url"
+                    value={integrationSettings.inbound_webhook_url || ''}
+                    onChange={(e) => setIntegrationSettings({...integrationSettings, inbound_webhook_url: e.target.value})}
+                    placeholder="https://n8n.example.com/webhook/inbound"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    dir="ltr"
+                    data-testid="input-inbound-webhook-url"
+                  />
+                  <p className="text-xs text-blue-600 mt-1">שיחות שמגיעות מלקוחות לעסק</p>
+                </div>
+
+                {/* Outbound Webhook */}
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <label className="block text-sm font-medium text-green-800 mb-2">
+                    📲 Webhook לשיחות יוצאות
+                  </label>
+                  <input
+                    type="url"
+                    value={integrationSettings.outbound_webhook_url || ''}
+                    onChange={(e) => setIntegrationSettings({...integrationSettings, outbound_webhook_url: e.target.value})}
+                    placeholder="https://n8n.example.com/webhook/outbound"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+                    dir="ltr"
+                    data-testid="input-outbound-webhook-url"
+                  />
+                  <p className="text-xs text-green-600 mt-1">שיחות AI ליזום קשר עם לידים. אם לא מוגדר - לא יישלח Webhook לשיחות יוצאות</p>
+                </div>
+
+                {/* Generic Webhook (fallback) */}
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    🔗 Webhook כללי (גיבוי)
+                  </label>
                   <input
                     type="url"
                     value={integrationSettings.generic_webhook_url || ''}
                     onChange={(e) => setIntegrationSettings({...integrationSettings, generic_webhook_url: e.target.value})}
-                    placeholder="https://n8n.example.com/webhook/xxx"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="https://n8n.example.com/webhook/all"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white"
                     dir="ltr"
                     data-testid="input-webhook-url"
                   />
+                  <p className="text-xs text-gray-500 mt-1">משמש כגיבוי לשיחות נכנסות אם לא הוגדר webhook ספציפי</p>
                 </div>
                 
                 <Button
@@ -929,10 +979,14 @@ export function SettingsPage() {
                     try {
                       await apiRequest('/api/business/current/settings', {
                         method: 'PUT',
-                        body: { generic_webhook_url: integrationSettings.generic_webhook_url || null }
+                        body: { 
+                          generic_webhook_url: integrationSettings.generic_webhook_url || null,
+                          inbound_webhook_url: integrationSettings.inbound_webhook_url || null,
+                          outbound_webhook_url: integrationSettings.outbound_webhook_url || null
+                        }
                       });
                       queryClient.invalidateQueries({ queryKey: ['/api/business/current'] });
-                      alert('כתובת Webhook נשמרה בהצלחה');
+                      alert('הגדרות Webhook נשמרו בהצלחה');
                     } catch (error) {
                       alert('שגיאה בשמירת הגדרות');
                     }
@@ -941,7 +995,7 @@ export function SettingsPage() {
                   data-testid="button-save-webhook"
                 >
                   <Save className="w-4 h-4 mr-2" />
-                  שמור Webhook
+                  שמור הגדרות Webhook
                 </Button>
                 
                 <div className="mt-4 p-3 bg-blue-50 rounded-md text-sm">
