@@ -97,7 +97,8 @@ export function BusinessAISettings() {
           required_lead_fields: businessData.required_lead_fields ?? ['name', 'phone'],
           bot_speaks_first: businessData.bot_speaks_first ?? false,
           auto_end_after_lead_capture: businessData.auto_end_after_lead_capture ?? false,
-          auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false
+          auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false,
+          enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false  // 🔥 BUILD 186
         });
         
         console.log('✅ Loaded AI prompts:', promptsData);
@@ -166,7 +167,8 @@ export function BusinessAISettings() {
         required_lead_fields: callControl.required_lead_fields,
         bot_speaks_first: callControl.bot_speaks_first,
         auto_end_after_lead_capture: callControl.auto_end_after_lead_capture,
-        auto_end_on_goodbye: callControl.auto_end_on_goodbye
+        auto_end_on_goodbye: callControl.auto_end_on_goodbye,
+        enable_calendar_scheduling: callControl.enable_calendar_scheduling  // 🔥 BUILD 186
       });
       
       alert('✅ הגדרות שליטת שיחה נשמרו בהצלחה!');
@@ -477,6 +479,29 @@ export function BusinessAISettings() {
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
               </label>
             </div>
+          </div>
+
+          {/* Calendar Scheduling Toggle - BUILD 186 */}
+          <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div>
+              <h4 className="font-medium text-slate-900">📅 תיאום פגישות ביומן</h4>
+              <p className="text-sm text-slate-600 mt-1">
+                הבוט ינסה לתאם פגישות עם הלקוח בזמן שיחה נכנסת
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                בשיחות יוצאות הבוט פועל לפי הפרומפט בלבד
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={callControl.enable_calendar_scheduling}
+                onChange={(e) => setCallControl(prev => ({ ...prev, enable_calendar_scheduling: e.target.checked }))}
+                className="sr-only peer"
+                data-testid="checkbox-calendar-scheduling"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
           </div>
 
           {/* Smart Hangup Toggle */}
