@@ -128,8 +128,9 @@ class CallConfig:
     max_call_duration_sec: int = 600  # 10 minutes default
     
     # STT/VAD tuning
-    stt_warmup_ms: int = 800  # Ignore first 800ms of STT
-    barge_in_delay_ms: int = 400  # Require 400ms of speech before barge-in
+    # 🔥 BUILD 186: Balanced values - filter noise but remain responsive
+    stt_warmup_ms: int = 800   # Ignore first 800ms of STT (greeting protection)
+    barge_in_delay_ms: int = 500  # Require 500ms of continuous speech before barge-in
     
     # Required fields for lead capture
     required_lead_fields: list = None
@@ -736,8 +737,8 @@ MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן
 VAD_RMS = int(os.getenv("VAD_RMS", "120"))                  # 🔥 BUILD 171: 120 (was 80) - prevent hallucinations from silence
 # 🔥 BUILD 171: STRICTER THRESHOLDS - Prevent Whisper hallucinations on silence
 RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "100"))      # 🔥 BUILD 171: 100 (was 40) - block ambient noise  
-MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "120"))                    # 🔥 BUILD 171: 120 (was 60) - require real speech
-MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "700"))    # 🔥 BUILD 169: 700ms continuous speech for barge-in
+MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "130"))                    # 🔥 BUILD 186: 130 (was 120) - slightly higher to filter background
+MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "700"))    # 🔥 BUILD 186: 700ms - balanced for quick response
 # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT - Prevent single-frame noise triggers
 MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "5"))  # 🔥 Need 5 consecutive frames (100ms) above threshold
 # 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
@@ -747,7 +748,7 @@ VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 164B: 1
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","35"))  # 🔥 BUILD 169: 35 frames = ≈700ms continuous speech (20ms per frame)
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","35"))  # 🔥 BUILD 186: 35 frames = ≈700ms continuous speech - balanced
 
 # 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge window for user messages
 STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "800"))  # Merge segments within 800ms
@@ -1521,14 +1522,17 @@ class MediaStreamHandler:
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
+            # 🔥 BUILD 186 FIX: Balanced VAD - filter noise but respond quickly
+            # vad_threshold=0.75 - requires clearer speech to trigger (filters background noise)
+            # silence_duration_ms=700 - quick response once customer finishes speaking
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.6,
-                silence_duration_ms=600,
-                temperature=0.6,
+                vad_threshold=0.75,        # 🔒 Higher = less sensitive to background noise
+                silence_duration_ms=700,   # 🔒 Balanced = responds quickly after speech ends
+                temperature=0.6,           # 🔒 Consistent, focused responses
                 max_tokens=greeting_max_tokens  # 🔥 Dynamic based on greeting length!
             )
             t_after_config = time.time()
