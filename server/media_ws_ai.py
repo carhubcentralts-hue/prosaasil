@@ -739,21 +739,21 @@ SR = 8000
 # ⚡ BUILD 164B: BALANCED NOISE FILTERING - Filter noise but allow quiet speech
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
-VAD_RMS = int(os.getenv("VAD_RMS", "120"))                  # 🔥 BUILD 171: 120 (was 80) - prevent hallucinations from silence
+VAD_RMS = int(os.getenv("VAD_RMS", "180"))                  # 🔥 BUILD 187: 180 (was 120) - stricter to filter noise
 # 🔥 BUILD 171: STRICTER THRESHOLDS - Prevent Whisper hallucinations on silence
-RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "100"))      # 🔥 BUILD 171: 100 (was 40) - block ambient noise  
-MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "130"))                    # 🔥 BUILD 186: 130 (was 120) - slightly higher to filter background
-MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "700"))    # 🔥 BUILD 186: 700ms - balanced for quick response
+RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "120"))      # 🔥 BUILD 187: 120 (was 100) - higher silence threshold  
+MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "180"))                    # 🔥 BUILD 187: 180 (was 130) - require louder speech to filter background noise
+MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "900"))    # 🔥 BUILD 187: 900ms (was 700ms) - require longer continuous speech
 # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT - Prevent single-frame noise triggers
-MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "5"))  # 🔥 Need 5 consecutive frames (100ms) above threshold
+MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "7"))  # 🔥 BUILD 187: 7 frames (was 5) = 140ms above threshold
 # 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
-POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "800"))          # 🔥 Humans can't respond meaningfully in <800ms
-NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                      # Grace period for noise tolerance
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 164B: 150ms (balanced)
+POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "1200"))          # 🔥 BUILD 187: 1200ms (was 800ms) - longer cooldown after AI speaks
+NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "250"))                      # 🔥 BUILD 187: 250ms (was 150ms) - longer grace period for noise
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "250"))  # 🔥 BUILD 187: 250ms (was 150ms) - longer hangover to merge speech
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","35"))  # 🔥 BUILD 186: 35 frames = ≈700ms continuous speech - balanced
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","45"))  # 🔥 BUILD 187: 45 frames (was 35) = ≈900ms continuous speech - stricter
 
 # 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge window for user messages
 STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "600"))  # 🔥 BUILD 186: Reduced from 800ms to 600ms to reduce noise merge
@@ -2004,18 +2004,35 @@ ALWAYS mention their name in the first sentence.
                         # Schedule a delayed recovery check in a separate task
                         async def _recovery_check():
                             await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
-                            # Only trigger recovery if still needed and no new response was created
-                            if self._cancelled_response_needs_recovery and self.active_response_id is None:
-                                print(f"🔄 [BUILD 187] RECOVERY: Triggering response.create (no response in {self._cancelled_response_recovery_delay_sec}s)")
-                                try:
-                                    await client.send_event({"type": "response.create"})
-                                except Exception as e:
-                                    print(f"⚠️ [BUILD 187] Recovery failed: {e}")
-                                finally:
-                                    self._cancelled_response_needs_recovery = False
-                            else:
+                            # 🛡️ BUILD 187 HARDENED: Multiple guards to prevent double triggers
+                            # Guard 1: Check if recovery is still needed
+                            if not self._cancelled_response_needs_recovery:
+                                print(f"🔄 [BUILD 187] Recovery cancelled - flag cleared")
+                                return
+                            # Guard 2: Check if AI is already speaking
+                            if self.is_ai_speaking_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery not needed - new response already created")
+                                print(f"🔄 [BUILD 187] Recovery skipped - AI already speaking")
+                                return
+                            # Guard 3: Check if there's a pending response
+                            if self.response_pending_event.is_set():
+                                self._cancelled_response_needs_recovery = False
+                                print(f"🔄 [BUILD 187] Recovery skipped - response pending")
+                                return
+                            # Guard 4: Check if speech is active (user still talking)
+                            if self._realtime_speech_active:
+                                self._cancelled_response_needs_recovery = False
+                                print(f"🔄 [BUILD 187] Recovery skipped - user still speaking")
+                                return
+                            
+                            # All guards passed - trigger recovery
+                            print(f"🔄 [BUILD 187] RECOVERY: Triggering response.create (no response in {self._cancelled_response_recovery_delay_sec}s)")
+                            try:
+                                await client.send_event({"type": "response.create"})
+                            except Exception as e:
+                                print(f"⚠️ [BUILD 187] Recovery failed: {e}")
+                            finally:
+                                self._cancelled_response_needs_recovery = False
                         asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
@@ -2091,6 +2108,10 @@ ALWAYS mention their name in the first sentence.
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
                             self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                            # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
+                            if self._cancelled_response_needs_recovery:
+                                print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
+                                self._cancelled_response_needs_recovery = False
                         # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
