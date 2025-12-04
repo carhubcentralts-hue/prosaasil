@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
+from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
@@ -2582,80 +2583,17 @@ ALWAYS mention their name in the first sentence.
                             is_hallucination = True
                             print(f"🚫 [BUILD 186] ENGLISH HALLUCINATION: '{text}' (all words are common English)")
                     
-                    # 🔥 BUILD 186: COMPREHENSIVE STT VALIDATION GATE
-                    # Multi-layer check: vowel ratio, entropy, patterns, context
-                    is_gibberish = False
+                    # 🔥 BUILD 186: GENERIC STT VALIDATION - No hardcoded patterns!
+                    # Uses linguistic rules from hebrew_stt_validator service
                     natural_elongations = ["אמממ", "אההה", "אממ", "אהה", "מממ", "ווו", "אה", "אם", "אוקי", "היי"]
                     
-                    # Hebrew vowels/matres lectionis for vowel ratio check
-                    hebrew_vowel_letters = set("אהוי")  # א ה ו י often act as vowel indicators
-                    hebrew_consonants = set("בגדזחטכלמנסעפצקרשת")
-                    
+                    is_gibberish_detected = False
                     if hebrew_chars > 0 and text_stripped not in natural_elongations:
-                        # 1. Single char repetition (4+ chars)
-                        if len(text_stripped) >= 4 and len(set(text_stripped)) == 1:
-                            is_gibberish = True
-                            print(f"[GIBBERISH] Detected: '{text_stripped}' (single char x{len(text_stripped)})")
-                        
-                        # 2. 🔥 BUILD 186: Apostrophe spam detection (תירונג'ר ובלנק'ר)
-                        apostrophe_count = text_stripped.count("'") + text_stripped.count("׳")
-                        if apostrophe_count >= 2 and len(text_stripped) < 30:
-                            is_gibberish = True
-                            print(f"[GIBBERISH] Detected: '{text_stripped}' (too many apostrophes: {apostrophe_count})")
-                        
-                        # 3. 🔥 BUILD 186: Vowel ratio check - Hebrew words need some vowel letters
-                        # Very low vowel ratio = likely consonant-only gibberish
-                        if not is_gibberish and len(text_stripped) >= 6:
-                            vowel_count = sum(1 for c in text_stripped if c in hebrew_vowel_letters)
-                            consonant_count = sum(1 for c in text_stripped if c in hebrew_consonants)
-                            total_hebrew = vowel_count + consonant_count
-                            
-                            if total_hebrew > 0:
-                                vowel_ratio = vowel_count / total_hebrew
-                                # Hebrew typically has ~30-40% vowel letters, <10% is suspicious
-                                if vowel_ratio < 0.08 and consonant_count >= 5:
-                                    is_gibberish = True
-                                    print(f"[GIBBERISH] Detected: '{text_stripped}' (low vowel ratio: {vowel_ratio:.1%})")
-                        
-                        # 4. 🔥 BUILD 186: Entropy/uniqueness check
-                        # Real Hebrew has diverse character distribution, gibberish often doesn't
-                        if not is_gibberish and len(text_stripped) >= 8:
-                            unique_chars = len(set(text_stripped.replace(" ", "")))
-                            total_chars = len(text_stripped.replace(" ", ""))
-                            if total_chars > 0:
-                                entropy_ratio = unique_chars / total_chars
-                                # Very low entropy (same chars repeat) = likely gibberish
-                                if entropy_ratio < 0.3 and total_chars >= 8:
-                                    is_gibberish = True
-                                    print(f"[GIBBERISH] Detected: '{text_stripped}' (low entropy: {entropy_ratio:.1%})")
-                        
-                        # 5. 🔥 BUILD 186: Known gibberish patterns
-                        gibberish_patterns = [
-                            r"[נמלכ]ג'ר",  # Nonsense transliteration patterns
-                            r"[נמלכ]ק'ר",
-                            r"רונג",  # תירונג'ר
-                            r"לנק",   # בלנק'ר
-                            r"ותוספת רגלית",  # Known gibberish phrase
-                            r"תירונג",  # Known gibberish
-                            r"בלנק",   # Known gibberish
-                        ]
-                        for pattern in gibberish_patterns:
-                            if re.search(pattern, text_stripped):
-                                is_gibberish = True
-                                print(f"[GIBBERISH] Detected: '{text_stripped}' (matches pattern: {pattern})")
-                                break
-                        
-                        # 6. 🔥 BUILD 186: Unknown short single words
-                        words = text_stripped.split()
-                        if len(words) == 1 and len(text_stripped) <= 4 and len(text_stripped) >= 2:
-                            valid_short = ["כן", "לא", "טוב", "היי", "שלום", "תודה", "אוקי", "נכון", "אני", "זה", "מה", 
-                                          "איפה", "מתי", "למה", "כמה", "עוד", "רק", "גם", "פה", "שם", "עם", "את", "של",
-                                          "חיפה", "יפו", "תור", "שם", "כי", "אז", "או", "אם", "לי", "לך", "לו", "לה"]
-                            if text_stripped not in valid_short:
-                                # Check if it's a valid city/name pattern (starts with common letters)
-                                common_word_starts = ["ב", "ל", "מ", "ה", "ו", "א", "ת", "י", "נ", "ש"]
-                                if text_stripped[0] not in common_word_starts:
-                                    print(f"⚠️ [GIBBERISH WARNING] Unusual short word: '{text_stripped}'")
+                        # Use the generic Hebrew STT validator (no hardcoded patterns)
+                        is_gib, gib_reason, gib_confidence = is_gibberish(text_stripped)
+                        if is_gib and gib_confidence >= 0.5:
+                            is_gibberish_detected = True
+                            print(f"[GIBBERISH] Detected: '{text_stripped}' | Reason: {gib_reason} | Confidence: {gib_confidence:.0%}")
                     
                     # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
                     is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
@@ -2672,14 +2610,14 @@ ALWAYS mention their name in the first sentence.
                         # ✅ ALWAYS allow valid short Hebrew words or phrases starting with them
                         should_filter = False
                         print(f"✅ [NOISE FILTER] ALLOWED Hebrew: '{text}'")
-                    elif has_meaningful_hebrew and not is_gibberish:
+                    elif has_meaningful_hebrew and not is_gibberish_detected:
                         # ✅ Has Hebrew characters and not gibberish - probably valid
                         should_filter = False
                         print(f"✅ [NOISE FILTER] ALLOWED (has Hebrew): '{text}'")
                     elif is_hallucination:
                         should_filter = True
                         filter_reason = "hallucination"
-                    elif is_gibberish:
+                    elif is_gibberish_detected:
                         should_filter = True
                         filter_reason = "gibberish"
                     elif len(text) < 2 or all(ch in ".?!, " for ch in text):
