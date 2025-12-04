@@ -239,15 +239,13 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound") -> str:
     """
-    BUILD 182: COMPACT system prompt - optimized for speed and low latency
-    BUILD 183: Added Hebrew city lexicon hints for better transcription accuracy
-    ~400 chars - reduces OpenAI response time
+    BUILD 186: FULLY DYNAMIC system prompt - no hardcoded values
+    All context comes from business settings, nothing hardcoded
     """
     direction_context = "מקבל שיחה" if call_direction == "inbound" else "מתקשר ללקוח"
     
-    # 🔥 BUILD 183: Hebrew city lexicon for transcription accuracy
-    # Including common similar-sounding city names
-    city_hints = "ערים: תל אביב, ירושלים, חיפה, באר שבע, בית שמש, בית שאן, בת ים, נתניה, הרצליה, רמת גן, פתח תקווה, אשדוד, אשקלון, רחובות, ראשון לציון, כפר סבא, רעננה, הוד השרון, נס ציונה, גבעתיים, מודיעין"
+    # 🔥 BUILD 186: NO hardcoded city hints - everything from business prompt
+    # Cities/services/keywords should be in the business's custom prompt
     
     return f"""נציג AI של "{business_name}" | {direction_context}
 תאריך: {weekday_hebrew}, {today_hebrew}
@@ -265,6 +263,4 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 - אחרי ברכה: המתן לבקשה ברורה מהלקוח. אם התשובה לא קשורה לשאלה (כמו "תודה" אחרי "איך אוכל לעזור?") - שאל: "במה אוכל לעזור?"
 - לא לקפוץ למסקנות! אם הלקוח אמר משהו לא ברור - בקש הבהרה
 - רק אם הלקוח ביקש תור במפורש - התחל תהליך קביעה
-
-{city_hints}
 """
