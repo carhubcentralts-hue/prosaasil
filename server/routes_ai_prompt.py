@@ -303,6 +303,7 @@ def get_current_business_prompt():
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
+@csrf.exempt
 @require_api_auth(['system_admin', 'owner', 'admin'])
 def update_current_business_prompt():
     """Update AI prompt for current business"""

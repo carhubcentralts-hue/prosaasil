@@ -31,6 +31,7 @@ interface CallControlSettings {
   bot_speaks_first: boolean;
   auto_end_after_lead_capture: boolean;
   auto_end_on_goodbye: boolean;
+  enable_calendar_scheduling: boolean;  // 🔥 BUILD 186
 }
 
 export function BusinessAISettings() {
@@ -58,7 +59,8 @@ export function BusinessAISettings() {
     required_lead_fields: ['name', 'phone'],
     bot_speaks_first: false,
     auto_end_after_lead_capture: false,
-    auto_end_on_goodbye: false
+    auto_end_on_goodbye: false,
+    enable_calendar_scheduling: true  // 🔥 BUILD 186: Default true
   });
   const [businessName, setBusinessName] = useState<string>('');
 
@@ -79,6 +81,7 @@ export function BusinessAISettings() {
             bot_speaks_first?: boolean;
             auto_end_after_lead_capture?: boolean;
             auto_end_on_goodbye?: boolean;
+            enable_calendar_scheduling?: boolean;  // 🔥 BUILD 186
           }>(`/api/business/current`),
           http.get<PromptData>(`/api/business/current/prompt`)
         ]);
