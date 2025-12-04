@@ -4361,6 +4361,20 @@ ALWAYS mention their name in the first sentence.
         MUSIC_ENTER_THRESHOLD = float(os.getenv("MUSIC_ENTER_THRESHOLD", "0.6"))
         MUSIC_EXIT_THRESHOLD = float(os.getenv("MUSIC_EXIT_THRESHOLD", "0.45"))
         
+        # Filter coefficients (for 8kHz sample rate)
+        HPF_ALPHA = float(os.getenv("AUDIO_HPF_ALPHA", "0.96"))   # ~100Hz high-pass cutoff
+        LPF_ALPHA = float(os.getenv("AUDIO_LPF_ALPHA", "0.75"))   # ~3400Hz low-pass cutoff
+        
+        # AGC (Automatic Gain Control) parameters
+        TARGET_RMS = int(os.getenv("AUDIO_TARGET_RMS", "2000"))  # Target RMS level (~-20dBFS)
+        AGC_ALPHA = float(os.getenv("AUDIO_AGC_ALPHA", "0.1"))   # How fast to adapt
+        AGC_MAX_GAIN = float(os.getenv("AUDIO_AGC_MAX_GAIN", "4.0"))  # Max amplification (12dB)
+        AGC_MIN_GAIN = float(os.getenv("AUDIO_AGC_MIN_GAIN", "0.5"))  # Min amplification (-6dB)
+        
+        # State machine thresholds
+        MAYBE_SPEECH_THRESHOLD = int(os.getenv("AUDIO_MAYBE_SPEECH_FRAMES", "3"))  # Frames to confirm speech
+        MUSIC_CONFIRM_FRAMES = int(os.getenv("AUDIO_MUSIC_CONFIRM_FRAMES", "5"))   # Frames to confirm music
+        
         # ════════════════════════════════════════════════════════════════
         # 🎤 STATE MACHINE: SILENCE → MAYBE_SPEECH → SPEECH
         # ════════════════════════════════════════════════════════════════
@@ -4370,7 +4384,6 @@ ALWAYS mention their name in the first sentence.
         
         current_state = STATE_SILENCE
         maybe_speech_count = 0  # Consecutive high-SNR frames in MAYBE_SPEECH
-        MAYBE_SPEECH_THRESHOLD = 3  # Need 3 consecutive frames to confirm speech
         hangover_counter = 0  # Frames remaining in hangover
         
         # ════════════════════════════════════════════════════════════════
@@ -4390,22 +4403,17 @@ ALWAYS mention their name in the first sentence.
         preroll_sent = False  # Track if we sent preroll for current speech segment
         
         # ════════════════════════════════════════════════════════════════
-        # 🔊 AGC (Automatic Gain Control) for quiet/loud callers
+        # 🔊 AGC (Automatic Gain Control) runtime state
         # ════════════════════════════════════════════════════════════════
-        TARGET_RMS = 2000  # Target RMS level (~-20dBFS for 16-bit)
         caller_rms_slow = 0  # Exponential moving average of caller speech RMS
-        AGC_ALPHA = 0.1  # How fast to adapt to caller level
-        AGC_MAX_GAIN = 4.0  # Max amplification (12dB)
-        AGC_MIN_GAIN = 0.5  # Min amplification (-6dB for loud callers)
         
         # ════════════════════════════════════════════════════════════════
-        # 🎵 MUSIC DETECTION (with hysteresis)
+        # 🎵 MUSIC DETECTION runtime state
         # ════════════════════════════════════════════════════════════════
         music_detected = False
         music_score_history = collections.deque(maxlen=25)  # ~500ms window
         energy_history = collections.deque(maxlen=50)  # ~1 second for analysis
         music_consecutive_count = 0  # For hysteresis
-        MUSIC_CONFIRM_FRAMES = 5  # Need 5 consecutive frames to confirm music
         
         # Counters for logging
         frames_sent = 0
@@ -4459,14 +4467,12 @@ ALWAYS mention their name in the first sentence.
                     
                     # ════════════════════════════════════════════════════════════════
                     # STEP 1: SPEECH BAND FILTER (100Hz - 3400Hz)
+                    # HPF_ALPHA and LPF_ALPHA are configurable via env vars above
                     # ════════════════════════════════════════════════════════════════
                     if not hasattr(self, '_hpf_prev_in'):
                         self._hpf_prev_in = 0
                         self._hpf_prev_out = 0
                         self._lpf_prev_out = 0
-                    
-                    HPF_ALPHA = 0.96   # ~100Hz high-pass
-                    LPF_ALPHA = 0.75   # ~3400Hz low-pass
                     
                     samples = struct.unpack(f'<{len(pcm_data)//2}h', pcm_data)
                     filtered_samples = []
@@ -7213,44 +7219,29 @@ ALWAYS mention their name in the first sentence.
                                 self._greeting_enqueue_block_logged = True
                             continue  # Don't enqueue audio during greeting
                         
-                        # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT
-                        # Track consecutive voice frames before considering it real speech
-                        # This prevents random noise spikes from triggering transcription
-                        if not is_noise and rms >= MIN_SPEECH_RMS:
-                            self._consecutive_voice_frames += 1
-                        else:
-                            # Reset on silence/noise - require sustained speech
-                            if self._consecutive_voice_frames > 0:
-                                self._consecutive_voice_frames = max(0, self._consecutive_voice_frames - 2)  # Decay slowly
+                        # 🔥 BUILD 196.1: BYPASS ALL LEGACY GATING - let new pipeline handle everything!
+                        # The new AGC/SNR/state machine in _realtime_audio_sender does:
+                        # - Bandpass filter (100-3400Hz)
+                        # - AGC normalization for quiet/loud callers
+                        # - Calibrated noise floor (first 600ms)
+                        # - SNR-based state machine (SILENCE→MAYBE→SPEECH)
+                        # - Music detection with hysteresis
+                        # - Pre-roll buffer for word starts
+                        # This is more sophisticated than the old RMS threshold gate!
                         
-                        # 🔥 BUILD 171: Only send audio if we have enough consecutive frames OR bypass is active
-                        has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
-                        should_send_audio = (has_sustained_speech or speech_bypass_active) and not is_noise
-                        
-                        # 🔥 BUILD 165: ONLY send audio above noise threshold AND sustained speech!
-                        if should_send_audio:
-                            try:
-                                # 🔍 DEBUG: Log first few frames from Twilio
-                                if not hasattr(self, '_twilio_audio_chunks_sent'):
-                                    self._twilio_audio_chunks_sent = 0
-                                self._twilio_audio_chunks_sent += 1
-                                
-                                if self._twilio_audio_chunks_sent <= 3:
-                                    first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, consec_frames={self._consecutive_voice_frames}")
-                                
-                                self.realtime_audio_in_queue.put_nowait(b64)
-                            except queue.Full:
-                                pass
-                        else:
-                            # 🔥 BUILD 171: Enhanced logging for debugging
-                            if not hasattr(self, '_noise_reject_count'):
-                                self._noise_reject_count = 0
-                            self._noise_reject_count += 1
-                            # Log every 100 rejected frames with more detail
-                            if self._noise_reject_count % 100 == 0:
-                                reason = "noise" if is_noise else f"insufficient_consec_frames({self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
-                                print(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} frames (rms={rms:.0f}, reason={reason})")
+                        # Just enqueue ALL audio - BUILD 196.1 will filter properly
+                        try:
+                            if not hasattr(self, '_twilio_audio_chunks_sent'):
+                                self._twilio_audio_chunks_sent = 0
+                            self._twilio_audio_chunks_sent += 1
+                            
+                            if self._twilio_audio_chunks_sent <= 3:
+                                first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
+                                print(f"[REALTIME] sending audio TO queue: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}")
+                            
+                            self.realtime_audio_in_queue.put_nowait(b64)
+                        except queue.Full:
+                            pass
                     # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
                     elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)

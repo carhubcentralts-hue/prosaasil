@@ -38,9 +38,16 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
 - **BUILD 196.1 Production-Grade Audio Pipeline**:
   - **Noise Calibration**: First 600ms of call used to calibrate noise floor (20th percentile). Slow adaptation after calibration to track background changes.
   - **Pre-roll Buffer**: 200ms buffer captures start of words when transitioning SILENCE→SPEECH. Prevents missing first syllable.
-  - **State Machine**: SILENCE → MAYBE_SPEECH (3 frames) → SPEECH with separate start/stop SNR thresholds for hysteresis.
-  - **AGC (Automatic Gain Control)**: Normalizes quiet/loud callers to target level (-20dBFS). Max gain 4x, min 0.5x.
-  - **Configurable Thresholds**: All parameters exposed via env vars (SNR_START_NORMAL, SNR_STOP_NORMAL, SNR_START_MUSIC, SNR_STOP_MUSIC, HANGOVER_FRAMES, PREROLL_MS, NOISE_CALIBRATION_MS).
+  - **State Machine**: SILENCE → MAYBE_SPEECH (3 frames) → SPEECH with separate start/stop SNR thresholds for hysteresis. Strict SILENCE gating prevents noise leaks.
+  - **AGC (Automatic Gain Control)**: Normalizes quiet/loud callers to target level (-20dBFS). Max gain 4x, min 0.5x. Applied BEFORE SNR calculation for consistent thresholds.
+  - **Legacy Gate Bypass**: BUILD 165/166/167/171 pre-queue noise gates bypassed when using Realtime API - BUILD 196.1 handles all filtering.
+  - **Configurable Thresholds**: All parameters exposed via env vars:
+    - SNR: `SNR_START_NORMAL`, `SNR_STOP_NORMAL`, `SNR_START_MUSIC`, `SNR_STOP_MUSIC`
+    - Timing: `AUDIO_HANGOVER_FRAMES`, `AUDIO_PREROLL_MS`, `NOISE_CALIBRATION_MS`
+    - Filters: `AUDIO_HPF_ALPHA`, `AUDIO_LPF_ALPHA`
+    - AGC: `AUDIO_TARGET_RMS`, `AUDIO_AGC_ALPHA`, `AUDIO_AGC_MAX_GAIN`, `AUDIO_AGC_MIN_GAIN`
+    - State: `AUDIO_MAYBE_SPEECH_FRAMES`, `AUDIO_MUSIC_CONFIRM_FRAMES`
+    - Music: `MUSIC_ENTER_THRESHOLD`, `MUSIC_EXIT_THRESHOLD`
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
