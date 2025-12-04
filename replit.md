@@ -24,6 +24,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **AI Integration**: Uses `gpt-4o-realtime-preview` for voice calls and `gpt-4o-mini` for server-side NLP, with behavioral rules and hallucination filtering.
 - **Hebrew Optimization**: Optimized VAD with dynamic thresholding, AI greeting system, Hebrew normalization dictionary, and grammar improvements.
 - **Hebrew City Normalization (BUILD 184)**: RapidFuzz-powered fuzzy matching for 120+ Israeli cities. Confidence thresholds: ≥92% auto-accept, 85-92% requires confirmation, <85% retry. Stores both raw input and canonical city name for webhook/CRM tracking.
+- **3-Layer STT Accuracy System (BUILD 185)**: Prevents STT hallucinations ("בית שמש" → "מצפה רמון"). Layer 1: Hebrew Soundex + DoubleMetaphone phonetic encoding. Layer 2: RapidFuzz with 250+ cities and 850+ Hebrew names (אל-endings focus). Layer 3: Consistency filter with majority voting (2/3 match → lock value). Thresholds: ≥93% auto-accept, 85-92% confirm, <85% retry. Webhook includes city_raw_attempts, city_autocorrected for debugging.
 - **Call Quality**: Includes barge-in protection, STT segment merging, noise filtering, gibberish/semantic loop detection, mishearing protection, and silence hallucination prevention.
 - **Verification Gates**: AI confirms collected field values and information immediately after hearing it.
 - **Language Support**: Default Hebrew, switches to caller's language on request.

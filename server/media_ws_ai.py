@@ -7552,6 +7552,11 @@ ALWAYS mention their name in the first sentence.
                                         service_category = last_service
                                         print(f"   └─ LAST service from transcript: {service_category} (pos={last_service_pos})")
                             
+                            # 🔥 BUILD 185: Pass consistency filter data to webhook
+                            city_raw_attempts = getattr(self, 'city_raw_attempts', [])
+                            name_raw_attempts = getattr(self, 'name_raw_attempts', [])
+                            city_autocorrected = lead_state.get('city_autocorrected', False) if lead_state else False
+                            
                             send_call_completed_webhook(
                                 business_id=business_id,
                                 call_id=self.call_sid,
@@ -7567,7 +7572,10 @@ ALWAYS mention their name in the first sentence.
                                 city=city,
                                 service_category=service_category,
                                 raw_city=raw_city,
-                                city_confidence=city_confidence
+                                city_confidence=city_confidence,
+                                city_raw_attempts=city_raw_attempts,
+                                city_autocorrected=city_autocorrected,
+                                name_raw_attempts=name_raw_attempts
                             )
                             print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
                         except Exception as webhook_err:

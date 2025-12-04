@@ -9,7 +9,7 @@ import os
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -173,6 +173,9 @@ def send_call_completed_webhook(
     service_category: Optional[str] = None,
     raw_city: Optional[str] = None,
     city_confidence: Optional[float] = None,
+    city_raw_attempts: Optional[List[str]] = None,
+    city_autocorrected: bool = False,
+    name_raw_attempts: Optional[List[str]] = None,
     metadata: Optional[Dict] = None
 ) -> bool:
     """
@@ -180,6 +183,8 @@ def send_call_completed_webhook(
     
     BUILD 177 Enhanced: Now includes phone, city, and service_category
     BUILD 184: Added raw_city and city_confidence from fuzzy matching
+    BUILD 185: Added city_raw_attempts, city_autocorrected, name_raw_attempts
+              for STT accuracy tracking and majority voting
     
     Args:
         phone: Caller phone number (normalized E.164 format preferred)
@@ -187,6 +192,9 @@ def send_call_completed_webhook(
         service_category: Type of service/professional (e.g., "חשמלאי", "שיפוצים")
         raw_city: Raw city input from customer before normalization
         city_confidence: Fuzzy matching confidence score (0-100)
+        city_raw_attempts: List of all raw STT attempts for city (for debugging)
+        city_autocorrected: Whether majority voting was used to correct STT
+        name_raw_attempts: List of all raw STT attempts for name (for debugging)
     """
     data = {
         "call_id": str(call_id) if call_id else "",
@@ -195,6 +203,9 @@ def send_call_completed_webhook(
         "city": city or "",
         "raw_city": raw_city or "",
         "city_confidence": city_confidence if city_confidence is not None else "",
+        "city_raw_attempts": city_raw_attempts or [],
+        "city_autocorrected": city_autocorrected,
+        "name_raw_attempts": name_raw_attempts or [],
         "service_category": service_category or "",
         "started_at": started_at.isoformat() if started_at else "",
         "ended_at": ended_at.isoformat() if ended_at else datetime.utcnow().isoformat(),
