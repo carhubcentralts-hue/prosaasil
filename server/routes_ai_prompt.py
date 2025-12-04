@@ -277,10 +277,12 @@ def get_current_business_prompt():
         # BUILD 177: Enhanced debugging for external server issues
         logger.info(f"[PROMPT GET] g.tenant={g.get('tenant')}, session keys={list(session.keys())}")
         
-        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')
+        # 🔥 BUILD 186 FIX: Safely handle None values from session
+        user_session = session.get('user') or {}
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or (user_session.get('business_id') if isinstance(user_session, dict) else None)
         if not tenant_id:
-            user = session.get('al_user', {})
-            tenant_id = user.get('business_id')
+            user = session.get('al_user') or {}
+            tenant_id = user.get('business_id') if isinstance(user, dict) else None
             logger.info(f"[PROMPT GET] Fallback to al_user.business_id={tenant_id}")
         
         if not tenant_id:
@@ -301,10 +303,12 @@ def update_current_business_prompt():
     try:
         from flask import g
         
-        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')
+        # 🔥 BUILD 186 FIX: Safely handle None values from session
+        user_session = session.get('user') or {}
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or (user_session.get('business_id') if isinstance(user_session, dict) else None)
         if not tenant_id:
-            user = session.get('al_user', {})
-            tenant_id = user.get('business_id')
+            user = session.get('al_user') or {}
+            tenant_id = user.get('business_id') if isinstance(user, dict) else None
         
         if not tenant_id:
             logger.warning("No tenant_id found in update_current_business_prompt")
@@ -352,10 +356,12 @@ def get_current_prompt_history():
     try:
         from flask import g
         
-        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')
+        # 🔥 BUILD 186 FIX: Safely handle None values from session
+        user_session = session.get('user') or {}
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or (user_session.get('business_id') if isinstance(user_session, dict) else None)
         if not tenant_id:
-            user = session.get('al_user', {})
-            tenant_id = user.get('business_id')
+            user = session.get('al_user') or {}
+            tenant_id = user.get('business_id') if isinstance(user, dict) else None
         
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400

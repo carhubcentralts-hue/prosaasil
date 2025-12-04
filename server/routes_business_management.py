@@ -695,8 +695,9 @@ def get_current_business():
         
         business_id = g.get('tenant') or getattr(g, 'business_id', None)
         if not business_id:
-            user = session.get('user', {}) or session.get('al_user', {})
-            business_id = session.get('impersonated_tenant_id') or user.get('business_id')
+            # 🔥 BUILD 186 FIX: Safely handle None values from session
+            user = session.get('user') or session.get('al_user') or {}
+            business_id = session.get('impersonated_tenant_id') or (user.get('business_id') if isinstance(user, dict) else None)
         
         if not business_id:
             logger.warning("No business context found in get_current_business")
@@ -759,8 +760,9 @@ def update_current_business_settings():
             
         business_id = g.get('tenant') or getattr(g, 'business_id', None)
         if not business_id:
-            user = session.get('user', {}) or session.get('al_user', {})
-            business_id = session.get('impersonated_tenant_id') or user.get('business_id')
+            # 🔥 BUILD 186 FIX: Safely handle None values from session
+            user = session.get('user') or session.get('al_user') or {}
+            business_id = session.get('impersonated_tenant_id') or (user.get('business_id') if isinstance(user, dict) else None)
         
         if not business_id:
             return jsonify({"error": "No business context found"}), 400
@@ -847,8 +849,9 @@ def update_current_business_settings():
         if 'required_lead_fields' in data:
             settings.required_lead_fields = data['required_lead_fields']
             
-        # Track who updated
-        user_email = session.get('al_user', {}).get('email', 'Unknown')
+        # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
+        al_user = session.get('al_user') or {}
+        user_email = al_user.get('email', 'Unknown') if isinstance(al_user, dict) else 'Unknown'
         settings.updated_by = user_email
         settings.updated_at = datetime.now()
         
