@@ -69,6 +69,14 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Response Grace Period (BUILD 187)**: Ignores speech_started events within 500ms of response.created. This prevents echo/noise from cancelling the response before audio starts. Critical fix for "AI gets cut off immediately" issue.
 - **Hebrew STT Dictionary Expansion (BUILD 189→190)**: Massive HEBREW_NORMALIZATION dictionary with **2,261 corrections** covering virtually every aspect of daily Hebrew conversation: emotions/moods (שמח, עצוב, כועס), food/cooking (לחם, ביצים, פסטה), weather/nature (שמש, גשם, ים), colors, family, body parts, shopping, daily actions, Israeli slang (יאללה, סבבה, אחלה), time/dates, education, household items, sports/fitness, healthcare, music/art, animals, technology/internet, numbers, holidays/events, public places, social interactions, character traits, social media, tools/repairs, games, work/career, math/shapes, and extensive everyday expressions. Dictionary-based approach fixes Whisper errors at transcription layer before AI processing.
 - **Conversation Flow Fix (BUILD 190)**: Fixed critical bug where AI asked multiple questions simultaneously causing silence. New prompt enforces: ONE question at a time, wait for response before next question, confirmation loop (customer must confirm before collecting details), correction handling (accept customer corrections, re-confirm, repeat until confirmed), and "never be silent" guard.
+- **VAD Optimization for Normal Speech (BUILD 191)**: Complete rebalancing of VAD/barge-in parameters so users don't need to shout. Changes across all code paths:
+  - **Thresholds lowered**: MIN_SPEECH_RMS: 180→130, RMS_SILENCE_THRESHOLD: 120→80, VAD_RMS: 180→120
+  - **Faster detection**: MIN_SPEECH_DURATION_MS: 900→600ms, MIN_CONSECUTIVE_VOICE_FRAMES: 7→4, NOISE_HOLD_MS: 250→150ms, VAD_HANGOVER_MS: 250→180ms
+  - **Quicker response**: POST_AI_COOLDOWN_MS: 1200→700ms, BARGE_IN_VOICE_FRAMES: 45→25
+  - **Response grace extended**: RESPONSE_GRACE_PERIOD_MS: 500→750ms (prevents cancelled responses)
+  - **OpenAI VAD tuned**: vad_threshold: 0.65→0.55 (detects quieter speech), silence_duration_ms: 600→700ms (prevents premature turn_detected)
+  - **Calibration improved**: threshold = noise × 3.0 (was noise + 100), capped at 180 (was 200), baseline 130 (was 180)
+  - All values synchronized across media_ws_ai.py and openai_realtime_client.py
 
 # External Dependencies
 

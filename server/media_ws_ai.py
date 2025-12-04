@@ -736,24 +736,27 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 164B: BALANCED NOISE FILTERING - Filter noise but allow quiet speech
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
-VAD_RMS = int(os.getenv("VAD_RMS", "180"))                  # 🔥 BUILD 187: 180 (was 120) - stricter to filter noise
-# 🔥 BUILD 171: STRICTER THRESHOLDS - Prevent Whisper hallucinations on silence
-RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "120"))      # 🔥 BUILD 187: 120 (was 100) - higher silence threshold  
-MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "180"))                    # 🔥 BUILD 187: 180 (was 130) - require louder speech to filter background noise
-MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "900"))    # 🔥 BUILD 187: 900ms (was 700ms) - require longer continuous speech
-# 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT - Prevent single-frame noise triggers
-MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "7"))  # 🔥 BUILD 187: 7 frames (was 5) = 140ms above threshold
-# 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
-POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "1200"))          # 🔥 BUILD 187: 1200ms (was 800ms) - longer cooldown after AI speaks
-NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "250"))                      # 🔥 BUILD 187: 250ms (was 150ms) - longer grace period for noise
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "250"))  # 🔥 BUILD 187: 250ms (was 150ms) - longer hangover to merge speech
-RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
-RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","45"))  # 🔥 BUILD 187: 45 frames (was 35) = ≈900ms continuous speech - stricter
+# ═══════════════════════════════════════════════════════════════
+# 🔥 BUILD 191: OPTIMIZED VAD FOR NORMAL HEBREW SPEECH
+# Goal: Detect normal conversation volume without requiring shouting
+# ═══════════════════════════════════════════════════════════════
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.5"))        # 🔥 BUILD 191: 0.5s - faster response to short words like "כן"
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור מפורט
+VAD_RMS = int(os.getenv("VAD_RMS", "120"))                  # 🔥 BUILD 191: 120 (was 180) - detect normal speech volume
+# 🔥 BUILD 191: BALANCED THRESHOLDS - Detect real speech, filter pure noise
+RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "80"))       # 🔥 BUILD 191: 80 (was 120) - lower silence threshold  
+MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "130"))                    # 🔥 BUILD 191: 130 (was 180) - normal speech volume
+MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "600"))    # 🔥 BUILD 191: 600ms (was 900) - faster detection
+# 🔥 BUILD 191: REDUCED FRAME REQUIREMENT - Detect speech faster
+MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "4"))  # 🔥 BUILD 191: 4 frames (was 7) = 80ms continuous speech
+# 🔥 BUILD 191: SHORTER COOLDOWNS - Faster response after AI speaks
+POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "700"))           # 🔥 BUILD 191: 700ms (was 1200) - faster response
+NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                      # 🔥 BUILD 191: 150ms (was 250) - faster noise gate
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "180"))  # 🔥 BUILD 191: 180ms (was 250) - shorter hangover
+RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms - תגובה מהירה
+RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms - פחות המתנה
+REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","25"))  # 🔥 BUILD 191: 25 frames (was 45) = ~500ms - easier barge-in
 
 # 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge window for user messages
 STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "600"))  # 🔥 BUILD 186: Reduced from 800ms to 600ms to reduce noise merge
@@ -4030,18 +4033,18 @@ class MediaStreamHandler:
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
-            # 🔥 BUILD 188 FIX: BALANCED VAD - hear normal speech, respond quickly
-            # vad_threshold=0.65 - balanced threshold for normal conversation volume
-            # silence_duration_ms=600 - faster response after user finishes speaking
-            # prefix_padding_ms=500 - include 500ms before speech detection (reduces false positives)
+            # 🔥 BUILD 191: OPTIMIZED VAD FOR NORMAL HEBREW SPEECH
+            # vad_threshold=0.55 - lower threshold to detect normal/quiet speech
+            # silence_duration_ms=700 - slightly longer to avoid premature turn_detected
+            # prefix_padding_ms=500 - include 500ms before speech detection
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.65,        # 🔥 BUILD 188: 0.65 (was 0.9) - normal conversation volume
-                silence_duration_ms=600,   # 🔥 BUILD 188: 600ms (was 900) - faster response
-                prefix_padding_ms=500,     # 🔥 BUILD 187: Include 500ms before speech (reduces false positives)
+                vad_threshold=0.55,        # 🔥 BUILD 191: 0.55 (was 0.65) - detect normal/quiet speech
+                silence_duration_ms=700,   # 🔥 BUILD 191: 700ms (was 600) - avoid premature turn_detected
+                prefix_padding_ms=500,     # 🔥 BUILD 187: Include 500ms before speech
                 temperature=0.6,           # 🔒 Consistent, focused responses
                 max_tokens=greeting_max_tokens  # 🔥 Dynamic based on greeting length!
             )
@@ -4465,9 +4468,9 @@ ALWAYS mention their name in the first sentence.
                         print(f"🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing")
                         continue  # Don't process this event at all
                     
-                    # 🔥 BUILD 187: RESPONSE GRACE PERIOD - Ignore speech_started within 500ms of response.created
+                    # 🔥 BUILD 191: RESPONSE GRACE PERIOD - Ignore speech_started within 750ms of response.created
                     # This prevents echo/noise from cancelling the response before audio starts
-                    RESPONSE_GRACE_PERIOD_MS = 500
+                    RESPONSE_GRACE_PERIOD_MS = 750  # 🔥 BUILD 191: 750ms (was 500) - longer grace to prevent cancelled responses
                     response_created_ts = getattr(self, '_response_created_ts', 0)
                     time_since_response = (time.time() - response_created_ts) * 1000 if response_created_ts else 99999
                     if time_since_response < RESPONSE_GRACE_PERIOD_MS and self.active_response_id:
@@ -6684,12 +6687,15 @@ ALWAYS mention their name in the first sentence.
                         # Complete calibration after 40 quiet frames OR 4 seconds timeout
                         if self.calibration_frames >= 40 or total_frames >= 200:
                             if self.calibration_frames < 10:
-                                self.vad_threshold = 180.0  # Hebrew speech baseline
-                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=180")
-                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=180")
+                                # 🔥 BUILD 191: Lower baseline for normal speech
+                                self.vad_threshold = 130.0  # BUILD 191: 130 (was 180) - normal Hebrew speech
+                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=130")
+                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=130")
                             else:
-                                # Adaptive: noise + 100, capped at 200 for quiet speakers
-                                self.vad_threshold = min(200.0, self.noise_floor + 100.0)
+                                # 🔥 BUILD 191: noise × 3.0, capped at 180 for quiet speakers
+                                # Old: noise + 100, cap 200 → Too strict!
+                                # New: noise × 3.0, cap 180 → Detects normal speech
+                                self.vad_threshold = min(180.0, max(80.0, self.noise_floor * 3.0))
                                 logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
                                 print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
                             self.is_calibrated = True

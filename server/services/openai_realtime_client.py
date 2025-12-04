@@ -278,9 +278,9 @@ class OpenAIRealtimeClient:
         voice: str = "alloy",
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
-        silence_duration_ms: int = 1200,  # 🔥 BUILD 170: Raised from 500ms to reduce false triggers
-        prefix_padding_ms: int = 300,  # 🔥 BUILD 187: Include audio before speech detection (reduces false positives)
+        vad_threshold: float = 0.55,  # 🔥 BUILD 191: 0.55 - detect normal/quiet Hebrew speech
+        silence_duration_ms: int = 700,  # 🔥 BUILD 191: 700ms - balanced (not too fast, not too slow)
+        prefix_padding_ms: int = 500,  # 🔥 BUILD 191: 500ms - more context before speech
         temperature: float = 0.18,
         max_tokens: int = 300
     ):
