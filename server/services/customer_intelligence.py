@@ -623,9 +623,11 @@ class CustomerIntelligence:
         return lead
     
     def _generate_text_summary(self, text: str) -> str:
-        """BUILD 147: סיכום טקסט דינמי באמצעות GPT-4o-mini"""
+        """BUILD 147: סיכום טקסט דינמי באמצעות GPT-4o-mini
+        BUILD 183: Returns empty string if no user speech (don't hallucinate!)
+        """
         if not text or len(text) < 20:
-            return "שיחה קצרה"
+            return ""  # 🔥 BUILD 183: Return empty, not fake text!
         
         try:
             # Use the dynamic summary service for AI-powered summaries
@@ -644,23 +646,16 @@ class CustomerIntelligence:
                 business_name=business_name
             )
             
+            # 🔥 BUILD 183: summarize_conversation returns "" if no user speech
+            # Respect that and return empty - don't hallucinate!
             if summary and len(summary) > 10:
                 return summary
+            else:
+                return ""  # No summary generated = return empty
                 
         except Exception as e:
-            log.warning(f"⚠️ Dynamic summary failed, using fallback: {e}")
-        
-        # Fallback: Basic keyword-based summary (only if GPT fails)
-        if "פגישה" in text:
-            return "בקשה לתיאום פגישה"
-        elif "לא מעוניין" in text:
-            return "הביע חוסר עניין"
-        elif "תקציב" in text and "אזור" in text:
-            return "דיון על תקציב ומיקום"
-        elif "דירה" in text or "חדרים" in text:
-            return "עניין בנכסי מגורים"
-        else:
-            return f"שיחה כללית ({len(text)} תווים)"
+            log.warning(f"⚠️ Dynamic summary failed: {e}")
+            return ""  # 🔥 BUILD 183: On error, return empty, not fake text
     
     def _classify_intent(self, text: str) -> str:
         """סווג כוונה מהטקסט"""

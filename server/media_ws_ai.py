@@ -7134,7 +7134,9 @@ ALWAYS mention their name in the first sentence.
         }
     
     def _finalize_call_on_stop(self):
-        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות"""
+        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות
+        🔥 BUILD 183: Only generate summary if USER actually spoke!
+        """
         try:
             from server.models_sql import CallLog
             from server.services.customer_intelligence import CustomerIntelligence
@@ -7152,7 +7154,36 @@ ALWAYS mention their name in the first sentence.
                             print(f"⚠️ No call_log found for final summary: {self.call_sid}")
                             return
                         
-                        # בנה סיכום מלא
+                        # 🔥 BUILD 183: Check if user actually spoke before building summary
+                        user_spoke = False
+                        user_content_length = 0
+                        
+                        if hasattr(self, 'conversation_history') and self.conversation_history:
+                            for turn in self.conversation_history:
+                                speaker = turn.get('speaker', '')
+                                text = turn.get('text', '') or turn.get('user', '')
+                                if speaker == 'user' or 'user' in turn:
+                                    content = text.strip() if text else ""
+                                    # Filter out noise
+                                    noise_patterns = ['...', '(שקט)', '(silence)', '(noise)']
+                                    if content and len(content) > 2:
+                                        is_noise = any(n in content.lower() for n in noise_patterns)
+                                        if not is_noise:
+                                            user_spoke = True
+                                            user_content_length += len(content)
+                        
+                        # 🔥 BUILD 183: If no user speech, mark as completed but DON'T generate summary
+                        if not user_spoke or user_content_length < 5:
+                            print(f"📊 [FINALIZE] NO USER SPEECH - skipping summary generation for {self.call_sid}")
+                            call_log.status = "completed"
+                            call_log.transcription = ""  # Empty transcription
+                            call_log.summary = ""  # Empty summary - DO NOT HALLUCINATE!
+                            call_log.ai_summary = ""
+                            db.session.commit()
+                            print(f"✅ CALL FINALIZED (no conversation): {self.call_sid}")
+                            return  # Exit early - no webhook, no lead update
+                        
+                        # בנה סיכום מלא - only if user spoke
                         full_conversation = ""
                         if hasattr(self, 'conversation_history') and self.conversation_history:
                             # ✅ Support both formats: old {'user': X, 'bot': Y} and new {'speaker': X, 'text': Y}
@@ -7167,7 +7198,7 @@ ALWAYS mention their name in the first sentence.
                                     conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
                             full_conversation = "\n".join(conv_lines)
                         
-                        # צור סיכום AI
+                        # צור סיכום AI - only if we have actual conversation
                         business_id = getattr(self, 'business_id', None)
                         if not business_id:
                             print(f"❌ No business_id set for call summary - skipping")
