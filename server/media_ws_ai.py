@@ -3454,7 +3454,7 @@ class MediaStreamHandler:
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
         # 🔥 BUILD 171: STRICTER noise thresholds to prevent hallucinations
         self.noise_floor = 50.0          # 🔥 BUILD 171: 50 (was 30) - higher baseline
-        self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 171: Now 120 (was 60) - require real speech
+        self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 191: Uses MIN_SPEECH_RMS (130) - normal speech
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
         
@@ -3550,7 +3550,7 @@ class MediaStreamHandler:
         self.last_ai_turn_id = None  # Last AI conversation item ID
         self.active_response_id = None  # 🔥 Track active response ID for cancellation
         self.min_ai_talk_guard_ms = 150  # 🔥 BUILD 164B: 150ms grace period
-        self.barge_in_rms_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 170.3: RMS > 60 now (was 200) - better barge-in
+        self.barge_in_rms_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 191: Uses MIN_SPEECH_RMS (130) for barge-in
         self.min_voice_duration_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: 220ms continuous speech
         self.barge_in_min_ms = MIN_SPEECH_DURATION_MS  # 🔥 BUILD 164B: Match min_voice_duration_ms
         self.barge_in_cooldown_ms = 500  # 🔥 BUILD 164B: Standard cooldown
@@ -6666,11 +6666,11 @@ ALWAYS mention their name in the first sentence.
                             self._realtime_speech_active = False
                             speech_bypass_active = False
                             print(f"⏱️ [BUILD 166] Speech timeout after {elapsed:.1f}s - noise gate RE-ENABLED")
-                    is_noise = rms < RMS_SILENCE_THRESHOLD and not speech_bypass_active  # 120 RMS = pure noise
+                    is_noise = rms < RMS_SILENCE_THRESHOLD and not speech_bypass_active  # 🔥 BUILD 191: 80 RMS = pure noise
                     
                     # 🔥 BUILD 167: MUSIC GATE DISABLED - Hebrew speech was being blocked!
                     # Hebrew has sustained consonant clusters with RMS 200-350 which matched "music" pattern
-                    # The noise gate (RMS < 120) is sufficient to block background noise
+                    # 🔥 BUILD 191: Noise gate uses RMS_SILENCE_THRESHOLD (80)
                     is_music = False  # ALWAYS FALSE - no music detection
                     
                     # 🔥 BUILD 165: CALIBRATION MUST RUN FOR ALL FRAMES (even noise!)
@@ -6809,8 +6809,8 @@ ALWAYS mention their name in the first sentence.
                                 self.barge_in_voice_frames = 0
                                 continue
                             
-                            # 🔥 BUILD 164B: RMS > 200 for speech detection (typical speech is 180-500)
-                            speech_threshold = MIN_SPEECH_RMS  # 200
+                            # 🔥 BUILD 191: Use MIN_SPEECH_RMS for speech detection (130 for normal speech)
+                            speech_threshold = MIN_SPEECH_RMS  # 130 - normal conversation volume
                             
                             # 🔥 BUILD 169: Require 700ms continuous speech (35 frames @ 20ms)
                             # Per architect: Increased from 220ms to prevent AI cutoff on background noise
@@ -6832,17 +6832,18 @@ ALWAYS mention their name in the first sentence.
                     # 🔥 BUILD 165: Calibration already done above (before audio routing)
                     # No duplicate calibration needed here
                     
-                    # 🔥 BUILD 165: Voice detection with balanced threshold
+                    # 🔥 BUILD 191: Voice detection with balanced threshold
                     if self.is_calibrated:
                         is_strong_voice = rms > self.vad_threshold
                     else:
-                        # Before calibration - use 180 RMS baseline (Hebrew speech)
-                        is_strong_voice = rms > 180.0
+                        # 🔥 BUILD 191: Before calibration - use MIN_SPEECH_RMS (130) baseline
+                        is_strong_voice = rms > MIN_SPEECH_RMS
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
                     # ✅ EXTRA CHECK: Only if RMS is significantly above threshold
-                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', 200) * 1.2):
+                    # 🔥 BUILD 191: Default to MIN_SPEECH_RMS (130) if vad_threshold not set
+                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', MIN_SPEECH_RMS) * 1.2):
                         self.last_voice_ts = current_time
                         # 🔧 Reduced logging spam - max once per 3 seconds
                         if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 3.0:
@@ -8168,9 +8169,9 @@ ALWAYS mention their name in the first sentence.
             duration = len(pcm16_8k) / (2 * 8000)
             if DEBUG: print(f"📊 AUDIO_VALIDATION: max_amplitude={max_amplitude}, rms={rms}, duration={duration:.1f}s")
             
-            # 🔥 BUILD 164B: BALANCED noise gate for Whisper
-            if max_amplitude < 200 or rms < 120:  # Balanced thresholds - allow quiet speech
-                print(f"🚫 WHISPER_BLOCKED: Audio too weak (amp={max_amplitude}<200, rms={rms}<120)")
+            # 🔥 BUILD 191: BALANCED noise gate for Whisper - uses global constants
+            if max_amplitude < 150 or rms < MIN_SPEECH_RMS:  # 🔥 BUILD 191: Allow quieter speech
+                print(f"🚫 WHISPER_BLOCKED: Audio too weak (amp={max_amplitude}<150, rms={rms}<{MIN_SPEECH_RMS})")
                 return ""  # Don't let Whisper hallucinate!
             
             if duration < 0.3:  # Less than 300ms
