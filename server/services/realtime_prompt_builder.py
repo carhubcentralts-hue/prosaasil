@@ -240,14 +240,9 @@ def _build_slot_description(slot_size_min: int) -> str:
 def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound") -> str:
     """
     BUILD 182: COMPACT system prompt - optimized for speed and low latency
-    BUILD 183: Added Hebrew city lexicon hints for better transcription accuracy
-    ~400 chars - reduces OpenAI response time
+    ~350 chars - reduces OpenAI response time
     """
     direction_context = "מקבל שיחה" if call_direction == "inbound" else "מתקשר ללקוח"
-    
-    # 🔥 BUILD 183: Hebrew city lexicon for transcription accuracy
-    # Including common similar-sounding city names
-    city_hints = "ערים: תל אביב, ירושלים, חיפה, באר שבע, בית שמש, בית שאן, בת ים, נתניה, הרצליה, רמת גן, פתח תקווה, אשדוד, אשקלון, רחובות, ראשון לציון, כפר סבא, רעננה, הוד השרון, נס ציונה, גבעתיים, מודיעין"
     
     return f"""נציג AI של "{business_name}" | {direction_context}
 תאריך: {weekday_hebrew}, {today_hebrew}
@@ -257,9 +252,7 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 2. לא להמציא - רק מה שנאמר או שהמערכת אישרה
 3. אישור פרטים: "רק מוודא - אמרת X, נכון?"
 4. קצר וברור, בלי חזרות
-5. אם לא שמעת ברור: "סליחה, לא שמעתי - תוכל לחזור על זה?"
+5. אם לא שמעת: "לא שמעתי, תחזור?"
 6. תורים: בדוק זמינות לפני אישור!
 7. אל תגיד "קבעתי/קבענו" עד שהמערכת מאשרת!
-
-{city_hints}
 """

@@ -81,7 +81,98 @@ function QuickActionsCard() {
   );
 }
 
-// BUILD 183: RecentActivityCard removed per user request - not needed in overview
+function RecentActivityCard({ activity, isLoading }: { activity?: any[], isLoading?: boolean }) {
+  const navigate = useNavigate();
+
+  const handleOpenActivity = (item: any) => {
+    if (item.leadId) {
+      navigate(`/app/leads/${item.leadId}`);
+    } else if (item.type === 'call') {
+      navigate('/app/calls');
+    } else if (item.type === 'whatsapp') {
+      navigate('/app/whatsapp');
+    } else {
+      navigate('/app/leads');
+    }
+  };
+  
+  // Activity is now pre-filtered by the API
+  const filteredActivity = activity;
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">פעילות אחרונה</h3>
+          <Clock className="h-5 w-5 text-gray-400" />
+        </div>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          <span className="text-gray-600 mr-2">טוען פעילות...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900">פעילות אחרונה</h3>
+        <Clock className="h-5 w-5 text-gray-400" />
+      </div>
+      
+      <div className="space-y-3">
+        {filteredActivity && filteredActivity.length > 0 ? filteredActivity.slice(0, 6).map((item, index) => {
+          const time = new Date(item.ts).toLocaleTimeString('he-IL', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          });
+          
+          return (
+            <div key={index} className="flex items-start p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+              <div className={`w-3 h-3 rounded-full mt-2 ml-3 ${
+                item.type === 'call' ? 'bg-blue-500' : 'bg-green-500'
+              }`} />
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900">{time}</span>
+                  <Badge variant={item.type === 'call' ? 'neutral' : 'success'}>
+                    {item.provider}
+                  </Badge>
+                </div>
+                <p className="text-sm text-gray-600 mt-1">{item.preview}</p>
+              </div>
+              <button 
+                className="text-blue-600 hover:text-blue-800 text-sm font-medium mr-2"
+                onClick={() => handleOpenActivity(item)}
+                data-testid={`activity-open-${index}`}
+              >
+                פתח
+              </button>
+            </div>
+          );
+        }) : (
+          <div className="text-center py-8 text-gray-500">
+            <Clock className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+            <p>אין פעילות אחרונה</p>
+          </div>
+        )}
+      </div>
+      
+      {filteredActivity && filteredActivity.length > 0 && (
+        <div className="mt-4 text-center">
+          <button 
+            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            onClick={() => navigate('/app/leads')}
+            data-testid="activity-see-more"
+          >
+            ראה עוד פעילות
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function BusinessHomePage() {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('today');
@@ -304,7 +395,8 @@ export function BusinessHomePage() {
         {/* Quick Actions */}
         <QuickActionsCard />
 
-        {/* BUILD 183: Removed Recent Activity section per user request */}
+        {/* Recent Activity */}
+        <RecentActivityCard activity={activity} isLoading={isLoadingActivity} />
       </div>
     </div>
   );

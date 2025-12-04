@@ -133,13 +133,10 @@ class BusinessSettings(db.Model):
     opening_hours_json = db.Column(db.JSON, nullable=True)  # {"sun":[["10:00","20:00"]], "mon":[...], ...}
     booking_window_days = db.Column(db.Integer, default=30)  # How many days ahead can customers book
     min_notice_min = db.Column(db.Integer, default=0)  # Minimum notice time in minutes before appointment
-    require_phone_before_booking = db.Column(db.Boolean, default=False)  # 🔥 BUILD 182/183: Use Caller ID by default, ask verbally if enabled (NO DTMF)
+    require_phone_before_booking = db.Column(db.Boolean, default=False)  # 🔥 BUILD 182: Use Caller ID by default, DTMF only if enabled
     
     # 🔥 BUILD 177: Generic Webhook for external integrations (n8n, Zapier, etc.)
-    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts (fallback)
-    # 🔥 BUILD 183: Separate webhooks for inbound/outbound calls
-    inbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for inbound calls only
-    outbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for outbound calls only (if not set, outbound calls don't send webhooks)
+    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts
     
     # 🔥 BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected

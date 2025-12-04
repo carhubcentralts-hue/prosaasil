@@ -725,9 +725,6 @@ def get_current_business():
             "opening_hours_json": settings.opening_hours_json if settings else None,
             # 🔥 BUILD 177: Generic Webhook
             "generic_webhook_url": settings.generic_webhook_url if settings else None,
-            # 🔥 BUILD 183: Separate inbound/outbound webhooks
-            "inbound_webhook_url": getattr(settings, 'inbound_webhook_url', None) if settings else None,
-            "outbound_webhook_url": getattr(settings, 'outbound_webhook_url', None) if settings else None,
             # 🔥 BUILD 163: Auto hang-up settings
             "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if settings else False,
             "auto_end_on_goodbye": settings.auto_end_on_goodbye if settings else False,
@@ -819,12 +816,6 @@ def update_current_business_settings():
         # 🔥 BUILD 177: Generic Webhook
         if 'generic_webhook_url' in data:
             settings.generic_webhook_url = data['generic_webhook_url'] or None
-        
-        # 🔥 BUILD 183: Separate inbound/outbound webhooks
-        if 'inbound_webhook_url' in data:
-            settings.inbound_webhook_url = data['inbound_webhook_url'] or None
-        if 'outbound_webhook_url' in data:
-            settings.outbound_webhook_url = data['outbound_webhook_url'] or None
         
         # 🔥 BUILD 163: Auto hang-up settings
         if 'auto_end_after_lead_capture' in data:

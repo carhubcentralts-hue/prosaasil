@@ -15,7 +15,7 @@ build = ["sh", "-c", "bash ./build_production.sh"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["c-ares", "cargo", "ffmpeg", "ffmpeg-full", "freetype", "glibcLocales", "grpc", "iana-etc", "lcms2", "libev", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rapidfuzz-cpp", "rustc", "taskflow", "tcl", "tk", "websocat", "xsimd", "zlib"]
+packages = ["c-ares", "cargo", "ffmpeg", "ffmpeg-full", "freetype", "glibcLocales", "grpc", "iana-etc", "lcms2", "libev", "libiconv", "libimagequant", "libjpeg", "libsndfile", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "rustc", "tcl", "tk", "websocat", "xsimd", "zlib"]
 
 [[ports]]
 localPort = 3300

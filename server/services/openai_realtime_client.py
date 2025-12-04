@@ -309,10 +309,9 @@ class OpenAIRealtimeClient:
             "output_audio_format": output_audio_format,
             # ✅ MANDATORY: Internal Whisper transcription for audio comprehension
             # DO NOT remove this - AI will be completely silent without it!
-            # 🔥 BUILD 183: Explicit Hebrew language for better transcription accuracy
             "input_audio_transcription": {
-                "model": "whisper-1",
-                "language": "he"  # 🔥 Explicit Hebrew - improves accuracy for city names!
+                "model": "whisper-1"
+                # Auto-detect language (Hebrew specified in system prompt)
             },
             "turn_detection": {
                 "type": "server_vad",

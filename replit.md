@@ -23,15 +23,11 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Multi-Tenancy**: Secure business identification and strict `tenant_id` filtering for data isolation.
 - **AI Integration**: Uses `gpt-4o-realtime-preview` for voice calls and `gpt-4o-mini` for server-side NLP, with behavioral rules and hallucination filtering.
 - **Hebrew Optimization**: Optimized VAD with dynamic thresholding, AI greeting system, Hebrew normalization dictionary, and grammar improvements.
-- **Hebrew City Normalization (BUILD 184)**: RapidFuzz-powered fuzzy matching for 120+ Israeli cities. Confidence thresholds: ≥92% auto-accept, 85-92% requires confirmation, <85% retry. Stores both raw input and canonical city name for webhook/CRM tracking.
-- **3-Layer STT Accuracy System (BUILD 186)**: Prevents STT hallucinations ("בית שמש" → "מצפה רמון"). Layer 1: Hebrew Soundex + DoubleMetaphone phonetic encoding. Layer 2: RapidFuzz with 450+ cities/places and 5000+ Hebrew names. Layer 3: Consistency filter with majority voting (2/3 match → lock value). Thresholds: ≥90% auto-accept, 82-90% confirm, <82% retry. Big-jump guard blocks >15pt phonetic distance corrections. Webhook includes city_raw_attempts, city_autocorrected for debugging.
-- **Hebrew STT Fix (BUILD 186)**: Explicit Hebrew language config (`language: "he"`) in session.update preserves Whisper Hebrew transcription. Expanded English hallucination filter catches 50+ patterns (e.g., "Thank you", "Good luck", "Blah") that occur when Hebrew audio is mistranscribed as English.
-- **Extended Hebrew Data Files (BUILD 186)**: israeli_places.json (450+ cities/neighborhoods with aliases), hebrew_first_names.json (5000+ names with variants), hebrew_surnames.json (3000+ surnames), hebrew_phonetic_rules.json (confusion patterns, endings, prefixes). All load with deduplication and legacy fallback.
 - **Call Quality**: Includes barge-in protection, STT segment merging, noise filtering, gibberish/semantic loop detection, mishearing protection, and silence hallucination prevention.
 - **Verification Gates**: AI confirms collected field values and information immediately after hearing it.
 - **Language Support**: Default Hebrew, switches to caller's language on request.
 - **Outbound Calls**: AI-initiated calls with concurrency limits, template-based prompts, and separate business-level outbound AI prompts.
-- **Webhook (BUILD 183)**: Separate inbound/outbound webhook URLs for direction-based routing. Inbound calls use `inbound_webhook_url` with `generic_webhook_url` fallback; outbound calls use `outbound_webhook_url` ONLY (no webhook sent if not configured). HMAC signature verification and retry logic for all webhooks.
+- **Webhook**: Generic, configurable webhook for sending call transcripts, summaries, and lead data with HMAC signature verification and retry logic.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -55,7 +51,6 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Enhanced Reminders System**.
 - **FAQ Hybrid Fast-Path**: Sub-2s voice responses.
 - **Appointment Settings UI**: Configurable slot size, availability, booking window, and minimum notice.
-- **Appointment Validation (BUILD 184)**: Server-side validation enforces booking_window_days (max days ahead), min_notice_min (minimum notice time), and business hours. All checks use business timezone for accuracy.
 - **CRM Tasks**: Redesigned task board with notifications.
 - **Bulk Lead Deletion**: Cascade delete with transaction rollback.
 - **Auto Hang-up Settings**: Options to end calls after lead capture or on goodbye.
