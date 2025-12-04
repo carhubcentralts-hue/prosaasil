@@ -1103,6 +1103,7 @@ class MediaStreamHandler:
         self._cancelled_response_needs_recovery = False
         self._cancelled_response_recovery_ts = 0
         self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
+        self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -1546,16 +1547,18 @@ class MediaStreamHandler:
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
-            # 🔥 BUILD 186 FIX: Balanced VAD - filter noise but respond quickly
-            # vad_threshold=0.75 - requires clearer speech to trigger (filters background noise)
-            # silence_duration_ms=700 - quick response once customer finishes speaking
+            # 🔥 BUILD 187 FIX: AGGRESSIVE VAD - filter noise, prevent false turn_detected
+            # vad_threshold=0.9 - VERY high threshold, only trigger on clear speech
+            # silence_duration_ms=900 - longer silence requirement before AI responds
+            # prefix_padding_ms=500 - include 500ms before speech detection (reduces false positives)
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.75,        # 🔒 Higher = less sensitive to background noise
-                silence_duration_ms=700,   # 🔒 Balanced = responds quickly after speech ends
+                vad_threshold=0.9,         # 🔥 BUILD 187: 0.9 (was 0.75) - VERY strict, only clear speech
+                silence_duration_ms=900,   # 🔥 BUILD 187: 900ms (was 700) - longer pause before responding
+                prefix_padding_ms=500,     # 🔥 BUILD 187: Include 500ms before speech (reduces false positives)
                 temperature=0.6,           # 🔒 Consistent, focused responses
                 max_tokens=greeting_max_tokens  # 🔥 Dynamic based on greeting length!
             )
@@ -1978,6 +1981,17 @@ ALWAYS mention their name in the first sentence.
                     if self.is_playing_greeting:
                         print(f"🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing")
                         continue  # Don't process this event at all
+                    
+                    # 🔥 BUILD 187: RESPONSE GRACE PERIOD - Ignore speech_started within 500ms of response.created
+                    # This prevents echo/noise from cancelling the response before audio starts
+                    RESPONSE_GRACE_PERIOD_MS = 500
+                    response_created_ts = getattr(self, '_response_created_ts', 0)
+                    time_since_response = (time.time() - response_created_ts) * 1000 if response_created_ts else 99999
+                    if time_since_response < RESPONSE_GRACE_PERIOD_MS and self.active_response_id:
+                        print(f"🛡️ [BUILD 187 GRACE] Ignoring speech_started - only {time_since_response:.0f}ms since response.created (grace={RESPONSE_GRACE_PERIOD_MS}ms)")
+                        # Don't mark user_has_spoken, don't bypass noise gate - just ignore this event
+                        continue
+                    
                     print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
                     self.user_has_spoken = True
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
@@ -2047,6 +2061,9 @@ ALWAYS mention their name in the first sentence.
                     if response_id:
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+                        # 🔥 BUILD 187: Response grace period - track when response started
+                        # This prevents false turn_detected from echo/noise in first 500ms
+                        self._response_created_ts = time.time()
                         # 🔥 BUILD 187: Clear recovery flag - new response was created!
                         if self._cancelled_response_needs_recovery:
                             print(f"🔄 [BUILD 187] New response created - cancelling recovery")
