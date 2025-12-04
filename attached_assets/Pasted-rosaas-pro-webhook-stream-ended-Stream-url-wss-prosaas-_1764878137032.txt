@@ -1,0 +1,78 @@
+rosaas.pro/webhook/stream_ended"><Stream url="wss://prosaas.pro/ws/twilio-media"><Parameter name="CallSid" value="CAb6a7adb2146a9f3b08a989d0181fdc1e" /><Parameter name="To" value="+97233762734" /></Stream></Connect></Response>
+prosaas-backend  | INFO:     172.18.0.5:48538 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.5:48548 - "WebSocket /ws/twilio-media" [accepted]
+prosaas-backend  | INFO:     connection open
+prosaas-backend  | 🎯 AI CONVERSATION STARTED
+prosaas-backend  | 🔵 [CALL] run() started - waiting for START event...
+prosaas-backend  | 🎯 [CALL DEBUG] START EVENT RECEIVED! session=SES-1571ea21
+prosaas-backend  | 
+prosaas-backend  | 📞 START EVENT (customParameters path):
+prosaas-backend  |    customParams.From: None
+prosaas-backend  |    customParams.CallFrom: None
+prosaas-backend  |    ✅ self.phone_number set to: 'None'
+prosaas-backend  |    ✅ self.to_number set to: '+97233762734'
+prosaas-backend  | 🎯 [T0=1764878117.731] WS_START sid=MZ83e580639c76682e8c75f9ab71c975fe call_sid=CAb6a7adb2146a9f3b08a989d0181fdc1e from=None to=+97233762734 mode=AI
+prosaas-backend  | 🚀 [PARALLEL] Starting OpenAI at T0+0ms (BEFORE DB query!)
+prosaas-backend  | 🚀 [REALTIME] Thread started for call CAb6a7ad (FRESH SESSION)
+prosaas-backend  | ⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number=+97233762734
+prosaas-backend  | 🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY
+prosaas-backend  | ⏱️ [PARALLEL] Client created in 0ms
+prosaas-backend  | ⏱️ [PARALLEL] OpenAI connected in 459ms (T0+460ms)
+prosaas-backend  | ⏳ [PARALLEL] Waiting for business info from DB query...
+prosaas-backend  | INFO:     172.18.0.5:48550 - "GET /api/notifications HTTP/1.1" 401 Unauthorized
+prosaas-backend  | ✅ מצא עסק: קליבר (id=10)
+prosaas-backend  | 🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)
+prosaas-backend  | ⚡ BUILD 172: CallConfig loaded in 1001ms
+prosaas-backend  |    bot_speaks_first=True, auto_end_goodbye=True
+prosaas-backend  |    auto_end_lead=True, silence_timeout=5s
+prosaas-backend  | 🔍 [CONFIG] required_lead_fields=['city', 'service_type']
+prosaas-backend  | 🔍 [CONFIG] smart_hangup_enabled=True
+prosaas-backend  | ⚡ DB QUERY: business_id=10 in 1115ms
+prosaas-backend  | 🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=10, SID=CAb6a7adb2146a9f3b08a989d0181fdc1e
+prosaas-backend  | 🔊 TX_LOOP_START: Audio transmission thread started🎯 [T1=1764878118.847] STORING GREETING FOR REALTIME!
+prosaas-backend  | ✅ [REALTIME] Greeting stored: 'שלום! זה מ-אתר  ה-מנעולן איזה סוג שירות אתה צריך ?...' (len=50)
+prosaas-backend  | 🚀 [PARALLEL] Signaling business info ready at T0+1117ms
+prosaas-backend  | 
+prosaas-backend  | 🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress
+prosaas-backend  | 🎛️ VAD CALIBRATED (noise=8.9, threshold=108.9)
+prosaas-backend  | ✅ [PARALLEL] Business info ready! Wait time: 659ms
+prosaas-backend  | ⏱️ [PARALLEL] Using greeting: 'שלום! זה מ-אתר  ה-מנעולן איזה סוג שירות אתה צריך ?...'
+prosaas-backend  | 🎤 [VOICE] Using voice=shimmer for entire call (business=10)
+prosaas-backend  | 🎤 [GREETING] max_tokens=4096 for greeting length=50 chars (direction=inbound)
+prosaas-backend  | ❌ [REALTIME] Async error: OpenAIRealtimeClient.configure_session() got an unexpected keyword argument 'prefix_padding_ms'
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/media_ws_ai.py", line 1561, in _run_realtime_mode_async
+prosaas-backend  |     await client.configure_session(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  | TypeError: OpenAIRealtimeClient.configure_session() got an unexpected keyword argument 'prefix_padding_ms'
+prosaas-backend  | ✅ Call log already exists for CAb6a7adb2146a9f3b08a989d0181fdc1e
+prosaas-backend  | ✅ Recording started for CAb6a7adb2146a9f3b08a989d0181fdc1e: RE2b10adf0859bd539d29584475d832d0b
+prosaas-backend  | ✅ CustomerIntelligence SUCCESS: customer_id=7, lead_id=79, was_created=False
+prosaas-backend  | 🔌 [REALTIME] Disconnected
+prosaas-backend  | 🔚 [REALTIME] Thread ended for call CAb6a7ad
+prosaas-backend  | 🎙️ REAL_VOICE: rms=219.0 > threshold=108.9
+prosaas-backend  | ✅ Updated call_log with customer_id=7
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🎤 END OF UTTERANCE: 1.5s audio, conversation #0
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=23680 | silence_ms=520
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #0
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:48564 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | WS_STOP sid=MZ83e580639c76682e8c75f9ab71c975fe rx=274 tx=0
+prosaas-backend  | 📞 [SES-1571ea21] CALL ENDED - duration=5.4s, business_id=10, rx=274, tx=0
+prosaas-backend  | STREAM_ENDED call=CAb6a7adb2146a9f3b08a989d0181fdc1e stream=N/A status=N/A
+prosaas-backend  | INFO:     172.18.0.5:48408 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+prosaas-backend  | 🧹 Waiting for 5 background threads...
+prosaas-backend  | ✅ Found existing recording for CAb6a7adb2146a9f3b08a989d0181fdc1e: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/RE2b10adf0859bd539d29584475d832d0b.json
+prosaas-backend  | INFO:     172.18.0.5:48420 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+prosaas-backend  | ✅ Recording queued for processing: CAb6a7adb2146a9f3b08a989d0181fdc1e
+prosaas-backend  | 📊 [FINALIZE] NO USER SPEECH - skipping summary generation for CAb6a7adb2146a9f3b08a989d0181fdc1e
+prosaas-backend  | INFO:     connection closed
+prosaas-backend  | ✅ CALL FINALIZED (no conversation): CAb6a7adb2146a9f3b08a989d0181fdc1e
+prosaas-backend  | ✅ Background thread 4 completed
+prosaas-backend  | ✅ All background threads cleanup complete
+prosaas-backend  | WS_DONE sid=MZ83e580639c76682e8c75f9ab71c975fe rx=274 tx=0
+^[[A^[[Bprosaas-backend  | INFO:     127.0.0.1:49372 - "GET /health HTTP/1.1" 200 OK
