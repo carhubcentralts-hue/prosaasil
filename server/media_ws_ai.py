@@ -3624,6 +3624,7 @@ class MediaStreamHandler:
         self.goodbye_detected = False  # Runtime state: tracks if goodbye phrase detected
         self.pending_hangup = False  # Runtime state: signals that call should end after current TTS
         self.hangup_triggered = False  # Runtime state: prevents multiple hangup attempts
+        self.closing_sent = False  # 🔥 BUILD 194: True after closing message sent - blocks new transcripts
         self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
@@ -4491,6 +4492,11 @@ ALWAYS mention their name in the first sentence.
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
+                    # 🔥 BUILD 194: CLOSING FENCE - Don't trigger barge-in after closing message
+                    if getattr(self, 'closing_sent', False):
+                        print(f"🔒 [BUILD 194] Ignoring speech_started - closing already sent")
+                        continue  # Don't process - prevents AI interruption during closing
+                    
                     # 🛡️ FIX: PROTECT GREETING - Don't trigger barge-in while greeting is playing!
                     if self.is_playing_greeting:
                         print(f"🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing")
@@ -5011,6 +5017,11 @@ ALWAYS mention their name in the first sentence.
                         # 🔥 NOTE: Hangup is now triggered in response.audio.done to let audio finish!
                 
                 elif event_type == "conversation.item.input_audio_transcription.completed":
+                    # 🔥 BUILD 194: CLOSING FENCE - Block all new transcripts after closing message
+                    if getattr(self, 'closing_sent', False):
+                        print(f"🔒 [BUILD 194] ❌ BLOCKED: Transcript after closing - '{event.get('transcript', '')[:30]}...'")
+                        continue  # Ignore all transcripts after closing - prevents loops!
+                    
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
@@ -5053,6 +5064,43 @@ ALWAYS mention their name in the first sentence.
                             self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
                         continue
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
+                    
+                    # 🔥 BUILD 194: DURATION/LENGTH RATIO CHECK
+                    # Background noise gets transcribed as short Hebrew words like "כן"
+                    # Example: 14 seconds audio → "כן." (2 chars) = SUSPICIOUS!
+                    # Real "כן" is spoken in ~0.5-1 second, not 14 seconds
+                    user_duration = 0
+                    if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
+                        user_duration = time.time() - self._user_speech_start
+                    
+                    text_hebrew_len = len(re.findall(r'[\u0590-\u05FF]', text))
+                    suspicious_noise_words = ["כן", "לא", "אה", "אהה", "אמ", "הא", "מה"]
+                    text_clean = text.strip().replace(".", "").replace(",", "").replace("!", "").replace("?", "")
+                    
+                    # Rule 1: Very long duration (>5s) with very short text (<4 Hebrew chars) = noise
+                    if user_duration > 5.0 and text_hebrew_len < 4:
+                        print(f"🔇 [BUILD 194] ❌ NOISE REJECTED: {user_duration:.1f}s audio → '{text}' ({text_hebrew_len} chars) - ratio too extreme!")
+                        if len(text) >= 3:
+                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
+                        continue
+                    
+                    # Rule 2: Long duration (>3s) for single-word suspicious noise words = noise
+                    if user_duration > 3.0 and text_clean in suspicious_noise_words:
+                        print(f"🔇 [BUILD 194] ❌ NOISE REJECTED: {user_duration:.1f}s audio → '{text}' - single word noise pattern!")
+                        if len(text) >= 3:
+                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
+                        continue
+                    
+                    # Rule 3: Long duration (>10s) with short text (<10 chars) = background noise
+                    if user_duration > 10.0 and text_hebrew_len < 10:
+                        print(f"🔇 [BUILD 194] ❌ NOISE REJECTED: {user_duration:.1f}s audio → '{text}' ({text_hebrew_len} chars) - too short for duration!")
+                        if len(text) >= 3:
+                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
+                        continue
+                    
+                    # Log when allowed despite being suspicious (for debugging)
+                    if user_duration > 2.0 and text_hebrew_len < 5:
+                        print(f"⚠️ [BUILD 194] Allowing borderline: {user_duration:.1f}s → '{text}' ({text_hebrew_len} chars)")
                     
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
                     # 1. Allow short Hebrew words (expanded list per architect feedback)
@@ -5394,6 +5442,8 @@ ALWAYS mention their name in the first sentence.
                                 
                                 # If auto_end_on_goodbye is ON, send explicit instruction to AI
                                 if self.auto_end_on_goodbye:
+                                    self.closing_sent = True  # 🔥 BUILD 194: Block future transcripts
+                                    print(f"🔒 [BUILD 194] Closing message sent - blocking future transcripts")
                                     asyncio.create_task(self._send_server_event_to_ai(
                                         "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
                                     ))
@@ -5417,6 +5467,8 @@ ALWAYS mention their name in the first sentence.
                                         print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead_captured + confirmed)")
                                     
                                     # Send polite closing instruction
+                                    self.closing_sent = True  # 🔥 BUILD 194: Block future transcripts
+                                    print(f"🔒 [BUILD 194] Closing message sent - blocking future transcripts")
                                     asyncio.create_task(self._send_server_event_to_ai(
                                         "[SERVER] ✅ הלקוח אישר את הפרטים! סיים בצורה מנומסת - הודה ללקוח ואמור להתראות."
                                     ))
