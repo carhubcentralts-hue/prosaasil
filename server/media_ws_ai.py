@@ -3447,6 +3447,7 @@ class MediaStreamHandler:
         self.voice_in_row = 0
         self.greeting_sent = False
         self.user_has_spoken = False  # Track if user has spoken at least once
+        self.user_speech_seen = False  # 🔥 BUILD 193: True if ANY user speech was detected (even if filtered)
         self.is_playing_greeting = False  # True only while greeting audio is playing
         self.state = STATE_LISTEN        # מצב נוכחי
         
@@ -4426,13 +4427,13 @@ ALWAYS mention their name in the first sentence.
                             _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
                             # greeting_sent stays True to bypass GUARD for next response
                         
-                        # 🔥 BUILD 192: IMMEDIATE RECOVERY for cancelled responses with NO audio!
-                        # When turn_detected cancels response BEFORE AI sends any audio = silence.
-                        # OLD BUG: We waited for speech_stopped, but if speech_started was blocked
-                        # by grace period, speech_stopped never came → no recovery!
-                        # FIX: Trigger recovery IMMEDIATELY from response.done with cancelled
-                        if status == "cancelled" and len(output) == 0 and self.user_has_spoken:
-                            _orig_print(f"🔄 [BUILD 192] Response cancelled with NO audio! Triggering IMMEDIATE recovery...", flush=True)
+                        # 🔥 BUILD 193: IMMEDIATE RECOVERY for ANY cancelled response!
+                        # When turn_detected cancels response, AI may go silent.
+                        # OLD BUG: Only triggered recovery for output_count=0, but AI can also
+                        # get stuck after partial speech (output_count=1 with cancelled).
+                        # FIX: Trigger recovery for ANY cancelled response to keep conversation flowing
+                        if status == "cancelled" and self.user_has_spoken:
+                            _orig_print(f"🔄 [BUILD 193] Response cancelled (output={len(output)})! Triggering IMMEDIATE recovery...", flush=True)
                             
                             # 🔥 BUILD 192: IMMEDIATE recovery - don't wait for speech_stopped!
                             async def _immediate_recovery():
@@ -4507,6 +4508,7 @@ ALWAYS mention their name in the first sentence.
                     
                     print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
                     self.user_has_spoken = True
+                    self.user_speech_seen = True  # 🔥 BUILD 193: Flag for finalize (even if transcripts are filtered)
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
                     # This prevents loop guard from triggering when user IS speaking
                     if self._consecutive_ai_responses > 0:
@@ -5018,17 +5020,25 @@ ALWAYS mention their name in the first sentence.
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
                     
-                    # 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
-                    # Humans cannot form a coherent response in <800ms, so these are hallucinations
+                    # 🔥 BUILD 193: SMART POST-AI COOLDOWN
+                    # OLD BUG: Rejected transcripts arriving fast after AI, but this dropped
+                    # valid user speech that was spoken DURING AI talking (barge-in).
+                    # FIX: Allow transcripts within OVERLAP_GRACE_MS (user likely spoke during AI)
+                    OVERLAP_GRACE_MS = 300  # 🔥 BUILD 193: Grace period for overlapping speech
                     if self._ai_finished_speaking_ts > 0:
                         time_since_ai_finished = (now_sec - self._ai_finished_speaking_ts) * 1000
                         if time_since_ai_finished < POST_AI_COOLDOWN_MS:
-                            print(f"🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived {time_since_ai_finished:.0f}ms after AI finished (min: {POST_AI_COOLDOWN_MS}ms)")
-                            print(f"   Rejected text: '{text[:50]}...' (likely hallucination)")
-                            # 🔥 BUILD 182: Still record for transcript (with filtered flag)
-                            if len(text) >= 3:
-                                self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
-                            continue
+                            # 🔥 BUILD 193: Allow very fast transcripts (likely overlap)
+                            if time_since_ai_finished < OVERLAP_GRACE_MS:
+                                print(f"✅ [BUILD 193] ALLOWED: Transcript {time_since_ai_finished:.0f}ms after AI (within {OVERLAP_GRACE_MS}ms overlap grace)")
+                                # Don't continue - process this transcript!
+                            else:
+                                print(f"🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived {time_since_ai_finished:.0f}ms after AI finished (min: {POST_AI_COOLDOWN_MS}ms)")
+                                print(f"   Rejected text: '{text[:50]}...' (likely hallucination)")
+                                # 🔥 BUILD 182: Still record for transcript (with filtered flag)
+                                if len(text) >= 3:
+                                    self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
+                                continue
                     
                     # 🔥 BUILD 171: STRICTER RMS GATE - Reject if no sustained speech detected
                     recent_rms = getattr(self, '_recent_audio_rms', 0)
@@ -9950,26 +9960,37 @@ ALWAYS mention their name in the first sentence.
                             print(f"⚠️ No call_log found for final summary: {self.call_sid}")
                             return
                         
-                        # 🔥 BUILD 183: Check if user actually spoke before building summary
-                        user_spoke = False
+                        # 🔥 BUILD 193: Check if user actually spoke before building summary
+                        # Use user_speech_seen flag as PRIMARY check (set on speech_started event)
+                        user_speech_detected = getattr(self, 'user_speech_seen', False)
                         user_content_length = 0
+                        has_filtered_transcripts = False
                         
                         if hasattr(self, 'conversation_history') and self.conversation_history:
                             for turn in self.conversation_history:
                                 speaker = turn.get('speaker', '')
                                 text = turn.get('text', '') or turn.get('user', '')
+                                is_filtered = turn.get('filtered', False)
+                                
+                                # 🔥 BUILD 193: Include filtered transcripts in length calculation
+                                # They were real speech even if rejected by cooldown
                                 if speaker == 'user' or 'user' in turn:
                                     content = text.strip() if text else ""
-                                    # Filter out noise
-                                    noise_patterns = ['...', '(שקט)', '(silence)', '(noise)']
-                                    if content and len(content) > 2:
-                                        is_noise = any(n in content.lower() for n in noise_patterns)
-                                        if not is_noise:
-                                            user_spoke = True
-                                            user_content_length += len(content)
+                                    if is_filtered:
+                                        has_filtered_transcripts = True
+                                        user_content_length += len(content)  # Count filtered too!
+                                    else:
+                                        # Filter out noise
+                                        noise_patterns = ['...', '(שקט)', '(silence)', '(noise)']
+                                        if content and len(content) > 2:
+                                            is_noise = any(n in content.lower() for n in noise_patterns)
+                                            if not is_noise:
+                                                user_content_length += len(content)
                         
-                        # 🔥 BUILD 183: If no user speech, mark as completed but DON'T generate summary
-                        if not user_spoke or user_content_length < 5:
+                        # 🔥 BUILD 193: user_speech_seen is PRIMARY indicator
+                        # If user spoke (detected via speech_started event), ALWAYS generate summary
+                        # Only skip if user NEVER spoke (no speech_started event received)
+                        if not user_speech_detected:
                             print(f"📊 [FINALIZE] NO USER SPEECH - skipping summary generation for {self.call_sid}")
                             call_log.status = "completed"
                             call_log.transcription = ""  # Empty transcription
@@ -9983,16 +10004,33 @@ ALWAYS mention their name in the first sentence.
                         full_conversation = ""
                         if hasattr(self, 'conversation_history') and self.conversation_history:
                             # ✅ Support both formats: old {'user': X, 'bot': Y} and new {'speaker': X, 'text': Y}
+                            # 🔥 BUILD 193: Include filtered transcripts too (they were real speech)
                             conv_lines = []
                             for turn in self.conversation_history:
                                 if 'speaker' in turn and 'text' in turn:
                                     # New Realtime API format
                                     speaker_label = "לקוח" if turn['speaker'] == 'user' else "עוזר"
-                                    conv_lines.append(f"{speaker_label}: {turn['text']}")
+                                    is_filtered = turn.get('filtered', False)
+                                    text = turn['text']
+                                    if is_filtered:
+                                        conv_lines.append(f"{speaker_label}: {text} (audio unclear)")
+                                    else:
+                                        conv_lines.append(f"{speaker_label}: {text}")
                                 elif 'user' in turn and 'bot' in turn:
                                     # Old Google STT/TTS format
                                     conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
                             full_conversation = "\n".join(conv_lines)
+                        
+                        # 🔥 BUILD 193: If user spoke but no transcription, create minimal record
+                        if not full_conversation and user_speech_detected:
+                            print(f"📊 [FINALIZE] User spoke but no clear transcription - creating minimal record")
+                            call_log.status = "completed"
+                            call_log.transcription = "(שיחה עם דיבור לקוח - תמליל לא נקלט)"
+                            call_log.summary = "הלקוח דיבר אך התמליל לא נקלט בבירור. יש לחזור ללקוח."
+                            call_log.ai_summary = ""
+                            db.session.commit()
+                            print(f"✅ CALL FINALIZED (unclear speech): {self.call_sid}")
+                            return
                         
                         # צור סיכום AI - only if we have actual conversation
                         business_id = getattr(self, 'business_id', None)

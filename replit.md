@@ -77,6 +77,10 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
   - **OpenAI VAD tuned**: vad_threshold: 0.65→0.55 (detects quieter speech), silence_duration_ms: 600→700ms (prevents premature turn_detected)
   - **Calibration improved**: threshold = noise × 3.0 (was noise + 100), capped at 180 (was 200), baseline 130 (was 180)
   - All values synchronized across media_ws_ai.py and openai_realtime_client.py
+- **Complete Conversation Flow Fix (BUILD 193)**: Three-part fix to prevent AI silence and conversation drops:
+  - **Recovery for ANY cancelled response**: Previously only triggered recovery when output_count=0, but AI could also go silent after partial speech (output_count=1 with cancelled). Now recovers from ANY cancelled response.
+  - **Smart overlap grace**: Added OVERLAP_GRACE_MS=300ms. Transcripts arriving within 300ms of AI finishing are now allowed (user likely spoke during AI). Previously these were rejected by POST_AI_COOLDOWN causing AI to miss user speech.
+  - **user_speech_seen flag**: Set on speech_started event. Prevents "NO USER SPEECH" false negatives when transcripts were rejected but user actually spoke. Used in call finalization.
 
 # External Dependencies
 
