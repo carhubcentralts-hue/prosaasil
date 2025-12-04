@@ -2901,8 +2901,9 @@ ALWAYS mention their name in the first sentence.
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
-                        # 🎯 SMART HANGUP: Extract lead fields from user speech as well
-                        self._extract_lead_fields_from_ai(transcript)
+                        # 🎯 SMART HANGUP: Extract lead fields from user speech
+                        # 🔥 BUILD 187: Mark as user speech for proper filtering
+                        self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
@@ -6409,6 +6410,7 @@ ALWAYS mention their name in the first sentence.
         STUCK_THRESHOLD_SEC = 2.0  # If no AI activity for 2s, consider stuck
         CHECK_INTERVAL_SEC = 1.5  # Check every 1.5s
         MAX_FORCE_ATTEMPTS = 3  # After 3 force attempts, give up for this cycle
+        MIN_USER_AUDIO_CHUNKS = 5  # 🔥 BUILD 187 FIX: Require at least 5 audio chunks before considering "stuck"
         
         try:
             while self.call_state in (CallState.WARMUP, CallState.ACTIVE) and not self.hangup_triggered:
@@ -6421,6 +6423,12 @@ ALWAYS mention their name in the first sentence.
                 # Skip if user hasn't spoken yet (bot speaks first might be in progress)
                 if not self.user_has_spoken:
                     continue
+                
+                # 🔥 BUILD 187 FIX: Skip if no REAL audio was sent to OpenAI
+                # This prevents triggering on false speech_started events from noise/echo
+                realtime_audio_in_chunks = getattr(self, 'realtime_audio_in_chunks', 0)
+                if realtime_audio_in_chunks < MIN_USER_AUDIO_CHUNKS:
+                    continue  # Not enough real audio sent yet
                 
                 # Skip if AI is currently speaking
                 if self.is_ai_speaking_event.is_set():
@@ -6598,7 +6606,7 @@ ALWAYS mention their name in the first sentence.
         
         return False
 
-    def _extract_lead_fields_from_ai(self, ai_transcript: str):
+    def _extract_lead_fields_from_ai(self, ai_transcript: str, is_user_speech: bool = False):
         """
         🎯 SMART HANGUP: Extract lead fields from AI confirmation patterns
         
@@ -6609,12 +6617,31 @@ ALWAYS mention their name in the first sentence.
         
         Args:
             ai_transcript: The AI's transcribed speech
+            is_user_speech: True if this is user speech (not AI)
         """
         import re
         
         text = ai_transcript.strip()
         if not text or len(text) < 5:
             return
+        
+        # 🔥 BUILD 187 FIX: Skip AI greetings and questions - don't extract city from them!
+        # Only process AI speech that contains confirmation patterns
+        if not is_user_speech:
+            # Skip greetings
+            greeting_words = ["שלום", "היי", "הי", "בוקר טוב", "ערב טוב", "צהריים טובים"]
+            if any(text.startswith(word) for word in greeting_words):
+                # Check if this is just a greeting (not a confirmation)
+                confirmation_patterns = ["מוודא", "אישור", "נכון", "אמרת", "ציינת", "הזכרת"]
+                if not any(pattern in text for pattern in confirmation_patterns):
+                    print(f"🛡️ [EXTRACT] Skipping AI greeting - not a confirmation: '{text[:30]}...'")
+                    return
+            
+            # Skip questions (AI asking for info)
+            question_patterns = ["?", "איזו עיר", "באיזו עיר", "מאיזו עיר", "איזה סוג", "מה השירות", "איך קוראים"]
+            if any(pattern in text for pattern in question_patterns):
+                print(f"🛡️ [EXTRACT] Skipping AI question: '{text[:30]}...'")
+                return
         
         # Get required fields to know what we're looking for
         required_fields = getattr(self, 'required_lead_fields', [])
