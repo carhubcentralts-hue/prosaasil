@@ -27,7 +27,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Verification Gates**: AI confirms collected field values and information immediately after hearing it.
 - **Language Support**: Default Hebrew, switches to caller's language on request.
 - **Outbound Calls**: AI-initiated calls with concurrency limits, template-based prompts, and separate business-level outbound AI prompts.
-- **Webhook**: Generic, configurable webhook for sending call transcripts, summaries, and lead data with HMAC signature verification and retry logic.
+- **Webhook (BUILD 183)**: Separate inbound/outbound webhook URLs for direction-based routing. Inbound calls use `inbound_webhook_url` with `generic_webhook_url` fallback; outbound calls use `outbound_webhook_url` ONLY (no webhook sent if not configured). HMAC signature verification and retry logic for all webhooks.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
