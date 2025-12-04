@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, ChangeEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Phone, 
@@ -234,7 +234,7 @@ export function OutboundCallsPage() {
     startCallsMutation.mutate({ lead_ids: ids });
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
