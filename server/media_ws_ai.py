@@ -1477,7 +1477,11 @@ class MediaStreamHandler:
 "{outbound_greeting}"
 
 זו שיחה יוצאת - אתה מתקשר ללקוח, לא הוא התקשר אליך.
-חוקים: קצר מאוד (1-2 משפטים). המתן לתשובת הלקוח."""
+חוקים:
+- קצר מאוד (1-2 משפטים)
+- המתן לתשובת הלקוח
+- אם הלקוח אמר משהו לא ברור או לא קשור - בקש הבהרה: "סליחה, לא שמעתי טוב. במה אוכל לעזור?"
+- לא לקפוץ למסקנות לפני שהלקוח ביקש במפורש!"""
                 has_custom_greeting = True  # Treat as custom greeting for token calculation
             else:
                 # INBOUND CALL: Use regular greeting logic
@@ -1489,20 +1493,29 @@ class MediaStreamHandler:
                     if DEBUG: print(f"⏱️ [PARALLEL] No custom greeting - AI will improvise (biz='{biz_name}')")
                 
                 # Build greeting-only prompt with the actual greeting (or improvise instruction)
+                # 🔥 BUILD 186: Added contextual coherence rule to prevent hallucination responses
                 if has_custom_greeting:
                     greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
 
 🎤 ברכה (אמור בדיוק!):
 "{greeting_text}"
 
-חוקים: קצר מאוד (1-2 משפטים). אם הלקוח שותק - שתוק."""
+חוקים:
+- קצר מאוד (1-2 משפטים)
+- אם הלקוח שותק - שתוק
+- אם הלקוח אמר משהו לא ברור או לא קשור (כמו "תודה" אחרי "איך אוכל לעזור?") - שאל: "במה אוכל לעזור?"
+- לא לקפוץ לתהליך קביעת תור עד שהלקוח ביקש במפורש!"""
                 else:
                     # No custom greeting - AI should improvise a brief intro
                     greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
 
 🎤 פתיחה: הזדהה בקצרה כנציג של {biz_name} ושאל במה תוכל לעזור.
 
-חוקים: קצר מאוד (1-2 משפטים). אם הלקוח שותק - שתוק."""
+חוקים:
+- קצר מאוד (1-2 משפטים)
+- אם הלקוח שותק - שתוק
+- אם הלקוח אמר משהו לא ברור או לא קשור - שאל: "במה אוכל לעזור?"
+- לא לקפוץ לתהליך קביעת תור עד שהלקוח ביקש במפורש!"""
             
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
