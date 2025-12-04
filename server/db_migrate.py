@@ -705,6 +705,15 @@ def apply_migrations():
             migrations_applied.append("add_outbound_webhook_url")
             log.info("✅ Applied migration 30b: add_outbound_webhook_url - Separate webhook for outbound calls")
     
+    # Migration 31: BUILD 186 - Calendar scheduling toggle for inbound calls
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'enable_calendar_scheduling'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN enable_calendar_scheduling BOOLEAN DEFAULT TRUE"))
+            migrations_applied.append("add_enable_calendar_scheduling")
+            log.info("✅ Applied migration 31: add_enable_calendar_scheduling - Toggle for AI appointment scheduling")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
