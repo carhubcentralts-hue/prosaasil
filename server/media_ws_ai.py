@@ -1547,17 +1547,17 @@ class MediaStreamHandler:
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
-            # 🔥 BUILD 187 FIX: AGGRESSIVE VAD - filter noise, prevent false turn_detected
-            # vad_threshold=0.9 - VERY high threshold, only trigger on clear speech
-            # silence_duration_ms=900 - longer silence requirement before AI responds
+            # 🔥 BUILD 188 FIX: BALANCED VAD - hear normal speech, respond quickly
+            # vad_threshold=0.65 - balanced threshold for normal conversation volume
+            # silence_duration_ms=600 - faster response after user finishes speaking
             # prefix_padding_ms=500 - include 500ms before speech detection (reduces false positives)
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.9,         # 🔥 BUILD 187: 0.9 (was 0.75) - VERY strict, only clear speech
-                silence_duration_ms=900,   # 🔥 BUILD 187: 900ms (was 700) - longer pause before responding
+                vad_threshold=0.65,        # 🔥 BUILD 188: 0.65 (was 0.9) - normal conversation volume
+                silence_duration_ms=600,   # 🔥 BUILD 188: 600ms (was 900) - faster response
                 prefix_padding_ms=500,     # 🔥 BUILD 187: Include 500ms before speech (reduces false positives)
                 temperature=0.6,           # 🔒 Consistent, focused responses
                 max_tokens=greeting_max_tokens  # 🔥 Dynamic based on greeting length!
