@@ -1394,10 +1394,30 @@ class MediaStreamHandler:
             if call_direction == 'outbound' and outbound_lead_name:
                 # 🎯 OUTBOUND CALL: Use personalized greeting with lead's name
                 print(f"📤 [OUTBOUND GREETING] Building greeting for lead: {outbound_lead_name}")
+                
+                # 🔥 BUILD 182: Use greeting_template from outbound template if available
+                outbound_greeting = None
+                outbound_template_id = getattr(self, 'outbound_template_id', None)
+                if outbound_template_id:
+                    try:
+                        from server.models_sql import OutboundTemplate
+                        template = OutboundTemplate.query.get(outbound_template_id)
+                        if template and template.greeting_template:
+                            # Replace placeholders with actual values
+                            outbound_greeting = template.greeting_template.replace("{{lead_name}}", outbound_lead_name).replace("{{business_name}}", biz_name)
+                            print(f"📤 [OUTBOUND GREETING] Using template greeting: '{outbound_greeting[:50]}...'")
+                    except Exception as e:
+                        print(f"⚠️ [OUTBOUND GREETING] Failed to load template greeting: {e}")
+                
+                # Fallback to default if no template greeting
+                if not outbound_greeting:
+                    outbound_greeting = f"שלום {outbound_lead_name}, אני מתקשר מ{biz_name}. איך אתה?"
+                    print(f"📤 [OUTBOUND GREETING] Using default greeting (no template)")
+                
                 greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
 
 🎤 ברכה יוצאת (אמור בדיוק!):
-"שלום {outbound_lead_name}, אני מתקשר מ{biz_name}. איך אתה?"
+"{outbound_greeting}"
 
 זו שיחה יוצאת - אתה מתקשר ללקוח, לא הוא התקשר אליך.
 חוקים: קצר מאוד (1-2 משפטים). המתן לתשובת הלקוח."""
@@ -1528,8 +1548,23 @@ class MediaStreamHandler:
                                 # The prompt builder now handles outbound vs inbound prompts!
                                 prompt = build_prompt(business_id_safe, call_direction=call_direction)
                                 
-                                # 🔥 BUILD 177: For outbound calls, add personalized greeting with lead name
+                                # 🔥 BUILD 177/182: For outbound calls, add personalized greeting with lead name
                                 if call_direction == 'outbound' and outbound_lead_name:
+                                    # 🔥 BUILD 182: Get greeting from template if available
+                                    custom_greeting = None
+                                    if outbound_template_id:
+                                        try:
+                                            from server.models_sql import OutboundTemplate
+                                            tmpl = OutboundTemplate.query.get(outbound_template_id)
+                                            if tmpl and tmpl.greeting_template:
+                                                custom_greeting = tmpl.greeting_template.replace("{{lead_name}}", outbound_lead_name).replace("{{business_name}}", outbound_business_name or "")
+                                        except:
+                                            pass
+                                    
+                                    # Fallback greeting if no template
+                                    if not custom_greeting:
+                                        custom_greeting = f"שלום {outbound_lead_name}, מה שלומך?"
+                                    
                                     # Add lead-specific context and greeting instruction at the START
                                     lead_greeting_context = f"""🎯 OUTBOUND CALL - CRITICAL INSTRUCTIONS:
 You are CALLING the customer, not receiving a call.
@@ -1537,16 +1572,16 @@ The customer's name is: {outbound_lead_name}
 
 FIRST MESSAGE (MANDATORY):
 Start with a personalized greeting using the customer's name:
-"שלום {outbound_lead_name}, זה [your name] מ[business name]. איך אתה/את?"
+"{custom_greeting}"
 
-NEVER use generic greetings like "שלום, מה שלומך?" without the customer's name.
+NEVER use generic greetings without the customer's name.
 ALWAYS mention their name in the first sentence.
 
 ---
 
 """
                                     prompt = lead_greeting_context + prompt
-                                    print(f"📤 [OUTBOUND] Using outbound prompt with personalized greeting for: {outbound_lead_name}")
+                                    print(f"📤 [OUTBOUND] Using outbound prompt with greeting for: {outbound_lead_name}")
                                 
                                 if prompt and len(prompt) > 100:
                                     return prompt
@@ -6701,13 +6736,17 @@ ALWAYS mention their name in the first sentence.
             return self._fallback_response(hebrew_text)
     
     def _fallback_response(self, hebrew_text: str) -> str:
-        """Simple fallback response when AI service fails"""
-        if "שלום" in hebrew_text or "היי" in hebrew_text:
-            return "שלום! איך אני יכולה לעזור?"  # ✅ כללי - לא חושף שם עסק
-        elif "תודה" in hebrew_text or "ביי" in hebrew_text:
-            return "תודה רבה! אני כאן לכל שאלה."
-        else:
-            return "איזה אזור מעניין אותך?"  # ✅ כללי - לא מדבר על דירות
+        """Simple fallback response when AI service fails - uses business settings"""
+        try:
+            from server.models_sql import Business
+            business = Business.query.get(self.business_id)
+            if business and business.greeting_message:
+                return business.greeting_message
+        except:
+            pass
+        
+        # Generic neutral response (no business name exposed)
+        return "איך אוכל לעזור?"
     
     
     def _hebrew_tts(self, text: str) -> bytes | None:
