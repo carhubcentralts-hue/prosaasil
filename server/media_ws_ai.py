@@ -2347,6 +2347,9 @@ ALWAYS mention their name in the first sentence.
                         if time_since_ai_finished < POST_AI_COOLDOWN_MS:
                             print(f"🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived {time_since_ai_finished:.0f}ms after AI finished (min: {POST_AI_COOLDOWN_MS}ms)")
                             print(f"   Rejected text: '{text[:50]}...' (likely hallucination)")
+                            # 🔥 BUILD 182: Still record for transcript (with filtered flag)
+                            if len(text) >= 3:
+                                self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
                             continue
                     
                     # 🔥 BUILD 171: STRICTER RMS GATE - Reject if no sustained speech detected
@@ -2357,6 +2360,9 @@ ALWAYS mention their name in the first sentence.
                     # Reject if: low RMS AND not enough consecutive frames
                     if recent_rms < ABSOLUTE_SILENCE_RMS and consec_frames < MIN_CONSECUTIVE_VOICE_FRAMES:
                         print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {ABSOLUTE_SILENCE_RMS}, frames={consec_frames}): '{text}'")
+                        # 🔥 BUILD 182: Still record for transcript (with filtered flag)
+                        if len(text) >= 3:
+                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
                         continue
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
@@ -2464,6 +2470,11 @@ ALWAYS mention their name in the first sentence.
                     if should_filter:
                         print(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
                         print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
+                        # 🔥 BUILD 182: STILL record filtered transcripts for webhook/transcript purposes!
+                        # Only skip AI processing, not conversation history
+                        if len(text) >= 2 and filter_reason not in ["gibberish", "too_short_or_punctuation"]:
+                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
+                            print(f"📝 [TRANSCRIPT] Recorded filtered user speech for webhook: '{text}'")
                         continue
                     
                     # ✅ PASSED FILTER
