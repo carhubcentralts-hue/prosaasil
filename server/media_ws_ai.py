@@ -1105,13 +1105,6 @@ class MediaStreamHandler:
         self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
         
-        # 🔥 BUILD 187 ENHANCED: DUAL-CANCEL RECOVERY + WATCHDOG
-        # If 2 responses are cancelled within 2s, immediately trigger new response
-        self._cancel_timestamps = []  # List of cancellation timestamps for dual-cancel detection
-        self._last_ai_activity_ts = time.time()  # Track when AI last spoke/created response
-        self._watchdog_force_count = 0  # Track consecutive watchdog force attempts
-        self._watchdog_task = None  # Background task for watchdog
-        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
@@ -1557,6 +1550,7 @@ class MediaStreamHandler:
             # 🔥 BUILD 187 FIX: AGGRESSIVE VAD - filter noise, prevent false turn_detected
             # vad_threshold=0.9 - VERY high threshold, only trigger on clear speech
             # silence_duration_ms=900 - longer silence requirement before AI responds
+            # prefix_padding_ms=500 - include 500ms before speech detection (reduces false positives)
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -1564,6 +1558,7 @@ class MediaStreamHandler:
                 output_audio_format="g711_ulaw",
                 vad_threshold=0.9,         # 🔥 BUILD 187: 0.9 (was 0.75) - VERY strict, only clear speech
                 silence_duration_ms=900,   # 🔥 BUILD 187: 900ms (was 700) - longer pause before responding
+                prefix_padding_ms=500,     # 🔥 BUILD 187: Include 500ms before speech (reduces false positives)
                 temperature=0.6,           # 🔒 Consistent, focused responses
                 max_tokens=greeting_max_tokens  # 🔥 Dynamic based on greeting length!
             )
@@ -1610,8 +1605,6 @@ class MediaStreamHandler:
                         self.call_state = CallState.ACTIVE
                         print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (800ms timer)")
                         await self._start_silence_monitor()
-                        # 🔥 BUILD 187: Start stuck-response watchdog
-                        await self._start_stuck_response_watchdog(client)
                 
                 asyncio.create_task(warmup_to_active())
             
@@ -1955,26 +1948,6 @@ ALWAYS mention their name in the first sentence.
                             _orig_print(f"🔄 [BUILD 187] Response cancelled with NO audio! Scheduling recovery...", flush=True)
                             self._cancelled_response_needs_recovery = True
                             self._cancelled_response_recovery_ts = time.time()
-                            
-                            # 🔥 BUILD 187 ENHANCED: DUAL-CANCEL IMMEDIATE RECOVERY
-                            # If 2+ cancellations happen within 2 seconds, immediately trigger new response
-                            now = time.time()
-                            self._cancel_timestamps.append(now)
-                            # Clean old timestamps (older than 2s)
-                            self._cancel_timestamps = [ts for ts in self._cancel_timestamps if now - ts < 2.0]
-                            
-                            if len(self._cancel_timestamps) >= 2:
-                                _orig_print(f"🚨 [BUILD 187] DUAL-CANCEL detected ({len(self._cancel_timestamps)} cancels in 2s)! Immediate recovery!", flush=True)
-                                # Clear flags and force immediate response
-                                self._cancelled_response_needs_recovery = False
-                                self._cancel_timestamps = []  # Reset
-                                self.response_pending_event.clear()
-                                try:
-                                    await client.send_event({"type": "response.create"})
-                                    self._last_ai_activity_ts = time.time()
-                                    _orig_print(f"✅ [BUILD 187] Dual-cancel recovery: response.create sent!", flush=True)
-                                except Exception as e:
-                                    _orig_print(f"❌ [BUILD 187] Dual-cancel recovery failed: {e}", flush=True)
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
@@ -2091,14 +2064,10 @@ ALWAYS mention their name in the first sentence.
                         # 🔥 BUILD 187: Response grace period - track when response started
                         # This prevents false turn_detected from echo/noise in first 500ms
                         self._response_created_ts = time.time()
-                        # 🔥 BUILD 187: Update AI activity timestamp for watchdog
-                        self._last_ai_activity_ts = time.time()
                         # 🔥 BUILD 187: Clear recovery flag - new response was created!
                         if self._cancelled_response_needs_recovery:
                             print(f"🔄 [BUILD 187] New response created - cancelling recovery")
                             self._cancelled_response_needs_recovery = False
-                        # 🔥 BUILD 187: Clear cancel timestamps on successful response creation
-                        self._cancel_timestamps = []
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
@@ -2232,8 +2201,6 @@ ALWAYS mention their name in the first sentence.
                             self.call_state = CallState.ACTIVE
                             print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (greeting done)")
                             asyncio.create_task(self._start_silence_monitor())
-                            # 🔥 BUILD 187: Start stuck-response watchdog
-                            asyncio.create_task(self._start_stuck_response_watchdog(client))
                     
                     # Don't process - would cause duplicate playback
                     # 🎯 Mark AI response complete
@@ -2901,9 +2868,8 @@ ALWAYS mention their name in the first sentence.
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
-                        # 🎯 SMART HANGUP: Extract lead fields from user speech
-                        # 🔥 BUILD 187: Mark as user speech for proper filtering
-                        self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
+                        # 🎯 SMART HANGUP: Extract lead fields from user speech as well
+                        self._extract_lead_fields_from_ai(transcript)
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
@@ -6389,106 +6355,17 @@ ALWAYS mention their name in the first sentence.
         if self.call_state == CallState.WARMUP and not self.hangup_triggered:
             self.call_state = CallState.ACTIVE
             print(f"📞 [STATE] Safety guard: Forcing WARMUP → ACTIVE (speech detected)")
-    
-    async def _start_stuck_response_watchdog(self, client):
-        """
-        🔥 BUILD 187: STUCK-RESPONSE WATCHDOG
-        Monitors for AI going silent and forces response.create if needed.
-        This is the LAST LINE OF DEFENSE against silent bot.
-        """
-        if self._watchdog_task is not None:
-            return  # Already running
-        
-        self._watchdog_task = asyncio.create_task(self._stuck_response_watchdog_loop(client))
-        print(f"🛡️ [WATCHDOG] Stuck-response watchdog started")
-    
-    async def _stuck_response_watchdog_loop(self, client):
-        """
-        🔥 BUILD 187: Background loop that ensures bot NEVER stays silent.
-        Checks every 1.5s - if no AI activity for >2s while user has spoken, forces response.
-        """
-        STUCK_THRESHOLD_SEC = 2.0  # If no AI activity for 2s, consider stuck
-        CHECK_INTERVAL_SEC = 1.5  # Check every 1.5s
-        MAX_FORCE_ATTEMPTS = 3  # After 3 force attempts, give up for this cycle
-        MIN_USER_AUDIO_CHUNKS = 5  # 🔥 BUILD 187 FIX: Require at least 5 audio chunks before considering "stuck"
-        
-        try:
-            while self.call_state in (CallState.WARMUP, CallState.ACTIVE) and not self.hangup_triggered:
-                await asyncio.sleep(CHECK_INTERVAL_SEC)
-                
-                # Skip if call is ending
-                if self.call_state in (CallState.CLOSING, CallState.ENDED):
-                    break
-                
-                # Skip if user hasn't spoken yet (bot speaks first might be in progress)
-                if not self.user_has_spoken:
-                    continue
-                
-                # 🔥 BUILD 187 FIX: Skip if no REAL audio was sent to OpenAI
-                # This prevents triggering on false speech_started events from noise/echo
-                realtime_audio_in_chunks = getattr(self, 'realtime_audio_in_chunks', 0)
-                if realtime_audio_in_chunks < MIN_USER_AUDIO_CHUNKS:
-                    continue  # Not enough real audio sent yet
-                
-                # Skip if AI is currently speaking
-                if self.is_ai_speaking_event.is_set():
-                    self._last_ai_activity_ts = time.time()
-                    self._watchdog_force_count = 0  # Reset force count
-                    continue
-                
-                # Skip if response is pending (waiting for OpenAI to generate)
-                if self.response_pending_event.is_set():
-                    continue
-                
-                # Skip if there's an active response ID (response in progress)
-                if self.active_response_id:
-                    continue
-                
-                # Check if AI has been inactive too long
-                time_since_activity = time.time() - self._last_ai_activity_ts
-                
-                if time_since_activity >= STUCK_THRESHOLD_SEC:
-                    # AI is stuck! Force a response
-                    self._watchdog_force_count += 1
-                    
-                    if self._watchdog_force_count > MAX_FORCE_ATTEMPTS:
-                        # Too many force attempts - give up for this cycle
-                        print(f"⚠️ [WATCHDOG] Max force attempts ({MAX_FORCE_ATTEMPTS}) reached - pausing watchdog")
-                        await asyncio.sleep(5.0)  # Pause for 5s before retrying
-                        self._watchdog_force_count = 0
-                        continue
-                    
-                    print(f"🚨 [WATCHDOG] AI stuck for {time_since_activity:.1f}s! Forcing response.create (attempt {self._watchdog_force_count}/{MAX_FORCE_ATTEMPTS})")
-                    
-                    try:
-                        # Clear any stale flags
-                        self._cancelled_response_needs_recovery = False
-                        self.response_pending_event.clear()
-                        
-                        # Force create new response
-                        await client.send_event({"type": "response.create"})
-                        self._last_ai_activity_ts = time.time()  # Reset activity timestamp
-                        print(f"✅ [WATCHDOG] Forced response.create sent")
-                    except Exception as e:
-                        print(f"❌ [WATCHDOG] Force response failed: {e}")
-                
-        except asyncio.CancelledError:
-            print(f"🛡️ [WATCHDOG] Watchdog cancelled")
-        except Exception as e:
-            print(f"❌ [WATCHDOG] Watchdog error: {e}")
-    
-    def _ensure_active_state_with_monitor(self):
-        """Helper to start silence monitor if needed."""
-        # Start silence monitor if not already running
-        if self._silence_check_task is None:
-            import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._start_silence_monitor())
-                print(f"🔇 [SILENCE] Safety guard: Started monitor (was missing)")
-            except RuntimeError:
-                # No running loop - we're in sync context
-                print(f"🔇 [SILENCE] Cannot start monitor from sync context (will start on next async call)")
+            
+            # Start silence monitor if not already running
+            if self._silence_check_task is None:
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self._start_silence_monitor())
+                    print(f"🔇 [SILENCE] Safety guard: Started monitor (was missing)")
+                except RuntimeError:
+                    # No running loop - we're in sync context
+                    print(f"🔇 [SILENCE] Cannot start monitor from sync context (will start on next async call)")
     
     async def _send_text_to_ai(self, text: str):
         """
@@ -6606,7 +6483,7 @@ ALWAYS mention their name in the first sentence.
         
         return False
 
-    def _extract_lead_fields_from_ai(self, ai_transcript: str, is_user_speech: bool = False):
+    def _extract_lead_fields_from_ai(self, ai_transcript: str):
         """
         🎯 SMART HANGUP: Extract lead fields from AI confirmation patterns
         
@@ -6617,31 +6494,12 @@ ALWAYS mention their name in the first sentence.
         
         Args:
             ai_transcript: The AI's transcribed speech
-            is_user_speech: True if this is user speech (not AI)
         """
         import re
         
         text = ai_transcript.strip()
         if not text or len(text) < 5:
             return
-        
-        # 🔥 BUILD 187 FIX: Skip AI greetings and questions - don't extract city from them!
-        # Only process AI speech that contains confirmation patterns
-        if not is_user_speech:
-            # Skip greetings
-            greeting_words = ["שלום", "היי", "הי", "בוקר טוב", "ערב טוב", "צהריים טובים"]
-            if any(text.startswith(word) for word in greeting_words):
-                # Check if this is just a greeting (not a confirmation)
-                confirmation_patterns = ["מוודא", "אישור", "נכון", "אמרת", "ציינת", "הזכרת"]
-                if not any(pattern in text for pattern in confirmation_patterns):
-                    print(f"🛡️ [EXTRACT] Skipping AI greeting - not a confirmation: '{text[:30]}...'")
-                    return
-            
-            # Skip questions (AI asking for info)
-            question_patterns = ["?", "איזו עיר", "באיזו עיר", "מאיזו עיר", "איזה סוג", "מה השירות", "איך קוראים"]
-            if any(pattern in text for pattern in question_patterns):
-                print(f"🛡️ [EXTRACT] Skipping AI question: '{text[:30]}...'")
-                return
         
         # Get required fields to know what we're looking for
         required_fields = getattr(self, 'required_lead_fields', [])
