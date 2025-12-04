@@ -56,6 +56,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
 - **Auto Hang-up Settings**: Options to end calls after lead capture or on goodbye.
 - **Bot Speaks First**: Option for bot to greet before listening.
 - **Admin Business Minutes**: System-admin-only page showing phone call minutes per business, with date filtering, CSV export, and inbound/outbound breakdown. Data sourced from Twilio callbacks via CallLog.duration.
+- **Bulk Import for Outbound Calls (BUILD 182)**: Import leads from Excel/Google Sheets CSV for outbound call campaigns. Features: 5000 leads per business limit, Hebrew/English column support (שם/name, טלפון/phone, הערות/notes), phone normalization to E.164, tenant-isolated storage with source="imported_outbound", deletable only from import list (not regular CRM leads), paginated table with bulk delete, integrates with existing outbound call flow.
 
 # External Dependencies
 
