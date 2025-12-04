@@ -245,6 +245,38 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             # Naive datetime - assume it's in business local time
             print(f"🔍 [VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
         
+        # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
+        now = datetime.now(business_tz)
+        
+        # Check minimum notice time
+        if policy.min_notice_min > 0:
+            min_allowed_time = now + timedelta(minutes=policy.min_notice_min)
+            if requested_dt.tzinfo is None:
+                # Make requested_dt timezone-aware for comparison
+                requested_dt_aware = business_tz.localize(requested_dt)
+            else:
+                requested_dt_aware = requested_dt
+            
+            if requested_dt_aware < min_allowed_time:
+                print(f"❌ [VALIDATION] Slot {requested_dt} too soon! Minimum {policy.min_notice_min}min notice required (earliest: {min_allowed_time.strftime('%H:%M')})")
+                return False
+            else:
+                print(f"✅ [VALIDATION] Min notice check passed ({policy.min_notice_min}min)")
+        
+        # Check booking window (max days ahead)
+        if policy.booking_window_days > 0:
+            max_booking_date = now + timedelta(days=policy.booking_window_days)
+            if requested_dt.tzinfo is None:
+                requested_dt_aware = business_tz.localize(requested_dt)
+            else:
+                requested_dt_aware = requested_dt
+            
+            if requested_dt_aware > max_booking_date:
+                print(f"❌ [VALIDATION] Slot {requested_dt.date()} too far ahead! Max {policy.booking_window_days} days allowed (until {max_booking_date.date()})")
+                return False
+            else:
+                print(f"✅ [VALIDATION] Booking window check passed ({policy.booking_window_days} days)")
+        
         # 🔥 STEP 1: Check business hours (skip for 24/7)
         if not policy.allow_24_7:
             # Python datetime.weekday(): Mon=0, Tue=1, ..., Sun=6
