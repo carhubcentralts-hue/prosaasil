@@ -756,7 +756,7 @@ REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 
 BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","35"))  # 🔥 BUILD 186: 35 frames = ≈700ms continuous speech - balanced
 
 # 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge window for user messages
-STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "800"))  # Merge segments within 800ms
+STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "600"))  # 🔥 BUILD 186: Reduced from 800ms to 600ms to reduce noise merge
 THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
 THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
 DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
@@ -2582,16 +2582,80 @@ ALWAYS mention their name in the first sentence.
                             is_hallucination = True
                             print(f"🚫 [BUILD 186] ENGLISH HALLUCINATION: '{text}' (all words are common English)")
                     
-                    # 🔥 BUILD 169.1: Improved gibberish detection (architect feedback)
-                    # Only flag as gibberish if: 4+ chars of SAME letter AND not a natural elongation
-                    # E.g., "אאאא" = gibberish, but "אמממ" = natural filler (allowed)
+                    # 🔥 BUILD 186: COMPREHENSIVE STT VALIDATION GATE
+                    # Multi-layer check: vowel ratio, entropy, patterns, context
                     is_gibberish = False
-                    natural_elongations = ["אמממ", "אההה", "אממ", "אהה", "מממ", "ווו"]
+                    natural_elongations = ["אמממ", "אההה", "אממ", "אהה", "מממ", "ווו", "אה", "אם", "אוקי", "היי"]
+                    
+                    # Hebrew vowels/matres lectionis for vowel ratio check
+                    hebrew_vowel_letters = set("אהוי")  # א ה ו י often act as vowel indicators
+                    hebrew_consonants = set("בגדזחטכלמנסעפצקרשת")
+                    
                     if hebrew_chars > 0 and text_stripped not in natural_elongations:
-                        # Only pure repetition of SAME letter (4+ chars)
+                        # 1. Single char repetition (4+ chars)
                         if len(text_stripped) >= 4 and len(set(text_stripped)) == 1:
                             is_gibberish = True
                             print(f"[GIBBERISH] Detected: '{text_stripped}' (single char x{len(text_stripped)})")
+                        
+                        # 2. 🔥 BUILD 186: Apostrophe spam detection (תירונג'ר ובלנק'ר)
+                        apostrophe_count = text_stripped.count("'") + text_stripped.count("׳")
+                        if apostrophe_count >= 2 and len(text_stripped) < 30:
+                            is_gibberish = True
+                            print(f"[GIBBERISH] Detected: '{text_stripped}' (too many apostrophes: {apostrophe_count})")
+                        
+                        # 3. 🔥 BUILD 186: Vowel ratio check - Hebrew words need some vowel letters
+                        # Very low vowel ratio = likely consonant-only gibberish
+                        if not is_gibberish and len(text_stripped) >= 6:
+                            vowel_count = sum(1 for c in text_stripped if c in hebrew_vowel_letters)
+                            consonant_count = sum(1 for c in text_stripped if c in hebrew_consonants)
+                            total_hebrew = vowel_count + consonant_count
+                            
+                            if total_hebrew > 0:
+                                vowel_ratio = vowel_count / total_hebrew
+                                # Hebrew typically has ~30-40% vowel letters, <10% is suspicious
+                                if vowel_ratio < 0.08 and consonant_count >= 5:
+                                    is_gibberish = True
+                                    print(f"[GIBBERISH] Detected: '{text_stripped}' (low vowel ratio: {vowel_ratio:.1%})")
+                        
+                        # 4. 🔥 BUILD 186: Entropy/uniqueness check
+                        # Real Hebrew has diverse character distribution, gibberish often doesn't
+                        if not is_gibberish and len(text_stripped) >= 8:
+                            unique_chars = len(set(text_stripped.replace(" ", "")))
+                            total_chars = len(text_stripped.replace(" ", ""))
+                            if total_chars > 0:
+                                entropy_ratio = unique_chars / total_chars
+                                # Very low entropy (same chars repeat) = likely gibberish
+                                if entropy_ratio < 0.3 and total_chars >= 8:
+                                    is_gibberish = True
+                                    print(f"[GIBBERISH] Detected: '{text_stripped}' (low entropy: {entropy_ratio:.1%})")
+                        
+                        # 5. 🔥 BUILD 186: Known gibberish patterns
+                        gibberish_patterns = [
+                            r"[נמלכ]ג'ר",  # Nonsense transliteration patterns
+                            r"[נמלכ]ק'ר",
+                            r"רונג",  # תירונג'ר
+                            r"לנק",   # בלנק'ר
+                            r"ותוספת רגלית",  # Known gibberish phrase
+                            r"תירונג",  # Known gibberish
+                            r"בלנק",   # Known gibberish
+                        ]
+                        for pattern in gibberish_patterns:
+                            if re.search(pattern, text_stripped):
+                                is_gibberish = True
+                                print(f"[GIBBERISH] Detected: '{text_stripped}' (matches pattern: {pattern})")
+                                break
+                        
+                        # 6. 🔥 BUILD 186: Unknown short single words
+                        words = text_stripped.split()
+                        if len(words) == 1 and len(text_stripped) <= 4 and len(text_stripped) >= 2:
+                            valid_short = ["כן", "לא", "טוב", "היי", "שלום", "תודה", "אוקי", "נכון", "אני", "זה", "מה", 
+                                          "איפה", "מתי", "למה", "כמה", "עוד", "רק", "גם", "פה", "שם", "עם", "את", "של",
+                                          "חיפה", "יפו", "תור", "שם", "כי", "אז", "או", "אם", "לי", "לך", "לו", "לה"]
+                            if text_stripped not in valid_short:
+                                # Check if it's a valid city/name pattern (starts with common letters)
+                                common_word_starts = ["ב", "ל", "מ", "ה", "ו", "א", "ת", "י", "נ", "ש"]
+                                if text_stripped[0] not in common_word_starts:
+                                    print(f"⚠️ [GIBBERISH WARNING] Unusual short word: '{text_stripped}'")
                     
                     # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
                     is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
@@ -2713,6 +2777,54 @@ ALWAYS mention their name in the first sentence.
                     
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        
+                        # 🔥 BUILD 186: SEMANTIC COHERENCE GUARD
+                        # Check if user's response makes sense given the last AI question
+                        is_first_response = len([m for m in self.conversation_history if m.get("speaker") == "user"]) == 0
+                        transcript_clean = transcript.strip().lower().replace(".", "").replace("!", "").replace("?", "")
+                        
+                        # Get last AI message for context check
+                        last_ai_msg = None
+                        for msg in reversed(self.conversation_history):
+                            if msg.get("speaker") == "ai":
+                                last_ai_msg = msg.get("text", "").lower()
+                                break
+                        
+                        is_incoherent_response = False
+                        
+                        # Check 1: First response after greeting should be a request, not "thank you"
+                        if is_first_response and self.greeting_completed_at:
+                            nonsense_first_responses = [
+                                "תודה רבה", "תודה", "שלום", "היי", "ביי", "להתראות",
+                                "okay", "ok", "yes", "no", "bye", "hello", "hi"
+                            ]
+                            if transcript_clean in nonsense_first_responses:
+                                is_incoherent_response = True
+                                print(f"⚠️ [BUILD 186] INCOHERENT: First response '{transcript}' doesn't make sense after greeting")
+                        
+                        # Check 2: If AI asked for city, response should contain city-related words or a city name
+                        if last_ai_msg and ("עיר" in last_ai_msg or "איפה" in last_ai_msg or "מאיפה" in last_ai_msg):
+                            # User should mention a city or location
+                            city_indicators = ["תל אביב", "ירושלים", "חיפה", "באר שבע", "אילת", "נתניה", "רחובות", 
+                                              "פתח תקווה", "אשדוד", "ב", "מ", "עיר", "רחוב", "שכונה"]
+                            has_location = any(ind in transcript_clean for ind in city_indicators)
+                            if not has_location and len(transcript_clean) < 15:
+                                # Short response with no location after city question
+                                if transcript_clean in ["תודה רבה", "תודה", "כן", "לא", "אוקי"]:
+                                    is_incoherent_response = True
+                                    print(f"⚠️ [BUILD 186] INCOHERENT: Response '{transcript}' doesn't match city question")
+                        
+                        # Check 3: If AI asked for name, response should be a name-like pattern
+                        if last_ai_msg and ("שם" in last_ai_msg or "איך קוראים" in last_ai_msg):
+                            # Response should be name-like (not just "thank you")
+                            if transcript_clean in ["תודה רבה", "תודה", "שלום", "ביי"]:
+                                is_incoherent_response = True
+                                print(f"⚠️ [BUILD 186] INCOHERENT: Response '{transcript}' doesn't match name question")
+                        
+                        # If incoherent, mark for AI to handle with clarification
+                        if is_incoherent_response:
+                            # Add marker to transcript so AI knows to ask for clarification
+                            print(f"🔄 [BUILD 186] Marked incoherent response - AI will ask for clarification")
                         
                         # 🛡️ BUILD 168: Detect user confirmation words (expanded in BUILD 176)
                         confirmation_words = [
