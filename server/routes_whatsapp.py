@@ -488,17 +488,22 @@ def save_whatsapp_prompt(business_id):
         logging.warning(f"⚠️ Could not load settings for {business_id} (DB schema issue): {db_err}")
         # Continue - will create new settings row below
     
-    if not settings:
-        settings = BusinessSettings()
-        settings.tenant_id = business_id
-        db.session.add(settings)
-    
-    # העדכון כאן - אם יש שגיאה, api_handler יטפל
-    settings.ai_prompt = data.get('whatsapp_prompt', '')
-    db.session.commit()  # api_handler יעשה rollback אם נכשל
+    # 🔥 BUILD 186 FIX: Wrap entire save in try-except for schema mismatch resilience
+    import logging
+    try:
+        if not settings:
+            settings = BusinessSettings()
+            settings.tenant_id = business_id
+            db.session.add(settings)
+        
+        settings.ai_prompt = data.get('whatsapp_prompt', '')
+        db.session.commit()
+    except Exception as commit_err:
+        db.session.rollback()
+        logging.error(f"❌ Failed to save WhatsApp prompt for {business_id} (likely DB schema issue): {commit_err}")
+        return {"ok": False, "error": "save_failed", "message": "Database schema mismatch - please run migrations"}, 500
     
     # ✅ CRITICAL: Invalidate AI service cache after prompt update
-    import logging
     try:
         from server.services.ai_service import invalidate_business_cache
         invalidate_business_cache(business_id)
