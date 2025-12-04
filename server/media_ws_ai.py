@@ -3370,22 +3370,62 @@ HEBREW_NORMALIZATION = {
     "גאמישות": "גמישות", "גמישאות": "גמישות",
     "כאוח": "כוח", "כואח": "כוח",
     "סאיבולת": "סיבולת", "סיבולאת": "סיבולת",
+    
+    # ═══════════════════════════════════════════════════════════════
+    # 🔥 BUILD 196: תיקון אותיות כפולות מרעשי רקע - DOUBLED LETTER FIXES
+    # Whisper sometimes doubles consonants when hearing noise
+    # ═══════════════════════════════════════════════════════════════
+    "דדלתות": "דלתות", "ננעילה": "נעילה", "ממנעולים": "מנעולים",
+    "פפורץ": "פורץ", "ככספות": "כספות", "ששירות": "שירות",
+    "ממפתחות": "מפתחות", "ררכב": "רכב", "ממכונית": "מכונית",
+    "בביתי": "ביתי", "ממקצועי": "מקצועי", "חחירום": "חירום",
+    "זזמין": "זמין", "ממהיר": "מהיר", "זזול": "זול",
+}
+
+# 🔥 BUILD 196: Known gibberish words that Whisper hallucinates from noise
+# These should be REMOVED from transcripts, not corrected
+GIBBERISH_WORDS_TO_REMOVE = {
+    "ידועל", "בלתי", "ווהו", "הההה", "אאא", "אההה", "אממם",
+    "מממ", "חחח", "קקק", "ררר", "שששש", "נננ", "ללל", "יייי",
+    "טטט", "ססס", "עעע", "פפפ", "צצצ", "דדד", "גגג", "בבב",
+    "ווו", "זזזז", "אאאא", "ממממ", "בלבל", "גלגל", "מלמל",
+    "בייי", "אוווו", "ווואו", "יייאה", "נאאא",
 }
 
 def normalize_hebrew_text(text: str) -> str:
     """
     BUILD 170.4: Normalize Hebrew STT output using dictionary
+    BUILD 196: Also removes gibberish words caused by noise
     """
     if not text:
         return text
     
     result = text
+    
+    # 🔥 BUILD 196: First, remove known gibberish words
+    words = result.split()
+    cleaned_words = []
+    removed_gibberish = []
+    for word in words:
+        # Strip punctuation for comparison
+        word_clean = word.strip('.,!?;:')
+        if word_clean in GIBBERISH_WORDS_TO_REMOVE:
+            removed_gibberish.append(word_clean)
+            continue  # Skip this word
+        cleaned_words.append(word)
+    
+    if removed_gibberish:
+        print(f"🧹 [BUILD 196] Removed gibberish words: {removed_gibberish}")
+    
+    result = ' '.join(cleaned_words)
+    
+    # Then apply dictionary corrections
     for wrong, correct in HEBREW_NORMALIZATION.items():
         # Case insensitive replace (Hebrew doesn't have case, but for mixed text)
         if wrong in result.lower():
             result = result.replace(wrong, correct)
     
-    return result
+    return result.strip()
 
 class MediaStreamHandler:
     def __init__(self, ws):
@@ -4356,49 +4396,116 @@ ALWAYS mention their name in the first sentence.
                         print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                         _greeting_resumed_logged = True
                 
-                # 🔥 BUILD 196: SNR-based audio gating
-                # Decode μ-law to get energy, compute SNR, decide whether to send
+                # 🔥 BUILD 196: Audio preprocessing pipeline
+                # μ-law → PCM16 → high-pass filter → SNR gate → send to OpenAI
                 try:
                     # Decode base64 audio chunk
                     import base64
                     audio_bytes = base64.b64decode(audio_chunk)
                     
-                    # Convert μ-law to linear PCM to measure energy
+                    # Convert μ-law to linear PCM for processing
                     try:
                         pcm_data = audioop.ulaw2lin(audio_bytes, 2)  # 16-bit PCM
-                        frame_rms = audioop.rms(pcm_data, 2)
-                    except Exception:
-                        frame_rms = 100  # Default if conversion fails
+                        
+                        # 🔥 BUILD 196: SPEECH BAND FILTER (100Hz - 3400Hz)
+                        # This isolates human voice and removes:
+                        # - Bass rumble/music below 100Hz
+                        # - High-frequency noise/music above 3400Hz
+                        
+                        # Initialize filter states
+                        if not hasattr(self, '_hpf_prev_in'):
+                            self._hpf_prev_in = 0
+                            self._hpf_prev_out = 0
+                            self._lpf_prev_out = 0
+                        
+                        # Filter coefficients for 8kHz sample rate
+                        HPF_ALPHA = 0.96   # ~100Hz high-pass cutoff
+                        LPF_ALPHA = 0.75   # ~3400Hz low-pass cutoff (RC filter)
+                        
+                        filtered_samples = []
+                        samples = struct.unpack(f'<{len(pcm_data)//2}h', pcm_data)
+                        
+                        for sample in samples:
+                            # Stage 1: High-pass filter (removes bass/rumble)
+                            hp_out = HPF_ALPHA * (self._hpf_prev_out + sample - self._hpf_prev_in)
+                            self._hpf_prev_in = sample
+                            self._hpf_prev_out = hp_out
+                            
+                            # Stage 2: Low-pass filter (removes high-freq noise/music)
+                            lp_out = LPF_ALPHA * self._lpf_prev_out + (1 - LPF_ALPHA) * hp_out
+                            self._lpf_prev_out = lp_out
+                            
+                            filtered_samples.append(int(max(-32768, min(32767, lp_out))))
+                        
+                        # Convert back to bytes
+                        filtered_pcm = struct.pack(f'<{len(filtered_samples)}h', *filtered_samples)
+                        
+                        # Measure energy on filtered signal
+                        frame_rms = audioop.rms(filtered_pcm, 2)
+                        
+                        # Re-encode to μ-law for sending to OpenAI
+                        filtered_ulaw = audioop.lin2ulaw(filtered_pcm, 2)
+                        audio_chunk = base64.b64encode(filtered_ulaw).decode('ascii')
+                        
+                    except Exception as filter_err:
+                        # If filtering fails, use original audio
+                        frame_rms = 100
                     
                     # Track energy history for music detection
                     energy_history.append(frame_rms)
                     if len(energy_history) > ENERGY_WINDOW:
                         energy_history.pop(0)
                     
-                    # 🎵 BUILD 196: Music detection via energy variance
-                    # Music has more consistent/rhythmic energy, speech is more variable
+                    # 🎵 BUILD 196: ENHANCED Music detection
+                    # Uses multiple indicators: energy variance + spectral characteristics
                     if len(energy_history) >= 20:
                         import statistics
                         try:
                             mean_energy = statistics.mean(energy_history)
                             std_energy = statistics.stdev(energy_history)
-                            # Coefficient of variation - low = consistent (music), high = variable (speech)
+                            
+                            # Indicator 1: Coefficient of variation (CV)
+                            # Music = consistent energy (low CV), Speech = variable energy (high CV)
                             cv = std_energy / mean_energy if mean_energy > 0 else 0
                             
-                            # Music typically has CV < 0.5, speech has CV > 0.8
-                            spectral_flatness_history.append(cv)
+                            # Indicator 2: Periodicity detection via autocorrelation proxy
+                            # Music often has periodic beats; speech is more irregular
+                            # Simple proxy: check if energy returns to similar levels
+                            if len(energy_history) >= 40:
+                                first_half = energy_history[:20]
+                                second_half = energy_history[20:40]
+                                first_mean = statistics.mean(first_half)
+                                second_mean = statistics.mean(second_half)
+                                periodicity = 1.0 - abs(first_mean - second_mean) / max(first_mean, second_mean, 1)
+                            else:
+                                periodicity = 0.5  # Unknown
+                            
+                            # Indicator 3: Sustained energy (music tends to have constant presence)
+                            # Count how many frames are above half the mean
+                            high_energy_ratio = sum(1 for e in energy_history if e > mean_energy * 0.5) / len(energy_history)
+                            
+                            # Combined music score: CV < 0.5, high periodicity, sustained energy
+                            music_score = 0
+                            if cv < 0.5:
+                                music_score += 0.4
+                            if periodicity > 0.7:
+                                music_score += 0.3
+                            if high_energy_ratio > 0.7:
+                                music_score += 0.3
+                            
+                            spectral_flatness_history.append(music_score)
                             if len(spectral_flatness_history) > FLATNESS_WINDOW:
                                 spectral_flatness_history.pop(0)
                             
-                            avg_cv = statistics.mean(spectral_flatness_history) if spectral_flatness_history else 1.0
-                            new_music_detected = avg_cv < 0.4  # Low variance = music
+                            avg_music_score = statistics.mean(spectral_flatness_history) if spectral_flatness_history else 0
+                            new_music_detected = avg_music_score > 0.6  # High score = likely music
                             
                             if new_music_detected != music_detected:
                                 music_detected = new_music_detected
                                 if music_detected:
-                                    print(f"🎵 [BUILD 196] MUSIC DETECTED - raising SNR threshold to {SNR_MUSIC_THRESHOLD_DB}dB (CV={avg_cv:.2f})")
+                                    print(f"🎵 [BUILD 196] MUSIC DETECTED - raising SNR threshold to {SNR_MUSIC_THRESHOLD_DB}dB (score={avg_music_score:.2f}, CV={cv:.2f})")
                                 else:
-                                    print(f"🎤 [BUILD 196] Music stopped - normal SNR threshold {SNR_THRESHOLD_DB}dB")
+                                    print(f"🎤 [BUILD 196] Music stopped - normal SNR threshold {SNR_THRESHOLD_DB}dB (score={avg_music_score:.2f})")
                         except Exception:
                             pass
                     
