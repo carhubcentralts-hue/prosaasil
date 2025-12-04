@@ -6278,41 +6278,60 @@ ALWAYS mention their name in the first sentence.
         if not required_fields:
             return
         
-        # 🏙️ CITY EXTRACTION: Look for city mentions (comprehensive Israeli city list)
-        # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned city (user may change mind)
+        # 🏙️ CITY EXTRACTION: Use fuzzy matching with city normalizer
+        # 🔥 BUILD 184: RapidFuzz-powered city normalization with confidence thresholds
         if 'city' in required_fields:
-            # Comprehensive list of Israeli cities and towns
-            israeli_cities = [
-                # Major cities
-                'תל אביב', 'ירושלים', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'אשדוד', 'נתניה',
-                'באר שבע', 'בני ברק', 'חולון', 'רמת גן', 'אשקלון', 'רחובות', 'בת ים',
-                'הרצליה', 'כפר סבא', 'רעננה', 'לוד', 'נצרת', 'עכו', 'אילת', 'מודיעין',
-                # Gush Dan
-                'גבעתיים', 'רמת השרון', 'הוד השרון', 'פתח תקוה', 'ראש העין', 'יהוד',
-                'אור יהודה', 'קרית אונו', 'גני תקווה', 'רמלה', 'יבנה', 'נס ציונה',
-                # Sharon
-                'נתניה', 'רעננה', 'כפר סבא', 'הוד השרון', 'הרצליה', 'רמת השרון',
-                # South
-                'אשקלון', 'אשדוד', 'שדרות', 'נתיבות', 'אופקים', 'דימונה', 'ערד', 'מצפה רמון',
-                'קרית גת', 'קרית מלאכי', 'גדרה', 'באר שבע',
-                # North
-                'חיפה', 'נהריה', 'עכו', 'כרמיאל', 'נצרת', 'עפולה', 'טבריה', 'צפת',
-                'קריית שמונה', 'בית שאן', 'מגדל העמק', 'נצרת עילית', 'קריית אתא',
-                'קריית ביאליק', 'קריית מוצקין', 'קריית ים', 'טירת כרמל', 'נשר',
-                # Jerusalem area
-                'ירושלים', 'בית שמש', 'מעלה אדומים', 'גבעת זאב', 'אריאל', 'מודיעין',
-                # Other
-                'אלעד', 'ביתר עילית', 'מודיעין עילית', 'בית שאן', 'קצרין', 'חריש'
-            ]
-            
-            # Normalize text for matching
-            text_normalized = text.replace('-', ' ').replace('־', ' ')
-            
-            for city in israeli_cities:
-                # Check for city name in text (with word boundaries)
-                if city in text_normalized:
-                    self._update_lead_capture_state('city', city)
-                    break
+            try:
+                from server.services.city_normalizer import normalize_city, get_similar_cities
+                
+                # Normalize text for matching
+                text_normalized = text.replace('-', ' ').replace('־', ' ')
+                
+                # Try to extract city mentions using patterns
+                city_patterns = [
+                    r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',  # "מתל אביב", "בירושלים"
+                    r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',  # "גר בחיפה"
+                    r'עיר[:\s]+([א-ת\s\-]{3,20})',  # "עיר: תל אביב"
+                ]
+                
+                city_candidates = []
+                for pattern in city_patterns:
+                    matches = re.findall(pattern, text_normalized)
+                    city_candidates.extend(matches)
+                
+                # Also try the full text as potential city name
+                words = text_normalized.split()
+                for i in range(len(words)):
+                    for j in range(i+1, min(i+4, len(words)+1)):
+                        candidate = ' '.join(words[i:j])
+                        if 2 < len(candidate) < 25:
+                            city_candidates.append(candidate)
+                
+                # Find best match using fuzzy matching
+                best_match = None
+                best_confidence = 0
+                
+                for candidate in city_candidates:
+                    result = normalize_city(candidate.strip())
+                    if result.canonical and result.confidence > best_confidence:
+                        best_match = result
+                        best_confidence = result.confidence
+                
+                if best_match and best_match.canonical:
+                    # Store both raw and canonical for webhook
+                    self._update_lead_capture_state('city', best_match.canonical)
+                    self._update_lead_capture_state('raw_city', best_match.raw_input)
+                    self._update_lead_capture_state('city_confidence', best_match.confidence)
+                    
+                    if best_match.needs_confirmation:
+                        # Flag that AI should confirm this city
+                        self._update_lead_capture_state('city_needs_confirmation', True)
+                        print(f"⚠️ [CITY] Needs confirmation: '{best_match.canonical}' (confidence={best_match.confidence:.0f}%)")
+                    else:
+                        print(f"✅ [CITY] Auto-accepted: '{best_match.canonical}' (confidence={best_match.confidence:.0f}%)")
+                        
+            except Exception as e:
+                print(f"⚠️ [CITY] Normalizer error, falling back to basic: {e}")
         
         # 🔧 SERVICE_TYPE EXTRACTION: Look for service mentions
         # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned service (user may change mind)
@@ -7369,10 +7388,15 @@ ALWAYS mention their name in the first sentence.
                             
                             # Source 1: lead_capture_state (collected during conversation) - for city/phone only
                             lead_state = getattr(self, 'lead_capture_state', {}) or {}
+                            raw_city = None
+                            city_confidence = None
                             if lead_state:
                                 print(f"📋 [WEBHOOK] Lead capture state: {lead_state}")
                                 if not city:
                                     city = lead_state.get('city') or lead_state.get('עיר')
+                                # 🔥 BUILD 184: Get raw_city and confidence from city normalizer
+                                raw_city = lead_state.get('raw_city')
+                                city_confidence = lead_state.get('city_confidence')
                                 # Only use service from lead_state if we didn't find a known professional
                                 if not service_category:
                                     raw_service = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
@@ -7428,24 +7452,37 @@ ALWAYS mention their name in the first sentence.
                                 import re
                                 transcript_text = full_conversation.replace('\n', ' ')
                                 
-                                # Extract city from transcript (common Israeli cities)
-                                # 🔥 BUILD 179: Find the LAST mentioned city (user may change mind)
+                                # Extract city from transcript using fuzzy matching
+                                # 🔥 BUILD 184: Use city normalizer with RapidFuzz
                                 if not city:
-                                    city_names = ['תל אביב', 'ירושלים', 'חיפה', 'ראשון לציון', 'פתח תקווה', 'אשדוד', 
-                                                  'נתניה', 'באר שבע', 'בני ברק', 'חולון', 'רמת גן', 'אשקלון',
-                                                  'רחובות', 'בת ים', 'הרצליה', 'כפר סבא', 'רעננה', 'לוד', 'רמלה',
-                                                  'נצרת', 'עכו', 'אילת', 'מודיעין', 'גבעתיים', 'הוד השרון',
-                                                  'קריית שמונה', 'קריית אתא', 'קריית ביאליק', 'קריית מוצקין', 'קריית ים']
-                                    last_city_pos = -1
-                                    last_city = None
-                                    for city_name in city_names:
-                                        pos = transcript_text.rfind(city_name)  # rfind = LAST occurrence
-                                        if pos > last_city_pos:
-                                            last_city_pos = pos
-                                            last_city = city_name
-                                    if last_city:
-                                        city = last_city
-                                        print(f"   └─ LAST city from transcript: {city} (pos={last_city_pos})")
+                                    try:
+                                        from server.services.city_normalizer import normalize_city
+                                        # Extract potential city mentions from transcript
+                                        city_patterns = [
+                                            r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',
+                                            r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',
+                                        ]
+                                        city_candidates = []
+                                        for pattern in city_patterns:
+                                            matches = re.findall(pattern, transcript_text)
+                                            city_candidates.extend(matches)
+                                        
+                                        # Find best match
+                                        best_match = None
+                                        best_confidence = 0
+                                        for candidate in city_candidates:
+                                            result = normalize_city(candidate.strip())
+                                            if result.canonical and result.confidence > best_confidence:
+                                                best_match = result
+                                                best_confidence = result.confidence
+                                        
+                                        if best_match and best_match.canonical:
+                                            city = best_match.canonical
+                                            raw_city = best_match.raw_input
+                                            city_confidence = best_match.confidence
+                                            print(f"   └─ City from transcript (fuzzy): {city} (confidence={city_confidence:.0f}%)")
+                                    except Exception as e:
+                                        print(f"   └─ City normalizer error: {e}")
                                 
                                 # Extract service/professional from transcript
                                 # 🔥 BUILD 179: Find the LAST mentioned service (user may change mind)
@@ -7477,7 +7514,9 @@ ALWAYS mention their name in the first sentence.
                                 agent_name=getattr(self, 'bot_name', 'Assistant'),
                                 direction=getattr(self, 'call_direction', 'inbound'),
                                 city=city,
-                                service_category=service_category
+                                service_category=service_category,
+                                raw_city=raw_city,
+                                city_confidence=city_confidence
                             )
                             print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
                         except Exception as webhook_err:

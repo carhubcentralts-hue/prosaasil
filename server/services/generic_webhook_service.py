@@ -171,23 +171,30 @@ def send_call_completed_webhook(
     direction: str = "inbound",
     city: Optional[str] = None,
     service_category: Optional[str] = None,
+    raw_city: Optional[str] = None,
+    city_confidence: Optional[float] = None,
     metadata: Optional[Dict] = None
 ) -> bool:
     """
     Send call.completed webhook with full call data
     
     BUILD 177 Enhanced: Now includes phone, city, and service_category
+    BUILD 184: Added raw_city and city_confidence from fuzzy matching
     
     Args:
         phone: Caller phone number (normalized E.164 format preferred)
-        city: Customer's city (e.g., "תל אביב")
+        city: Canonical city name (e.g., "תל אביב")
         service_category: Type of service/professional (e.g., "חשמלאי", "שיפוצים")
+        raw_city: Raw city input from customer before normalization
+        city_confidence: Fuzzy matching confidence score (0-100)
     """
     data = {
         "call_id": str(call_id) if call_id else "",
         "lead_id": str(lead_id) if lead_id else "",
         "phone": phone or "",
         "city": city or "",
+        "raw_city": raw_city or "",
+        "city_confidence": city_confidence if city_confidence is not None else "",
         "service_category": service_category or "",
         "started_at": started_at.isoformat() if started_at else "",
         "ended_at": ended_at.isoformat() if ended_at else datetime.utcnow().isoformat(),

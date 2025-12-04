@@ -46,7 +46,7 @@ class HebrewCityNormalizer:
     """
     
     _instance = None
-    _cities_data: Dict = None
+    _cities_data: Optional[Dict] = None
     _all_names: List[str] = []
     _name_to_canonical: Dict[str, str] = {}
     _confusing_pairs: List[Dict] = []
@@ -136,11 +136,15 @@ class HebrewCityNormalizer:
     
     def _fuzzy_match(self, raw_city: str) -> CityMatch:
         """Use RapidFuzz for fuzzy matching"""
+        if not RAPIDFUZZ_AVAILABLE:
+            return self._basic_match(raw_city)
+            
         try:
-            result = process.extractOne(
+            from rapidfuzz import fuzz as rf_fuzz, process as rf_process
+            result = rf_process.extractOne(
                 raw_city,
                 self._all_names,
-                scorer=fuzz.WRatio,
+                scorer=rf_fuzz.WRatio,
                 score_cutoff=50
             )
             
@@ -247,10 +251,11 @@ class HebrewCityNormalizer:
             return []
         
         try:
-            results = process.extract(
+            from rapidfuzz import fuzz as rf_fuzz, process as rf_process
+            results = rf_process.extract(
                 raw_city,
                 self._all_names,
-                scorer=fuzz.WRatio,
+                scorer=rf_fuzz.WRatio,
                 limit=limit * 2,
                 score_cutoff=60
             )
