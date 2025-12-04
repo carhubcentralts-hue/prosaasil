@@ -148,6 +148,9 @@ class BusinessSettings(db.Model):
     # 🔥 BUILD 163: Bot speaks first setting
     bot_speaks_first = db.Column(db.Boolean, default=False)  # Bot plays greeting before listening
     
+    # 🔥 BUILD 186: Calendar scheduling toggle - when enabled, AI will try to schedule appointments
+    enable_calendar_scheduling = db.Column(db.Boolean, default=True)  # AI schedules appointments during inbound calls
+    
     # 🔥 BUILD 164: Smart Call Control Settings (Step 2 Spec)
     silence_timeout_sec = db.Column(db.Integer, default=15)  # Seconds of silence before asking "are you there?"
     silence_max_warnings = db.Column(db.Integer, default=2)  # Max warnings before polite hangup

@@ -69,6 +69,8 @@ interface BusinessSettings {
   auto_end_on_goodbye?: boolean;
   // BUILD 163: Bot speaks first
   bot_speaks_first?: boolean;
+  // BUILD 186: Calendar scheduling toggle
+  enable_calendar_scheduling?: boolean;
 }
 
 interface AppointmentSettings {
@@ -140,7 +142,9 @@ export function SettingsPage() {
     auto_end_after_lead_capture: false,
     auto_end_on_goodbye: false,
     // BUILD 163: Bot speaks first
-    bot_speaks_first: false
+    bot_speaks_first: false,
+    // BUILD 186: Calendar scheduling toggle
+    enable_calendar_scheduling: true
   });
 
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings>({
@@ -216,6 +220,8 @@ export function SettingsPage() {
     auto_end_on_goodbye?: boolean;
     // BUILD 163: Bot speaks first
     bot_speaks_first?: boolean;
+    // BUILD 186: Calendar scheduling toggle
+    enable_calendar_scheduling?: boolean;
   }>({
     queryKey: ['/api/business/current'],
     refetchOnMount: true
@@ -235,7 +241,9 @@ export function SettingsPage() {
         auto_end_after_lead_capture: businessData.auto_end_after_lead_capture || false,
         auto_end_on_goodbye: businessData.auto_end_on_goodbye || false,
         // BUILD 163: Bot speaks first
-        bot_speaks_first: businessData.bot_speaks_first || false
+        bot_speaks_first: businessData.bot_speaks_first || false,
+        // BUILD 186: Calendar scheduling toggle (default true)
+        enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false
       });
       
       // Load appointment settings
@@ -570,6 +578,25 @@ export function SettingsPage() {
                       onChange={(e) => setBusinessSettings({...businessSettings, auto_end_on_goodbye: e.target.checked})}
                       className="sr-only peer"
                       data-testid="checkbox-auto-end-goodbye"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {/* BUILD 186: Calendar Scheduling Toggle */}
+                <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div>
+                    <h4 className="font-medium text-gray-900">תיאום פגישות ביומן</h4>
+                    <p className="text-sm text-gray-600">הבוט ינסה לתאם פגישות עם הלקוח בזמן שיחה נכנסת</p>
+                    <p className="text-xs text-blue-600 mt-1">בשיחות יוצאות הבוט פועל לפי הפרומפט בלבד</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessSettings.enable_calendar_scheduling !== false}
+                      onChange={(e) => setBusinessSettings({...businessSettings, enable_calendar_scheduling: e.target.checked})}
+                      className="sr-only peer"
+                      data-testid="checkbox-calendar-scheduling"
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
