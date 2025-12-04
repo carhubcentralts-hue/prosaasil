@@ -3279,11 +3279,12 @@ ALWAYS mention their name in the first sentence.
                 return
             
             # Priority 2: Phone - ONLY ask if require_phone_before_booking is True AND no phone available
-            # 🔥 BUILD 183: Removed DTMF - always ask VERBALLY for phone, never via keypad
+            # 🔥 BUILD 186: Ask for DTMF (keypad) only when require_phone_before_booking=True
+            # Otherwise, use Caller ID automatically - no verbal phone extraction needed!
             if not customer_phone:
                 if require_phone_verification:
-                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Asking VERBALLY for phone")
-                    await self._send_server_event_to_ai("need_phone - שאל את הלקוח בקול: מה מספר הטלפון שלך? שיאמר אותו בקול, לא בלחיצות.")
+                    print(f"❌ [FLOW STEP 6] BLOCKED - Need phone (require_phone_before_booking=True)! Asking via DTMF")
+                    await self._send_server_event_to_ai("need_phone_dtmf - בקש מהלקוח להקליד את מספר הטלפון שלו על המקשים ולסיים בסולמית (#).")
                     return
                 else:
                     # 🔥 BUILD 182: Try to use caller ID one more time
@@ -6696,9 +6697,9 @@ ALWAYS mention their name in the first sentence.
             print(f"⚠️ Phone normalization failed for: {phone_number}")
             phone_to_show = phone_number
         
-        # 🔥 FIX: Send DTMF phone as SYSTEM event (not user message) so AI accepts it!
-        # AI is configured to reject verbal phone numbers and only accept DTMF keys
-        # By sending as system event, we bypass AI's strict "press keys" validation
+        # 🔥 BUILD 186: Send DTMF phone as SYSTEM event (not user message)
+        # DTMF is only used when require_phone_before_booking=True
+        # Otherwise, Caller ID is used automatically (no verbal/DTMF needed)
         
         # 🚀 REALTIME API: Send via system event (not user message!)
         if USE_REALTIME_API:
