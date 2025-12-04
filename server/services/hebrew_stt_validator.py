@@ -244,32 +244,6 @@ def is_valid_hebrew_word(word: str, cities: Set[str], names: Set[str], common_wo
     return True, "passed_checks"
 
 
-# 🔥 BUILD 196: Common gibberish words from background noise/music
-# These are hallucinated "words" that Whisper outputs when hearing noise
-NOISE_HALLUCINATION_WORDS = {
-    # Common noise artifacts
-    "ידועל", "בלתי", "דדלתות", "ממש", "ווהו", "ווו", "הההה",
-    "אאא", "אההה", "אממם", "מממ", "חחח", "קקק", "ררר", "שששש",
-    # Music-induced hallucinations (Whisper tries to transcribe lyrics)
-    "נננ", "ללל", "יייי", "טטט", "ססס", "עעע", "פפפ", "צצצ",
-    # Partial/broken words from noise
-    "דדד", "גגג", "בבב", "ווו", "זזזז", "חחח", "טטט", "ייי",
-    # Common misheard filler sounds
-    "אאאא", "ממממ", "נננ", "בלבל", "גלגל", "מלמל",
-    # English hallucinations that slip through
-    "בייי", "אוווו", "ווואו", "יייאה", "נאאא",
-}
-
-# Common noise sentence patterns (music transcripts tend to have these)
-NOISE_PATTERNS = [
-    "לא, סליחה",  # Often appears with garbage after
-    "ידועל",
-    "בלתי",
-    "דדלתות",  # Doubled letters = noise
-    "ששש",
-    "מממ",
-]
-
 def is_gibberish(text: str) -> Tuple[bool, str, float]:
     """
     Main entry point: Detect if text is gibberish.
@@ -281,24 +255,6 @@ def is_gibberish(text: str) -> Tuple[bool, str, float]:
         return False, "empty", 0.0
     
     text_stripped = text.strip()
-    
-    # 🔥 BUILD 196: Quick check for known noise hallucination words
-    words = text_stripped.split()
-    noise_word_count = sum(1 for w in words if w.strip('.,!?') in NOISE_HALLUCINATION_WORDS)
-    if noise_word_count >= 1 and len(words) <= 3:
-        return True, f"contains_noise_word: {[w for w in words if w.strip('.,!?') in NOISE_HALLUCINATION_WORDS]}", 0.95
-    
-    # 🔥 BUILD 196: Check for doubled consonants (common in noise transcripts)
-    # e.g., "דדלתות" instead of "דלתות"
-    import re
-    doubled_consonants = re.findall(r'([בגדהוזחטיכלמנסעפצקרשת])\1{2,}', text_stripped)
-    if doubled_consonants:
-        return True, f"doubled_consonants: {doubled_consonants}", 0.9
-    
-    # 🔥 BUILD 196: Check for any noise patterns
-    for pattern in NOISE_PATTERNS:
-        if pattern in text_stripped:
-            return True, f"noise_pattern: {pattern}", 0.85
     
     # Load lexicons (cached)
     cities, names, common_words = load_hebrew_lexicon()

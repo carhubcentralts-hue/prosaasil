@@ -4297,6 +4297,34 @@ ALWAYS mention their name in the first sentence.
         _greeting_block_logged = False
         _greeting_resumed_logged = False
         
+        # 🔥 BUILD 196: SNR-based audio gating to filter background noise
+        # Only send frames with good signal-to-noise ratio
+        import struct
+        import audioop
+        
+        # Rolling noise floor estimation (during silence)
+        noise_floor_rms = 50  # Initial estimate
+        noise_floor_alpha = 0.02  # Slow update for noise floor
+        signal_alpha = 0.3  # Faster update for signal level
+        
+        # SNR thresholds
+        SNR_THRESHOLD_DB = 8  # Only send frames with SNR > 8dB
+        SNR_MUSIC_THRESHOLD_DB = 12  # Higher threshold when music detected
+        
+        # Music detection state
+        music_detected = False
+        spectral_flatness_history = []
+        FLATNESS_WINDOW = 25  # ~500ms window for music detection
+        
+        # Frame energy history for spectral analysis
+        energy_history = []
+        ENERGY_WINDOW = 50  # ~1 second history
+        
+        # Counters for logging
+        frames_sent = 0
+        frames_blocked_snr = 0
+        last_snr_log = 0
+        
         while not self.realtime_stop_flag:
             try:
                 if not hasattr(self, 'realtime_audio_in_queue'):
@@ -4327,6 +4355,90 @@ ALWAYS mention their name in the first sentence.
                     if _greeting_block_logged and not _greeting_resumed_logged:
                         print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                         _greeting_resumed_logged = True
+                
+                # 🔥 BUILD 196: SNR-based audio gating
+                # Decode μ-law to get energy, compute SNR, decide whether to send
+                try:
+                    # Decode base64 audio chunk
+                    import base64
+                    audio_bytes = base64.b64decode(audio_chunk)
+                    
+                    # Convert μ-law to linear PCM to measure energy
+                    try:
+                        pcm_data = audioop.ulaw2lin(audio_bytes, 2)  # 16-bit PCM
+                        frame_rms = audioop.rms(pcm_data, 2)
+                    except Exception:
+                        frame_rms = 100  # Default if conversion fails
+                    
+                    # Track energy history for music detection
+                    energy_history.append(frame_rms)
+                    if len(energy_history) > ENERGY_WINDOW:
+                        energy_history.pop(0)
+                    
+                    # 🎵 BUILD 196: Music detection via energy variance
+                    # Music has more consistent/rhythmic energy, speech is more variable
+                    if len(energy_history) >= 20:
+                        import statistics
+                        try:
+                            mean_energy = statistics.mean(energy_history)
+                            std_energy = statistics.stdev(energy_history)
+                            # Coefficient of variation - low = consistent (music), high = variable (speech)
+                            cv = std_energy / mean_energy if mean_energy > 0 else 0
+                            
+                            # Music typically has CV < 0.5, speech has CV > 0.8
+                            spectral_flatness_history.append(cv)
+                            if len(spectral_flatness_history) > FLATNESS_WINDOW:
+                                spectral_flatness_history.pop(0)
+                            
+                            avg_cv = statistics.mean(spectral_flatness_history) if spectral_flatness_history else 1.0
+                            new_music_detected = avg_cv < 0.4  # Low variance = music
+                            
+                            if new_music_detected != music_detected:
+                                music_detected = new_music_detected
+                                if music_detected:
+                                    print(f"🎵 [BUILD 196] MUSIC DETECTED - raising SNR threshold to {SNR_MUSIC_THRESHOLD_DB}dB (CV={avg_cv:.2f})")
+                                else:
+                                    print(f"🎤 [BUILD 196] Music stopped - normal SNR threshold {SNR_THRESHOLD_DB}dB")
+                        except Exception:
+                            pass
+                    
+                    # 🔊 BUILD 196: SNR calculation
+                    # Update noise floor during low-energy periods
+                    is_ai_speaking = self.is_ai_speaking_event.is_set()
+                    is_speech_active = getattr(self, '_realtime_speech_active', False)
+                    
+                    if not is_speech_active and frame_rms < noise_floor_rms * 1.5:
+                        # Probably silence/background - update noise floor slowly
+                        noise_floor_rms = noise_floor_alpha * frame_rms + (1 - noise_floor_alpha) * noise_floor_rms
+                        noise_floor_rms = max(30, noise_floor_rms)  # Don't go below 30
+                    
+                    # Compute SNR
+                    import math
+                    snr_db = 10 * math.log10(frame_rms / noise_floor_rms) if noise_floor_rms > 0 and frame_rms > 0 else 0
+                    
+                    # Use higher threshold if music detected
+                    current_threshold = SNR_MUSIC_THRESHOLD_DB if music_detected else SNR_THRESHOLD_DB
+                    
+                    # 🚦 BUILD 196: Gate based on SNR
+                    # ALWAYS send if speech is active (user confirmed speaking)
+                    # Otherwise, only send if SNR is good enough
+                    should_send = is_speech_active or snr_db > current_threshold or is_ai_speaking
+                    
+                    if not should_send:
+                        frames_blocked_snr += 1
+                        # Log periodically
+                        now = time.time()
+                        if now - last_snr_log > 5:
+                            print(f"🔇 [BUILD 196] SNR blocked {frames_blocked_snr} frames (SNR={snr_db:.1f}dB < {current_threshold}dB, noise_floor={noise_floor_rms:.0f})")
+                            last_snr_log = now
+                            frames_blocked_snr = 0
+                        continue  # Don't send this frame
+                    
+                    frames_sent += 1
+                    
+                except Exception as e:
+                    # If SNR processing fails, still send the audio
+                    print(f"⚠️ [BUILD 196] SNR processing error: {e}")
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
                 # Start timer on first chunk
