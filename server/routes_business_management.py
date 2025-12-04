@@ -740,6 +740,8 @@ def get_current_business():
             "auto_end_on_goodbye": getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
             # 🔥 BUILD 163: Bot speaks first
             "bot_speaks_first": getattr(settings, 'bot_speaks_first', False) if settings else False,
+            # 🔥 BUILD 186: Calendar scheduling toggle
+            "enable_calendar_scheduling": getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
             # 🔥 BUILD 164: Smart Call Control Settings
             "silence_timeout_sec": getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             "silence_max_warnings": getattr(settings, 'silence_max_warnings', 2) if settings else 2,
@@ -843,6 +845,10 @@ def update_current_business_settings():
         # 🔥 BUILD 163: Bot speaks first setting
         if 'bot_speaks_first' in data:
             settings.bot_speaks_first = bool(data['bot_speaks_first'])
+        
+        # 🔥 BUILD 186: Calendar scheduling toggle
+        if 'enable_calendar_scheduling' in data:
+            settings.enable_calendar_scheduling = bool(data['enable_calendar_scheduling'])
         
         # 🔥 BUILD 164: Smart Call Control Settings
         if 'silence_timeout_sec' in data:

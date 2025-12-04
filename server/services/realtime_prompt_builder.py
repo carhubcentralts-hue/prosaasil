@@ -79,26 +79,44 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         
         logger.info(f"📋 Building Realtime prompt for {business_name} (business_id={business_id}, direction={call_direction})")
         
-        # 🔥 BUILD 174: Load custom prompt from DB based on call direction
+        # 🔥 BUILD 186: SEPARATE LOGIC FOR INBOUND vs OUTBOUND
+        # - OUTBOUND: Uses ONLY the outbound_ai_prompt from DB (no call control settings)
+        # - INBOUND: Uses ai_prompt + call control settings (calendar scheduling, etc.)
+        
         core_instructions = ""
         
-        # 🔥 For OUTBOUND calls, use outbound_ai_prompt first
-        if call_direction == "outbound" and settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
-            core_instructions = settings.outbound_ai_prompt.strip()
-            logger.info(f"✅ Using OUTBOUND prompt from DB for business {business_id} ({len(core_instructions)} chars)")
+        if call_direction == "outbound":
+            # 🔥 OUTBOUND CALLS: Use ONLY the outbound prompt, nothing else!
+            if settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
+                core_instructions = settings.outbound_ai_prompt.strip()
+                logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ONLY for business {business_id} ({len(core_instructions)} chars)")
+            else:
+                # Minimal fallback if no outbound prompt
+                core_instructions = f"""אתה נציג מכירות יוזם של "{business_name}". 
+אתה מתקשר ללקוח כדי להציע שירותים או לתאם פגישה.
+דבר בעברית, היה אדיב וקצר."""
+                logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using minimal fallback")
+            
+            # Replace placeholders
+            core_instructions = core_instructions.replace("{{business_name}}", business_name)
+            core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
+            
+            # 🔥 OUTBOUND: Return the prompt as-is, NO call control settings added!
+            logger.info(f"✅ [OUTBOUND] Final prompt length: {len(core_instructions)} chars")
+            return core_instructions
         
-        # For INBOUND calls or if no outbound prompt, use regular ai_prompt
-        if not core_instructions and settings and settings.ai_prompt and settings.ai_prompt.strip():
+        # 🔥 INBOUND CALLS: Use ai_prompt + call control settings
+        if settings and settings.ai_prompt and settings.ai_prompt.strip():
             import json
             try:
                 if settings.ai_prompt.strip().startswith('{'):
                     prompt_obj = json.loads(settings.ai_prompt)
                     if 'calls' in prompt_obj:
                         core_instructions = prompt_obj['calls']
-                        logger.info(f"✅ Using 'calls' prompt from DB for business {business_id}")
+                        logger.info(f"✅ [INBOUND] Using 'calls' prompt from DB for business {business_id}")
                     elif 'whatsapp' in prompt_obj:
                         core_instructions = prompt_obj['whatsapp']
-                        logger.info(f"⚠️ Using 'whatsapp' as fallback for business {business_id}")
+                        logger.info(f"⚠️ [INBOUND] Using 'whatsapp' as fallback for business {business_id}")
                     else:
                         core_instructions = settings.ai_prompt
                 else:
@@ -107,13 +125,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.ai_prompt
         
         if not core_instructions:
-            logger.error(f"❌ No prompt in DB for business {business_id} (direction={call_direction})")
-            if call_direction == "outbound":
-                core_instructions = f"""אתה נציג מכירות יוזם של "{business_name}". 
-אתה מתקשר ללקוח כדי להציע שירותים או לתאם פגישה.
-דבר בעברית, היה אדיב וקצר."""
-            else:
-                core_instructions = f"""אתה נציג טלפוני של "{business_name}". עונה בעברית, קצר וברור."""
+            logger.error(f"❌ [INBOUND] No prompt in DB for business {business_id}")
+            core_instructions = f"""אתה נציג טלפוני של "{business_name}". עונה בעברית, קצר וברור."""
         
         # Replace placeholders
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
@@ -137,23 +150,36 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             required_lead_fields = settings.required_lead_fields
             logger.info(f"✅ Using custom required_lead_fields: {required_lead_fields}")
         
-        # 🎯 BUILD 177: COMPACT system prompt - pass call_direction for context
-        critical_rules = _build_critical_rules_compact(business_name, today_hebrew, weekday_hebrew, greeting_text, required_lead_fields, call_direction)
+        # 🔥 BUILD 186: Check calendar scheduling setting
+        enable_calendar_scheduling = True  # Default to enabled
+        if settings and hasattr(settings, 'enable_calendar_scheduling'):
+            enable_calendar_scheduling = settings.enable_calendar_scheduling
+        logger.info(f"📅 [INBOUND] Calendar scheduling: {'ENABLED' if enable_calendar_scheduling else 'DISABLED'}")
         
-        # Combine: Rules + Custom prompt + Policy (direction-aware)
+        # 🎯 BUILD 177: COMPACT system prompt with call control settings
+        critical_rules = _build_critical_rules_compact(
+            business_name, today_hebrew, weekday_hebrew, greeting_text, 
+            required_lead_fields, call_direction, enable_calendar_scheduling
+        )
+        
+        # Combine: Rules + Custom prompt + Policy
         full_prompt = critical_rules + "\n\n" + core_instructions
         
-        # Add policy info (hours, slots) - keep Hebrew for display to customers
-        hours_description = _build_hours_description(policy)
-        slot_description = _build_slot_description(policy.slot_size_min)
-        
-        min_notice = ""
-        if policy.min_notice_min > 0:
-            min_notice_hours = policy.min_notice_min // 60
-            if min_notice_hours > 0:
-                min_notice = f" (advance booking: {min_notice_hours}h)"
-        
-        full_prompt += f"\n\nSCHEDULING: Slots every {policy.slot_size_min} min{min_notice}\n{hours_description}"
+        # 🔥 BUILD 186: Only add scheduling info if calendar scheduling is ENABLED
+        if enable_calendar_scheduling:
+            hours_description = _build_hours_description(policy)
+            slot_description = _build_slot_description(policy.slot_size_min)
+            
+            min_notice = ""
+            if policy.min_notice_min > 0:
+                min_notice_hours = policy.min_notice_min // 60
+                if min_notice_hours > 0:
+                    min_notice = f" (advance booking: {min_notice_hours}h)"
+            
+            full_prompt += f"\n\nSCHEDULING: Slots every {policy.slot_size_min} min{min_notice}\n{hours_description}"
+        else:
+            # Explicitly tell AI not to schedule appointments
+            full_prompt += "\n\n⚠️ NO SCHEDULING: Do NOT offer to schedule appointments or meetings. Focus only on providing information and collecting lead details."
         
         # Log final length
         logger.info(f"✅ REALTIME PROMPT [business_id={business_id}] LEN={len(full_prompt)} chars")
@@ -237,15 +263,24 @@ def _build_slot_description(slot_size_min: int) -> str:
         return f"כל {slot_size_min} דק'"
 
 
-def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound") -> str:
+def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
     BUILD 186: FULLY DYNAMIC system prompt - no hardcoded values
     All context comes from business settings, nothing hardcoded
+    
+    Args:
+        enable_calendar_scheduling: If True, AI can schedule appointments. If False, AI should NOT offer scheduling.
     """
     direction_context = "מקבל שיחה" if call_direction == "inbound" else "מתקשר ללקוח"
     
-    # 🔥 BUILD 186: NO hardcoded city hints - everything from business prompt
-    # Cities/services/keywords should be in the business's custom prompt
+    # 🔥 BUILD 186: Calendar scheduling rules based on setting
+    if enable_calendar_scheduling:
+        scheduling_rules = """6. תורים: בדוק זמינות לפני אישור!
+7. אל תגיד "קבעתי/קבענו" עד שהמערכת מאשרת!
+8. רק אם הלקוח ביקש תור במפורש - התחל תהליך קביעה"""
+    else:
+        scheduling_rules = """6. אל תציע לקבוע פגישות או תורים - רק אסוף פרטים ותן מידע
+7. אם הלקוח מבקש פגישה - הסבר שנציג יחזור אליו בהקדם"""
     
     return f"""נציג AI של "{business_name}" | {direction_context}
 תאריך: {weekday_hebrew}, {today_hebrew}
@@ -256,11 +291,9 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 3. אישור פרטים: "רק מוודא - אמרת X, נכון?"
 4. קצר וברור, בלי חזרות
 5. אם לא שמעת ברור: "סליחה, לא שמעתי - תוכל לחזור על זה?"
-6. תורים: בדוק זמינות לפני אישור!
-7. אל תגיד "קבעתי/קבענו" עד שהמערכת מאשרת!
+{scheduling_rules}
 
 ⚠️ חובה! בדיקת הקשר:
 - אחרי ברכה: המתן לבקשה ברורה מהלקוח. אם התשובה לא קשורה לשאלה (כמו "תודה" אחרי "איך אוכל לעזור?") - שאל: "במה אוכל לעזור?"
 - לא לקפוץ למסקנות! אם הלקוח אמר משהו לא ברור - בקש הבהרה
-- רק אם הלקוח ביקש תור במפורש - התחל תהליך קביעה
 """
