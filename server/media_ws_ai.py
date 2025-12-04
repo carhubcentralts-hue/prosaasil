@@ -1409,10 +1409,22 @@ class MediaStreamHandler:
                     except Exception as e:
                         print(f"⚠️ [OUTBOUND GREETING] Failed to load template greeting: {e}")
                 
-                # Fallback to default if no template greeting
+                # Fallback to business greeting_message if no template
                 if not outbound_greeting:
-                    outbound_greeting = f"שלום {outbound_lead_name}, אני מתקשר מ{biz_name}. איך אתה?"
-                    print(f"📤 [OUTBOUND GREETING] Using default greeting (no template)")
+                    try:
+                        from server.models_sql import Business
+                        business = Business.query.get(self.business_id)
+                        if business and business.greeting_message:
+                            # Use greeting_message with lead name substitution
+                            outbound_greeting = f"{outbound_lead_name}, " + business.greeting_message
+                            print(f"📤 [OUTBOUND GREETING] Using business greeting_message")
+                        else:
+                            # Minimal fallback (just name + business name, no hardcoded script)
+                            outbound_greeting = f"{outbound_lead_name}, {biz_name}"
+                            print(f"📤 [OUTBOUND GREETING] Using minimal greeting (no configured template)")
+                    except:
+                        outbound_greeting = f"{outbound_lead_name}, {biz_name}"
+                        print(f"📤 [OUTBOUND GREETING] Using minimal greeting (DB error)")
                 
                 greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
 
@@ -1561,9 +1573,17 @@ class MediaStreamHandler:
                                         except:
                                             pass
                                     
-                                    # Fallback greeting if no template
+                                    # Fallback to business greeting or minimal greeting
                                     if not custom_greeting:
-                                        custom_greeting = f"שלום {outbound_lead_name}, מה שלומך?"
+                                        try:
+                                            from server.models_sql import Business
+                                            biz = Business.query.get(business_id_safe)
+                                            if biz and biz.greeting_message:
+                                                custom_greeting = f"{outbound_lead_name}, " + biz.greeting_message
+                                            else:
+                                                custom_greeting = f"{outbound_lead_name}, {outbound_business_name or ''}"
+                                        except:
+                                            custom_greeting = f"{outbound_lead_name}, {outbound_business_name or ''}"
                                     
                                     # Add lead-specific context and greeting instruction at the START
                                     lead_greeting_context = f"""🎯 OUTBOUND CALL - CRITICAL INSTRUCTIONS:
