@@ -666,6 +666,31 @@ def apply_migrations():
             migrations_applied.append("add_bot_speaks_first")
             log.info("✅ Applied migration 28e: add_bot_speaks_first")
     
+    # Migration 29: BUILD 182 - Outbound lead lists for bulk import
+    if not check_table_exists('outbound_lead_lists'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE outbound_lead_lists (
+                id SERIAL PRIMARY KEY,
+                tenant_id INTEGER NOT NULL REFERENCES business(id),
+                name VARCHAR(255) NOT NULL,
+                file_name VARCHAR(255),
+                total_leads INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_lead_lists_tenant_id ON outbound_lead_lists(tenant_id)"))
+        migrations_applied.append("create_outbound_lead_lists_table")
+        log.info("✅ Applied migration 29a: create_outbound_lead_lists_table - Bulk import for outbound calls")
+    
+    # Migration 29b: Add outbound_list_id to leads table
+    if check_table_exists('leads') and not check_column_exists('leads', 'outbound_list_id'):
+        from sqlalchemy import text
+        db.session.execute(text("ALTER TABLE leads ADD COLUMN outbound_list_id INTEGER REFERENCES outbound_lead_lists(id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_leads_outbound_list_id ON leads(outbound_list_id)"))
+        migrations_applied.append("add_leads_outbound_list_id")
+        log.info("✅ Applied migration 29b: add_leads_outbound_list_id - Link leads to import lists")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
