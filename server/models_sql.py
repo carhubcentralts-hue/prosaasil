@@ -177,6 +177,25 @@ class OutboundCallTemplate(db.Model):
     )
 
 
+class OutboundLeadList(db.Model):
+    """
+    BUILD 182: Bulk-imported lead lists for outbound calls
+    רשימת לידים מיובאת לשיחות יוצאות - עד 5000 לידים לעסק
+    """
+    __tablename__ = "outbound_lead_lists"
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False)  # e.g. "ייבוא 03/12/2025"
+    file_name = db.Column(db.String(255), nullable=True)  # Original uploaded file name
+    total_leads = db.Column(db.Integer, default=0)  # Number of leads imported
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship to business
+    business = db.relationship("Business", backref="outbound_lead_lists")
+    
+    # Relationship to leads - defined via backref in Lead model
+
+
 class FAQ(db.Model):
     """Business-specific FAQs for fast-path responses"""
     __tablename__ = "faqs"
@@ -304,10 +323,14 @@ class Lead(db.Model):
     email = db.Column(db.String(255), index=True)
     
     # Lead tracking
-    source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual
+    source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual|imported_outbound
     external_id = db.Column(db.String(128), index=True)  # call_sid|wa_msg_id
     status = db.Column(db.String(32), default="new", index=True)  # Canonical lowercase: new|attempting|contacted|qualified|won|lost|unqualified
     order_index = db.Column(db.Integer, default=0, index=True)  # For Kanban board ordering within status
+    
+    # BUILD 182: Outbound import list tracking
+    outbound_list_id = db.Column(db.Integer, db.ForeignKey("outbound_lead_lists.id"), nullable=True, index=True)
+    outbound_list = db.relationship("OutboundLeadList", backref=db.backref("leads", lazy="dynamic"))
     
     # Assignment
     owner_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)

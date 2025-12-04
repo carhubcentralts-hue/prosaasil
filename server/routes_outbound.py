@@ -422,3 +422,432 @@ def delete_outbound_template(template_id: int):
         log.error(f"Error deleting template: {e}")
         db.session.rollback()
         return jsonify({"error": "שגיאה במחיקת התבנית"}), 500
+
+
+# ========================================================
+# BUILD 182: Outbound Import Leads API
+# ייבוא לידים מקובץ CSV לשיחות יוצאות
+# ========================================================
+
+MAX_IMPORTED_LEADS_PER_BUSINESS = 5000
+
+
+@outbound_bp.route("/api/outbound/import-leads", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def import_outbound_leads():
+    """
+    BUILD 182: Import leads from CSV for outbound calls
+    
+    Accepts CSV file with columns: name, phone, city (optional), notes (optional)
+    Maximum 5000 leads per business total.
+    
+    Returns:
+    {
+        "success": true,
+        "list_id": 123,
+        "imported_count": 50,
+        "skipped_count": 2,
+        "errors": ["שורה 3: טלפון לא תקין"]
+    }
+    """
+    import csv
+    import io
+    from datetime import datetime
+    from flask import session
+    from server.models_sql import OutboundLeadList
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני ייבוא לידים"}), 400
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    # Check file upload
+    if 'file' not in request.files:
+        return jsonify({"error": "לא נבחר קובץ"}), 400
+    
+    file = request.files['file']
+    
+    if file.filename == '':
+        return jsonify({"error": "לא נבחר קובץ"}), 400
+    
+    if not file.filename.endswith('.csv'):
+        return jsonify({"error": "יש להעלות קובץ CSV בלבד"}), 400
+    
+    try:
+        # Count existing imported leads for this business
+        existing_count = Lead.query.filter_by(
+            tenant_id=tenant_id,
+            source="imported_outbound"
+        ).count()
+        
+        # Read and parse CSV
+        content = file.read().decode('utf-8-sig')  # Handle BOM
+        reader = csv.DictReader(io.StringIO(content))
+        
+        # Normalize column names (support Hebrew and English)
+        column_map = {
+            'name': ['name', 'שם', 'full_name', 'שם מלא'],
+            'phone': ['phone', 'טלפון', 'phone_number', 'מספר טלפון', 'נייד'],
+            'city': ['city', 'עיר', 'address', 'כתובת'],
+            'notes': ['notes', 'הערות', 'comments', 'הערה']
+        }
+        
+        def get_column_value(row, target_col):
+            """Get value for a column, checking various column name variants"""
+            for col_variant in column_map.get(target_col, [target_col]):
+                for key in row.keys():
+                    if key.strip().lower() == col_variant.lower():
+                        return row[key].strip() if row[key] else None
+            return None
+        
+        rows_to_import = []
+        errors = []
+        
+        for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
+            name = get_column_value(row, 'name')
+            phone = get_column_value(row, 'phone')
+            city = get_column_value(row, 'city')
+            notes = get_column_value(row, 'notes')
+            
+            # Validate required fields
+            if not name:
+                errors.append(f"שורה {row_num}: חסר שם")
+                continue
+            
+            if not phone:
+                errors.append(f"שורה {row_num}: חסר טלפון")
+                continue
+            
+            # Normalize phone number
+            normalized_phone = normalize_israeli_phone(phone)
+            
+            # Basic phone validation
+            if not normalized_phone or len(normalized_phone) < 10:
+                errors.append(f"שורה {row_num}: טלפון לא תקין - {phone}")
+                continue
+            
+            rows_to_import.append({
+                'name': name,
+                'phone': normalized_phone,
+                'city': city,
+                'notes': notes
+            })
+        
+        # Check 5000 limit
+        if existing_count + len(rows_to_import) > MAX_IMPORTED_LEADS_PER_BUSINESS:
+            available = MAX_IMPORTED_LEADS_PER_BUSINESS - existing_count
+            return jsonify({
+                "error": f"לא ניתן לייבא יותר מ-{MAX_IMPORTED_LEADS_PER_BUSINESS} לידים ברשימת השיחות היוצאות. יש לך מקום ל-{available} לידים נוספים."
+            }), 400
+        
+        if len(rows_to_import) == 0:
+            return jsonify({
+                "error": "לא נמצאו לידים תקינים לייבוא",
+                "errors": errors
+            }), 400
+        
+        # Create the import list
+        list_name = request.form.get('list_name') or f"ייבוא {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        
+        outbound_list = OutboundLeadList()
+        outbound_list.tenant_id = tenant_id
+        outbound_list.name = list_name
+        outbound_list.file_name = file.filename
+        outbound_list.total_leads = len(rows_to_import)
+        db.session.add(outbound_list)
+        db.session.flush()  # Get the list ID
+        
+        # Import leads
+        imported_count = 0
+        for row_data in rows_to_import:
+            # Split name into first/last
+            name_parts = row_data['name'].split(' ', 1)
+            first_name = name_parts[0]
+            last_name = name_parts[1] if len(name_parts) > 1 else ''
+            
+            lead = Lead()
+            lead.tenant_id = tenant_id
+            lead.first_name = first_name
+            lead.last_name = last_name
+            lead.phone_e164 = row_data['phone']
+            lead.notes = row_data['notes']
+            lead.source = "imported_outbound"
+            lead.outbound_list_id = outbound_list.id
+            lead.status = "new"
+            db.session.add(lead)
+            imported_count += 1
+        
+        db.session.commit()
+        
+        log.info(f"✅ Imported {imported_count} leads for business {tenant_id}, list_id={outbound_list.id}")
+        
+        return jsonify({
+            "success": True,
+            "list_id": outbound_list.id,
+            "list_name": list_name,
+            "imported_count": imported_count,
+            "skipped_count": len(errors),
+            "errors": errors[:20]  # Limit error messages
+        })
+        
+    except Exception as e:
+        log.error(f"Error importing leads: {e}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({"error": f"שגיאה בייבוא הלידים: {str(e)}"}), 500
+
+
+@outbound_bp.route("/api/outbound/import-leads", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_imported_leads():
+    """
+    BUILD 182: Get imported leads for outbound calls
+    
+    Query params:
+    - page: Page number (default 1)
+    - page_size: Items per page (default 50, max 100)
+    - list_id: Optional filter by list ID
+    - search: Optional search query
+    
+    Returns:
+    {
+        "total": 1234,
+        "limit": 5000,
+        "current_count": 1234,
+        "page": 1,
+        "page_size": 50,
+        "items": [...]
+    }
+    """
+    from flask import session
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"items": [], "total": 0, "limit": MAX_IMPORTED_LEADS_PER_BUSINESS, "message": "בחר עסק לצפייה"})
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        page_size = min(100, max(1, int(request.args.get('page_size', 50))))
+        list_id = request.args.get('list_id', type=int)
+        search = request.args.get('search', '').strip()
+        
+        # Build query
+        query = Lead.query.filter_by(
+            tenant_id=tenant_id,
+            source="imported_outbound"
+        )
+        
+        if list_id:
+            query = query.filter_by(outbound_list_id=list_id)
+        
+        if search:
+            search_term = f"%{search}%"
+            query = query.filter(
+                db.or_(
+                    Lead.first_name.ilike(search_term),
+                    Lead.last_name.ilike(search_term),
+                    Lead.phone_e164.ilike(search_term)
+                )
+            )
+        
+        # Get total count
+        total = query.count()
+        
+        # Paginate
+        leads = query.order_by(Lead.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+        
+        items = []
+        for lead in leads:
+            items.append({
+                "id": lead.id,
+                "name": lead.full_name,
+                "first_name": lead.first_name,
+                "last_name": lead.last_name,
+                "phone": lead.phone_e164,
+                "status": lead.status,
+                "notes": lead.notes,
+                "list_id": lead.outbound_list_id,
+                "created_at": lead.created_at.isoformat() if lead.created_at else None
+            })
+        
+        return jsonify({
+            "total": total,
+            "limit": MAX_IMPORTED_LEADS_PER_BUSINESS,
+            "current_count": total,
+            "page": page,
+            "page_size": page_size,
+            "items": items
+        })
+        
+    except Exception as e:
+        log.error(f"Error fetching imported leads: {e}")
+        return jsonify({"error": "שגיאה בטעינת הלידים"}), 500
+
+
+@outbound_bp.route("/api/outbound/import-leads/<int:lead_id>", methods=["DELETE"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def delete_imported_lead(lead_id: int):
+    """
+    BUILD 182: Delete a single imported lead
+    
+    Only allows deletion of leads with source="imported_outbound"
+    Regular CRM leads cannot be deleted from this endpoint.
+    """
+    from flask import session
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני מחיקת ליד"}), 400
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        lead = Lead.query.filter_by(
+            id=lead_id,
+            tenant_id=tenant_id
+        ).first()
+        
+        if not lead:
+            return jsonify({"error": "ליד לא נמצא"}), 404
+        
+        # Only allow deletion of imported leads
+        if lead.source != "imported_outbound":
+            return jsonify({"error": "ניתן למחוק רק לידים מיובאים מרשימת שיחות יוצאות"}), 403
+        
+        db.session.delete(lead)
+        db.session.commit()
+        
+        log.info(f"🗑️ Deleted imported lead {lead_id} for business {tenant_id}")
+        
+        return jsonify({"success": True, "message": "הליד נמחק בהצלחה"})
+        
+    except Exception as e:
+        log.error(f"Error deleting imported lead: {e}")
+        db.session.rollback()
+        return jsonify({"error": "שגיאה במחיקת הליד"}), 500
+
+
+@outbound_bp.route("/api/outbound/import-leads/bulk-delete", methods=["POST"])
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def bulk_delete_imported_leads():
+    """
+    BUILD 182: Bulk delete imported leads
+    
+    Request body:
+    {
+        "lead_ids": [1, 2, 3] OR
+        "delete_all": true (delete all imported leads)
+    }
+    """
+    from flask import session
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"error": "יש לבחור עסק לפני מחיקה"}), 400
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "נתונים חסרים"}), 400
+    
+    try:
+        if data.get('delete_all'):
+            # Delete all imported leads for this business
+            deleted = Lead.query.filter_by(
+                tenant_id=tenant_id,
+                source="imported_outbound"
+            ).delete()
+            db.session.commit()
+            
+            log.info(f"🗑️ Bulk deleted {deleted} imported leads for business {tenant_id}")
+            
+            return jsonify({
+                "success": True,
+                "deleted_count": deleted,
+                "message": f"נמחקו {deleted} לידים"
+            })
+        
+        lead_ids = data.get('lead_ids', [])
+        if not lead_ids:
+            return jsonify({"error": "לא נבחרו לידים למחיקה"}), 400
+        
+        # Only delete imported leads
+        deleted = Lead.query.filter(
+            Lead.id.in_(lead_ids),
+            Lead.tenant_id == tenant_id,
+            Lead.source == "imported_outbound"
+        ).delete(synchronize_session=False)
+        
+        db.session.commit()
+        
+        log.info(f"🗑️ Bulk deleted {deleted} imported leads for business {tenant_id}")
+        
+        return jsonify({
+            "success": True,
+            "deleted_count": deleted,
+            "message": f"נמחקו {deleted} לידים"
+        })
+        
+    except Exception as e:
+        log.error(f"Error bulk deleting imported leads: {e}")
+        db.session.rollback()
+        return jsonify({"error": "שגיאה במחיקת הלידים"}), 500
+
+
+@outbound_bp.route("/api/outbound/import-lists", methods=["GET"])
+@require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
+def get_import_lists():
+    """
+    BUILD 182: Get all import lists for the business
+    """
+    from flask import session
+    from server.models_sql import OutboundLeadList
+    
+    tenant_id = g.get('tenant')
+    
+    if not tenant_id:
+        user = session.get('user', {})
+        if user.get('role') == 'system_admin':
+            return jsonify({"lists": []})
+        return jsonify({"error": "אין גישה לעסק"}), 403
+    
+    try:
+        lists = OutboundLeadList.query.filter_by(
+            tenant_id=tenant_id
+        ).order_by(OutboundLeadList.created_at.desc()).all()
+        
+        result = []
+        for lst in lists:
+            # Count current leads in list
+            lead_count = Lead.query.filter_by(
+                tenant_id=tenant_id,
+                outbound_list_id=lst.id
+            ).count()
+            
+            result.append({
+                "id": lst.id,
+                "name": lst.name,
+                "file_name": lst.file_name,
+                "total_leads": lst.total_leads,
+                "current_leads": lead_count,
+                "created_at": lst.created_at.isoformat() if lst.created_at else None
+            })
+        
+        return jsonify({"lists": result})
+        
+    except Exception as e:
+        log.error(f"Error fetching import lists: {e}")
+        return jsonify({"error": "שגיאה בטעינת רשימות הייבוא"}), 500
