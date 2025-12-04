@@ -29,6 +29,12 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Context-aware city rejection**: City normalizer rejects non-city words ("כן", "לא", "סבבה") with hint to reprompt.
   - **Sustained speech tracking**: Speech <600ms logged as noise. `_sustained_speech_confirmed` flag set only after 600ms+ continuous speech.
   - **Response grace period**: 1000ms before allowing barge-in on new AI responses.
+- **BUILD 196 Audio Preprocessing for Noisy Environments**:
+  - **Speech Band Filter**: μ-law → PCM16 → 100Hz HPF + 3400Hz LPF to isolate human voice and remove bass rumble/high-freq noise.
+  - **SNR-based Gating**: Rolling noise floor estimation, per-frame SNR calculation (8dB threshold normal, 12dB when music detected), 3-frame hangover to prevent choppiness.
+  - **Music Detection**: Multi-indicator system (CV, periodicity, sustained energy) with hysteresis (enter at 0.6, exit at 0.45) to prevent flapping.
+  - **Gibberish Word Removal**: GIBBERISH_WORDS_TO_REMOVE set removes known hallucination words ("ידועל", "בלתי") from transcripts as soft guard.
+  - **Doubled Consonant Fixes**: Hebrew dictionary corrections for noise-induced errors ("דדלתות" → "דלתות").
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

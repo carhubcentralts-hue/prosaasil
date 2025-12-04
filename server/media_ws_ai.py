@@ -4351,10 +4351,12 @@ ALWAYS mention their name in the first sentence.
         SNR_THRESHOLD_DB = 8  # Only send frames with SNR > 8dB
         SNR_MUSIC_THRESHOLD_DB = 12  # Higher threshold when music detected
         
-        # Music detection state
+        # Music detection state with hysteresis
         music_detected = False
         spectral_flatness_history = []
         FLATNESS_WINDOW = 25  # ~500ms window for music detection
+        MUSIC_ENTER_THRESHOLD = 0.6   # Enter music mode when score > 0.6
+        MUSIC_EXIT_THRESHOLD = 0.45   # Exit music mode when score < 0.45 (hysteresis)
         
         # Frame energy history for spectral analysis
         energy_history = []
@@ -4364,6 +4366,11 @@ ALWAYS mention their name in the first sentence.
         frames_sent = 0
         frames_blocked_snr = 0
         last_snr_log = 0
+        
+        # 🔥 BUILD 196: SNR hangover - allow frames for a few iterations after good SNR
+        # This prevents choppy audio when speech dips briefly below threshold
+        SNR_HANGOVER_FRAMES = 3  # Allow 3 frames (~60ms) after good SNR
+        snr_hangover_counter = 0
         
         while not self.realtime_stop_flag:
             try:
@@ -4498,7 +4505,15 @@ ALWAYS mention their name in the first sentence.
                                 spectral_flatness_history.pop(0)
                             
                             avg_music_score = statistics.mean(spectral_flatness_history) if spectral_flatness_history else 0
-                            new_music_detected = avg_music_score > 0.6  # High score = likely music
+                            
+                            # 🔥 BUILD 196: Hysteresis to prevent flapping
+                            # Enter music mode at 0.6, exit at 0.45
+                            if music_detected:
+                                # Currently in music mode - exit only if below exit threshold
+                                new_music_detected = avg_music_score > MUSIC_EXIT_THRESHOLD
+                            else:
+                                # Currently in normal mode - enter only if above enter threshold
+                                new_music_detected = avg_music_score > MUSIC_ENTER_THRESHOLD
                             
                             if new_music_detected != music_detected:
                                 music_detected = new_music_detected
@@ -4526,17 +4541,26 @@ ALWAYS mention their name in the first sentence.
                     # Use higher threshold if music detected
                     current_threshold = SNR_MUSIC_THRESHOLD_DB if music_detected else SNR_THRESHOLD_DB
                     
-                    # 🚦 BUILD 196: Gate based on SNR
+                    # 🚦 BUILD 196: Gate based on SNR with hangover
                     # ALWAYS send if speech is active (user confirmed speaking)
-                    # Otherwise, only send if SNR is good enough
-                    should_send = is_speech_active or snr_db > current_threshold or is_ai_speaking
+                    # Otherwise, only send if SNR is good enough OR within hangover period
+                    snr_good = snr_db > current_threshold
+                    
+                    # Update hangover counter
+                    if snr_good or is_speech_active:
+                        snr_hangover_counter = SNR_HANGOVER_FRAMES  # Reset hangover
+                    elif snr_hangover_counter > 0:
+                        snr_hangover_counter -= 1  # Decrement hangover
+                    
+                    should_send = is_speech_active or snr_good or snr_hangover_counter > 0 or is_ai_speaking
                     
                     if not should_send:
                         frames_blocked_snr += 1
-                        # Log periodically
+                        # Log periodically with detailed status
                         now = time.time()
                         if now - last_snr_log > 5:
-                            print(f"🔇 [BUILD 196] SNR blocked {frames_blocked_snr} frames (SNR={snr_db:.1f}dB < {current_threshold}dB, noise_floor={noise_floor_rms:.0f})")
+                            mode = "🎵MUSIC" if music_detected else "🎤NORMAL"
+                            print(f"🔇 [BUILD 196] SNR blocked {frames_blocked_snr} frames | {mode} mode | SNR={snr_db:.1f}dB < {current_threshold}dB | noise_floor={noise_floor_rms:.0f} | sent={frames_sent}")
                             last_snr_log = now
                             frames_blocked_snr = 0
                         continue  # Don't send this frame
