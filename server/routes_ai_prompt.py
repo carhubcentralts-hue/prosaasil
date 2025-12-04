@@ -59,7 +59,13 @@ def _get_business_prompt_internal(business_id):
         if not business:
             return jsonify({"error": "עסק לא נמצא"}), 404
         
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        # 🔥 BUILD 186 FIX: Handle missing database columns gracefully
+        settings = None
+        try:
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        except Exception as settings_err:
+            logger.warning(f"Could not load settings for business {business_id} (DB schema issue): {settings_err}")
+            # Continue with settings=None - will use defaults
         
         if settings:
             latest_revision = PromptRevisions.query.filter_by(

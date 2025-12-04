@@ -691,6 +691,20 @@ def apply_migrations():
         migrations_applied.append("add_leads_outbound_list_id")
         log.info("✅ Applied migration 29b: add_leads_outbound_list_id - Link leads to import lists")
     
+    # Migration 30: BUILD 183 - Separate inbound/outbound webhook URLs
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'inbound_webhook_url'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN inbound_webhook_url VARCHAR(512)"))
+            migrations_applied.append("add_inbound_webhook_url")
+            log.info("✅ Applied migration 30a: add_inbound_webhook_url - Separate webhook for inbound calls")
+        
+        if not check_column_exists('business_settings', 'outbound_webhook_url'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN outbound_webhook_url VARCHAR(512)"))
+            migrations_applied.append("add_outbound_webhook_url")
+            log.info("✅ Applied migration 30b: add_outbound_webhook_url - Separate webhook for outbound calls")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

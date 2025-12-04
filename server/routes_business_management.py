@@ -707,8 +707,13 @@ def get_current_business():
         if not business:
             return jsonify({"error": "Business not found"}), 404
             
-        # Get settings if available
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        # 🔥 BUILD 186 FIX: Handle missing database columns gracefully
+        settings = None
+        try:
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        except Exception as settings_err:
+            logger.warning(f"Could not load settings for business {business_id} (DB schema issue): {settings_err}")
+            # Continue with settings=None - will use defaults
         
         # 🔥 BUILD 186 FIX: Use getattr with fallbacks to prevent 500 errors if columns don't exist
         return jsonify({

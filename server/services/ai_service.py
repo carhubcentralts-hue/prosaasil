@@ -303,8 +303,13 @@ class AIService:
             import time
             db_start = time.time()
             
-            # טעינת הגדרות עסק
-            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            # 🔥 BUILD 186 FIX: Handle missing columns gracefully
+            settings = None
+            try:
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            except Exception as db_err:
+                logger.warning(f"⚠️ Could not load BusinessSettings for {business_id} (DB schema issue): {db_err}")
+            
             business = Business.query.get(business_id)
             
             db_time = time.time() - db_start

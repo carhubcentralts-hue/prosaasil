@@ -214,20 +214,25 @@ def get_business_policy(
     merged = asdict(DEFAULT_POLICY)
     
     # Try to load from DB
+    settings = None
     try:
         if db_session:
             settings = db_session.query(BusinessSettings).filter_by(tenant_id=business_id).first()
         else:
             settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+    except Exception as db_err:
+        # 🔥 BUILD 186 FIX: Handle missing columns gracefully (e.g., inbound_webhook_url)
+        logger.warning(f"⚠️ Could not load BusinessSettings for {business_id} (DB schema issue): {db_err}")
+        # Continue with settings=None - will use defaults
         
-        if not settings:
-            # ⚠️ NO SETTINGS ROW - Clear DEFAULT_POLICY hours (don't invent!)
-            merged["opening_hours"] = {}
-            merged["allow_24_7"] = False
-            logger.warning(f"⚠️ No BusinessSettings row for business {business_id} - hours cleared (no invented hours!)")
-        
-        if settings:
-            # Override with DB values (if not None)
+    if not settings:
+        # ⚠️ NO SETTINGS ROW - Clear DEFAULT_POLICY hours (don't invent!)
+        merged["opening_hours"] = {}
+        merged["allow_24_7"] = False
+        logger.warning(f"⚠️ No BusinessSettings row for business {business_id} - hours cleared (no invented hours!)")
+    else:
+        # Override with DB values (if not None)
+        try:
             if settings.timezone:
                 merged["tz"] = settings.timezone
             if settings.slot_size_min is not None:
@@ -286,8 +291,8 @@ def get_business_policy(
                 merged["require_phone_before_booking"] = settings.require_phone_before_booking
             
             logger.info(f"📊 Loaded policy from DB for business {business_id}")
-    except Exception as e:
-        logger.warning(f"⚠️ Failed to load policy from DB: {e}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load policy from DB settings: {e}")
     
     # Parse prompt (highest priority)
     if prompt_text:
