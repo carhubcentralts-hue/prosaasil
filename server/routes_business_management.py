@@ -709,35 +709,36 @@ def get_current_business():
         # Get settings if available
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
+        # 🔥 BUILD 186 FIX: Use getattr with fallbacks to prevent 500 errors if columns don't exist
         return jsonify({
             "id": business.id,
             "name": business.name,
-            "phone_number": settings.phone_number if settings and settings.phone_number else business.phone_e164,
-            "email": settings.email if settings and settings.email else f"office@{business.name.lower().replace(' ', '-')}.co.il",
-            "address": settings.address if settings else "",
-            "working_hours": settings.working_hours if settings and settings.working_hours else business.working_hours,
-            "timezone": settings.timezone if settings else "Asia/Jerusalem",
+            "phone_number": getattr(settings, 'phone_number', None) or business.phone_e164 if settings else business.phone_e164,
+            "email": getattr(settings, 'email', None) or f"office@{business.name.lower().replace(' ', '-')}.co.il" if settings else f"office@{business.name.lower().replace(' ', '-')}.co.il",
+            "address": getattr(settings, 'address', "") if settings else "",
+            "working_hours": getattr(settings, 'working_hours', None) or business.working_hours if settings else business.working_hours,
+            "timezone": getattr(settings, 'timezone', "Asia/Jerusalem") if settings else "Asia/Jerusalem",
             # 🔥 BUILD 138: Appointment settings
-            "slot_size_min": settings.slot_size_min if settings else 60,
-            "allow_24_7": settings.allow_24_7 if settings else False,
-            "booking_window_days": settings.booking_window_days if settings else 30,
-            "min_notice_min": settings.min_notice_min if settings else 0,
-            "opening_hours_json": settings.opening_hours_json if settings else None,
+            "slot_size_min": getattr(settings, 'slot_size_min', 60) if settings else 60,
+            "allow_24_7": getattr(settings, 'allow_24_7', False) if settings else False,
+            "booking_window_days": getattr(settings, 'booking_window_days', 30) if settings else 30,
+            "min_notice_min": getattr(settings, 'min_notice_min', 0) if settings else 0,
+            "opening_hours_json": getattr(settings, 'opening_hours_json', None) if settings else None,
             # 🔥 BUILD 177: Generic Webhook
-            "generic_webhook_url": settings.generic_webhook_url if settings else None,
+            "generic_webhook_url": getattr(settings, 'generic_webhook_url', None) if settings else None,
             # 🔥 BUILD 183: Separate inbound/outbound webhooks
             "inbound_webhook_url": getattr(settings, 'inbound_webhook_url', None) if settings else None,
             "outbound_webhook_url": getattr(settings, 'outbound_webhook_url', None) if settings else None,
             # 🔥 BUILD 163: Auto hang-up settings
-            "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if settings else False,
-            "auto_end_on_goodbye": settings.auto_end_on_goodbye if settings else False,
+            "auto_end_after_lead_capture": getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
+            "auto_end_on_goodbye": getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
             # 🔥 BUILD 163: Bot speaks first
-            "bot_speaks_first": settings.bot_speaks_first if settings else False,
+            "bot_speaks_first": getattr(settings, 'bot_speaks_first', False) if settings else False,
             # 🔥 BUILD 164: Smart Call Control Settings
-            "silence_timeout_sec": settings.silence_timeout_sec if settings else 15,
-            "silence_max_warnings": settings.silence_max_warnings if settings else 2,
-            "smart_hangup_enabled": settings.smart_hangup_enabled if settings else True,
-            "required_lead_fields": settings.required_lead_fields if settings else ["name", "phone"]
+            "silence_timeout_sec": getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
+            "silence_max_warnings": getattr(settings, 'silence_max_warnings', 2) if settings else 2,
+            "smart_hangup_enabled": getattr(settings, 'smart_hangup_enabled', True) if settings else True,
+            "required_lead_fields": getattr(settings, 'required_lead_fields', ["name", "phone"]) if settings else ["name", "phone"]
         })
         
     except Exception as e:

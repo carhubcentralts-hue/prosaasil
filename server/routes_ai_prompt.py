@@ -68,7 +68,8 @@ def _get_business_prompt_internal(business_id):
             
             version = latest_revision.version if latest_revision else 1
             
-            prompt_data = settings.ai_prompt or business.system_prompt or f"אתה נציג שירות מקצועי של {{{{business_name}}}}. עזור ללקוחות בצורה אדיבה ומקצועית."
+            # 🔥 BUILD 186 FIX: Use getattr with fallbacks to prevent 500 errors
+            prompt_data = getattr(settings, 'ai_prompt', None) or business.system_prompt or f"אתה נציג שירות מקצועי של {{{{business_name}}}}. עזור ללקוחות בצורה אדיבה ומקצועית."
             try:
                 import json
                 if prompt_data and prompt_data.startswith('{'):
@@ -84,14 +85,14 @@ def _get_business_prompt_internal(business_id):
             
             return jsonify({
                 "calls_prompt": calls_prompt,
-                "outbound_calls_prompt": settings.outbound_ai_prompt or "",
+                "outbound_calls_prompt": getattr(settings, 'outbound_ai_prompt', "") or "",
                 "whatsapp_prompt": whatsapp_prompt,
                 "greeting_message": business.greeting_message or "",
                 "whatsapp_greeting": business.whatsapp_greeting or "",
                 "version": version,
-                "updated_at": settings.updated_at.isoformat() if settings.updated_at else None,
-                "updated_by": settings.updated_by,
-                "last_updated": settings.updated_at.isoformat() if settings.updated_at else None
+                "updated_at": getattr(settings, 'updated_at', None).isoformat() if getattr(settings, 'updated_at', None) else None,
+                "updated_by": getattr(settings, 'updated_by', None),
+                "last_updated": getattr(settings, 'updated_at', None).isoformat() if getattr(settings, 'updated_at', None) else None
             })
         else:
             default_prompt = business.system_prompt or "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."
