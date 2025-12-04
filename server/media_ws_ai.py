@@ -4433,7 +4433,8 @@ ALWAYS mention their name in the first sentence.
                         # OLD BUG: Only triggered recovery for output_count=0, but AI can also
                         # get stuck after partial speech (output_count=1 with cancelled).
                         # FIX: Trigger recovery for ANY cancelled response to keep conversation flowing
-                        if status == "cancelled" and self.user_has_spoken:
+                        # 🔥 BUILD 194: But NEVER recover after closing_sent - call is ending!
+                        if status == "cancelled" and self.user_has_spoken and not getattr(self, 'closing_sent', False):
                             _orig_print(f"🔄 [BUILD 193] Response cancelled (output={len(output)})! Triggering IMMEDIATE recovery...", flush=True)
                             
                             # 🔥 BUILD 192: IMMEDIATE recovery - don't wait for speech_stopped!
@@ -5008,6 +5009,12 @@ ALWAYS mention their name in the first sentence.
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                            # 🔥 BUILD 194: Set closing fence + clear buffer
+                            self.closing_sent = True
+                            print(f"🔒 [BUILD 194] Hangup triggered - blocking future transcripts")
+                            if self.realtime_client:
+                                asyncio.create_task(self.realtime_client.clear_audio_buffer())
+                                print(f"🔇 [BUILD 194] Cleared audio input buffer")
                             # 🔥 BUILD 172: Transition to CLOSING state
                             if self.call_state == CallState.ACTIVE:
                                 self.call_state = CallState.CLOSING
@@ -5444,6 +5451,10 @@ ALWAYS mention their name in the first sentence.
                                 if self.auto_end_on_goodbye:
                                     self.closing_sent = True  # 🔥 BUILD 194: Block future transcripts
                                     print(f"🔒 [BUILD 194] Closing message sent - blocking future transcripts")
+                                    # 🔥 BUILD 194: Clear audio buffer to stop noise from being transcribed
+                                    if self.realtime_client:
+                                        asyncio.create_task(self.realtime_client.clear_audio_buffer())
+                                        print(f"🔇 [BUILD 194] Cleared audio input buffer")
                                     asyncio.create_task(self._send_server_event_to_ai(
                                         "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
                                     ))
@@ -5469,6 +5480,10 @@ ALWAYS mention their name in the first sentence.
                                     # Send polite closing instruction
                                     self.closing_sent = True  # 🔥 BUILD 194: Block future transcripts
                                     print(f"🔒 [BUILD 194] Closing message sent - blocking future transcripts")
+                                    # 🔥 BUILD 194: Clear audio buffer to stop noise from being transcribed
+                                    if self.realtime_client:
+                                        asyncio.create_task(self.realtime_client.clear_audio_buffer())
+                                        print(f"🔇 [BUILD 194] Cleared audio input buffer")
                                     asyncio.create_task(self._send_server_event_to_ai(
                                         "[SERVER] ✅ הלקוח אישר את הפרטים! סיים בצורה מנומסת - הודה ללקוח ואמור להתראות."
                                     ))
@@ -5528,6 +5543,12 @@ ALWAYS mention their name in the first sentence.
         """
         if not self.realtime_client:
             print(f"⚠️ [SERVER_EVENT] No Realtime client - cannot send message")
+            return
+        
+        # 🔥 BUILD 194: Block new AI responses after closing (allow closing messages through)
+        is_closing_message = "סיים בצורה מנומסת" in message_text or "אישר את הפרטים" in message_text or "להתראות" in message_text
+        if getattr(self, 'closing_sent', False) and not is_closing_message:
+            print(f"🔒 [BUILD 194] Blocking server event - closing already sent: '{message_text[:50]}...'")
             return
         
         try:
@@ -8706,6 +8727,10 @@ ALWAYS mention their name in the first sentence.
         # 🔥 BUILD 172: Transition to CLOSING state (only log first time)
         if self.call_state != CallState.ENDED and self.call_state != CallState.CLOSING:
             self.call_state = CallState.CLOSING
+            # 🔥 BUILD 194: Set closing fence when entering CLOSING
+            if not getattr(self, 'closing_sent', False):
+                self.closing_sent = True
+                print(f"🔒 [BUILD 194] Closing state - blocking future transcripts")
             print(f"📞 [STATE] Transitioning to CLOSING (reason: {reason})")
         
         # 🔥🔥 CRITICAL PROTECTION: Don't hangup during greeting
@@ -8846,6 +8871,10 @@ ALWAYS mention their name in the first sentence.
                         # OK to close - either no lead, or lead confirmed, or final chance given
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
+                        # 🔥 BUILD 194: Set closing fence
+                        if not getattr(self, 'closing_sent', False):
+                            self.closing_sent = True
+                            print(f"🔒 [BUILD 194] Silence closing - blocking future transcripts")
                         
                         # Send closing message and hangup
                         closing_msg = ""
