@@ -136,7 +136,10 @@ class BusinessSettings(db.Model):
     require_phone_before_booking = db.Column(db.Boolean, default=False)  # 🔥 BUILD 182: Use Caller ID by default, DTMF only if enabled
     
     # 🔥 BUILD 177: Generic Webhook for external integrations (n8n, Zapier, etc.)
-    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts
+    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts (fallback)
+    # 🔥 BUILD 183: Separate webhooks for inbound/outbound calls
+    inbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for inbound calls only
+    outbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for outbound calls only (if not set, outbound calls don't send webhooks)
     
     # 🔥 BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected
