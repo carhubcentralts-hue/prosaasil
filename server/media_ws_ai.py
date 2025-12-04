@@ -118,6 +118,7 @@ class CallConfig:
     auto_end_after_lead_capture: bool = False
     auto_end_on_goodbye: bool = False
     smart_hangup_enabled: bool = True
+    enable_calendar_scheduling: bool = True  # 🔥 BUILD 186: AI can schedule appointments
     
     # Timeouts
     silence_timeout_sec: int = 15
@@ -169,6 +170,7 @@ def load_call_config(business_id: int) -> CallConfig:
             auto_end_after_lead_capture=getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
             auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
             smart_hangup_enabled=getattr(settings, 'smart_hangup_enabled', True) if settings else True,
+            enable_calendar_scheduling=getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
             silence_timeout_sec=getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             silence_max_warnings=getattr(settings, 'silence_max_warnings', 2) if settings else 2,
             required_lead_fields=getattr(settings, 'required_lead_fields', ['name', 'phone']) if settings else ['name', 'phone'],
@@ -179,6 +181,7 @@ def load_call_config(business_id: int) -> CallConfig:
                    f"bot_speaks_first={config.bot_speaks_first}, "
                    f"auto_end_goodbye={config.auto_end_on_goodbye}, "
                    f"auto_end_lead={config.auto_end_after_lead_capture}, "
+                   f"calendar_scheduling={config.enable_calendar_scheduling}, "
                    f"silence_timeout={config.silence_timeout_sec}s")
         
         return config
@@ -3159,6 +3162,19 @@ ALWAYS mention their name in the first sentence.
         if action == "ask":
             print(f"❓ [NLP] User asking for availability - checking slot...")
             
+            # 🔥 BUILD 186: OUTBOUND CALLS - Skip scheduling entirely!
+            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            if is_outbound:
+                print(f"⚠️ [NLP] OUTBOUND call - skipping availability check (outbound follows prompt only)")
+                return
+            
+            # 🔥 BUILD 186: CHECK IF CALENDAR SCHEDULING IS ENABLED
+            call_config = getattr(self, 'call_config', None)
+            if call_config and not call_config.enable_calendar_scheduling:
+                print(f"⚠️ [NLP] Calendar scheduling is DISABLED - not checking availability")
+                await self._send_server_event_to_ai("⚠️ קביעת תורים מושבתת כרגע. הסבר ללקוח שנציג יחזור אליו בהקדם.")
+                return
+            
             if not date_iso or not time_str:
                 # User wants appointment but didn't specify date/time
                 print(f"⚠️ [NLP] User wants appointment but no date/time - asking for it")
@@ -3249,6 +3265,21 @@ ALWAYS mention their name in the first sentence.
             print(f"=" * 80)
             print(f"🎯 [APPOINTMENT FLOW] ========== CONFIRM ACTION TRIGGERED ==========")
             print(f"=" * 80)
+            
+            # 🔥 BUILD 186: OUTBOUND CALLS - Skip scheduling entirely!
+            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            if is_outbound:
+                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - OUTBOUND call (outbound follows prompt only)")
+                return
+            
+            # 🔥 BUILD 186: CHECK IF CALENDAR SCHEDULING IS ENABLED
+            # If disabled, do NOT attempt to create appointments - only collect leads
+            call_config = getattr(self, 'call_config', None)
+            if call_config and not call_config.enable_calendar_scheduling:
+                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - Calendar scheduling is DISABLED for this business!")
+                print(f"⚠️ [APPOINTMENT FLOW] Informing AI to redirect customer to human representative")
+                await self._send_server_event_to_ai("⚠️ קביעת תורים מושבתת. הסבר ללקוח שנציג יחזור אליו בהקדם לקביעת פגישה.")
+                return
             
             # 🛡️ CRITICAL GUARD: Check if appointment was already created in this session
             # This prevents the loop where NLP keeps detecting "confirm" from AI's confirmation message
