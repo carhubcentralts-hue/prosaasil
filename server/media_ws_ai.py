@@ -2970,6 +2970,9 @@ ALWAYS mention their name in the first sentence.
                             self.verification_confirmed = False
                             # 🔥 FIX: Also reset the prompt flag so we can send a new verification request
                             self._verification_prompt_sent = False
+                            # 🔥 BUILD 201: Unlock city when user says correction words
+                            if hasattr(self, 'stt_consistency_filter') and self.stt_consistency_filter.is_city_locked():
+                                self.stt_consistency_filter.unlock_city(reason="user_correction_word")
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
@@ -6614,6 +6617,7 @@ ALWAYS mention their name in the first sentence.
         
         # 🏙️ CITY EXTRACTION: Use 3-layer validation system
         # 🔥 BUILD 185: Phonetic validator + Consistency filter + RapidFuzz
+        # 🔥 BUILD 201: User correction detection - don't ignore locked if user explicitly corrects
         if 'city' in required_fields:
             try:
                 from server.services.city_normalizer import normalize_city, get_all_city_names
@@ -6621,11 +6625,9 @@ ALWAYS mention their name in the first sentence.
                     validate_hebrew_word, phonetic_similarity, normalize_for_comparison
                 )
                 
-                # 🔒 LAYER 3: Check if city is already locked by consistency filter
-                if self.stt_consistency_filter.is_city_locked():
-                    locked_city = self.stt_consistency_filter.locked_city
-                    print(f"🔒 [CITY] Already locked to '{locked_city}' - ignoring new input")
-                else:
+                # 🔥 BUILD 201: ALWAYS process city extraction - let ConsistencyFilter handle corrections
+                # The filter will detect if user is correcting and unlock if needed
+                if True:
                     # Normalize text for matching
                     text_normalized = text.replace('-', ' ').replace('־', ' ')
                     
