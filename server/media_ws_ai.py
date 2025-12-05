@@ -158,11 +158,27 @@ def load_call_config(business_id: int) -> CallConfig:
     """
     try:
         from server.models_sql import Business, BusinessSettings
+        from sqlalchemy import text
+        from server.db import db
         
         business = Business.query.get(business_id)
         if not business:
             logger.warning(f"⚠️ [CALL CONFIG] Business {business_id} not found - using defaults")
             return CallConfig(business_id=business_id)
+        
+        # 🔥 BUILD 309: Try to load new columns with raw SQL first (handles missing columns gracefully)
+        call_goal = 'lead_only'
+        confirm_before_hangup = True
+        try:
+            result = db.session.execute(text(
+                "SELECT call_goal, confirm_before_hangup FROM business_settings WHERE tenant_id = :bid LIMIT 1"
+            ), {"bid": business_id})
+            row = result.fetchone()
+            if row:
+                call_goal = row[0] or 'lead_only'
+                confirm_before_hangup = row[1] if row[1] is not None else True
+        except Exception as sql_err:
+            logger.debug(f"🔧 [BUILD 309] New columns not yet in DB: {sql_err}")
         
         # 🔥 BUILD 186 FIX: Handle missing columns gracefully
         settings = None
@@ -181,8 +197,8 @@ def load_call_config(business_id: int) -> CallConfig:
             auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
             smart_hangup_enabled=getattr(settings, 'smart_hangup_enabled', True) if settings else True,
             enable_calendar_scheduling=getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
-            call_goal=getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only',
-            confirm_before_hangup=getattr(settings, 'confirm_before_hangup', True) if settings else True,
+            call_goal=call_goal,
+            confirm_before_hangup=confirm_before_hangup,
             silence_timeout_sec=getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             silence_max_warnings=getattr(settings, 'silence_max_warnings', 2) if settings else 2,
             required_lead_fields=getattr(settings, 'required_lead_fields', ['name', 'phone']) if settings else ['name', 'phone'],
