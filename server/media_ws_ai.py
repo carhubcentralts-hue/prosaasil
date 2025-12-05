@@ -2695,18 +2695,24 @@ ALWAYS mention their name in the first sentence.
                                 self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
                             continue
                     
-                    # 🔥 BUILD 171: STRICTER RMS GATE - Reject if no sustained speech detected
+                    # 🔥 BUILD 202 FIX: TRUST OPENAI STT OVER LOCAL RMS
+                    # If OpenAI Realtime API transcribed the speech, it detected valid audio.
+                    # Our local RMS measurement can be stale or wrong (race condition).
+                    # Only apply silence gate to very short/empty transcriptions.
                     recent_rms = getattr(self, '_recent_audio_rms', 0)
                     consec_frames = getattr(self, '_consecutive_voice_frames', 0)
-                    ABSOLUTE_SILENCE_RMS = 30  # 🔥 BUILD 171: Raised from 15 to 30
+                    ABSOLUTE_SILENCE_RMS = 30
                     
-                    # Reject if: low RMS AND not enough consecutive frames
-                    if recent_rms < ABSOLUTE_SILENCE_RMS and consec_frames < MIN_CONSECUTIVE_VOICE_FRAMES:
-                        print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {ABSOLUTE_SILENCE_RMS}, frames={consec_frames}): '{text}'")
-                        # 🔥 BUILD 182: Still record for transcript (with filtered flag)
-                        if len(text) >= 3:
-                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
+                    # 🔥 BUILD 202: Only reject if BOTH conditions are met:
+                    # 1. Very low RMS (< 10, not 30 - true silence)
+                    # 2. Very short text (< 3 chars - likely noise artifact)
+                    # OpenAI's VAD is more reliable than our local measurement!
+                    if recent_rms < 10 and len(text.strip()) < 3:
+                        print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < 10, text too short): '{text}'")
                         continue
+                    elif recent_rms < ABSOLUTE_SILENCE_RMS and len(text.strip()) >= 3:
+                        # 🔥 BUILD 202: Trust OpenAI - it heard something valid!
+                        print(f"[SILENCE GATE] ✅ TRUSTED (OpenAI heard '{text[:30]}...' despite low RMS={recent_rms:.0f})")
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
