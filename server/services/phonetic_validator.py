@@ -387,7 +387,15 @@ class ConsistencyFilter:
     
     Tracks last N attempts and uses majority voting to prevent STT hallucinations.
     If 2 out of 3 attempts match, that value is locked in.
+    
+    🔥 BUILD 201: User correction detection
+    - Detects explicit city corrections with "מצפה" prefix or city name after "ב"/"ל"
+    - Unlocks city when user explicitly states a DIFFERENT city
+    - Prevents ignoring user corrections like "מצפה רמון" when locked to "רמלה"
     """
+    
+    # 🔥 BUILD 201: Known city prefixes that indicate explicit city mention
+    CITY_PREFIXES = ['מצפה', 'קריית', 'קרית', 'בית', 'רמת', 'גבעת', 'תל', 'כפר', 'נהר', 'מעלה', 'ראש', 'נווה', 'עין']
     
     def __init__(self, max_attempts: int = 3):
         self.max_attempts = max_attempts
@@ -396,18 +404,79 @@ class ConsistencyFilter:
         self.locked_city: Optional[str] = None
         self.locked_name: Optional[str] = None
     
-    def add_city_attempt(self, raw_city: str) -> Optional[str]:
+    def _is_explicit_city_mention(self, text: str) -> bool:
+        """
+        🔥 BUILD 201: Detect if text contains explicit city mention
+        
+        Returns True if user explicitly mentioned a city (not just partial/unclear)
+        """
+        text_normalized = normalize_for_comparison(text)
+        
+        # Check for known city prefixes like "מצפה", "קריית", etc.
+        for prefix in self.CITY_PREFIXES:
+            if prefix in text_normalized:
+                return True
+        
+        # Check for "ב[city]" or "ל[city]" patterns with substantial city name
+        if len(text_normalized) >= 4:
+            return True
+        
+        return False
+    
+    def _is_different_from_locked(self, new_city: str) -> bool:
+        """
+        🔥 BUILD 201: Check if new city is phonetically different from locked city
+        
+        Returns True if they are different cities (low similarity)
+        """
+        if not self.locked_city:
+            return False
+        
+        similarity = phonetic_similarity(
+            normalize_for_comparison(self.locked_city),
+            normalize_for_comparison(new_city)
+        )
+        
+        # If similarity is below 60%, they are definitely different cities
+        return similarity < 60
+    
+    def unlock_city(self, reason: str = "user_correction"):
+        """
+        🔥 BUILD 201: Unlock city to allow user corrections
+        
+        Called when user explicitly mentions a different city
+        """
+        if self.locked_city:
+            old_city = self.locked_city
+            self.locked_city = None
+            self.city_attempts = []  # Reset attempts for fresh majority voting
+            print(f"🔓 [CONSISTENCY] City UNLOCKED from '{old_city}' (reason: {reason})")
+    
+    def add_city_attempt(self, raw_city: str, force_check_correction: bool = False) -> Optional[str]:
         """
         Add a city attempt and check for majority.
         Returns the locked city if majority achieved, None otherwise.
-        """
-        if self.locked_city:
-            # Already locked - ignore new attempts
-            return self.locked_city
         
+        🔥 BUILD 201: If force_check_correction=True or explicit city detected,
+        check if this is a user correction and unlock if needed
+        """
         normalized = normalize_for_comparison(raw_city)
         if not normalized:
-            return None
+            return self.locked_city if self.locked_city else None
+        
+        # 🔥 BUILD 201: USER CORRECTION DETECTION
+        # If city is locked AND user explicitly mentions a DIFFERENT city, UNLOCK
+        if self.locked_city:
+            is_explicit = self._is_explicit_city_mention(raw_city)
+            is_different = self._is_different_from_locked(raw_city)
+            
+            if is_explicit and is_different:
+                print(f"🔄 [CONSISTENCY] User correction detected: '{raw_city}' differs from locked '{self.locked_city}'")
+                self.unlock_city(reason=f"user_said_{raw_city}")
+                # Continue to add as new attempt
+            else:
+                # Still locked and not a clear correction - return locked value
+                return self.locked_city
         
         self.city_attempts.append(normalized)
         
