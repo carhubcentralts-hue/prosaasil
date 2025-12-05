@@ -30,6 +30,7 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
 - **Webhook**: Separate inbound/outbound URLs with HMAC signature verification and retry logic.
 - **Single Pipeline Lockdown**: Centralized `trigger_response()` function for all response creation, unified OpenAI Realtime STT, and robust response lifecycle tracking.
 - **Major Hebrew STT Upgrade (BUILD 202)**: Switched to `gpt-4o-transcribe` with minimal, focused transcription prompts. Prompt includes business name + required field types (שמות, שעות, ערים) as short rules, NOT long vocabulary lists. Under 100 chars for optimal performance.
+- **Trusted OpenAI STT (BUILD 202)**: Fixed SILENCE_GATE blocking valid transcriptions. The local RMS gate was rejecting valid OpenAI transcriptions due to race conditions. Now trusts OpenAI's VAD when it successfully transcribes speech, only rejects true silence (RMS<10 + text<3 chars). Fixes "AI ignores what user said" bug.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

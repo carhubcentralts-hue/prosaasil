@@ -1165,6 +1165,8 @@ class MediaStreamHandler:
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
         self._verification_prompt_sent = False  # Tracks if we already asked for verification
         self._silence_final_chance_given = False  # Tracks if we gave extra chance before silence hangup
+        # 🔥 BUILD 203: REJECTION GATE - Blocks hangup when user rejects confirmation
+        self.user_rejected_confirmation = False  # Set when user says "לא", "ממש לא" etc.
 
     def _init_streaming_stt(self):
         """
@@ -3008,14 +3010,22 @@ ALWAYS mention their name in the first sentence.
                         if any(word in transcript_lower for word in confirmation_words):
                             print(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
                             self.verification_confirmed = True
+                            # 🔥 BUILD 203: Clear rejection flag when user confirms
+                            self.user_rejected_confirmation = False
                         
                         # 🛡️ BUILD 168: If user says correction words, reset verification
-                        correction_words = ["לא", "רגע", "שנייה", "לא נכון", "טעות", "תתקן", "לשנות"]
+                        correction_words = ["לא", "רגע", "שנייה", "לא נכון", "טעות", "תתקן", "לשנות", "ממש לא", "לא לא"]
                         if any(word in transcript_lower for word in correction_words):
                             print(f"🔄 [BUILD 168] User wants CORRECTION - resetting verification state")
                             self.verification_confirmed = False
                             # 🔥 FIX: Also reset the prompt flag so we can send a new verification request
                             self._verification_prompt_sent = False
+                            # 🔥 BUILD 203: Cancel any pending hangup - user rejected!
+                            self.user_rejected_confirmation = True
+                            self.goodbye_detected = False  # Clear goodbye flag
+                            if self.call_state == CallState.CLOSING:
+                                self.call_state = CallState.ACTIVE
+                                print(f"📞 [BUILD 203] CLOSING → ACTIVE (user rejected confirmation)")
                             # 🔥 BUILD 201: Unlock city when user says correction words
                             if hasattr(self, 'stt_consistency_filter') and self.stt_consistency_filter.is_city_locked():
                                 self.stt_consistency_filter.unlock_city(reason="user_correction_word")
@@ -6245,6 +6255,8 @@ ALWAYS mention their name in the first sentence.
         This ensures calls always end gracefully even if AI's response
         doesn't contain a recognized closing phrase.
         
+        🔥 BUILD 203: Cancel hangup if user rejected confirmation!
+        
         Args:
             timeout_seconds: How long to wait before forcing disconnect
             trigger_type: What triggered this ("user_goodbye" or "lead_captured")
@@ -6261,6 +6273,18 @@ ALWAYS mention their name in the first sentence.
         # Check if pending_hangup was set (AI said closing phrase)
         if self.pending_hangup:
             print(f"✅ [FALLBACK] pending_hangup already set - normal flow working")
+            return
+        
+        # 🔥 BUILD 203: CRITICAL - If user rejected confirmation, DO NOT hangup!
+        if getattr(self, 'user_rejected_confirmation', False):
+            print(f"🛡️ [BUILD 203] BLOCKING hangup - user rejected confirmation, conversation must continue!")
+            # Reset the flag for next attempt
+            self.user_rejected_confirmation = False
+            return
+        
+        # 🔥 BUILD 203: Only hangup if user explicitly confirmed
+        if not self.verification_confirmed and trigger_type != "user_goodbye":
+            print(f"🛡️ [BUILD 203] BLOCKING hangup - no user confirmation received!")
             return
         
         # AI didn't say a recognized closing phrase - force polite disconnect

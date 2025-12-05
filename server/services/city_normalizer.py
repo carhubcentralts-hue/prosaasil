@@ -57,6 +57,7 @@ class HebrewCityNormalizer:
     _confusing_pairs: List[Dict] = []
     _big_jump_pairs: Set[Tuple[str, str]] = set()
     _phonetic_rules: Optional[Dict] = None
+    _stt_corrections: Dict[str, str] = {}
     
     AUTO_ACCEPT_THRESHOLD = 90
     CONFIRM_THRESHOLD = 82
@@ -122,7 +123,15 @@ class HebrewCityNormalizer:
                     self._big_jump_pairs.add((city1, city2))
                     self._big_jump_pairs.add((city2, city1))
             
-            logger.info(f"✅ City normalizer loaded: {len(self._cities_data.get('cities', []))} cities, {len(self._all_names)} unique names")
+            self._stt_corrections = {}
+            for correction in self._cities_data.get('stt_corrections', []):
+                error = correction.get('error', '').strip()
+                correct = correction.get('correct', '').strip()
+                if error and correct:
+                    self._stt_corrections[error] = correct
+                    self._stt_corrections[error.replace(' ', '')] = correct
+            
+            logger.info(f"✅ City normalizer loaded: {len(self._cities_data.get('cities', []))} cities, {len(self._all_names)} unique names, {len(self._stt_corrections)} STT corrections")
             
         except Exception as e:
             logger.error(f"❌ Failed to load city data: {e}")
@@ -157,6 +166,8 @@ class HebrewCityNormalizer:
         """
         Normalize a city name using fuzzy matching
         
+        BUILD 203: Added STT correction layer - checks common transcription errors first
+        
         Args:
             raw_city: Raw city name from STT/user input
             previous_value: Previously confirmed/locked value (for big-jump detection)
@@ -173,6 +184,32 @@ class HebrewCityNormalizer:
             )
         
         raw_city = raw_city.strip()
+        
+        raw_normalized = raw_city.replace(' ', '').replace('-', '').replace('־', '')
+        if raw_normalized in self._stt_corrections:
+            corrected = self._stt_corrections[raw_normalized]
+            logger.info(f"🔧 [STT-FIX] Exact match: '{raw_city}' → '{corrected}'")
+            raw_city = corrected
+        elif raw_city in self._stt_corrections:
+            corrected = self._stt_corrections[raw_city]
+            logger.info(f"🔧 [STT-FIX] Exact match: '{raw_city}' → '{corrected}'")
+            raw_city = corrected
+        elif RAPIDFUZZ_AVAILABLE and self._stt_corrections:
+            try:
+                from rapidfuzz import fuzz as rf_fuzz, process as rf_process
+                result = rf_process.extractOne(
+                    raw_normalized,
+                    list(self._stt_corrections.keys()),
+                    scorer=rf_fuzz.ratio,
+                    score_cutoff=80
+                )
+                if result:
+                    matched_error, score, _ = result
+                    corrected = self._stt_corrections[matched_error]
+                    logger.info(f"🔧 [STT-FIX] Fuzzy match ({score:.0f}%): '{raw_city}' → '{corrected}'")
+                    raw_city = corrected
+            except Exception as e:
+                logger.warning(f"⚠️ [STT-FIX] Fuzzy match failed: {e}")
         
         if raw_city in self._name_to_canonical:
             canonical = self._name_to_canonical[raw_city]
