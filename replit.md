@@ -74,18 +74,18 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
   4. **Pipeline status logging**: Every 3 seconds logs `sent/blocked/active_response/ai_speaking/user_has_spoken` for debugging.
   5. **Removed `openai_ws` usage**: All communication uses `realtime_client` only.
 - **100% Dynamic Content (BUILD 200)**: CRITICAL DESIGN PRINCIPLE - ZERO hardcoded business-specific values in code. System works for ANY business type (restaurants, doctors, service providers, etc.) without code changes. All prompts, greetings, required fields, service types, and business logic come from database configuration:
-  - Removed hardcoded real estate terms (דירה, נכסים, תקציב patterns)
-  - Deleted `extract_property_type()` and `extract_budget()` functions from appointment_parser.py
-  - Changed default business_type from 'real_estate' to 'general' in models and routes
-  - Made whatsapp_templates.py generic - removed property_match template, simplified welcome/reminder messages
-  - auto_meeting.py uses dynamic `service_type` instead of `property_type`, generic appointment titles
-  - whatsapp_appointment_handler.py uses generic extraction without hardcoded property/budget fields
-  - Removed 150+ real estate STT hints from gcp_stt_stream.py
-  - customer_intelligence.py no longer extracts hardcoded property types
-  - Emergency responses are generic ("לא שמעתי, אפשר לחזור?")
-  - Required lead fields defined per-business in settings
-  - City hints loaded from JSON files, not hardcoded
-  - All AI behavior controlled by business-editable prompts
+  - **Phase 1 - Real Estate Cleanup**: Removed hardcoded real estate terms (דירה, נכסים, תקציב patterns). Deleted `extract_property_type()` and `extract_budget()` functions from appointment_parser.py. Changed default business_type from 'real_estate' to 'general'. Made whatsapp_templates.py generic.
+  - **Phase 2 - Medical/Treatment Cleanup**: Fixed DTMF menu "טיפול" assumption, made appointment scheduling generic ("שירות" not "טיפול"), cleaned up contract templates.
+  - **Phase 3 - Comprehensive Dynamic Enforcement**: 
+    - `dtmf_menu.py`: Removed "09:00 עד 22:00" hardcoded hours - now gets hours from context or asks AI. Removed "איזה סוג טיפול?" - now "במה אוכל לעזור?"
+    - `tools_calendar.py`: Changed "סוג טיפול" validation message to "סוג שירות". Appointment notes now use generic "שירות:" instead of "סוג טיפול:".
+    - `tools_contracts.py`: Renamed `treatment_count` → `service_count`. Template ID `treatment_series` → `service_series`. Generic contract content uses "שירותים" not "טיפולים".
+    - `routes_agent.py`: Test example "מסאז' מחר ב-10" → "תור מחר ב-10".
+    - `gcp_stt_stream.py`: Removed "חדר קריוקי", "טיפול", "עיסוי" from STT hints - only generic "שירות", "סידור", "ייעוץ".
+    - `time_parser.py`: Replaced hardcoded hour validation (9-20) with configurable fallbacks. Business hours validation is done in tools_calendar via BusinessPolicy.
+    - `ui/routes.py`: Mock contracts changed from "חוזה דירה תל אביב" to "חוזה שירותים - לקוח 001".
+    - `routes_receipts_contracts.py`: PDF label "נכס:" → "עסקה:" (generic Deal instead of Property).
+    - `tools_invoices.py`: Docstring examples changed from "עיסוי מרגיע, שירותי תיווך" to "שירות ללקוח, ייעוץ".
 
 # External Dependencies
 
