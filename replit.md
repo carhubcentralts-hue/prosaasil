@@ -93,6 +93,12 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
   - Raw μ-law sent directly to OpenAI (no audio processing)
   - Echo blocking during AI speech confirmed working
   - Single response.create via central trigger_response function
+- **STT Vocabulary UI (BUILD 207)**: User-editable vocabulary settings in AI Settings:
+  - Business context textarea (500 char limit)
+  - 4 vocabulary categories: services, products, staff, locations
+  - Chip-based editing with add/remove (max 20 items per category)
+  - Live prompt preview showing what OpenAI will receive
+  - Saves to database via existing API
 
 # External Dependencies
 
