@@ -1,0 +1,155 @@
+prosaas-backend  |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+prosaas-backend  |   - User 10: calliber@gmail.com | role=owner | business_id=10
+prosaas-backend  |   - User 8: admin@admin.com | role=system_admin | business_id=None
+prosaas-backend  | ✅ Lead statuses exist: 4 statuses found
+prosaas-backend  | ✅ FAQs table exists: 0 FAQs found across all businesses
+prosaas-backend  | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+prosaas-backend  | 👥 Checking user ownership...
+prosaas-backend  | 🔄 Starting User-to-Owner migration...
+prosaas-backend  | 📊 Found 2 businesses
+prosaas-backend  | ✅ Business 'פרו סאס' (ID=1) already has owner: business@shai-offices.co.il
+prosaas-backend  | ✅ Business 'קליבר' (ID=10) already has owner: calliber@gmail.com
+prosaas-backend  | 
+prosaas-backend  | ✅ User-to-Owner migration completed!
+prosaas-backend  | 
+prosaas-backend  | ✅ All businesses have owners!
+prosaas-backend  | ✅ User ownership check completed
+prosaas-backend  | ✅ Database initialization completed successfully!
+prosaas-backend  | 📧 Admin login: admin@admin.com / admin123
+prosaas-backend  | 🏢 Business ID: 1
+prosaas-backend  | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+prosaas-backend  | ✅ DATA PROTECTION: 21 leads preserved (no deletions)
+prosaas-backend  | 🔄 Starting admin roles migration...
+prosaas-backend  | 📊 Found 1 users with legacy roles
+prosaas-backend  | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+prosaas-backend  | 
+prosaas-backend  | ✅ Successfully migrated 1 users to new role structure!
+prosaas-backend  | 👤 Admin exists (ID=8), resetting password to 'admin123'
+prosaas-backend  | ✅ Admin password reset: admin@admin.com / admin123
+prosaas-backend  | 🔧 Starting database initialization...
+prosaas-backend  | ✅ Business exists: פרו סאס (ID: 1)
+prosaas-backend  | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+prosaas-backend  | 
+prosaas-backend  | 📊 Total users in database: 6
+prosaas-backend  |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+prosaas-backend  |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+prosaas-backend  |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+prosaas-backend  |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+prosaas-backend  |   - User 10: calliber@gmail.com | role=owner | business_id=10
+prosaas-backend  |   - User 8: admin@admin.com | role=system_admin | business_id=None
+prosaas-backend  | ✅ Lead statuses exist: 4 statuses found
+prosaas-backend  | ✅ FAQs table exists: 0 FAQs found across all businesses
+prosaas-backend  | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+prosaas-backend  | 👥 Checking user ownership...
+prosaas-backend  | 🔄 Starting User-to-Owner migration...
+prosaas-backend  | 📊 Found 2 businesses
+prosaas-backend  | ✅ Business 'פרו סאס' (ID=1) already has owner: business@shai-offices.co.il
+prosaas-backend  | ✅ Business 'קליבר' (ID=10) already has owner: calliber@gmail.com
+prosaas-backend  | 
+prosaas-backend  | ✅ User-to-Owner migration completed!
+prosaas-backend  | 
+prosaas-backend  | ✅ All businesses have owners!
+prosaas-backend  | ✅ User ownership check completed
+prosaas-backend  | ✅ Database initialization completed successfully!
+prosaas-backend  | 📧 Admin login: admin@admin.com / admin123
+prosaas-backend  | 🏢 Business ID: 1
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔥 CACHE CLEARED for business 10 - next call will use new prompt!
+prosaas-backend  | INFO:     172.18.0.5:38214 - "PUT /api/business/current/prompt HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     127.0.0.1:44542 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:37880 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:37884 - "PUT /api/business/current/settings HTTP/1.1" 200 OK
+prosaas-backend  | ✅ Resolved business_id=10 from to_number=+97233762734 (Business: קליבר)
+prosaas-backend  | ✅ call_log created immediately for CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | 🔵 CREATE_LEAD_FROM_CALL - App context created
+prosaas-backend  | 🟢 INCOMING_CALL - Thread started successfully
+prosaas-backend  | ✅ incoming_call: 1294ms - CAfd51762167195c
+prosaas-backend  | 🔥 TWIML_HOST=prosaas.pro
+prosaas-backend  | 🔥 TWIML_WS=wss://prosaas.pro/ws/twilio-media
+prosaas-backend  | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://prosaas.pro/webhook/stream_ended"><Stream url="wss://prosaas.pro/ws/twilio-media"><Parameter name="CallSid" value="CAfd51762167195c393bc53404f8652e3f" /><Parameter name="To" value="+97233762734" /></Stream></Connect></Response>
+prosaas-backend  | INFO:     172.18.0.5:43112 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.5:43126 - "WebSocket /ws/twilio-media" [accepted]
+prosaas-backend  | INFO:     connection open
+prosaas-backend  | 🎯 AI CONVERSATION STARTED
+prosaas-backend  | 🔵 [CALL] run() started - waiting for START event...
+prosaas-backend  | 🎯 [CALL DEBUG] START EVENT RECEIVED! session=SES-57e69b8f
+prosaas-backend  | 
+prosaas-backend  | 📞 START EVENT (customParameters path):
+prosaas-backend  |    customParams.From: None
+prosaas-backend  |    customParams.CallFrom: None
+prosaas-backend  |    ✅ self.phone_number set to: 'None'
+prosaas-backend  |    ✅ self.to_number set to: '+97233762734'
+prosaas-backend  | 🎯 [T0=1764904690.917] WS_START sid=MZdfe088101b482c74f632821607b7beca call_sid=CAfd51762167195c393bc53404f8652e3f from=None to=+97233762734 mode=AI
+prosaas-backend  | 🚀 [PARALLEL] Starting OpenAI at T0+0ms (BEFORE DB query!)
+prosaas-backend  | 🚀 [REALTIME] Thread started for call CAfd5176 (FRESH SESSION)
+prosaas-backend  | ⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number=+97233762734
+prosaas-backend  | 🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY
+prosaas-backend  | ⏱️ [PARALLEL] Client created in 0ms
+prosaas-backend  | ⏱️ [PARALLEL] OpenAI connected in 487ms (T0+494ms)
+prosaas-backend  | ⏳ [PARALLEL] Waiting for business info from DB query...
+prosaas-backend  | ✅ מצא עסק: קליבר (id=10)
+prosaas-backend  | 🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)
+prosaas-backend  | ⚡ BUILD 172: CallConfig loaded in 972ms
+prosaas-backend  |    bot_speaks_first=True, auto_end_goodbye=True
+prosaas-backend  |    auto_end_lead=True, silence_timeout=5s
+prosaas-backend  | 🔍 [CONFIG] required_lead_fields=['city', 'service_type']
+prosaas-backend  | 🔍 [CONFIG] smart_hangup_enabled=True
+prosaas-backend  | ⚡ DB QUERY: business_id=10 in 1079ms
+prosaas-backend  | 🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=10, SID=CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | 🔊 TX_LOOP_START: Audio transmission thread started
+prosaas-backend  | 🎯 [T1=1764904691.998] STORING GREETING FOR REALTIME!
+prosaas-backend  | ✅ [REALTIME] Greeting stored: 'שלום! זה מ-אתר  ה-מנעולן איזה סוג שירות אתה צריך ?...' (len=50)
+prosaas-backend  | 🚀 [PARALLEL] Signaling business info ready at T0+1081ms
+prosaas-backend  | 🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress
+prosaas-backend  | 🎛️ VAD CALIBRATED (noise=9.9, threshold=109.9)
+prosaas-backend  | ✅ [PARALLEL] Business info ready! Wait time: 590ms
+prosaas-backend  | ⏱️ [PARALLEL] Using greeting: 'שלום! זה מ-אתר  ה-מנעולן איזה סוג שירות אתה צריך ?...'
+prosaas-backend  | 🎤 [VOICE] Using voice=shimmer for entire call (business=10)
+prosaas-backend  | 🎤 [GREETING] max_tokens=4096 for greeting length=50 chars (direction=inbound)
+prosaas-backend  | ❌ [REALTIME] Async error: OpenAIRealtimeClient.configure_session() got an unexpected keyword argument 'prefix_padding_ms'
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/media_ws_ai.py", line 1560, in _run_realtime_mode_async
+prosaas-backend  |     await client.configure_session(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  | TypeError: OpenAIRealtimeClient.configure_session() got an unexpected keyword argument 'prefix_padding_ms'
+prosaas-backend  | ✅ Call log already exists for CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | ✅ CustomerIntelligence SUCCESS: customer_id=7, lead_id=79, was_created=False
+prosaas-backend  | ✅ Recording started for CAfd51762167195c393bc53404f8652e3f: RE8d5e767553c5cc614ba0d9b53ad03451
+prosaas-backend  | 🔌 [REALTIME] Disconnected
+prosaas-backend  | 🔚 [REALTIME] Thread ended for call CAfd5176
+prosaas-backend  | ✅ Updated call_log with customer_id=7
+prosaas-backend  | 🎙️ REAL_VOICE: rms=168.0 > threshold=109.9
+prosaas-backend  | 🎤 END OF UTTERANCE: 4.1s audio, conversation #0
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=64960 | silence_ms=1813
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=293.0 > threshold=109.9
+prosaas-backend  | 🎤 END OF UTTERANCE: 1.1s audio, conversation #1
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=17280 | silence_ms=502
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #1
+prosaas-backend  | WS_STOP sid=MZdfe088101b482c74f632821607b7beca rx=499 tx=0
+prosaas-backend  | 📞 [SES-57e69b8f] CALL ENDED - duration=9.8s, business_id=10, rx=499, tx=0
+prosaas-backend  | STREAM_ENDED call=CAfd51762167195c393bc53404f8652e3f stream=N/A status=N/A
+prosaas-backend  | INFO:     172.18.0.5:44738 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+prosaas-backend  | 🧹 Waiting for 5 background threads...
+prosaas-backend  | ✅ Found existing recording for CAfd51762167195c393bc53404f8652e3f: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/RE8d5e767553c5cc614ba0d9b53ad03451.json
+prosaas-backend  | INFO:     172.18.0.5:44748 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+prosaas-backend  | ✅ Recording queued for processing: CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | 📊 [FINALIZE] NO USER SPEECH - skipping summary generation for CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | INFO:     connection closed
+prosaas-backend  | ✅ CALL FINALIZED (no conversation): CAfd51762167195c393bc53404f8652e3f
+prosaas-backend  | ✅ Background thread 4 completed
+prosaas-backend  | ✅ All background threads cleanup complete
+prosaas-backend  | WS_DONE sid=MZdfe088101b482c74f632821607b7beca rx=499 tx=0
+prosaas-backend  | INFO:     127.0.0.1:37250 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | [WA-SESSION] 📱 Check #1: Found 0 stale sessions to process
+p
