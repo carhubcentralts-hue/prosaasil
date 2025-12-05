@@ -2390,6 +2390,10 @@ ALWAYS mention their name in the first sentence.
                         if self._cancelled_response_needs_recovery:
                             print(f"🔄 [BUILD 187] New response created - cancelling recovery")
                             self._cancelled_response_needs_recovery = False
+                        # 🔥 BUILD 305: Reset gap detector for new response
+                        # This prevents false "AUDIO GAP" warnings between responses
+                        self._last_audio_chunk_ts = time.time()
+                        self._openai_audio_chunks_received = 0
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
@@ -2703,35 +2707,24 @@ ALWAYS mention their name in the first sentence.
                             clarification_text = "[SERVER] זיהיתי שאתה חוזר על עצמך. אמור: 'לא שמעתי טוב, אפשר לחזור?' ותמתין בשקט."
                             asyncio.create_task(self._send_server_event_to_ai(clarification_text))
                             
-                            # Cancel any pending response
-                            if self.active_response_id and self.realtime_client:
+                            # 🔥 BUILD 305: DON'T clear TX queue - causes choppy mid-sentence audio!
+                            # Instead: just block NEW audio from being added via _tx_enqueue guard
+                            # Let existing audio in queue play out naturally for smooth transition
+                            
+                            # Only cancel if there's actually an active response
+                            if self.active_response_id and self.realtime_client and self.is_ai_speaking_event.is_set():
                                 try:
                                     await client.send_event({"type": "response.cancel"})
-                                    print(f"🛑 [LOOP GUARD] Cancelled pending AI response")
+                                    print(f"🛑 [LOOP GUARD] Cancelled active AI response (id={self.active_response_id})")
                                 except:
                                     pass
-                            # Clear OpenAI audio queue
-                            try:
-                                while not self.realtime_audio_out_queue.empty():
-                                    self.realtime_audio_out_queue.get_nowait()
-                            except:
-                                pass
-                            # 🔥 CRITICAL: Also clear Twilio TX queue to stop any audio in flight!
-                            try:
-                                while not self.tx_q.empty():
-                                    self.tx_q.get_nowait()
-                                print(f"🛑 [LOOP GUARD] Cleared TX queue")
-                            except:
-                                pass
-                            # Send clear to Twilio to stop playback (allowed through guard)
-                            try:
-                                # Temporarily disengage to send clear, then re-engage
-                                self._loop_guard_engaged = False
-                                self._tx_enqueue({"type": "clear"})
-                                self._loop_guard_engaged = True
-                                print(f"🛑 [LOOP GUARD] Sent clear to Twilio")
-                            except:
-                                self._loop_guard_engaged = True  # Ensure guard remains engaged
+                            else:
+                                print(f"⏭️ [LOOP GUARD] Skipped cancel - no active response (id={self.active_response_id}, speaking={self.is_ai_speaking_event.is_set()})")
+                            
+                            # 🔥 BUILD 305: DON'T clear queues - this causes choppy audio!
+                            # The _tx_enqueue function already blocks audio when _loop_guard_engaged=True
+                            # Old code cleared TX queue here, causing mid-sentence cuts
+                            print(f"✅ [LOOP GUARD] Engaged - blocking new audio (existing queue: {self.tx_q.qsize()} frames will play)")
                             # Mark AI as not speaking
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
