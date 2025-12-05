@@ -2047,21 +2047,14 @@ ALWAYS mention their name in the first sentence.
             print(f"⏸️ [RESPONSE GUARD] Waiting for first user utterance after greeting - skipping ({reason})")
             return False
         
-        # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION COOL-OFF
-        # After user says "לא", give them time to speak before AI responds again
-        # This prevents the loop where AI immediately re-confirms wrong info
+        # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
+        # After user says "לא", city is cleared so AI will naturally ask for it again
+        # No artificial delay - the city clearing is the main fix
+        # AI will dynamically ask for whatever field is missing based on business settings
         if getattr(self, '_awaiting_user_correction', False):
-            rejection_ts = getattr(self, '_rejection_timestamp', 0)
-            time_since_rejection = (time.time() - rejection_ts) * 1000  # ms
-            COOL_OFF_MS = 1500  # Wait 1.5s after rejection for user to speak
-            
-            if time_since_rejection < COOL_OFF_MS:
-                print(f"⏳ [BUILD 308] Post-rejection cool-off: {time_since_rejection:.0f}ms/{COOL_OFF_MS}ms - waiting for user")
-                return False
-            else:
-                # Cool-off expired - clear flag and allow response
-                self._awaiting_user_correction = False
-                print(f"✅ [BUILD 308] Cool-off expired after {time_since_rejection:.0f}ms - allowing response")
+            # Clear the flag - AI can respond (but city is empty so it will ask dynamically)
+            self._awaiting_user_correction = False
+            print(f"🔄 [BUILD 308] User rejected - city cleared, AI will ask dynamically")
         
         # 🛡️ GUARD 1: Check if response is already active
         if self.active_response_id is not None:
