@@ -3395,9 +3395,44 @@ ALWAYS mention their name in the first sentence.
                             self.user_rejected_confirmation = False
                         
                         # 🛡️ BUILD 168: If user says correction words, reset verification
-                        correction_words = ["לא", "רגע", "שנייה", "לא נכון", "טעות", "תתקן", "לשנות", "ממש לא", "לא לא"]
-                        if any(word in transcript_lower for word in correction_words):
-                            print(f"🔄 [BUILD 168] User wants CORRECTION - resetting verification state")
+                        # 🔥 BUILD 310: IMPROVED REJECTION DETECTION
+                        # Only reset if:
+                        # 1. Message starts with a rejection word (direct correction)
+                        # 2. Message is ONLY a rejection (e.g., "לא", "לא ממש לא")
+                        # 3. Message contains explicit correction phrases
+                        # Don't reset for incidental "לא" like "אני לא צריך עזרה אחרת"
+                        
+                        transcript_stripped = transcript_lower.strip()
+                        words = transcript_stripped.split()
+                        
+                        # Strong rejection patterns that ALWAYS trigger reset
+                        strong_rejection_patterns = [
+                            "לא נכון", "טעות", "תתקן", "לשנות", "ממש לא", "לא לא", 
+                            "זה לא נכון", "לא זה", "אז לא", "אבל לא", "ממש ממש לא"
+                        ]
+                        is_strong_rejection = any(pattern in transcript_stripped for pattern in strong_rejection_patterns)
+                        
+                        # Weak rejection: message starts with or is just "לא" 
+                        # Only trigger if short AND starts with rejection
+                        is_weak_rejection = (
+                            len(words) <= 4 and  # Short response
+                            words and words[0] in ["לא", "רגע", "שנייה"]  # Starts with rejection
+                        )
+                        
+                        # Check if AI just asked for confirmation (verification context)
+                        ai_asked_verification = last_ai_msg and any(
+                            phrase in last_ai_msg for phrase in [
+                                "נכון", "האם הפרטים", "לאשר", "בסדר", "מסכים", "האם זה"
+                            ]
+                        )
+                        
+                        should_reset_verification = (
+                            is_strong_rejection or 
+                            (is_weak_rejection and ai_asked_verification)
+                        )
+                        
+                        if should_reset_verification:
+                            print(f"🔄 [BUILD 310] User CORRECTION detected: strong={is_strong_rejection}, weak={is_weak_rejection}, ai_verify={ai_asked_verification}")
                             self.verification_confirmed = False
                             # 🔥 FIX: Also reset the prompt flag so we can send a new verification request
                             self._verification_prompt_sent = False
@@ -3435,6 +3470,9 @@ ALWAYS mention their name in the first sentence.
                             self._awaiting_user_correction = True
                             self._rejection_timestamp = time.time()
                             print(f"⏳ [BUILD 308] POST-REJECTION COOL-OFF - AI will wait for user to speak")
+                        elif "לא" in transcript_stripped:
+                            # Incidental "לא" - just log it, don't reset
+                            print(f"ℹ️ [BUILD 310] Incidental 'לא' in '{transcript[:30]}' - NOT resetting verification")
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
