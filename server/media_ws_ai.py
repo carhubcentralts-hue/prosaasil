@@ -1536,8 +1536,9 @@ class MediaStreamHandler:
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
             
             # 🎯 VOICE CONSISTENCY: Set voice once at call start, use same voice throughout
-            # Using 'shimmer' - stable voice for Hebrew TTS
-            call_voice = "shimmer"
+            # 🔥 BUILD 205: Upgraded to 'coral' - OpenAI's expressive voice (Oct 2024)
+            # Better for Hebrew with natural intonation and multilingual support
+            call_voice = "coral"
             self._call_voice = call_voice  # Store for session.update reuse
             print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
             
@@ -1737,7 +1738,7 @@ ALWAYS mention their name in the first sentence.
                         
                         # Update session with full prompt (session.update event)
                         # 🎯 VOICE CONSISTENCY: Explicitly re-send voice to ensure it doesn't reset
-                        voice_to_use = getattr(self, '_call_voice', 'shimmer')
+                        voice_to_use = getattr(self, '_call_voice', 'coral')
                         
                         # 🔥 BUILD 179: max_tokens=4096 for BOTH inbound and outbound
                         # This prevents AI from being cut off mid-sentence

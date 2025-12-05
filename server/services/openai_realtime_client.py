@@ -275,7 +275,7 @@ class OpenAIRealtimeClient:
     async def configure_session(
         self,
         instructions: str,
-        voice: str = "alloy",
+        voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
         vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
@@ -291,7 +291,7 @@ class OpenAIRealtimeClient:
         
         Args:
             instructions: System prompt for the AI
-            voice: Voice to use (alloy, echo, shimmer, verse, ash, ballad)
+            voice: Voice to use (coral, sage, verse, ash, ballad, alloy, shimmer, echo)
             input_audio_format: Audio format from Twilio (g711_ulaw, pcm16)
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
             vad_threshold: Voice activity detection threshold (0-1)
