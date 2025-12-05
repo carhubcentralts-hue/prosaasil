@@ -4578,7 +4578,7 @@ ALWAYS mention their name in the first sentence.
                     # ════════════════════════════════════════════════════════════════
                     # STEP 5: STATE MACHINE (SILENCE → MAYBE_SPEECH → SPEECH)
                     # STRICT: NEVER send in SILENCE or MAYBE_SPEECH!
-                    # 🔥 BUILD 196.3: ECHO PROTECTION - Block all speech detection during/after AI
+                    # 🔥 BUILD 196.3: ECHO PROTECTION - Block audio during AI + cooldown
                     # ════════════════════════════════════════════════════════════════
                     prev_state = current_state
                     is_ai_speaking = self.is_ai_speaking_event.is_set()
@@ -4591,20 +4591,9 @@ ALWAYS mention their name in the first sentence.
                         time_since_ai_ms = (time.time() - ai_finished_ts) * 1000
                         in_echo_cooldown = time_since_ai_ms < echo_cooldown_ms
                     
-                    # 🔥 BUILD 196.3: NEVER detect speech during AI speaking OR in cooldown!
-                    # This prevents echo from being detected as user speech
-                    if is_ai_speaking or in_echo_cooldown:
-                        # Force SILENCE state - ignore all SNR detection
-                        if current_state != STATE_SILENCE:
-                            if is_ai_speaking:
-                                print(f"🔇 [BUILD 196.3] ECHO BLOCK: Forcing SILENCE (AI speaking)")
-                            else:
-                                print(f"🔇 [BUILD 196.3] ECHO BLOCK: Forcing SILENCE (cooldown {time_since_ai_ms:.0f}ms < {echo_cooldown_ms}ms)")
-                        current_state = STATE_SILENCE
-                        maybe_speech_count = 0
-                        preroll_buffer.clear()  # Clear any accumulated noise
-                        frames_blocked += 1
-                        continue  # Skip sending entirely!
+                    # 🔥 BUILD 196.3: Block audio during AI speech OR echo cooldown
+                    # BUT: Still run state machine to track speech for manual TRIGGER_RESPONSE!
+                    echo_blocked = is_ai_speaking or in_echo_cooldown
                     
                     # Buffer in SILENCE and MAYBE_SPEECH (pre-AGC filtered audio)
                     if current_state in (STATE_SILENCE, STATE_MAYBE_SPEECH):
@@ -4637,17 +4626,37 @@ ALWAYS mention their name in the first sentence.
                                 maybe_speech_count = 0
                                 preroll_buffer.clear()  # Clear stale preroll on speech end
                                 print(f"🔇 [BUILD 196.2] SPEECH ENDED (SNR={snr_db:.1f}dB)")
+                                
+                                # 🔥 BUILD 196.3: Send TRIGGER_RESPONSE when speech ends!
+                                # This is CRITICAL - OpenAI won't auto-respond because we filter audio
+                                if not echo_blocked:
+                                    print(f"🎯 [BUILD 196.3] SPEECH→SILENCE: Triggering AI response...")
+                                    if hasattr(self, 'realtime_text_input_queue'):
+                                        try:
+                                            self.realtime_text_input_queue.put("[TRIGGER_RESPONSE]")
+                                            print(f"✅ [BUILD 196.3] response.create queued (end of speech)")
+                                        except Exception as e:
+                                            print(f"⚠️ [BUILD 196.3] Failed to queue trigger: {e}")
+                                else:
+                                    print(f"🔇 [BUILD 196.3] SPEECH→SILENCE during echo block - NOT triggering (echo protection)")
                     
                     if prev_state != current_state:
-                        print(f"📊 [BUILD 196.2] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected}")
+                        print(f"📊 [BUILD 196.2] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected} | echo_blocked={echo_blocked}")
                     
                     # ════════════════════════════════════════════════════════════════
                     # STEP 6: DECIDE WHETHER TO SEND
                     # STRICT: Only send when state==SPEECH (not MAYBE_SPEECH!)
-                    # Exception: AI speaking path for barge-in detection
+                    # 🔥 BUILD 196.3: Also block during echo protection!
                     # ════════════════════════════════════════════════════════════════
                     should_send = False
                     chunk_to_send = None
+                    
+                    # 🔥 BUILD 196.3: Block all audio during echo protection
+                    if echo_blocked:
+                        # State machine still runs (for detecting SPEECH→SILENCE transitions)
+                        # But we don't send any audio to OpenAI
+                        frames_blocked += 1
+                        continue
                     
                     if current_state == STATE_SPEECH:
                         should_send = True

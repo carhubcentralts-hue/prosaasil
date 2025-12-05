@@ -61,6 +61,7 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Removed noise gate bypass**: BUILD 166 bypass removed - it was causing echo to leak to OpenAI, making AI "talk to itself".
   - **Barge-in preserved**: User can still interrupt by speaking loudly enough during AI response - OpenAI's `speech_started` event handles real barge-in detection.
   - **Echo rejection window**: Configurable `echo_cooldown_ms=500` prevents false positives from Twilio jitter buffer and audio playout delays.
+  - **TRIGGER_RESPONSE on SPEECH→SILENCE**: When state machine detects speech ending (and not in echo block), automatically sends `response.create` to OpenAI via queue. This ensures AI responds even when audio filtering prevents OpenAI's server-side VAD from detecting end of speech.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

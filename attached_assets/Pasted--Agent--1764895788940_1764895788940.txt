@@ -1,0 +1,113 @@
+מעולה, רואים שה־Agent כבר הבין חלקית את הבעיה – אבל צריך לתת לו הנחיה חדה ומדויקת כדי שלא יחנוק את כל השיחה.
+
+כמו שבדיוק ראינו בלוגים: אין אף END OF UTTERANCE ⇒ לא יוצא response.create ⇒ אין תשובות.
+זה קורה כי echo-protection ב־BUILD 196.3 עושה continue וחוסם את ה־state machine.
+
+הנה טקסט באנגלית מוכן להדבקה ל־Agent בריפליט (שים אותו כמשימה אחת ברורה):
+
+⸻
+
+🧠 Prompt לאייג’נט – לתקן VAD + Echo Protection
+
+Open server/media_ws_ai.py and fix the VAD / echo-protection so that END OF UTTERANCE is always detected and a response is triggered.
+
+Current bug (from logs):
+	•	After the greeting, the VAD toggles between SILENCE → MAYBE_SPEECH → SPEECH → SILENCE, and REAL_VOICE RMS is high.
+	•	But there is no log line END OF UTTERANCE and no response.create after the greeting.
+	•	BUILD 196.3 echo-protection is doing continue and prevents the state machine from reaching END OF UTTERANCE and from sending TRIGGER_RESPONSE.
+
+Goal:
+Keep echo protection (don’t feed AI its own audio), but never block the utterance state machine and always trigger a response when the human actually finishes speaking.
+
+1. Don’t block the state machine in echo-protection
+
+In the VAD / audio loop in TwilioMediaWebSocketHandler (BUILD 196.x logic):
+	•	Find the branch that detects echo / music and currently does something like:
+
+if echo_protection_active:
+    # ...
+    continue   # <-- this kills END OF UTTERANCE
+
+
+	•	Remove any continue / return that skips VAD state updates.
+	•	Echo protection should only control whether we push frames into the OpenAI input audio buffer, not whether we update the VAD state or close an utterance.
+
+Concretely:
+	•	Always run the state-machine transition SILENCE/MAYBE_SPEECH/SPEECH.
+	•	Always allow the transition SPEECH → SILENCE to call the “end of utterance” handler.
+	•	Echo-protection may skip enqueue_to_openai_audio_queue(frame) but MUST NOT skip _update_vad_state(...) or _on_end_of_utterance(...).
+
+2. Relax the minimum utterance duration
+	•	Find the constant that defines the minimum utterance length (today it behaves like ~600ms).
+It may look like:
+
+MIN_UTTERANCE_MS = 600  # or similar
+
+
+	•	Change it to something more permissive:
+
+MIN_UTTERANCE_MS = 300
+
+
+	•	In the place where you detect the end of speech, make sure it looks like:
+
+if prev_state == SpeechState.SPEECH and new_state == SpeechState.SILENCE:
+    duration_ms = now_ms - self.current_utterance_start_ms
+    if duration_ms >= MIN_UTTERANCE_MS and not self._closing:
+        await self._on_end_of_utterance(duration_ms)
+    else:
+        logger.info(f"[UTT] SKIPPED: duration={duration_ms}ms < MIN_UTTERANCE_MS={MIN_UTTERANCE_MS}")
+
+
+	•	Do not add extra conditions like voice_frames > 0 or echo flags here – this function should be purely time-based + state-based.
+
+3. Ensure _on_end_of_utterance always triggers [TRIGGER_RESPONSE]
+	•	In _on_end_of_utterance (or the equivalent handler):
+	•	Always log clearly:
+
+logger.info(f"🎤 END OF UTTERANCE: {duration_ms/1000:.1f}s audio, conversation #{self.conversation_index}")
+
+
+	•	Always enqueue a trigger message into the realtime text queue:
+
+await self.realtime_text_input_queue.put("[TRIGGER_RESPONSE]")
+
+
+	•	In the realtime text sender task:
+	•	When you see [TRIGGER_RESPONSE], call client.responses.create(...) once:
+
+if text == "[TRIGGER_RESPONSE]":
+    if not self._has_active_response:
+        await client.responses.create(
+            model=self.realtime_model,
+            # no input text, just ask OpenAI to respond from the buffered audio
+        )
+    continue
+
+
+	•	Track _has_active_response using the existing events (response.created, response.done) to avoid the
+conversation_already_has_active_response error.
+
+4. Extra logging (for debugging)
+	•	Add these logs so we can see the lifecycle in the logs:
+
+logger.info(f"[UTT] START at {self.current_utterance_start_ms}ms")
+logger.info(f"[UTT] END at {now_ms}ms, duration={duration_ms}ms → triggering response")
+
+
+
+Acceptance criteria
+	1.	After the greeting, when the caller speaks for at least ~0.3–0.5s and then stops:
+	•	We see END OF UTTERANCE logs.
+	•	We see [REALTIME] END OF UTTERANCE detected - triggering AI response.
+	•	We see response.create and a new response.created event.
+	2.	Echo-protection still prevents clear echo loops (AI hearing itself), but never prevents END OF UTTERANCE and response triggering.
+	3.	In a quiet room, normal speech should reliably get a response after each sentence, without the AI hallucinating when the user is completely silent.
+
+Please implement these changes in server/media_ws_ai.py, run the tests if they exist, and keep the existing logging style and build comments (BUILD 196.x) intact.
+
+⸻
+
+תדביק את זה כמו שהוא ל-Agent, תבקש ממנו להריץ שיחה בדמו / בסטייג’ינג אחרי השינוי, ואז תעשה עוד שיחה אמיתית ותראה בלוגים אם חזרו לך:
+
+END OF UTTERANCE detected - triggering AI response + response.created אחרי כל משפט שלך.
