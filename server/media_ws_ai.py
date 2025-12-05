@@ -736,24 +736,25 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 164B: BALANCED NOISE FILTERING - Filter noise but allow quiet speech
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
+# ⚡ BUILD 301: TRUST OPENAI VAD - Lower local thresholds to let more audio through
+# OpenAI's Realtime API has excellent VAD - we should trust it, not block audio locally
+MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.35"))       # 🔥 BUILD 301: 0.35s (was 0.6s) - allow short words like "כן"
 MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - enough time for detailed descriptions
-VAD_RMS = int(os.getenv("VAD_RMS", "180"))                  # 🔥 BUILD 187: 180 (was 120) - stricter to filter noise
-# 🔥 BUILD 171: STRICTER THRESHOLDS - Prevent Whisper hallucinations on silence
-RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "120"))      # 🔥 BUILD 187: 120 (was 100) - higher silence threshold  
-MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "180"))                    # 🔥 BUILD 187: 180 (was 130) - require louder speech to filter background noise
-MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "900"))    # 🔥 BUILD 187: 900ms (was 700ms) - require longer continuous speech
-# 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT - Prevent single-frame noise triggers
-MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "7"))  # 🔥 BUILD 187: 7 frames (was 5) = 140ms above threshold
+VAD_RMS = int(os.getenv("VAD_RMS", "80"))                   # 🔥 BUILD 301: 80 (was 180) - trust OpenAI VAD, lower local threshold
+# 🔥 BUILD 301: RELAXED THRESHOLDS - Trust OpenAI's superior VAD
+RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "40"))       # 🔥 BUILD 301: 40 (was 120) - only true silence
+MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "60"))                     # 🔥 BUILD 301: 60 (was 180) - allow quiet speech through
+MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "350"))    # 🔥 BUILD 301: 350ms (was 900ms) - per Watchdog doc
+# 🔥 BUILD 301: MINIMAL CONSECUTIVE FRAMES - OpenAI handles VAD better than us
+MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "3"))  # 🔥 BUILD 301: 3 frames (was 7) = 60ms - let more through
 # 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
-POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "1200"))          # 🔥 BUILD 187: 1200ms (was 800ms) - longer cooldown after AI speaks
-NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "250"))                      # 🔥 BUILD 187: 250ms (was 150ms) - longer grace period for noise
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "250"))  # 🔥 BUILD 187: 250ms (was 150ms) - longer hangover to merge speech
+POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "800"))           # 🔥 BUILD 301: 800ms (was 1200ms) - reduced for faster response
+NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                       # 🔥 BUILD 301: 150ms (was 250ms) - shorter grace
+VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 301: 150ms (was 250ms) - shorter hangover
 RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
 RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
 REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","45"))  # 🔥 BUILD 187: 45 frames (was 35) = ≈900ms continuous speech - stricter
+BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","25"))  # 🔥 BUILD 301: 25 frames (was 45) = ≈500ms - more responsive barge-in
 
 # 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge window for user messages
 STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "600"))  # 🔥 BUILD 186: Reduced from 800ms to 600ms to reduce noise merge
