@@ -91,10 +91,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.outbound_ai_prompt.strip()
                 logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ONLY for business {business_id} ({len(core_instructions)} chars)")
             else:
-                # Minimal fallback if no outbound prompt
-                core_instructions = f"""אתה נציג מכירות יוזם של "{business_name}". 
-אתה מתקשר ללקוח כדי להציע שירותים או לתאם פגישה.
-דבר בעברית, היה אדיב וקצר."""
+                # 🔥 BUILD 200: Minimal generic fallback - no business-specific assumptions
+                core_instructions = f"""אתה נציג של "{business_name}". דבר בעברית, היה אדיב וקצר."""
                 logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using minimal fallback")
             
             # Replace placeholders
@@ -125,8 +123,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.ai_prompt
         
         if not core_instructions:
+            # 🔥 BUILD 200: Minimal generic fallback - no business-specific assumptions
             logger.error(f"❌ [INBOUND] No prompt in DB for business {business_id}")
-            core_instructions = f"""אתה נציג טלפוני של "{business_name}". עונה בעברית, קצר וברור."""
+            core_instructions = f"""אתה נציג של "{business_name}". עונה בעברית, קצר וברור."""
         
         # Replace placeholders
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
