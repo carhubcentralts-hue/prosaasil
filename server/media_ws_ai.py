@@ -4686,6 +4686,62 @@ ALWAYS mention their name in the first sentence.
                                 self._greeting_enqueue_block_logged = True
                             continue  # Don't enqueue audio during greeting
                         
+                        # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
+                        # This prevents OpenAI from transcribing its own voice output as user speech!
+                        # The AI's TTS audio echoes back through the phone line and causes hallucinations
+                        # 
+                        # KEY: Use ADAPTIVE threshold based on noise floor
+                        # Echo is typically 1.5-3x noise floor (100-400 RMS)
+                        # Real speech is 4-10x noise floor (400-2000+ RMS)
+                        # Use 2.5x noise floor as threshold (catches echo, allows speech)
+                        noise_floor = getattr(self, 'noise_floor', 100.0)
+                        echo_threshold = max(noise_floor * 2.5, 200.0)  # At least 200 RMS for echo detection
+                        
+                        # Also track consecutive high-RMS frames for more reliable barge-in detection
+                        if not hasattr(self, '_echo_gate_consec_frames'):
+                            self._echo_gate_consec_frames = 0
+                        
+                        is_above_echo_threshold = rms > echo_threshold
+                        
+                        # Count consecutive frames above threshold
+                        if is_above_echo_threshold:
+                            self._echo_gate_consec_frames += 1
+                        else:
+                            self._echo_gate_consec_frames = 0
+                        
+                        # Real speech = 2+ consecutive frames above echo threshold
+                        is_likely_real_speech = self._echo_gate_consec_frames >= 2
+                        
+                        if self.is_ai_speaking_event.is_set():
+                            # AI is actively speaking - block echo but allow likely real speech
+                            if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
+                                if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
+                                    print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking, rms={rms:.0f} < threshold={echo_threshold:.0f}")
+                                    self._echo_gate_logged = True
+                                continue
+                            elif is_likely_real_speech:
+                                # Consecutive high RMS during AI speech = likely barge-in!
+                                if not hasattr(self, '_echo_barge_logged'):
+                                    print(f"🎤 [ECHO GATE] Allowing barge-in: {self._echo_gate_consec_frames} frames above threshold={echo_threshold:.0f}")
+                                    self._echo_barge_logged = True
+                        
+                        # Check echo decay period (800ms after AI stops speaking)
+                        if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
+                            echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
+                            if echo_decay_ms < POST_AI_COOLDOWN_MS:
+                                # Still in echo decay period - block unless likely real speech
+                                if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
+                                    if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
+                                        print(f"🛡️ [ECHO GATE] Blocking rms={rms:.0f} - echo decay ({echo_decay_ms:.0f}ms)")
+                                        self._echo_decay_logged = True
+                                    continue
+                            else:
+                                # Echo decay complete - reset log flags
+                                self._echo_gate_logged = False
+                                self._echo_decay_logged = False
+                                self._echo_barge_logged = False
+                                self._echo_gate_consec_frames = 0
+                        
                         # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT
                         # Track consecutive voice frames before considering it real speech
                         # This prevents random noise spikes from triggering transcription
