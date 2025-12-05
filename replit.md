@@ -88,6 +88,14 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Diagnostic mode**: Set `AUDIO_DIAGNOSTIC_MODE=true` to save call audio to `/tmp/realtime_{call_sid}.ulaw` and transcripts to `/tmp/realtime_{call_sid}_transcripts.txt` for debugging.
   - **Pipeline order**: Twilio → raw_ulaw saved → decode to PCM for VAD → VAD decision → send raw_ulaw.
   - **Result**: OpenAI receives exact audio from Twilio phone line, no processing artifacts.
+- **BUILD 199 Trust OpenAI Transcriptions (Major STT Fix)**:
+  - **Problem solved**: Valid Hebrew transcripts ("נכון", "התקנת מנעול חכם", "תל אביב") were being rejected due to overly aggressive local filters.
+  - **SILENCE GATE disabled**: No longer rejecting transcripts based on RMS/frames. OpenAI's VAD already handles this.
+  - **POST_AI_COOLDOWN disabled**: No longer rejecting transcripts based on timing after AI speech. Echo prevention is in audio path.
+  - **VAD thresholds relaxed**: MIN_UTTERANCE=400ms (was 900ms), FIRST_UTTERANCE=600ms (was 1200ms), TRAILING_SILENCE=300ms (was 500ms).
+  - **Recovery triggers removed**: No more auto-triggering response.create after cancellations. Single source of truth for response triggering.
+  - **Design philosophy**: Trust OpenAI Realtime's built-in VAD and turn detection. Local processing only for audio routing decisions.
+  - **Result**: Short Hebrew words like "כן", "נכון", city names are now accepted and understood.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
