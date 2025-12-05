@@ -64,6 +64,7 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
 - **OpenAI VAD Tuning**: Increased OpenAI Realtime API turn detection thresholds for stricter speech detection.
 - **Response Grace Period**: Ignores speech_started events shortly after response creation to prevent AI cutoff.
 - **City Correction Detection**: AI can unlock and accept explicit city corrections from users, even if previously locked.
+- **Trusted OpenAI STT (BUILD 202)**: Fixed SILENCE_GATE blocking valid transcriptions. The local RMS gate was rejecting valid OpenAI transcriptions due to race conditions. Now trusts OpenAI's VAD when it successfully transcribes speech, only rejects true silence (RMS<10 + text<3 chars). Fixes "AI ignores what user said" bug.
 
 # External Dependencies
 
