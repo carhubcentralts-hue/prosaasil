@@ -4583,16 +4583,19 @@ ALWAYS mention their name in the first sentence.
                     prev_state = current_state
                     is_ai_speaking = self.is_ai_speaking_event.is_set()
                     
-                    # 🔥 BUILD 196.3: Calculate time since AI stopped speaking
+                    # 🔥 BUILD 196.4: Calculate time since AI stopped speaking
+                    # REDUCED from 500ms to 400ms - allow faster user responses
                     ai_finished_ts = getattr(self, '_ai_finished_speaking_ts', 0)
-                    echo_cooldown_ms = 500  # 500ms echo rejection window
+                    echo_cooldown_ms = 400  # 400ms echo rejection window (was 500)
                     in_echo_cooldown = False
+                    time_since_ai_ms = 0
                     if ai_finished_ts > 0:
                         time_since_ai_ms = (time.time() - ai_finished_ts) * 1000
                         in_echo_cooldown = time_since_ai_ms < echo_cooldown_ms
                     
-                    # 🔥 BUILD 196.3: Block audio during AI speech OR echo cooldown
-                    # BUT: Still run state machine to track speech for manual TRIGGER_RESPONSE!
+                    # 🔥 BUILD 196.4: Echo blocking - ONLY when AI is ACTUALLY speaking
+                    # CRITICAL: echo_blocked should NOT be true for music detection!
+                    # Music detection is for adjusting SNR thresholds, NOT for blocking user speech
                     echo_blocked = is_ai_speaking or in_echo_cooldown
                     
                     # Buffer in SILENCE and MAYBE_SPEECH (pre-AGC filtered audio)
@@ -4628,30 +4631,35 @@ ALWAYS mention their name in the first sentence.
                                 maybe_speech_count = 0
                                 preroll_buffer.clear()  # Clear stale preroll on speech end
                                 
-                                # 🔥 BUILD 196.3: Calculate utterance duration
-                                MIN_UTTERANCE_MS = 300  # Minimum 300ms to be valid speech
+                                # 🔥 BUILD 196.4: Calculate utterance duration
+                                # REDUCED from 300ms to 150ms - don't skip short Hebrew words like "כן", "לא", city names
+                                MIN_UTTERANCE_MS = 150
                                 utterance_end_ms = time.time() * 1000
                                 duration_ms = utterance_end_ms - utterance_start_ms
                                 
-                                print(f"🔇 [BUILD 196.2] SPEECH ENDED (SNR={snr_db:.1f}dB) duration={duration_ms:.0f}ms echo_blocked={echo_blocked}")
+                                print(f"🔇 [BUILD 196.4] SPEECH ENDED (SNR={snr_db:.1f}dB) duration={duration_ms:.0f}ms echo_blocked={echo_blocked} is_ai={is_ai_speaking}")
                                 
-                                # 🔥 BUILD 196.3: END OF UTTERANCE with duration and echo check
+                                # 🔥 BUILD 196.4: END OF UTTERANCE - RELAXED conditions
+                                # Audio is ALWAYS sent to OpenAI (they hear everything)
+                                # We only skip the MANUAL TRIGGER for very short speech
                                 if duration_ms < MIN_UTTERANCE_MS:
-                                    print(f"⏭️ [BUILD 196.3] SKIPPED: duration={duration_ms:.0f}ms < MIN_UTTERANCE_MS={MIN_UTTERANCE_MS}ms")
+                                    # Short speech - still sent to OpenAI but no manual trigger
+                                    print(f"⏭️ [BUILD 196.4] SHORT but SENT to OpenAI: duration={duration_ms:.0f}ms (no manual trigger)")
                                 elif echo_blocked:
-                                    print(f"🔇 [BUILD 196.3] SPEECH→SILENCE during echo block - NOT triggering (echo protection)")
+                                    # Echo protection - log reason clearly
+                                    print(f"🔇 [BUILD 196.4] SPEECH→SILENCE during echo (is_ai={is_ai_speaking}, cooldown={in_echo_cooldown}) - NOT triggering")
                                 elif getattr(self, 'closing_sent', False):
-                                    print(f"🔒 [BUILD 196.3] SPEECH→SILENCE during closing - NOT triggering")
+                                    print(f"🔒 [BUILD 196.4] SPEECH→SILENCE during closing - NOT triggering")
                                 else:
                                     # Valid utterance - trigger AI response!
                                     print(f"🎤 END OF UTTERANCE: {duration_ms/1000:.1f}s echo_blocked=False")
-                                    print(f"🎯 [BUILD 196.3] SPEECH→SILENCE: Triggering AI response...")
+                                    print(f"🎯 [BUILD 196.4] SPEECH→SILENCE: Triggering AI response...")
                                     if hasattr(self, 'realtime_text_input_queue'):
                                         try:
                                             self.realtime_text_input_queue.put("[TRIGGER_RESPONSE]")
-                                            print(f"✅ [BUILD 196.3] response.create queued (end of speech)")
+                                            print(f"✅ [BUILD 196.4] response.create queued (end of speech)")
                                         except Exception as e:
-                                            print(f"⚠️ [BUILD 196.3] Failed to queue trigger: {e}")
+                                            print(f"⚠️ [BUILD 196.4] Failed to queue trigger: {e}")
                     
                     if prev_state != current_state:
                         print(f"📊 [BUILD 196.2] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected} | echo_blocked={echo_blocked}")

@@ -1,0 +1,183 @@
+אתה צודק לגמרי – אני לא מתווכח איתך על זה.
+מהלוגים רואים שברמת ההבנה הוא לא מתנהג כמו לפני, וזה לא רק עניין פרומפט. בוא נעשה סדר לפי מה שרואים באמת בלוגים, ואז אתן הנחיה ממוקדת לסוכן.
+
+⸻
+
+מה אני כן רואה בלוגים (איפה זה דפוק)
+	1.	יש END OF UTTERANCE טוב – אבל הרבה קטעי דיבור נחתכים / נזרקים
+רואים המון שורות כאלה:
+
+🔇 SPEECH ENDED duration=127ms echo_blocked=False
+⏭️ SKIPPED: duration=127ms < MIN_UTTERANCE_MS=300ms
+
+🔇 SPEECH ENDED duration=240ms echo_blocked=False
+⏭️ SKIPPED: duration=240ms < MIN_UTTERANCE_MS=300ms
+
+כלומר:
+	•	אתה מדבר → ה־VAD מזהה → אבל אם זה “כן”, “לא”, שם עיר קצר, או “נכון” – הדיבור הזה נזרק ל־state machine של END OF UTTERANCE.
+	•	חלק מהדברים כן נשלחים כאודיו ל־OpenAI (pre-roll frames), אבל הטריגר שלנו ל־response.create מדלג עליהם.
+	•	התוצאה: ה־מודל שומע חצי שיחה, וה־flow הלוגי של השיחה מתפרק.
+
+	2.	echo_blocked מופעל גם כש־is_ai_speaking=False
+רואים מצבים כאלה:
+
+🎙️ REAL_VOICE: rms=102.0 > threshold=80.0
+📊 State: SILENCE → MAYBE_SPEECH ... echo_blocked=True
+
+כלומר:
+	•	לפי ה־BARGE-IN DEBUG: is_ai_speaking=False
+	•	אבל echo_blocked=True
+→ זה אומר שהמנוע חושב שזה אקו/מוזיקה וחוסם, למרות שזו בעצם דיבור שלך.
+בדיוק במקום הזה אתה אומר משהו חדש – והמערכת חוסמת / מסמנת את זה כאקו ולא משתמשת בו, ואז היא נשארת תקועה על “מנעולן בתל אביב”.
+
+	3.	זיהוי City/Service כן מתעדכן – אבל שוב מתבסס על מה שה־AI אמר
+רואים:
+
+✅ [LEAD STATE] Updated: city=תל אביב
+✅ [CITY] Auto-accepted: 'תל אביב' (confidence=100%)
+✅ [LEAD STATE] Extracted service_type from confirmation: שירות של מנעולן
+
+זה מגיע אחרי המשפט:
+
+🤖 AI said: רק מוודאת – אתה צריך שירות של מנעולן בעיר תל אביב, נכון?
+
+כלומר:
+	•	אנחנו “לומדים” את העיר והשירות מהמשפט של ה-AI,
+	•	ואם התשובה שלך (נגיד: “לא, אני בחולון”) נחסמת ע”י echo_blocked או נחתכת בגלל MIN_UTTERANCE –
+המערכת תשאר על תל אביב+מנעולן, גם אם אמרת משהו אחר.
+
+➡️ לכן אתה מרגיש בצדק שהוא “לא מבין אותך טוב” עכשיו.
+השכבה החדשה של הגנה מאקו + MIN_UTTERANCE פשוט קוטעת חלק מהדיבור שלך, וזה שובר את ההיגיון של השיחה, למרות שהקוד כן נראה לכאורה מסודר.
+
+⸻
+
+הנחיה מדויקת לסוכן / מפתח (בלי לגעת בפרומפט / lead_state)
+
+תן לו את זה אחד־לאחד:
+
+Goal: Fix the regression in understanding user speech after BUILD 196.2 / 196.3
+WITHOUT touching the Calliber prompt or lead_state logic.
+
+We keep:
+- Noise calibration
+- Echo protection concept
+- End-of-utterance state machine
+
+We fix:
+- Over-aggressive MIN_UTTERANCE_MS
+- echo_blocked being true for real user speech
+- Over-reliance on AI confirmation sentence for city/service
+
+STEP 1 – Relax MIN_UTTERANCE logic (do NOT drop audio):
+
+1. In media_ws_ai.py (or wherever BUILD 196.3 logic lives):
+   - Keep sending ALL audio frames to OpenAI exactly as today.
+   - Change MIN_UTTERANCE_MS from 300ms → 120–150ms (start with 150ms).
+
+2. Change the skip logic:
+
+   Currently:
+       if duration_ms < MIN_UTTERANCE_MS:
+           log "SKIPPED" and return without triggering.
+
+   Keep that, BUT:
+   - Make sure this ONLY affects our MANUAL trigger (TRIGGER_RESPONSE).
+   - Never block or drop frames themselves.
+   - Add a clear log:
+       "[UTTERANCE] SHORT but SENT to OpenAI: duration=XXXms (no manual trigger)"
+
+   This way:
+   - OpenAI will still "hear" short answers like "כן", "לא", single city names.
+   - We just avoid spamming response.create on every tiny sound.
+
+3. (Optional improvement, if simple enough):
+   - Implement "utterance aggregation":
+     - If there are back-to-back speech segments with gaps < 400ms,
+       accumulate them into one logical utterance before applying MIN_UTTERANCE_MS.
+     - This stops us from skipping "תל אביב" שנאמרת בכמה הברות קצרות.
+
+STEP 2 – Fix echo_blocked so it can NEVER hide real user speech:
+
+1. echo_blocked must ONLY be true when:
+   - is_ai_speaking == True
+   - AND we actually detect echo/music coming from AI playback.
+
+2. On each `response.audio.delta`:
+   - If we decide that this segment is AI audio (which it is),
+     we can mark something like `ai_audio_active = True`.
+
+3. On `response.audio.done`:
+   - Immediately set:
+       ai_audio_active = False
+       echo_blocked = False
+     (plus any cooldown you want, e.g., 400–500ms max).
+
+4. Update any code that currently sets echo_blocked based on "music detection" alone.
+   From the logs we see patterns like:
+       MUSIC DETECTED ... echo_blocked=True
+       is_ai_speaking=False
+   This is wrong. Fix:
+
+   - Do NOT set echo_blocked=True if is_ai_speaking == False.
+   - Music detection while user is speaking must NOT force echo_blocked=True.
+   - Echo protection should rely on "AI is currently speaking" + similarity to AI stream,
+     not on music detection of the caller mic.
+
+5. Add a safety log:
+
+   - Whenever you set echo_blocked=True:
+       log:
+           "[ECHO] echo_blocked=True (is_ai_speaking={...}, reason=... )"
+
+   - Whenever you drop/ignore a trigger because echo_blocked=True:
+       log:
+           "[ECHO] BLOCKED trigger due to echo (duration=XXXms, snr=..., is_ai_speaking=...)"
+
+   This will let us verify that we never block a user utterance while is_ai_speaking=False.
+
+STEP 3 – Make sure lead capture uses WHAT THE USER SAID, not only AI confirmation:
+
+1. Keep the existing logic that extracts `city` and `service_type` from AI confirmations.
+   Do NOT remove it.
+
+2. But add a higher-priority path:
+   - When we receive a USER utterance transcript that clearly contains a city/service,
+     store that in lead_state immediately.
+   - If later the AI repeats it in a confirmation sentence, it's just a confirmation,
+     not the primary source of truth.
+
+3. Logging:
+   - Every time we update `city` or `service_type`, log the source:
+       - "source=user_utterance"
+       - or "source=ai_confirmation"
+   - This will let us see in logs whether we are over-relying on AI text.
+
+STEP 4 – Add temporary DEBUG for Calliber only (business_id=10):
+
+1. For business_id=10, enable a DEBUG mode:
+
+   - After each END OF UTTERANCE, log:
+     "[DEBUG] USER_UTTERANCE: duration=XXXms, echo_blocked=..., text='...'"
+   - After each AI reply, log:
+     "[DEBUG] AI_REPLY: '...'"
+   - After each lead_state update, log:
+     "[DEBUG] LEAD_STATE_UPDATE: city=..., service_type=..., source=...]"
+
+2. This should be guarded by:
+   - if business_id == 10 and settings.DEBUG_CALLIBER == True:
+       (so we can later turn it off)
+
+The goal:
+- Do NOT touch the high-level prompt or the business logic.
+- Do NOT roll back to older builds.
+- Instead, fix the audio gating (MIN_UTTERANCE + echo_blocked)
+  so that the model receives a faithful, continuous audio stream and
+  our TRIGGER_RESPONSE conditions do not accidentally ignore valid user speech.
+
+
+⸻
+
+אם נסכם במשפט אחד:
+אתה לא משוגע – ההגנות החדשות על אקו + מינימום 300ms באמת חונקות חלק מהדיבור שלך וגורמות לזה שהוא ייתקע על “מנעולן בתל אביב”.
+
+ההנחיה למעלה משאירה את כל מה שטוב בבילד החדש (הגנת אקו, זיהוי סוף משפט, רעש), אבל מרפה איפה שהוא חונק אותך, בלי לגעת בפרומפטים ובלוגיקה של הליד.
