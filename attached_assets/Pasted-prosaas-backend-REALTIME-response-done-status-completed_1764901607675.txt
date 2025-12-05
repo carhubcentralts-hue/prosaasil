@@ -1,0 +1,471 @@
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🎚️ [BUILD 198] NOISE CALIBRATED: noise_rms=30 (from 30 frames)
+prosaas-backend  | 📊 [BUILD 198] Stats: sent=0 blocked=1 | 🎤NORMAL | noise=30 | state=SILENCE
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | ✅ [PHASE 2] Greeting finished after 2.0s - now updating session
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 📞 [INBOUND] session.update with max_tokens=4096
+prosaas-backend  | ✅ [PHASE 2] Session updated with full prompt: 3575 chars, voice=shimmer locked, max_tokens=4096, transcription=Hebrew
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=15.7dB | noise=30 | music=False | echo_blocked=True
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=7.4dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=13.7dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=18.0dB) echo_blocked=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=18.0dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 📼 [BUILD 198] Sending 10 pre-roll frames (RAW μ-law)
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_started
+prosaas-backend  | 🎤 [REALTIME] User started speaking (user_has_spoken NOT set yet - waiting for valid utterance)
+prosaas-backend  | ✅ [LOOP GUARD] User started speaking - resetting consecutive counter (1 -> 0)
+prosaas-backend  | ⏳ [BUILD 195] Speech detected - will confirm after 600ms sustained speech...
+prosaas-backend  | 🛡️ [BUILD 196.3] Speech detected - echo protection active (no bypass)
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:42446 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [BUILD 197] SPEECH ENDED: duration=528ms threshold=1200ms trailing_silence=507ms first=True
+prosaas-backend  | 🚫 [BUILD 197] IGNORED short utterance: 528ms < 1200ms (not triggering)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=11, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=18, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=227.0 > threshold=80.0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=10.5dB | noise=31 | music=False | echo_blocked=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=33.9dB) echo_blocked=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=33.9dB | noise=31 | music=False | echo_blocked=False
+prosaas-backend  | 📼 [BUILD 198] Sending 10 pre-roll frames (RAW μ-law)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=7158, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=20, voice_frames=0
+prosaas-backend  | 🔇 [BUILD 197] SPEECH ENDED: duration=1782ms threshold=1200ms trailing_silence=528ms first=True
+prosaas-backend  | ✅ [BUILD 197] ACCEPTED utterance: 1782ms >= 1200ms
+prosaas-backend  | 🎤 END OF UTTERANCE: 1.8s - triggering AI response
+prosaas-backend  | 📊 [AUDIO PATH] First utterance accepted: duration=1782ms, trailing_silence=528ms, first=True
+prosaas-backend  | 🗣️ [BUILD 197] First REAL user utterance detected - user_has_spoken=True
+prosaas-backend  | ✅ [BUILD 197] response.create queued (end of speech)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-4.2dB | noise=31 | music=False | echo_blocked=False
+prosaas-backend  | ✅ [BUILD 196.3] response.create sent (manual trigger)
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjFgEa3iFOILGQj...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjFgEa3iFOILGQj... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=c2 b8 ba bb bd
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=52 49 50 4f 52
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=6a 63 61 6e 6e
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 5336 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: ובאיזו עיר אתה נמצא?
+prosaas-backend  | 💾 [BUILD 196.5] AI transcript saved to conversation_history (total: 3 messages)
+prosaas-backend  | 🔍 [DEBUG CALLIBER] AI_REPLY: 'ובאיזו עיר אתה נמצא?'
+prosaas-backend  | 💰 [COST] AI utterance: 0.28s (6 chunks)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=22, voice_frames=0
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_needs_retry=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True'}
+prosaas-backend  | 🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: city_needs_retry=True source=ai_confirmation
+prosaas-backend  | ❌ [CITY] Rejected 'עיר' (confidence=54%) - ask to repeat
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'ובאיזו עיר אתה נמצא?...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=135.0 > threshold=80.0
+prosaas-backend  | 💓 WS_KEEPALIVE #1 (prevents 5min timeout)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=151, voice_frames=0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=9.1dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=10.3dB) echo_blocked=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=10.3dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 📼 [BUILD 198] Sending 10 pre-roll frames (RAW μ-law)
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_stopped
+prosaas-backend  | ✅ [BUILD 195] SUSTAINED speech (9043ms >= 600ms) - valid user input
+prosaas-backend  | 🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+prosaas-backend  | [REALTIME] event: input_audio_buffer.committed
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjFgIBIHjP0zbgy...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjFgIBIHjP0zbgy... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_started
+prosaas-backend  | 🛡️ [BUILD 187 GRACE] Ignoring speech_started - only 6ms since response.created (grace=1000ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=cancelled, output_count=0, details={'type': 'cancelled', 'reason': 'turn_detected'}
+prosaas-backend  | 🔄 [BUILD 193] Response cancelled (output=0)! Triggering IMMEDIATE recovery...
+prosaas-backend  | 🔇 [BUILD 197] SPEECH ENDED: duration=881ms threshold=900ms trailing_silence=517ms first=False
+prosaas-backend  | 🚫 [BUILD 197] IGNORED short utterance: 881ms < 900ms (not triggering)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=16, voice_frames=0
+prosaas-backend  | 📊 [BUILD 198] Stats: sent=189 blocked=409 | 🎤NORMAL | noise=30 | state=SILENCE
+prosaas-backend  | 🔄 [BUILD 192] RECOVERY: Triggering response.create NOW!
+prosaas-backend  | ✅ [BUILD 192] RECOVERY SUCCESS: response.create sent!
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjFgJQOX4qLFYM6...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjFgJQOX4qLFYM6... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | ⚠️ [AUDIO GAP] 4785ms gap between chunks #6 and #7 - OpenAI delay!
+prosaas-backend  | 🔧 [GAP RECOVERY] Inserted 25 silence frames (500ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=True, user_has_spoken=True, waiting_for_dtmf=False, rms=14, voice_frames=0
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] event: conversation.item.input_audio_transcription.completed
+prosaas-backend  | [SILENCE GATE] ❌ REJECTED (RMS=16 < 30, frames=0): 'התקנת מלון חכם'
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=18.0dB | noise=30 | music=True | echo_blocked=True
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=0.3dB | noise=30 | music=True | echo_blocked=True
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: רק מוודאת — אתה צריך התקנת מנעול חכם, נכון?
+prosaas-backend  | 💾 [BUILD 196.5] AI transcript saved to conversation_history (total: 6 messages)
+prosaas-backend  | 🔍 [DEBUG CALLIBER] AI_REPLY: 'רק מוודאת — אתה צריך התקנת מנעול חכם, נכון?'
+prosaas-backend  | ℹ️ [BUILD 195] Verification phrase detected but lead NOT captured yet - NOT setting pending_confirmation
+prosaas-backend  | 💰 [COST] AI utterance: 0.77s (21 chunks)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=34, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_needs_retry=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True'}
+prosaas-backend  | 🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: city_needs_retry=True source=ai_confirmation
+prosaas-backend  | ❌ [CITY] Rejected 'חכם,' (confidence=54%) - ask to repeat
+prosaas-backend  | ✅ [LEAD STATE] Updated: service_type=התקנת מנעול חכם
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'service_type': 'התקנת מנעול חכם'}
+prosaas-backend  | 🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: service_type=התקנת מנעול חכם source=ai_confirmation
+prosaas-backend  | ✅ [LEAD STATE] Extracted service_type from confirmation: התקנת מנעול חכם
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'רק מוודאת — אתה צריך התקנת מנע...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🎤 END OF UTTERANCE: 2.0s audio, conversation #0
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=32640 | silence_ms=6104
+prosaas-backend  | ⏭️ [REALTIME] END OF UTTERANCE detected - triggering AI response
+prosaas-backend  | ✅ [REALTIME] response.create triggered via queue
+prosaas-backend  | ✅ Processing complete for conversation #0
+prosaas-backend  | ✅ [BUILD 196.3] response.create sent (manual trigger)
+prosaas-backend  | 🎙️ REAL_VOICE: rms=99.0 > threshold=80.0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=8.2dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjFgO0Vo5qcyi0C...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjFgO0Vo5qcyi0C... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=3.1dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | ⚠️ [AUDIO GAP] 4623ms gap between chunks #21 and #22 - OpenAI delay!
+prosaas-backend  | 🔧 [GAP RECOVERY] Inserted 25 silence frames (500ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 4800 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: ובאיזו עיר אתה נמצא?
+prosaas-backend  | 💾 [BUILD 196.5] AI transcript saved to conversation_history (total: 8 messages)
+prosaas-backend  | 🔍 [DEBUG CALLIBER] AI_REPLY: 'ובאיזו עיר אתה נמצא?'
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=100% with: 'ובאיזו עיר אתה נמצא?...'
+prosaas-backend  | ⚠️ [LOOP GUARD] Triggered by semantic_repetition!
+prosaas-backend  | 🛑 [LOOP GUARD] BLOCKING further responses until user speaks!
+prosaas-backend  | 🛑 [LOOP GUARD] Cleared TX queue
+prosaas-backend  | 🛑 [LOOP GUARD] Sent clear to Twilio
+prosaas-backend  | 💰 [COST] AI utterance: 0.24s (27 chunks)
+prosaas-backend  | 🧹 TX_CLEAR: SUCCESS
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=2595, voice_frames=0
+prosaas-backend  | 🔒 [CONSISTENCY] City locked to 'עיר' (majority 2/3)
+prosaas-backend  | ✅ [LEAD STATE] Updated: city=עיר גנים
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'service_type': 'התקנת מנעול חכם', 'city': 'עיר גנים'}
+prosaas-backend  | 🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: city=עיר גנים source=ai_confirmation
+prosaas-backend  | ✅ [LEAD STATE] Updated: raw_city=עיר
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'service_type': 'התקנת מנעול חכם', 'city': 'עיר גנים', 'raw_city': 'עיר'}
+prosaas-backend  | 🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: raw_city=עיר source=ai_confirmation
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_confidence=100.0
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'service_type': 'התקנת מנעול חכם', 'city': 'עיר גנים', 'raw_city': 'עיר', 'city_confidence': '100.0'}
+prosaas-backend  | 🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: city_confidence=100.0 source=ai_confirmation
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_autocorrected=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True', 'service_type': 'התקנת מנעול חכם', 'city': 'עיר גנים', 'raw_city': 'עיר', 'city_confidence': '100.0', 'city_autocorrected': 'True'}
+prosaas-backend  | 🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: city_autocorrected=True source=ai_confirmation
+prosaas-backend  | 🔒 [CITY] Majority locked: 'עיר גנים' from ['שלום!', 'עיר', 'חכם,', 'עיר']
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'ובאיזו עיר אתה נמצא?...'
+prosaas-backend  | 🔇 [SERVER_EVENT] Sent SILENTLY to AI: [SERVER] זיהיתי שאתה חוזר על עצמך. אמור: 'לא שמעתי טוב, אפשר לחזור?' ותמתין בשקט.
+prosaas-backend  | 🛑 [LOOP GUARD] Blocking response.create (engaged=True, consecutive=3)
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=19.1dB | noise=30 | music=False | echo_blocked=True
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=33.4dB) echo_blocked=True
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=33.4dB | noise=30 | music=False | echo_blocked=True
+prosaas-backend  | 📼 [BUILD 198] Sending 10 pre-roll frames (RAW μ-law)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_stopped
+prosaas-backend  | 🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+prosaas-backend  | [REALTIME] event: input_audio_buffer.committed
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjFgQ1Yui2q57xI...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjFgQ1Yui2q57xI... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_started
+prosaas-backend  | 🛡️ [BUILD 187 GRACE] Ignoring speech_started - only 10ms since response.created (grace=1000ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=cancelled, output_count=0, details={'type': 'cancelled', 'reason': 'turn_detected'}
+prosaas-backend  | 🔄 [BUILD 193] Response cancelled (output=0)! Triggering IMMEDIATE recovery...
+prosaas-backend  | [REALTIME] event: conversation.item.input_audio_transcription.completed
+prosaas-backend  | 🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived 573ms after AI finished (min: 700ms)
+prosaas-backend  |    Rejected text: 'שחק....' (likely hallucination)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=21, voice_frames=0
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_stopped
+prosaas-backend  | 🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+prosaas-backend  | [REALTIME] event: input_audio_buffer.committed
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjFgRvUPC3ia2EN...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjFgRvUPC3ia2EN... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔇 [BUILD 197] SPEECH ENDED: duration=963ms threshold=900ms trailing_silence=507ms first=False
+prosaas-backend  | ✅ [BUILD 197] ACCEPTED utterance: 963ms >= 900ms
+prosaas-backend  | 🎤 END OF UTTERANCE: 1.0s - triggering AI response
+prosaas-backend  | 📊 [AUDIO PATH] First utterance accepted: duration=963ms, trailing_silence=507ms, first=False
+prosaas-backend  | ✅ [BUILD 197] response.create queued (end of speech)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-7.3dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | ⏭️ [BUILD 196.3] Active response in progress (resp_CjFgRvUPC3...) - NOT creating new one
+prosaas-backend  | 🔄 [BUILD 192] RECOVERY: Triggering response.create NOW!
+prosaas-backend  | ✅ [BUILD 192] RECOVERY SUCCESS: response.create sent!
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=21, voice_frames=0
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | [REALTIME] event: conversation.item.input_audio_transcription.completed
+prosaas-backend  | [SILENCE GATE] ❌ REJECTED (RMS=21 < 30, frames=0): 'נכון'
+prosaas-backend  | ❌ [REALTIME] ERROR: {'type': 'invalid_request_error', 'code': 'conversation_already_has_active_response', 'message': 'Conversation already has an active response in progress: resp_CjFgRvUPC3ia2EN9B09Eg. Wait until the response is finished before creating a new one.', 'param': None, 'event_id': None}
+prosaas-backend  | [REALTIME] event: error
+prosaas-backend  | ❌ [REALTIME] Error event: Conversation already has an active response in progress: resp_CjFgRvUPC3ia2EN9B09Eg. Wait until the response is finished before creating a new one.
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🎤 END OF UTTERANCE: 0.6s audio, conversation #1
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=10240 | silence_ms=1985
+prosaas-backend  | ⏭️ [REALTIME] END OF UTTERANCE detected - triggering AI response
+prosaas-backend  | ✅ [REALTIME] response.create triggered via queue
+prosaas-backend  | ✅ Processing complete for conversation #1
+prosaas-backend  | 💓 WS_KEEPALIVE #2 (prevents 5min timeout)
+prosaas-backend  | ✅ [BUILD 196.3] response.create sent (manual trigger)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | ❌ [REALTIME] ERROR: {'type': 'invalid_request_error', 'code': 'conversation_already_has_active_response', 'message': 'Conversation already has an active response in progress: resp_CjFgRvUPC3ia2EN9B09Eg. Wait until the response is finished before creating a new one.', 'param': None, 'event_id': None}
+prosaas-backend  | [REALTIME] event: error
+prosaas-backend  | ❌ [REALTIME] Error event: Conversation already has an active response in progress: resp_CjFgRvUPC3ia2EN9B09Eg. Wait until the response is finished before creating a new one.
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🎙️ REAL_VOICE: rms=103.0 > threshold=80.0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=15.6dB | noise=30 | music=True | echo_blocked=False
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=3.7dB | noise=30 | music=True | echo_blocked=False
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: מצוין, קיבלתי. בעל מקצוע מתאים יחזור אליך בדקות הקרובות. תודה ולהתראות.
+prosaas-backend  | 💾 [BUILD 196.5] AI transcript saved to conversation_history (total: 12 messages)
+prosaas-backend  | 🔍 [DEBUG CALLIBER] AI_REPLY: 'מצוין, קיבלתי. בעל מקצוע מתאים יחזור אליך בדקות הקרובות. תודה ולהתראות.'
+prosaas-backend  | 🔒 [CITY] Already locked to 'עיר' - ignoring new input
+prosaas-backend  | [GOODBYE CHECK] Clear goodbye detected: 'מצוין, קיבלתי. בעל מקצוע מתאים...'
+prosaas-backend  | ✅ [HANGUP BUILD 176] AI said goodbye with auto_end_on_goodbye=True + user interaction - disconnecting
+prosaas-backend  | 🔒 [BUILD 194] Hangup triggered - blocking future transcripts
+prosaas-backend  | 🔇 [BUILD 194] Cleared audio input buffer
+prosaas-backend  | 📞 [STATE] Transitioning ACTIVE → CLOSING (reason: ai_goodbye_auto_end)
+prosaas-backend  | 📞 [BUILD 163] Pending hangup set - will disconnect after audio finishes playing
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | ⏳ [POLITE HANGUP] Starting wait for audio to finish...
+prosaas-backend  | ✅ [POLITE HANGUP] OpenAI queue empty after 0ms
+prosaas-backend  | ✅ [POLITE HANGUP] Twilio TX queue empty after 0ms
+prosaas-backend  | ⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | [REALTIME] event: input_audio_buffer.cleared
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=14, voice_frames=0
+prosaas-backend  | 📊 [BUILD 198] Stats: sent=270 blocked=839 | 🎵MUSIC | noise=30 | state=SILENCE
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=10.5dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=18.7dB) echo_blocked=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=18.7dB | noise=30 | music=False | echo_blocked=False
+prosaas-backend  | 📼 [BUILD 198] Sending 10 pre-roll frames (RAW μ-law)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=18, voice_frames=0
+prosaas-backend  | 🔒 [BUILD 197] CLOSING state - ignoring utterance (672ms)
+prosaas-backend  | 📞 [BUILD 163] Audio playback complete - triggering polite hangup now
+prosaas-backend  | 📞 [SMART HANGUP] === CALL ENDING ===
+prosaas-backend  | 📞 [SMART HANGUP] Reason: AI finished speaking politely
+prosaas-backend  | 📞 [SMART HANGUP] Lead captured: False
+prosaas-backend  | 📞 [SMART HANGUP] Goodbye detected: True
+prosaas-backend  | 📞 [SMART HANGUP] Lead state: {'city_needs_retry': 'True', 'service_type': 'התקנת מנעול חכם', 'city': 'עיר גנים', 'raw_city': 'עיר', 'city_confidence': '100.0', 'city_autocorrected': 'True'}
+prosaas-backend  | 📞 [SMART HANGUP] Required fields: ['city', 'service_type']
+prosaas-backend  | 📞 [SMART HANGUP] ===================
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=11, voice_frames=0
+prosaas-backend  | ✅ [BUILD 163] Call CAf815c2... hung up successfully: AI finished speaking politely
+prosaas-backend  | WS_STOP sid=MZ978ef80d7a575046144ff13cace123e8 rx=1342 tx=516
+prosaas-backend  | 📞 [SES-d1f9c2ae] CALL ENDED - duration=26.8s, business_id=10, rx=1342, tx=516
+prosaas-backend  | 📤 [REALTIME] Audio sender ended
+prosaas-backend  | 📝 [REALTIME] Text sender ended
+prosaas-backend  | 🧹 Waiting for 5 background threads...
+prosaas-backend  | STREAM_ENDED call=CAf815c2c330137396b51e854085d0c0ef stream=N/A status=N/A
+prosaas-backend  | INFO:     172.18.0.5:57766 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+prosaas-backend  | INFO:     172.18.0.5:57772 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+prosaas-backend  | ✅ Found existing recording for CAf815c2c330137396b51e854085d0c0ef: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/REecac0f94f9977fb6d9ea47b5aeb3321a.json
+prosaas-backend  | ✅ Recording queued for processing: CAf815c2c330137396b51e854085d0c0ef
+prosaas-backend  | INFO:     connection closed
+prosaas-backend  | INFO:     127.0.0.1:54530 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | ⚠️ Background thread 0 still running after timeout
+prosaas-backend  | ✅ CALL FINALIZED: CAf815c2c330137396b51e854085d0c0ef
+prosaas-backend  | 📝 Summary: ### סוג הפנייה והתחום:
+prosaas-backend  | הפנייה היא בתחום המנעולים והביטחון, עם דגש על התקנת מנעול חכם במלון.
+prosaas-backend  | 
+prosaas-backend  | ### פרטים ספציפיים:
+prosaas-backend  | - **שירות נדרש**: התקנת מנעול חכם.
+prosaas-backend  | - **מיקום**: שחק (עיר לא ברורה, יש לבדוק את הכתובת המדויקת).
+prosaas-backend  | 
+prosaas-backend  | ### פרטי הלקוח:
+prosaas-backend  | לא נמסרו פרטי לקוח כמו שם או אמצעי התקשרות.
+prosaas-backend  | 
+prosaas-backend  | ### סטטוס ומעקב:
+prosaas-backend  | - **פעולה**: בעל מקצוע מתאים יחזור ללקוח בדקות הקרובות.
+prosaas-backend  | - **דחיפות**: לא צוינה דחיפות, אך יש להניח שהשירות נדרש בהקדם.
+prosaas-backend  | 
+prosaas-backend  | ### הערות חשובות:
+prosaas-backend  | יש לוודא את המיקום המדויק של הלקוח ולברר פרטים נוספים במידת הצורך, כגון סוג המלון ודרישות נוספות להתקנה. מומלץ לעקוב אחרי הפנייה ולוודא שהלקוח קיבל את השירות הנדרש.
+prosaas-backend  | 🎯 Intent: general_inquiry
+prosaas-backend  | 📊 Next Action: מעקב תוך 24 שעות
+prosaas-backend  | ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)
+prosaas-backend  | 📱 [WEBHOOK] Phone extraction debug:
+prosaas-backend  |    - self.phone_number: None
+prosaas-backend  |    - self.customer_phone_dtmf: NOT_SET
+prosaas-backend  | ⚠️ Background thread 4 still running after timeout
+prosaas-backend  | ✅ All background threads cleanup complete
+prosaas-backend  | WS_DONE sid=MZ978ef80d7a575046144ff13cace123e8 rx=1342 tx=516
+prosaas-backend  |    - call_log.from_number: +972504294724
+prosaas-backend  |    - crm_context.customer_phone: NO_CRM
+prosaas-backend  |    ✓ Using CallLog from_number: +972504294724
+prosaas-backend  | 🎯 [WEBHOOK] Extracted SPECIFIC service from AI confirmation: 'התקנת מנעול חכם'
+prosaas-backend  | 📋 [WEBHOOK] Lead capture state: {'city_needs_retry': 'True', 'service_type': 'התקנת מנעול חכם', 'city': 'עיר גנים', 'raw_city': 'עיר', 'city_confidence': '100.0', 'city_autocorrected': 'True'}
+prosaas-backend  | [WEBHOOK] 📦 Payload built: call_id=CAf815c2c330137396b51e854085d0c0ef, phone=+972504294724, city=עיר גנים, direction=inbound
+prosaas-backend  | [WEBHOOK] Sending call.completed to http://prosaas.pro/n8n/webhook/prosaas-call-comple... (attempt 1)
+prosaas-backend  | ✅ [WEBHOOK] Call completed webhook queued: phone=+972504294724, city=עיר גנים, service=התקנת מנעול חכם
+prosaas-backend  | [WEBHOOK] 🔀 Following redirect to: https://prosaas.pro/n8n/webhook/prosaas-call-completed
+prosaas-backend  | [WEBHOOK] Sending call.completed to https://prosaas.pro/n8n/webhook/prosaas-call-compl... (attempt 2)
+prosaas-backend  | [WEBHOOK] ⚠️ Response 404: {"code":404,"message":"The requested webhook \"POST prosaas-call-completed\" is not registered.","hint":"The workflow must be active for a production URL to run successfully. You can activate the work
+prosaas-backend  | [WEBHOOK] Retrying in 3s...
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:41902 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | [WEBHOOK] Sending call.completed to https://prosaas.pro/n8n/webhook/prosaas-call-compl... (attempt 3)
+prosaas-backend  | [WEBHOOK] ⚠️ Response 404: {"code":404,"message":"The requested webhook \"POST prosaas-call-completed\" is not registered.","hint":"The workflow must be active for a productio

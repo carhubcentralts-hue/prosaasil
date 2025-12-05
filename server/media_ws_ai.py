@@ -4376,13 +4376,14 @@ ALWAYS mention their name in the first sentence.
         MUSIC_CONFIRM_FRAMES = int(os.getenv("AUDIO_MUSIC_CONFIRM_FRAMES", "5"))   # Frames to confirm music
         
         # ════════════════════════════════════════════════════════════════
-        # 🔥 BUILD 197: HUMAN-LIKE VAD THRESHOLDS
-        # Users need to speak for ~1 second + have ~0.5s silence before AI responds
-        # This prevents AI from interrupting mid-sentence or responding to noise
+        # 🔥 BUILD 199: RELAXED VAD THRESHOLDS
+        # Previous thresholds (900ms/1200ms) were too aggressive for Hebrew
+        # Short valid utterances like "כן", "נכון", "תל אביב" were ignored
+        # Let OpenAI's Realtime VAD handle turn detection primarily
         # ════════════════════════════════════════════════════════════════
-        MIN_UTTERANCE_DURATION_MS = int(os.getenv("MIN_UTTERANCE_DURATION_MS", "900"))   # 0.9s min speech
-        MIN_TRAILING_SILENCE_MS = int(os.getenv("MIN_TRAILING_SILENCE_MS", "500"))       # 0.5s silence required
-        MIN_FIRST_UTTERANCE_MS = int(os.getenv("MIN_FIRST_UTTERANCE_MS", "1200"))        # 1.2s for first utterance
+        MIN_UTTERANCE_DURATION_MS = int(os.getenv("MIN_UTTERANCE_DURATION_MS", "400"))   # 0.4s min speech (was 0.9s)
+        MIN_TRAILING_SILENCE_MS = int(os.getenv("MIN_TRAILING_SILENCE_MS", "300"))       # 0.3s silence required (was 0.5s)
+        MIN_FIRST_UTTERANCE_MS = int(os.getenv("MIN_FIRST_UTTERANCE_MS", "600"))         # 0.6s for first utterance (was 1.2s)
         
         # ════════════════════════════════════════════════════════════════
         # 🔥 BUILD 198: AUDIO PATH FIX + DIAGNOSTIC MODE
@@ -4935,42 +4936,14 @@ ALWAYS mention their name in the first sentence.
                             _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
                             # greeting_sent stays True to bypass GUARD for next response
                         
-                        # 🔥 BUILD 193: IMMEDIATE RECOVERY for ANY cancelled response!
-                        # When turn_detected cancels response, AI may go silent.
-                        # OLD BUG: Only triggered recovery for output_count=0, but AI can also
-                        # get stuck after partial speech (output_count=1 with cancelled).
-                        # FIX: Trigger recovery for ANY cancelled response to keep conversation flowing
-                        # 🔥 BUILD 194: But NEVER recover after closing_sent - call is ending!
-                        if status == "cancelled" and self.user_has_spoken and not getattr(self, 'closing_sent', False):
-                            _orig_print(f"🔄 [BUILD 193] Response cancelled (output={len(output)})! Triggering IMMEDIATE recovery...", flush=True)
-                            
-                            # 🔥 BUILD 192: IMMEDIATE recovery - don't wait for speech_stopped!
-                            async def _immediate_recovery():
-                                # Short delay to let any pending events settle
-                                await asyncio.sleep(0.8)  # 800ms delay
-                                
-                                # Guard 1: Check if AI is already speaking
-                                if self.is_ai_speaking_event.is_set():
-                                    _orig_print(f"🔄 [BUILD 192] Recovery skipped - AI already speaking", flush=True)
-                                    return
-                                # Guard 2: Check if there's a pending response
-                                if self.response_pending_event.is_set():
-                                    _orig_print(f"🔄 [BUILD 192] Recovery skipped - response pending", flush=True)
-                                    return
-                                # Guard 3: Check if speech is active (user still talking)
-                                if getattr(self, '_realtime_speech_active', False):
-                                    _orig_print(f"🔄 [BUILD 192] Recovery skipped - user still speaking", flush=True)
-                                    return
-                                
-                                # All guards passed - trigger recovery
-                                _orig_print(f"🔄 [BUILD 192] RECOVERY: Triggering response.create NOW!", flush=True)
-                                try:
-                                    await client.send_event({"type": "response.create"})
-                                    _orig_print(f"✅ [BUILD 192] RECOVERY SUCCESS: response.create sent!", flush=True)
-                                except Exception as e:
-                                    _orig_print(f"⚠️ [BUILD 192] Recovery failed: {e}", flush=True)
-                            
-                            asyncio.create_task(_immediate_recovery())
+                        # 🔥 BUILD 199: SIMPLIFIED - NO RECOVERY TRIGGERS
+                        # Previous code (BUILD 192/193) auto-triggered response.create after cancellations
+                        # This caused chaos: double triggers, conversation_already_has_active_response errors
+                        # FIX: Let OpenAI's Realtime handle turn detection naturally
+                        # Only trigger response.create from VAD end-of-utterance OR input_audio_buffer.committed
+                        if status == "cancelled" and self.user_has_spoken:
+                            _orig_print(f"ℹ️ [BUILD 199] Response cancelled (output={len(output)}) - waiting for next user turn (no auto-recovery)", flush=True)
+                            # 🔥 NO RECOVERY - wait for next user speech → input_audio_buffer.committed → natural response
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
@@ -5605,38 +5578,25 @@ ALWAYS mention their name in the first sentence.
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
                     
-                    # 🔥 BUILD 193: SMART POST-AI COOLDOWN
-                    # OLD BUG: Rejected transcripts arriving fast after AI, but this dropped
-                    # valid user speech that was spoken DURING AI talking (barge-in).
-                    # FIX: Allow transcripts within OVERLAP_GRACE_MS (user likely spoke during AI)
-                    OVERLAP_GRACE_MS = 300  # 🔥 BUILD 193: Grace period for overlapping speech
+                    # 🔥 BUILD 199: POST-AI COOLDOWN DISABLED
+                    # Previously rejected transcripts arriving after AI finished, but this dropped
+                    # valid user responses. Echo/hallucination prevention is now in audio path only.
+                    # Log timing for debugging but NEVER reject based on timing alone
                     if self._ai_finished_speaking_ts > 0:
                         time_since_ai_finished = (now_sec - self._ai_finished_speaking_ts) * 1000
-                        if time_since_ai_finished < POST_AI_COOLDOWN_MS:
-                            # 🔥 BUILD 193: Allow very fast transcripts (likely overlap)
-                            if time_since_ai_finished < OVERLAP_GRACE_MS:
-                                print(f"✅ [BUILD 193] ALLOWED: Transcript {time_since_ai_finished:.0f}ms after AI (within {OVERLAP_GRACE_MS}ms overlap grace)")
-                                # Don't continue - process this transcript!
-                            else:
-                                print(f"🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived {time_since_ai_finished:.0f}ms after AI finished (min: {POST_AI_COOLDOWN_MS}ms)")
-                                print(f"   Rejected text: '{text[:50]}...' (likely hallucination)")
-                                # 🔥 BUILD 182: Still record for transcript (with filtered flag)
-                                if len(text) >= 3:
-                                    self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
-                                continue
+                        if time_since_ai_finished < 500:  # Just log for debugging
+                            print(f"ℹ️ [BUILD 199] Transcript {time_since_ai_finished:.0f}ms after AI - ACCEPTING (was previously rejected)")
+                        # 🔥 NEVER reject - always accept transcripts!
                     
-                    # 🔥 BUILD 171: STRICTER RMS GATE - Reject if no sustained speech detected
+                    # 🔥 BUILD 199: SILENCE GATE DISABLED
+                    # Previously rejected valid transcripts like "נכון", "התקנת מנעול חכם" due to RMS/frames
+                    # OpenAI already does VAD - trust its transcriptions!
+                    # Echo/hallucination prevention is handled by echo-blocking in audio path, not here
                     recent_rms = getattr(self, '_recent_audio_rms', 0)
                     consec_frames = getattr(self, '_consecutive_voice_frames', 0)
-                    ABSOLUTE_SILENCE_RMS = 30  # 🔥 BUILD 171: Raised from 15 to 30
-                    
-                    # Reject if: low RMS AND not enough consecutive frames
-                    if recent_rms < ABSOLUTE_SILENCE_RMS and consec_frames < MIN_CONSECUTIVE_VOICE_FRAMES:
-                        print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < {ABSOLUTE_SILENCE_RMS}, frames={consec_frames}): '{text}'")
-                        # 🔥 BUILD 182: Still record for transcript (with filtered flag)
-                        if len(text) >= 3:
-                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
-                        continue
+                    # Log for debugging but DO NOT reject
+                    if recent_rms < 30 and consec_frames < 3:
+                        print(f"[SILENCE GATE] ℹ️ LOW RMS (RMS={recent_rms:.0f}, frames={consec_frames}) but ACCEPTING: '{text}'")
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
                     # 🔥 BUILD 194: DURATION/LENGTH RATIO CHECK
