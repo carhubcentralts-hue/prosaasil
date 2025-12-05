@@ -57,6 +57,12 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
 # 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
 USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 
+# 🔥 BUILD 309: SIMPLE_MODE - Simplified call flow without aggressive filters
+try:
+    from server.config.calls import SIMPLE_MODE
+except ImportError:
+    SIMPLE_MODE = True  # Default to SIMPLE_MODE if config not found
+
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
 ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "true").lower() in ("true", "1", "yes")
@@ -120,6 +126,10 @@ class CallConfig:
     smart_hangup_enabled: bool = True
     enable_calendar_scheduling: bool = True  # 🔥 BUILD 186: AI can schedule appointments
     
+    # 🔥 BUILD 309: SIMPLE_MODE Call Profile
+    call_goal: str = "lead_only"  # "lead_only" or "appointment"
+    confirm_before_hangup: bool = True  # Always confirm before disconnecting
+    
     # Timeouts
     silence_timeout_sec: int = 15
     silence_max_warnings: int = 2
@@ -171,6 +181,8 @@ def load_call_config(business_id: int) -> CallConfig:
             auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
             smart_hangup_enabled=getattr(settings, 'smart_hangup_enabled', True) if settings else True,
             enable_calendar_scheduling=getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
+            call_goal=getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only',
+            confirm_before_hangup=getattr(settings, 'confirm_before_hangup', True) if settings else True,
             silence_timeout_sec=getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             silence_max_warnings=getattr(settings, 'silence_max_warnings', 2) if settings else 2,
             required_lead_fields=getattr(settings, 'required_lead_fields', ['name', 'phone']) if settings else ['name', 'phone'],
@@ -182,6 +194,8 @@ def load_call_config(business_id: int) -> CallConfig:
                    f"auto_end_goodbye={config.auto_end_on_goodbye}, "
                    f"auto_end_lead={config.auto_end_after_lead_capture}, "
                    f"calendar_scheduling={config.enable_calendar_scheduling}, "
+                   f"call_goal={config.call_goal}, "
+                   f"confirm_before_hangup={config.confirm_before_hangup}, "
                    f"silence_timeout={config.silence_timeout_sec}s")
         
         return config
@@ -1167,6 +1181,9 @@ class MediaStreamHandler:
         self.silence_max_warnings = 2  # Default - overwritten by CallConfig
         self.smart_hangup_enabled = True  # Default - overwritten by CallConfig
         self.required_lead_fields = ['name', 'phone']  # Default - overwritten by CallConfig
+        # 🔥 BUILD 309: SIMPLE_MODE settings
+        self.call_goal = 'lead_only'  # Default - "lead_only" or "appointment"
+        self.confirm_before_hangup = True  # Default - Always confirm before disconnecting
         # 🎯 DYNAMIC LEAD CAPTURE STATE: Tracks ALL captured fields from conversation
         # Updated by _update_lead_capture_state() from AI responses and DTMF
         self.lead_capture_state = {}  # e.g., {'name': 'דני', 'city': 'תל אביב', 'service_type': 'ניקיון'}
@@ -2808,6 +2825,10 @@ ALWAYS mention their name in the first sentence.
                             print(f"🛑 [GUARD] Blocking hangup - AI confirmed but appointment not yet created!")
                             hangup_blocked_for_appointment = True
                         
+                        # 🔥 BUILD 309: Check confirm_before_hangup setting from call config
+                        # If False, allow hangup without user confirmation (just goodbye)
+                        confirm_required = getattr(self, 'confirm_before_hangup', True)
+                        
                         # 🔥 BUILD 170.5: Hangup only when proper conditions are met
                         # Skip all hangup logic if appointment guard is active
                         if hangup_blocked_for_appointment:
@@ -2818,12 +2839,16 @@ ALWAYS mention their name in the first sentence.
                             should_hangup = True
                             print(f"✅ [HANGUP] User said goodbye, AI responded politely - disconnecting")
                         
-                        # Case 2: Lead fully captured AND setting enabled AND customer CONFIRMED AND AI confirmed
-                        # 🔥 BUILD 172 FIX: Added verification_confirmed check!
-                        elif self.auto_end_after_lead_capture and self.lead_captured and self.verification_confirmed and ai_polite_closing_detected:
-                            hangup_reason = "lead_captured_confirmed"
-                            should_hangup = True
-                            print(f"✅ [HANGUP] Lead captured + confirmed + auto_end=True - disconnecting")
+                        # Case 2: Lead fully captured AND setting enabled
+                        # 🔥 BUILD 309: respect confirm_before_hangup setting!
+                        elif self.auto_end_after_lead_capture and self.lead_captured and ai_polite_closing_detected:
+                            if confirm_required and not self.verification_confirmed:
+                                # Confirmation required but not received yet - AI should ask
+                                print(f"⏳ [HANGUP] Lead captured but confirm_before_hangup=True - waiting for user confirmation")
+                            else:
+                                hangup_reason = "lead_captured_confirmed" if self.verification_confirmed else "lead_captured_auto"
+                                should_hangup = True
+                                print(f"✅ [HANGUP] Lead captured + {'confirmed' if self.verification_confirmed else 'auto (no confirm required)'} - disconnecting")
                         
                         # Case 3: User explicitly confirmed details in summary
                         elif self.verification_confirmed and ai_polite_closing_detected:
@@ -3023,77 +3048,83 @@ ALWAYS mention their name in the first sentence.
                             is_hallucination = True
                             print(f"🚫 [BUILD 186] ENGLISH HALLUCINATION: '{text}' (all words are common English)")
                     
-                    # 🔥 BUILD 186: GENERIC STT VALIDATION - No hardcoded patterns!
-                    # Uses linguistic rules from hebrew_stt_validator service
-                    natural_elongations = ["אמממ", "אההה", "אממ", "אהה", "מממ", "ווו", "אה", "אם", "אוקי", "היי"]
-                    
-                    # 🔥 BUILD 303: INCREMENT USER UTTERANCE COUNT for patience with early STT
+                    # 🔥 BUILD 303: INCREMENT USER UTTERANCE COUNT
                     self.user_utterance_count += 1
                     
+                    # 🔥 BUILD 309: SIMPLE_MODE - Bypass ALL noise/gibberish filters!
+                    # In SIMPLE_MODE, trust OpenAI + Twilio completely - all text passes through
                     is_gibberish_detected = False
-                    
-                    # 🔥 BUILD 303: PATIENCE FOR FIRST 2 UTTERANCES - Don't reject as gibberish!
-                    # The first responses after greeting are critical - trust them even if slightly broken
-                    # Only require ≥4 Hebrew characters to pass
-                    bypass_gibberish_for_patience = (
-                        self.user_utterance_count <= 2 and
-                        hebrew_chars >= 4  # At least 4 Hebrew chars
-                    )
-                    
-                    if bypass_gibberish_for_patience:
-                        print(f"✅ [BUILD 303 PATIENCE] Bypassing gibberish check for utterance #{self.user_utterance_count}: '{text_stripped}' (hebrew_chars={hebrew_chars})")
-                    elif hebrew_chars > 0 and text_stripped not in natural_elongations:
-                        # Use the generic Hebrew STT validator (no hardcoded patterns)
-                        is_gib, gib_reason, gib_confidence = is_gibberish(text_stripped)
-                        if is_gib and gib_confidence >= 0.5:
-                            is_gibberish_detected = True
-                            print(f"[GIBBERISH] Detected: '{text_stripped}' | Reason: {gib_reason} | Confidence: {gib_confidence:.0%}")
-                    
-                    # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
-                    is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
-                    
-                    # 🔥 BUILD 170.4: IMPROVED FILTER LOGIC
-                    # Priority: Allow Hebrew > Block hallucinations > Block gibberish
                     should_filter = False
                     filter_reason = ""
                     
-                    # First check: If has Hebrew characters and meaningful length, probably valid
-                    has_meaningful_hebrew = hebrew_chars >= 2 and len(text) >= 3
-                    
-                    if is_valid_short_hebrew or starts_with_valid:
-                        # ✅ ALWAYS allow valid short Hebrew words or phrases starting with them
-                        should_filter = False
-                        print(f"✅ [NOISE FILTER] ALLOWED Hebrew: '{text}'")
-                    elif has_meaningful_hebrew and not is_gibberish_detected:
-                        # ✅ Has Hebrew characters and not gibberish - probably valid
-                        should_filter = False
-                        print(f"✅ [NOISE FILTER] ALLOWED (has Hebrew): '{text}'")
-                    elif is_hallucination:
-                        should_filter = True
-                        filter_reason = "hallucination"
-                    elif is_gibberish_detected:
-                        should_filter = True
-                        filter_reason = "gibberish"
-                    elif len(text) < 2 or all(ch in ".?!, " for ch in text):
-                        should_filter = True
-                        filter_reason = "too_short_or_punctuation"
-                    elif is_pure_english:
-                        # Pure English in Hebrew call - suspicious
-                        should_filter = True
-                        filter_reason = "pure_english_hallucination"
-                    
-                    if should_filter:
-                        print(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
-                        print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
-                        # 🔥 BUILD 182: STILL record filtered transcripts for webhook/transcript purposes!
-                        # Only skip AI processing, not conversation history
-                        if len(text) >= 2 and filter_reason not in ["gibberish", "too_short_or_punctuation"]:
-                            self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
-                            print(f"📝 [TRANSCRIPT] Recorded filtered user speech for webhook: '{text}'")
-                        continue
-                    
-                    # ✅ PASSED FILTER
-                    print(f"[NOISE FILTER] ✅ ACCEPTED: '{text}' (hebrew={hebrew_chars}, english={english_chars})")
+                    if SIMPLE_MODE:
+                        print(f"✅ [SIMPLE_MODE] Bypassing all filters - accepting: '{text}'")
+                        # In SIMPLE_MODE: skip all filtering, go straight to segment merging
+                    else:
+                        # 🔥 BUILD 186: GENERIC STT VALIDATION - No hardcoded patterns!
+                        # Uses linguistic rules from hebrew_stt_validator service
+                        natural_elongations = ["אמממ", "אההה", "אממ", "אהה", "מממ", "ווו", "אה", "אם", "אוקי", "היי"]
+                        
+                        # 🔥 BUILD 303: PATIENCE FOR FIRST 2 UTTERANCES - Don't reject as gibberish!
+                        # The first responses after greeting are critical - trust them even if slightly broken
+                        # Only require ≥4 Hebrew characters to pass
+                        bypass_gibberish_for_patience = (
+                            self.user_utterance_count <= 2 and
+                            hebrew_chars >= 4  # At least 4 Hebrew chars
+                        )
+                        
+                        if bypass_gibberish_for_patience:
+                            print(f"✅ [BUILD 303 PATIENCE] Bypassing gibberish check for utterance #{self.user_utterance_count}: '{text_stripped}' (hebrew_chars={hebrew_chars})")
+                        elif hebrew_chars > 0 and text_stripped not in natural_elongations:
+                            # Use the generic Hebrew STT validator (no hardcoded patterns)
+                            is_gib, gib_reason, gib_confidence = is_gibberish(text_stripped)
+                            if is_gib and gib_confidence >= 0.5:
+                                is_gibberish_detected = True
+                                print(f"[GIBBERISH] Detected: '{text_stripped}' | Reason: {gib_reason} | Confidence: {gib_confidence:.0%}")
+                        
+                        # 🛡️ Check if pure English with no Hebrew - likely Whisper hallucination
+                        is_pure_english = hebrew_chars == 0 and english_chars >= 2 and len(text) < 20
+                        
+                        # 🔥 BUILD 170.4: IMPROVED FILTER LOGIC
+                        # Priority: Allow Hebrew > Block hallucinations > Block gibberish
+                        
+                        # First check: If has Hebrew characters and meaningful length, probably valid
+                        has_meaningful_hebrew = hebrew_chars >= 2 and len(text) >= 3
+                        
+                        if is_valid_short_hebrew or starts_with_valid:
+                            # ✅ ALWAYS allow valid short Hebrew words or phrases starting with them
+                            should_filter = False
+                            print(f"✅ [NOISE FILTER] ALLOWED Hebrew: '{text}'")
+                        elif has_meaningful_hebrew and not is_gibberish_detected:
+                            # ✅ Has Hebrew characters and not gibberish - probably valid
+                            should_filter = False
+                            print(f"✅ [NOISE FILTER] ALLOWED (has Hebrew): '{text}'")
+                        elif is_hallucination:
+                            should_filter = True
+                            filter_reason = "hallucination"
+                        elif is_gibberish_detected:
+                            should_filter = True
+                            filter_reason = "gibberish"
+                        elif len(text) < 2 or all(ch in ".?!, " for ch in text):
+                            should_filter = True
+                            filter_reason = "too_short_or_punctuation"
+                        elif is_pure_english:
+                            # Pure English in Hebrew call - suspicious
+                            should_filter = True
+                            filter_reason = "pure_english_hallucination"
+                        
+                        if should_filter:
+                            print(f"[NOISE FILTER] ❌ REJECTED ({filter_reason}): '{text}'")
+                            print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
+                            # 🔥 BUILD 182: STILL record filtered transcripts for webhook/transcript purposes!
+                            # Only skip AI processing, not conversation history
+                            if len(text) >= 2 and filter_reason not in ["gibberish", "too_short_or_punctuation"]:
+                                self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
+                                print(f"📝 [TRANSCRIPT] Recorded filtered user speech for webhook: '{text}'")
+                            continue
+                        
+                        # ✅ PASSED FILTER
+                        print(f"[NOISE FILTER] ✅ ACCEPTED: '{text}' (hebrew={hebrew_chars}, english={english_chars})")
                     
                     # 🔥 BUILD 169.1: IMPROVED SEGMENT MERGING (Architect-reviewed)
                     # Added: max length limit, flush on long pause, proper reset
@@ -4842,9 +4873,13 @@ ALWAYS mention their name in the first sentence.
                         # 🔥 BUILD 302/303: ALWAYS send during barge-in, even if noise/low RMS!
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
                         
+                        # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
                         # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
                         # Also bypass during _realtime_speech_active (OpenAI VAD detected speech)
-                        if self.barge_in_active or self._realtime_speech_active:
+                        if SIMPLE_MODE:
+                            should_send_audio = True  # SIMPLE_MODE: always send audio to OpenAI
+                            is_noise = False  # Trust OpenAI's VAD
+                        elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
                         else:
@@ -6579,6 +6614,9 @@ ALWAYS mention their name in the first sentence.
                         self.silence_max_warnings = self.call_config.silence_max_warnings
                         self.smart_hangup_enabled = self.call_config.smart_hangup_enabled
                         self.required_lead_fields = self.call_config.required_lead_fields
+                        # 🔥 BUILD 309: SIMPLE_MODE settings
+                        self.call_goal = self.call_config.call_goal  # "lead_only" or "appointment"
+                        self.confirm_before_hangup = self.call_config.confirm_before_hangup  # Always confirm before disconnect
                     
                     # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
                     if self.bot_speaks_first:
@@ -6594,6 +6632,7 @@ ALWAYS mention their name in the first sentence.
                     print(f"   auto_end_lead={self.auto_end_after_lead_capture}, silence_timeout={self.silence_timeout_sec}s")
                     print(f"🔍 [CONFIG] required_lead_fields={self.required_lead_fields}")
                     print(f"🔍 [CONFIG] smart_hangup_enabled={self.smart_hangup_enabled}")
+                    print(f"🔍 [BUILD 309] call_goal={getattr(self, 'call_goal', 'lead_only')}, confirm_before_hangup={getattr(self, 'confirm_before_hangup', True)}")
                     
                     return (self.business_id, greeting)
                 else:

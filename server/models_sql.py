@@ -157,6 +157,10 @@ class BusinessSettings(db.Model):
     smart_hangup_enabled = db.Column(db.Boolean, default=True)  # AI decides hangup based on context, not keywords
     required_lead_fields = db.Column(db.JSON, nullable=True)  # ["name", "phone", "service_type", "preferred_time"]
     
+    # 🔥 BUILD 309: SIMPLE_MODE Call Profile - Dynamic call goal and confirmation settings
+    call_goal = db.Column(db.String(50), default="lead_only")  # "lead_only" or "appointment" - determines flow
+    confirm_before_hangup = db.Column(db.Boolean, default=True)  # Always confirm with user before hanging up
+    
     # 🔥 BUILD 204: Dynamic STT Vocabulary - per-business terminology for better transcription
     # Format: {"services": ["תספורת", "צביעה"], "staff": ["דנה", "יוסי"], "products": ["מוס", "לק"], "locations": ["תל אביב"]}
     stt_vocabulary_json = db.Column(db.JSON, nullable=True)  # Business-specific vocabulary for STT hints
