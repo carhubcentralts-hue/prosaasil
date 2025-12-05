@@ -73,6 +73,14 @@ ProSaaS employs a multi-tenant architecture with strict data isolation, integrat
   3. **Unified STT**: OpenAI Realtime is the ONLY live STT source. Legacy Google STT/Whisper are for offline/post-call only.
   4. **Pipeline status logging**: Every 3 seconds logs `sent/blocked/active_response/ai_speaking/user_has_spoken` for debugging.
   5. **Removed `openai_ws` usage**: All communication uses `realtime_client` only.
+- **100% Dynamic Content (BUILD 200)**: CRITICAL DESIGN PRINCIPLE - ZERO hardcoded business-specific values in code. System works for ANY business type (restaurants, doctors, service providers, etc.) without code changes. All prompts, greetings, required fields, service types, and business logic come from database configuration:
+  - Removed hardcoded real estate terms (דירה, נכסים, תקציב patterns)
+  - Deleted `_analyze_lead_completeness()` function (had property_type, budget, timing hardcoded)
+  - `treatment_type` for appointments uses dynamic `service_type` from lead capture
+  - Emergency responses are generic ("לא שמעתי, אפשר לחזור?")
+  - Required lead fields defined per-business in settings
+  - City hints loaded from JSON files, not hardcoded
+  - All AI behavior controlled by business-editable prompts
 
 # External Dependencies
 
