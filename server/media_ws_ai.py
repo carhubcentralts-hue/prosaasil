@@ -4376,6 +4376,17 @@ ALWAYS mention their name in the first sentence.
         MUSIC_CONFIRM_FRAMES = int(os.getenv("AUDIO_MUSIC_CONFIRM_FRAMES", "5"))   # Frames to confirm music
         
         # ════════════════════════════════════════════════════════════════
+        # 🔥 BUILD 197: HUMAN-LIKE VAD THRESHOLDS
+        # Users need to speak for ~1 second + have ~0.5s silence before AI responds
+        # This prevents AI from interrupting mid-sentence or responding to noise
+        # ════════════════════════════════════════════════════════════════
+        MIN_UTTERANCE_DURATION_MS = int(os.getenv("MIN_UTTERANCE_DURATION_MS", "900"))   # 0.9s min speech
+        MIN_TRAILING_SILENCE_MS = int(os.getenv("MIN_TRAILING_SILENCE_MS", "500"))       # 0.5s silence required
+        MIN_FIRST_UTTERANCE_MS = int(os.getenv("MIN_FIRST_UTTERANCE_MS", "1200"))        # 1.2s for first utterance
+        
+        print(f"🔧 [BUILD 197] VAD thresholds: MIN_UTTERANCE={MIN_UTTERANCE_DURATION_MS}ms, TRAILING_SILENCE={MIN_TRAILING_SILENCE_MS}ms, FIRST_UTTERANCE={MIN_FIRST_UTTERANCE_MS}ms")
+        
+        # ════════════════════════════════════════════════════════════════
         # 🎤 STATE MACHINE: SILENCE → MAYBE_SPEECH → SPEECH
         # ════════════════════════════════════════════════════════════════
         STATE_SILENCE = "SILENCE"
@@ -4385,6 +4396,10 @@ ALWAYS mention their name in the first sentence.
         current_state = STATE_SILENCE
         maybe_speech_count = 0  # Consecutive high-SNR frames in MAYBE_SPEECH
         hangover_counter = 0  # Frames remaining in hangover
+        
+        # 🔥 BUILD 197: Trailing silence tracking
+        last_speech_frame_ts = 0  # Last frame with detected speech (for trailing silence calc)
+        utterance_start_ms = 0    # When current utterance started
         
         # ════════════════════════════════════════════════════════════════
         # 🔊 NOISE CALIBRATION (first 600ms of call)
@@ -4622,44 +4637,81 @@ ALWAYS mention their name in the first sentence.
                             current_state = STATE_SILENCE
                     
                     elif current_state == STATE_SPEECH:
+                        now_ms = time.time() * 1000
+                        
+                        # 🔥 BUILD 197: Track when we last detected actual speech
                         if snr_db >= snr_stop:
                             hangover_counter = HANGOVER_FRAMES  # Reset hangover
+                            last_speech_frame_ts = now_ms  # Update last speech timestamp
                         else:
                             hangover_counter -= 1
-                            if hangover_counter <= 0:
+                            
+                            # 🔥 BUILD 197: Calculate trailing silence
+                            trailing_silence_ms = now_ms - last_speech_frame_ts if last_speech_frame_ts > 0 else 0
+                            
+                            # 🔥 BUILD 197: Only end utterance if BOTH:
+                            # 1) Hangover expired (SNR dropped)
+                            # 2) Trailing silence >= MIN_TRAILING_SILENCE_MS
+                            if hangover_counter <= 0 and trailing_silence_ms >= MIN_TRAILING_SILENCE_MS:
                                 current_state = STATE_SILENCE
                                 maybe_speech_count = 0
                                 preroll_buffer.clear()  # Clear stale preroll on speech end
                                 
-                                # 🔥 BUILD 196.4: Calculate utterance duration
-                                # REDUCED from 300ms to 150ms - don't skip short Hebrew words like "כן", "לא", city names
-                                MIN_UTTERANCE_MS = 150
-                                utterance_end_ms = time.time() * 1000
+                                # 🔥 BUILD 197: Calculate utterance duration
+                                utterance_end_ms = now_ms
                                 duration_ms = utterance_end_ms - utterance_start_ms
                                 
-                                print(f"🔇 [BUILD 196.4] SPEECH ENDED (SNR={snr_db:.1f}dB) duration={duration_ms:.0f}ms echo_blocked={echo_blocked} is_ai={is_ai_speaking}")
+                                # 🔥 BUILD 197: CLOSING state guard - ignore ALL speech events
+                                if getattr(self, 'closing_sent', False):
+                                    print(f"🔒 [BUILD 197] CLOSING state - ignoring utterance ({duration_ms:.0f}ms)")
+                                    continue
                                 
-                                # 🔥 BUILD 196.4: END OF UTTERANCE - RELAXED conditions
-                                # Audio is ALWAYS sent to OpenAI (they hear everything)
-                                # We only skip the MANUAL TRIGGER for very short speech
-                                if duration_ms < MIN_UTTERANCE_MS:
-                                    # Short speech - still sent to OpenAI but no manual trigger
-                                    print(f"⏭️ [BUILD 196.4] SHORT but SENT to OpenAI: duration={duration_ms:.0f}ms (no manual trigger)")
-                                elif echo_blocked:
-                                    # Echo protection - log reason clearly
-                                    print(f"🔇 [BUILD 196.4] SPEECH→SILENCE during echo (is_ai={is_ai_speaking}, cooldown={in_echo_cooldown}) - NOT triggering")
-                                elif getattr(self, 'closing_sent', False):
-                                    print(f"🔒 [BUILD 196.4] SPEECH→SILENCE during closing - NOT triggering")
-                                else:
-                                    # Valid utterance - trigger AI response!
-                                    print(f"🎤 END OF UTTERANCE: {duration_ms/1000:.1f}s echo_blocked=False")
-                                    print(f"🎯 [BUILD 196.4] SPEECH→SILENCE: Triggering AI response...")
-                                    if hasattr(self, 'realtime_text_input_queue'):
-                                        try:
-                                            self.realtime_text_input_queue.put("[TRIGGER_RESPONSE]")
-                                            print(f"✅ [BUILD 196.4] response.create queued (end of speech)")
-                                        except Exception as e:
-                                            print(f"⚠️ [BUILD 196.4] Failed to queue trigger: {e}")
+                                # 🔥 BUILD 197: Determine threshold based on first utterance
+                                is_first_utterance = not getattr(self, 'user_has_spoken', False)
+                                threshold_ms = MIN_FIRST_UTTERANCE_MS if is_first_utterance else MIN_UTTERANCE_DURATION_MS
+                                
+                                print(f"🔇 [BUILD 197] SPEECH ENDED: duration={duration_ms:.0f}ms threshold={threshold_ms}ms trailing_silence={trailing_silence_ms:.0f}ms first={is_first_utterance}")
+                                
+                                # 🔥 BUILD 197: IGNORE short utterances completely - NO trigger, NO user_has_spoken
+                                if duration_ms < threshold_ms:
+                                    print(f"🚫 [BUILD 197] IGNORED short utterance: {duration_ms:.0f}ms < {threshold_ms}ms (not triggering)")
+                                    # Reset state and continue - do NOT trigger response
+                                    last_speech_frame_ts = 0
+                                    utterance_start_ms = 0
+                                    continue
+                                
+                                # 🔥 BUILD 197: Check echo protection
+                                if echo_blocked:
+                                    print(f"🔇 [BUILD 197] Echo blocked (is_ai={is_ai_speaking}, cooldown={in_echo_cooldown}) - NOT triggering")
+                                    last_speech_frame_ts = 0
+                                    utterance_start_ms = 0
+                                    continue
+                                
+                                # 🔥 BUILD 197: VALID UTTERANCE - passed all checks!
+                                print(f"✅ [BUILD 197] ACCEPTED utterance: {duration_ms:.0f}ms >= {threshold_ms}ms")
+                                print(f"🎤 END OF UTTERANCE: {duration_ms/1000:.1f}s - triggering AI response")
+                                
+                                # Set user_has_spoken ONLY on valid utterance (not on speech_started!)
+                                if not getattr(self, 'user_has_spoken', False):
+                                    self.user_has_spoken = True
+                                    print(f"🗣️ [BUILD 197] First REAL user utterance detected - user_has_spoken=True")
+                                
+                                # Trigger AI response
+                                if hasattr(self, 'realtime_text_input_queue'):
+                                    try:
+                                        self.realtime_text_input_queue.put("[TRIGGER_RESPONSE]")
+                                        print(f"✅ [BUILD 197] response.create queued (end of speech)")
+                                    except Exception as e:
+                                        print(f"⚠️ [BUILD 197] Failed to queue trigger: {e}")
+                                
+                                # Reset for next utterance
+                                last_speech_frame_ts = 0
+                                utterance_start_ms = 0
+                            
+                            elif hangover_counter <= 0:
+                                # Hangover expired but not enough trailing silence yet - keep waiting
+                                # Don't transition to SILENCE yet, keep hangover at 0
+                                hangover_counter = 0  # Stay at 0, waiting for trailing silence
                     
                     if prev_state != current_state:
                         print(f"📊 [BUILD 196.2] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected} | echo_blocked={echo_blocked}")
@@ -4962,8 +5014,10 @@ ALWAYS mention their name in the first sentence.
                         # Don't mark user_has_spoken, don't bypass noise gate - just ignore this event
                         continue
                     
-                    print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
-                    self.user_has_spoken = True
+                    # 🔥 BUILD 197: DO NOT set user_has_spoken here!
+                    # user_has_spoken is only set when utterance passes duration threshold
+                    # This prevents noise from triggering premature hangups
+                    print(f"🎤 [REALTIME] User started speaking (user_has_spoken NOT set yet - waiting for valid utterance)")
                     self.user_speech_seen = True  # 🔥 BUILD 193: Flag for finalize (even if transcripts are filtered)
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
                     # This prevents loop guard from triggering when user IS speaking
@@ -5817,8 +5871,10 @@ ALWAYS mention their name in the first sentence.
                     self._stt_last_segment_ts = now_ms
                     transcript = text
                     
-                    # Mark that the user really spoke at least once
-                    self.user_has_spoken = True
+                    # 🔥 BUILD 197: DO NOT set user_has_spoken here!
+                    # user_has_spoken is only set in the VAD state machine when utterance passes duration threshold
+                    # This ensures short noise bursts don't trigger premature hangups
+                    # (Transcripts are still saved to conversation_history regardless)
                     
                     # 🔥 BUILD 170.3: LOOP PREVENTION - Reset counter when user speaks
                     self._consecutive_ai_responses = 0
