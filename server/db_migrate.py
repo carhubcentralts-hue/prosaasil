@@ -728,6 +728,20 @@ def apply_migrations():
             migrations_applied.append("add_business_context")
             log.info("✅ Applied migration 32b: add_business_context - Business context for STT prompts")
     
+    # Migration 33: BUILD 309 - SIMPLE_MODE settings for call flow control
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'call_goal'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN call_goal VARCHAR(50) DEFAULT 'lead_only'"))
+            migrations_applied.append("add_call_goal")
+            log.info("✅ Applied migration 33a: add_call_goal - Controls call objective (lead_only vs appointment)")
+        
+        if not check_column_exists('business_settings', 'confirm_before_hangup'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN confirm_before_hangup BOOLEAN DEFAULT TRUE"))
+            migrations_applied.append("add_confirm_before_hangup")
+            log.info("✅ Applied migration 33b: add_confirm_before_hangup - Requires confirmation before disconnecting")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
