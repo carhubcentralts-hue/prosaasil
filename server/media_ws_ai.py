@@ -4708,6 +4708,9 @@ ALWAYS mention their name in the first sentence.
                                 print(f"✅ [BUILD 197] ACCEPTED utterance: {duration_ms:.0f}ms >= {threshold_ms}ms")
                                 print(f"🎤 END OF UTTERANCE: {duration_ms/1000:.1f}s - triggering AI response")
                                 
+                                # 🔥 BUILD 198: Debug log for verification
+                                print(f"📊 [AUDIO PATH] First utterance accepted: duration={duration_ms:.0f}ms, trailing_silence={trailing_silence_ms:.0f}ms, first={is_first_utterance}")
+                                
                                 # Set user_has_spoken ONLY on valid utterance (not on speech_started!)
                                 if not getattr(self, 'user_has_spoken', False):
                                     self.user_has_spoken = True
@@ -4805,11 +4808,15 @@ ALWAYS mention their name in the first sentence.
                     f.write(b"".join(diagnostic_samples))
                 print(f"📼 [BUILD 198 DIAGNOSTIC] Saved {len(diagnostic_samples)} frames to {filename}")
                 
-                # Also save transcript log
+                # Save conversation history (contains all transcripts - both user and AI)
                 transcript_file = f"/tmp/realtime_{call_sid}_transcripts.txt"
                 with open(transcript_file, "w") as f:
-                    for entry in diagnostic_transcripts:
-                        f.write(f"{entry.get('ts', 0)}: {entry.get('text', '')}\n")
+                    for entry in getattr(self, 'conversation_history', []):
+                        speaker = entry.get('speaker', 'unknown')
+                        text = entry.get('text', '')
+                        ts = entry.get('ts', 0)
+                        filtered = entry.get('filtered', False)
+                        f.write(f"[{ts:.2f}] {speaker}: {text}{' [FILTERED]' if filtered else ''}\n")
                 print(f"📝 [BUILD 198 DIAGNOSTIC] Saved transcripts to {transcript_file}")
             except Exception as e:
                 print(f"⚠️ [BUILD 198 DIAGNOSTIC] Failed to save: {e}")
