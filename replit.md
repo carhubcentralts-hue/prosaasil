@@ -123,6 +123,16 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
   - **Stuck Response Detection**: Safety net clears active_response_id after 10 seconds if response.done is missed
     - Prevents AI freeze without adding a watchdog - inline check during pipeline status logging
   - **Expected Improvement**: Prevents AI freeze, better short word recognition, faster response
+- **HARD Barge-In (BUILD 302)**: User interrupts AI = AI shuts up immediately:
+  - **On `speech_started` while AI speaking**: 
+    1. Send `response.cancel` to OpenAI to stop generation
+    2. Clear all local guards (active_response_id, is_ai_speaking, etc.)
+    3. Flush TX audio queue so Twilio stops playing old audio
+    4. Set `barge_in_active=True` to bypass ALL audio gates
+  - **During barge-in**: ALL audio frames go straight to OpenAI, no local filtering
+  - **On `speech_stopped`**: Clear barge_in_active, let user's new utterance trigger response
+  - **Server Events blocked**: During barge-in, server_events won't trigger old context responses
+  - **Expected Behavior**: Human-like interruption - AI stops mid-sentence, listens, responds to NEW input only
 
 # External Dependencies
 

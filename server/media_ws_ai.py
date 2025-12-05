@@ -1106,6 +1106,10 @@ class MediaStreamHandler:
         self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
         
+        # 🔥 BUILD 302: HARD BARGE-IN - When user speaks over AI, we hard-cancel everything
+        # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
+        self.barge_in_active = False
+        
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
         self._stats_audio_blocked = 0  # Total audio chunks blocked (greeting, etc.)
@@ -1946,10 +1950,22 @@ ALWAYS mention their name in the first sentence.
                         if hasattr(self, '_stuck_check_first_seen_ts'):
                             self._stuck_check_first_seen_ts = None
                     
+                    # 🔥 BUILD 302: BARGE-IN FAILSAFE - Clear if stuck for >5 seconds
+                    # If speech_stopped never fires (e.g., network issue), don't leave barge_in_active stuck
+                    BARGE_IN_TIMEOUT_SEC = 5.0
+                    if self.barge_in_active:
+                        barge_start = getattr(self, '_barge_in_started_ts', None)
+                        if barge_start:
+                            barge_age = now - barge_start
+                            if barge_age > BARGE_IN_TIMEOUT_SEC:
+                                print(f"🔧 [BUILD 302] BARGE-IN TIMEOUT! Clearing after {barge_age:.1f}s (speech_stopped never received)")
+                                self.barge_in_active = False
+                                self._barge_in_started_ts = None
+                    
                     print(
                         f"[PIPELINE STATUS] sent={self._stats_audio_sent} blocked={self._stats_audio_blocked} | "
                         f"active_response={self.active_response_id[:15] if self.active_response_id else 'None'}... | "
-                        f"ai_speaking={self.is_ai_speaking_event.is_set()} | user_has_spoken={self.user_has_spoken}"
+                        f"ai_speaking={self.is_ai_speaking_event.is_set()} | barge_in={self.barge_in_active}"
                     )
                 
             except Exception as e:
@@ -1957,6 +1973,26 @@ ALWAYS mention their name in the first sentence.
                 break
         
         print(f"📤 [REALTIME] Audio sender ended")
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🔥 BUILD 302: FLUSH TX QUEUE - Stop old audio from playing on barge-in
+    # ═══════════════════════════════════════════════════════════════════════════════
+    def _flush_twilio_tx_queue(self, reason: str = ""):
+        """
+        Flush all pending audio from the TX queue to Twilio.
+        Called on barge-in to immediately stop AI audio playback.
+        """
+        queue_size_before = self.tx_q.qsize()
+        flushed = 0
+        try:
+            while not self.tx_q.empty():
+                _ = self.tx_q.get_nowait()
+                flushed += 1
+        except Exception:
+            pass
+        
+        print(f"🧹 [TX_FLUSH] Flushed {flushed} frames (was {queue_size_before}, reason={reason or 'UNKNOWN'})")
+        return flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
@@ -2185,6 +2221,53 @@ ALWAYS mention their name in the first sentence.
                     if self._loop_guard_engaged:
                         print(f"✅ [LOOP GUARD] User started speaking - disengaging loop guard EARLY")
                         self._loop_guard_engaged = False
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 BUILD 302: HARD BARGE-IN - If AI is speaking, KILL the response NOW!
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Goal: Any time user starts speaking while AI is speaking, we do a hard barge-in:
+                    #   1. Cancel the current OpenAI response
+                    #   2. Stop sending its audio to Twilio
+                    #   3. Clear guards/flags
+                    #   4. Let the new user utterance lead the next response
+                    if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                        print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
+                        print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
+                        print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
+                        
+                        # Set barge-in flag - ALL audio gates will be bypassed!
+                        self.barge_in_active = True
+                        self._barge_in_started_ts = time.time()  # Track for failsafe timeout
+                        
+                        # 1) Cancel response on OpenAI side (with timeout protection)
+                        try:
+                            if self.realtime_client:
+                                # Use asyncio.wait_for with 0.5s timeout to avoid blocking
+                                await asyncio.wait_for(
+                                    self.realtime_client.cancel_response(),
+                                    timeout=0.5
+                                )
+                                print(f"   ✅ Sent response.cancel to OpenAI")
+                        except asyncio.TimeoutError:
+                            print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
+                        except Exception as e:
+                            print(f"   ⚠️ Error cancelling response: {e}")
+                        
+                        # 2) Clear local guards (ALWAYS, even if cancel failed)
+                        self.active_response_id = None
+                        self.response_pending_event.clear()
+                        self.is_ai_speaking_event.clear()
+                        self.speaking = False
+                        self.has_pending_ai_response = False
+                        
+                        # 3) Flush TX audio queue so Twilio stops playing old audio
+                        try:
+                            self._flush_twilio_tx_queue(reason="BARGE_IN")
+                        except Exception as e:
+                            print(f"   ⚠️ Error flushing TX queue: {e}")
+                        
+                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, queue flushed")
+                    
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
                     self._realtime_speech_started_ts = time.time()
@@ -2194,6 +2277,13 @@ ALWAYS mention their name in the first sentence.
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    # 🔥 BUILD 302: Clear barge-in flag when user finishes speaking
+                    if self.barge_in_active:
+                        barge_duration = time.time() - getattr(self, '_barge_in_started_ts', time.time())
+                        print(f"✅ [BARGE-IN] User utterance completed - barge-in ended (duration={barge_duration:.1f}s)")
+                        self.barge_in_active = False
+                        self._barge_in_started_ts = None
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
@@ -3254,6 +3344,12 @@ ALWAYS mention their name in the first sentence.
             if "appointment_created" in message_text:
                 print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
                 print(f"🔔 [APPOINTMENT] Message content: {message_text}")
+            
+            # 🔥 BUILD 302: DON'T trigger response during barge-in!
+            # If user just interrupted AI, don't let server_events revive old context
+            if self.barge_in_active:
+                print(f"⏸️ [SERVER_EVENT] Skipping trigger - barge-in active (message logged but no response)")
+                return
             
             # 🔥 BUILD 200: Use central trigger_response for ALL response.create calls
             # The trigger_response function handles:
@@ -4412,7 +4508,13 @@ ALWAYS mention their name in the first sentence.
                             self._realtime_speech_active = False
                             speech_bypass_active = False
                             print(f"⏱️ [BUILD 166] Speech timeout after {elapsed:.1f}s - noise gate RE-ENABLED")
-                    is_noise = rms < RMS_SILENCE_THRESHOLD and not speech_bypass_active  # 120 RMS = pure noise
+                    
+                    # 🔥 BUILD 302: BARGE-IN BYPASS - During barge-in, NEVER treat anything as noise
+                    # This ensures 100% of user's speech goes to OpenAI when they interrupt AI
+                    if self.barge_in_active:
+                        is_noise = False  # Force through during barge-in
+                    else:
+                        is_noise = rms < RMS_SILENCE_THRESHOLD and not speech_bypass_active  # 40 RMS = pure noise
                     
                     # 🔥 BUILD 167: MUSIC GATE DISABLED - Hebrew speech was being blocked!
                     # Hebrew has sustained consonant clusters with RMS 200-350 which matched "music" pattern
@@ -4466,8 +4568,9 @@ ALWAYS mention their name in the first sentence.
                                 self._consecutive_voice_frames = max(0, self._consecutive_voice_frames - 2)  # Decay slowly
                         
                         # 🔥 BUILD 171: Only send audio if we have enough consecutive frames OR bypass is active
+                        # 🔥 BUILD 302: ALWAYS send during barge-in!
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
-                        should_send_audio = (has_sustained_speech or speech_bypass_active) and not is_noise
+                        should_send_audio = (has_sustained_speech or speech_bypass_active or self.barge_in_active) and not is_noise
                         
                         # 🔥 BUILD 165: ONLY send audio above noise threshold AND sustained speech!
                         if should_send_audio:
@@ -4525,7 +4628,8 @@ ALWAYS mention their name in the first sentence.
                                   f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
                         
                         # 🔥 BUILD 165: NOISE GATE - already checked via is_noise flag
-                        if is_noise:
+                        # 🔥 BUILD 302: Skip noise check during barge-in - trust OpenAI's VAD
+                        if is_noise and not self.barge_in_active:
                             # Pure noise - don't count for barge-in
                             self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 1)
                             continue
