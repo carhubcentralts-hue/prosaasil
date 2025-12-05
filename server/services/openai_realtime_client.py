@@ -281,12 +281,13 @@ class OpenAIRealtimeClient:
         vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
         silence_duration_ms: int = 1200,  # 🔥 BUILD 170: Raised from 500ms to reduce false triggers
         temperature: float = 0.18,
-        max_tokens: int = 300
+        max_tokens: int = 300,
+        transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
     ):
         """
         Configure Realtime API session
         
-        ✅ REQUIRED: Internal Whisper transcription enabled (mandatory for AI to hear audio)
+        ✅ REQUIRED: Internal transcription enabled (mandatory for AI to hear audio)
         
         Args:
             instructions: System prompt for the AI
@@ -297,35 +298,45 @@ class OpenAIRealtimeClient:
             silence_duration_ms: Silence duration to detect end of speech
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
+            transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
         """
+        # 🔥 BUILD 202: TRANSCRIPTION IMPROVEMENTS FOR HEBREW
+        # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
+        # - Add dynamic prompt with business vocabulary (names, cities, services)
+        # - Explicit Hebrew language setting
+        transcription_config = {
+            "model": "gpt-4o-transcribe",  # 🔥 BUILD 202: Better Hebrew accuracy than whisper-1
+            "language": "he"  # 🔥 Explicit Hebrew - mandatory for accuracy!
+        }
+        
+        # Add transcription prompt if provided (business-specific vocabulary)
+        if transcription_prompt:
+            transcription_config["prompt"] = transcription_prompt
+            logger.info(f"🎤 [STT PROMPT] Using dynamic transcription prompt ({len(transcription_prompt)} chars)")
+        
         # ✅ CRITICAL: Internal transcription is REQUIRED for AI to hear audio!
         # Without input_audio_transcription, the AI receives no STT events and stays silent.
-        # This is NOT the same as "logging transcription" - it's the core audio→text pipeline.
         session_config = {
             "instructions": instructions,
             "modalities": ["audio", "text"],
             "voice": voice,
             "input_audio_format": input_audio_format,
             "output_audio_format": output_audio_format,
-            # ✅ MANDATORY: Internal Whisper transcription for audio comprehension
+            # ✅ MANDATORY: Internal transcription for audio comprehension
             # DO NOT remove this - AI will be completely silent without it!
-            # 🔥 BUILD 183: Explicit Hebrew language for better transcription accuracy
-            "input_audio_transcription": {
-                "model": "whisper-1",
-                "language": "he"  # 🔥 Explicit Hebrew - improves accuracy for city names!
-            },
+            "input_audio_transcription": transcription_config,
+            # 🔥 BUILD 202: Removed prefix_padding_ms - not supported by SDK, caused crashes
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": vad_threshold,
-                "silence_duration_ms": silence_duration_ms,
-                "prefix_padding_ms": 300
+                "silence_duration_ms": silence_duration_ms
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
         }
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
-        logger.info(f"🎯 [REALTIME CONFIG] model=gpt-4o-realtime-preview, temp={temperature}, max_tokens={max_tokens}")
+        logger.info(f"🎯 [REALTIME CONFIG] model=gpt-4o-realtime-preview, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
         
         # 🚫 NO TOOLS for phone calls - appointment scheduling via NLP only
         
@@ -337,4 +348,4 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=ENABLED (whisper-1)")
+        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")

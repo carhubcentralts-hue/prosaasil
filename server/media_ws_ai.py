@@ -1553,10 +1553,46 @@ class MediaStreamHandler:
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
+            # 🔥 BUILD 202: Build dynamic transcription prompt for better Hebrew STT
+            # Include business name, services, cities, staff names from settings
+            transcription_prompt = ""
+            try:
+                from server.models_sql import Business, BusinessSettings
+                app = _get_flask_app()
+                with app.app_context():
+                    business = Business.query.get(business_id_safe)
+                    settings = BusinessSettings.query.filter_by(tenant_id=business_id_safe).first()
+                    
+                    prompt_parts = []
+                    
+                    # Business name
+                    if business and business.name:
+                        prompt_parts.append(f"עסק: {business.name}")
+                    
+                    # Service types (from required fields if configured)
+                    if settings and settings.required_lead_fields:
+                        fields = settings.required_lead_fields if isinstance(settings.required_lead_fields, list) else []
+                        if 'service_type' in fields:
+                            prompt_parts.append("שירותים: מנעולן, פורץ דלתות, התקנת מנעול, החלפת צילינדר, כספת")
+                    
+                    # Common Hebrew names (helps with short names like שי)
+                    prompt_parts.append("שמות: שי, גיא, רון, דן, אור, עדי, יובל, איתי, נועם, רועי, צחי, אדם, תום, אלון")
+                    
+                    # Israeli cities (helps with city recognition)
+                    prompt_parts.append("ערים: תל אביב, ירושלים, חיפה, באר שבע, מצפה רמון, רמלה, רמת גן, אילת, נתניה, אשדוד")
+                    
+                    transcription_prompt = ". ".join(prompt_parts)
+                    print(f"🎤 [BUILD 202] Transcription prompt built: {len(transcription_prompt)} chars")
+                    
+            except Exception as e:
+                print(f"⚠️ [BUILD 202] Failed to build transcription prompt: {e}")
+                transcription_prompt = "עסק ישראלי. שמות: שי, גיא, רון, דן, אור. ערים: תל אביב, ירושלים, מצפה רמון, רמלה"
+            
             # 🔥 BUILD 187 FIX: AGGRESSIVE VAD - filter noise, prevent false turn_detected
             # vad_threshold=0.9 - VERY high threshold, only trigger on clear speech
             # silence_duration_ms=900 - longer silence requirement before AI responds
             # 🔥 BUILD 200 FIX: Removed prefix_padding_ms - not supported by SDK!
+            # 🔥 BUILD 202: Use gpt-4o-transcribe model + dynamic transcription prompt
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -1565,7 +1601,8 @@ class MediaStreamHandler:
                 vad_threshold=0.9,         # 🔥 BUILD 187: 0.9 (was 0.75) - VERY strict, only clear speech
                 silence_duration_ms=900,   # 🔥 BUILD 187: 900ms (was 700) - longer pause before responding
                 temperature=0.6,           # 🔒 Consistent, focused responses
-                max_tokens=greeting_max_tokens  # 🔥 Dynamic based on greeting length!
+                max_tokens=greeting_max_tokens,  # 🔥 Dynamic based on greeting length!
+                transcription_prompt=transcription_prompt  # 🔥 BUILD 202: Dynamic vocab for Hebrew STT
             )
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
