@@ -738,7 +738,7 @@ from server.stream_state import stream_registry
 SR = 8000
 # ⚡ BUILD 164B: BALANCED NOISE FILTERING - Filter noise but allow quiet speech
 MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.6"))        # ⚡ 0.6s - מאפשר תגובות קצרות כמו "כן"
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - זמן מספיק לתיאור נכסים מפורט
+MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - enough time for detailed descriptions
 VAD_RMS = int(os.getenv("VAD_RMS", "180"))                  # 🔥 BUILD 187: 180 (was 120) - stricter to filter noise
 # 🔥 BUILD 171: STRICTER THRESHOLDS - Prevent Whisper hallucinations on silence
 RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "120"))      # 🔥 BUILD 187: 120 (was 100) - higher silence threshold  
@@ -3658,11 +3658,16 @@ ALWAYS mention their name in the first sentence.
                     if hasattr(self, 'call_summary') and self.call_summary:
                         appt_notes = f"סיכום שיחה:\n{self.call_summary}"
                     
+                    # 🔥 BUILD 200: Get treatment_type from lead state or use generic default
+                    # Each business defines their service types in their AI prompt
+                    service_type = self.lead_capture_state.get('service_type', '')
+                    treatment_type = service_type if service_type else "פגישה"  # Fallback to generic "meeting"
+                    
                     result = create_appointment_from_realtime(
                         business_id=self.business_id,
                         customer_phone=customer_phone,
                         customer_name=customer_name,
-                        treatment_type="פגישה",
+                        treatment_type=treatment_type,
                         start_iso=start_dt.isoformat(),
                         end_iso=end_dt.isoformat(),
                         notes=appt_notes
@@ -5112,7 +5117,8 @@ ALWAYS mention their name in the first sentence.
             # ✅ תגובת חירום מפורטת ומועילה
             try:
                 self.state = STATE_SPEAK
-                emergency_response = "מצטערת, לא שמעתי טוב בגלל החיבור. בואו נתחיל מחדש - איזה סוג נכס אתה מחפש ובאיזה אזור?"
+                # 🔥 BUILD 200: Generic emergency response - works for ANY business type
+                emergency_response = "מצטערת, לא שמעתי טוב. אפשר לחזור שוב בבקשה?"
                 self._speak_with_breath(emergency_response)
                 self.state = STATE_LISTEN
                 print(f"✅ RETURNED TO LISTEN STATE after error in conversation #{conversation_id}")
@@ -7463,90 +7469,11 @@ ALWAYS mention their name in the first sentence.
             
         return ""
     
-    def _analyze_lead_completeness(self) -> dict:
-        """BUILD 186: ניתוח השלמת מידע ליד לתיאום פגישה - 100% DYNAMIC!"""
-        collected_info = {
-            'area': False,
-            'property_type': False, 
-            'budget': False,
-            'timing': False,
-            'contact': False
-        }
-        
-        meeting_ready = False
-        
-        # בדוק היסטוריה לאיסוף מידע
-        if hasattr(self, 'conversation_history') and self.conversation_history:
-            full_conversation = ' '.join([turn['user'] + ' ' + turn['bot'] for turn in self.conversation_history])
-            
-            # 🔥 BUILD 186: זיהוי אזור DYNAMIC from JSON!
-            try:
-                from server.services.appointment_parser import _load_dynamic_area_patterns
-                area_patterns = _load_dynamic_area_patterns()
-                if any(area.lower() in full_conversation.lower() for area in area_patterns.keys()):
-                    collected_info['area'] = True
-            except:
-                pass
-            
-            # זיהוי סוג נכס
-            if any(prop_type in full_conversation for prop_type in ['דירה', 'חדרים', '2 חדרים', '3 חדרים', '4 חדרים', 'משרד', 'דופלקס']):
-                collected_info['property_type'] = True
-            
-            # זיהוי תקציב
-            if any(budget_word in full_conversation for budget_word in ['שקל', 'אלף', 'תקציב', '₪', 'אלפים', 'מיליון']):
-                collected_info['budget'] = True
-            
-            # זיהוי זמן כניסה
-            if any(timing in full_conversation for timing in ['מיידי', 'דחוף', 'חודש', 'שבועיים', 'בקרוב', 'עכשיו']):
-                collected_info['timing'] = True
-            
-            # זיהוי פרטי קשר
-            if any(contact in full_conversation for contact in ['טלפון', 'וואטסאפ', 'נייד', 'מספר', 'פרטים']):
-                collected_info['contact'] = True
-        
-        # ספירת מידע שנאסף
-        completed_fields = sum(collected_info.values())
-        
-        # ✅ FIX: תיאום פגישה אם יש לפחות 3 שדות (אזור + סוג נכס + טלפון)
-        # לא צריך תקציב ו-timing בהכרח!
-        meeting_ready = completed_fields >= 3
-        
-        # יצירת סיכום
-        summary_parts = []
-        if collected_info['area']: summary_parts.append('אזור')
-        if collected_info['property_type']: summary_parts.append('סוג נכס')
-        if collected_info['budget']: summary_parts.append('תקציב')
-        if collected_info['timing']: summary_parts.append('זמן')
-        if collected_info['contact']: summary_parts.append('קשר')
-        
-        summary = f"{len(summary_parts)}/5 שדות: {', '.join(summary_parts) if summary_parts else 'אין'}"
-        
-        # הודעה לתיאום פגישה או הצגת אופציות
-        meeting_prompt = ""
-        if meeting_ready:
-            meeting_prompt = f"""
-זמן לתיאום פגישה! יש מספיק מידע ({completed_fields}/5 שדות).
-
-**חשוב**: כשהלקוח מסכים לזמן ספציפי (לדוגמה "מחר ב-10" או "יום רביעי בערב"):
-1. חזור על הזמן המדויק שסוכם: "מצוין! נקבע פגישה ל[יום] בשעה [שעה מדויקת]"
-2. תן סיכום קצר: "נפגש ב[מיקום/נכס] ונראה [פרטי הנכס]"
-3. אשר: "אראה אותך ב[תאריך ושעה מדויקים]!"
-
-הצע 2-3 אפשרויות זמן ספציפיות, שמע מה הלקוח בוחר, וחזור על הזמן המדויק שהוסכם."""
-        elif completed_fields == 3:
-            meeting_prompt = """
-יש מידע בסיסי טוב! עכשיו תן דוגמה אחת ספציפית מתאימה ושאל שאלה ממוקדת לפני קביעת פגישה."""
-        else:
-            missing = 4 - completed_fields
-            meeting_prompt = f"צריך עוד {missing} שדות מידע לפני הצגת אופציות. המשך שיחה טבעית ותן פרטים נוספים על השוק והאזור."
-        
-        return {
-            'collected': collected_info,
-            'completed_count': completed_fields,
-            'meeting_ready': meeting_ready,
-            'summary': summary,
-            'meeting_prompt': meeting_prompt
-        }
+    # 🔥 BUILD 200: REMOVED _analyze_lead_completeness() function
+    # It contained hardcoded real estate terms (דירה, חדרים, נכס, תקציב)
+    # Lead completeness is now handled 100% by AI prompt - each business defines
+    # their own required fields and logic in their custom prompts.
+    # This ensures the system works for ANY business type, not just real estate.
     
     def _finalize_call_on_stop(self):
         """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות
