@@ -54,6 +54,7 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Strict SILENCE/MAYBE gating**: NEVER send audio in SILENCE or MAYBE_SPEECH states (only SPEECH sends).
   - **Pre-roll with AGC**: Pre-roll buffer stores pre-AGC audio; AGC applied to preroll when flushing for consistent volume.
   - **Pipeline order**: Bandpass → SNR/noise calibration → Music detection → State machine → AGC (SPEECH only) → Send.
+  - **Manual response.create trigger**: Since client-side VAD filters audio, OpenAI's server-side VAD may not detect end-of-speech. Solution: send `response.create` manually after END OF UTTERANCE via `[TRIGGER_RESPONSE]` queue command.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

@@ -4737,6 +4737,18 @@ ALWAYS mention their name in the first sentence.
                     print(f"📝 [REALTIME] Stop signal received")
                     break
                 
+                # 🔥 BUILD 196.2: Handle special trigger command
+                if text_message == "[TRIGGER_RESPONSE]":
+                    try:
+                        # 🔥 CRITICAL: Send response.create to trigger AI response
+                        # This is needed when our client-side VAD detects end-of-speech
+                        # but OpenAI's server-side VAD hasn't triggered yet
+                        await client.send_event({"type": "response.create"})
+                        print(f"✅ [BUILD 196.2] response.create sent (manual trigger)")
+                    except Exception as e:
+                        print(f"⚠️ [BUILD 196.2] Failed to send response.create: {e}")
+                    continue
+                
                 # ✅ Resilient send with retry
                 max_retries = 3
                 for attempt in range(max_retries):
@@ -7819,14 +7831,26 @@ ALWAYS mention their name in the first sentence.
     # 🎯 עיבוד מבע פשוט וביטוח (ללא כפילויות)
     def _process_utterance_safe(self, pcm16_8k: bytes, conversation_id: int):
         """עיבוד מבע עם הגנה כפולה מפני לולאות"""
-        # 🚀 REALTIME API: Skip Google STT/TTS completely in Realtime mode
+        # 🚀 REALTIME API: Skip Google STT/TTS - OpenAI handles everything
+        # 🔥 BUILD 196.2 FIX: We need to trigger response.create if server_vad didn't!
         if USE_REALTIME_API:
-            print(f"⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only")
-            # Reset buffer and state to prevent accumulation
+            print(f"⏭️ [REALTIME] END OF UTTERANCE detected - triggering AI response")
+            # Reset buffer and state
             if hasattr(self, 'buf'):
                 self.buf.clear()
             self.processing = False
             self.state = STATE_LISTEN
+            
+            # 🔥 CRITICAL FIX: Send response.create to OpenAI!
+            # Server-side VAD may not have detected end-of-speech because we filtered audio
+            # So we manually trigger the response here
+            if hasattr(self, 'realtime_text_input_queue'):
+                try:
+                    # Use special command to trigger response.create
+                    self.realtime_text_input_queue.put("[TRIGGER_RESPONSE]")
+                    print(f"✅ [REALTIME] response.create triggered via queue")
+                except Exception as e:
+                    print(f"⚠️ [REALTIME] Failed to trigger response: {e}")
             return
         
         # וודא שלא מעבדים את אותו ID פעמיים

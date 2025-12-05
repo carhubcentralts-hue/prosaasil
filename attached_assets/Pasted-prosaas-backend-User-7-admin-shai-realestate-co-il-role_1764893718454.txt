@@ -1,0 +1,433 @@
+prosaas-backend  |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+prosaas-backend  |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+prosaas-backend  |   - User 10: calliber@gmail.com | role=owner | business_id=10
+prosaas-backend  |   - User 8: admin@admin.com | role=system_admin | business_id=None
+prosaas-backend  | ✅ Lead statuses exist: 4 statuses found
+prosaas-backend  | ✅ FAQs table exists: 0 FAQs found across all businesses
+prosaas-backend  | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+prosaas-backend  | 👥 Checking user ownership...
+prosaas-backend  | 🔄 Starting User-to-Owner migration...
+prosaas-backend  | 📊 Found 2 businesses
+prosaas-backend  | ✅ Business 'פרו סאס' (ID=1) already has owner: business@shai-offices.co.il
+prosaas-backend  | ✅ Business 'קליבר' (ID=10) already has owner: calliber@gmail.com
+prosaas-backend  | 
+prosaas-backend  | ✅ User-to-Owner migration completed!
+prosaas-backend  | 
+prosaas-backend  | ✅ All businesses have owners!
+prosaas-backend  | ✅ User ownership check completed
+prosaas-backend  | ✅ Database initialization completed successfully!
+prosaas-backend  | 📧 Admin login: admin@admin.com / admin123
+prosaas-backend  | 🏢 Business ID: 1
+prosaas-backend  | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+prosaas-backend  | ✅ DATA PROTECTION: 21 leads preserved (no deletions)
+prosaas-backend  | 🔄 Starting admin roles migration...
+prosaas-backend  | 📊 Found 1 users with legacy roles
+prosaas-backend  | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+prosaas-backend  | 
+prosaas-backend  | ✅ Successfully migrated 1 users to new role structure!
+prosaas-backend  | 🔐 LOGIN ATTEMPT: email=calliber@gmail.com
+prosaas-backend  | ✓ Found user: id=10, email=calliber@gmail.com, role=owner
+prosaas-backend  | ✓ Password hash: scrypt:32768:8:1$NwJjYhcFJjcNjejm$9cc6e19d7dbac0ba...
+prosaas-backend  | ✓ Password verification result: True
+prosaas-backend  | 👤 Admin exists (ID=8), resetting password to 'admin123'
+prosaas-backend  | ✅ Admin password reset: admin@admin.com / admin123
+prosaas-backend  | 🔧 Starting database initialization...
+prosaas-backend  | 🔍 LOGIN SUCCESS: user_id=10, email=calliber@gmail.com, role=owner, business_id=10
+prosaas-backend  | INFO:     172.18.0.5:58060 - "POST /api/auth/login HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.5:58074 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | ✅ Business exists: פרו סאס (ID: 1)
+prosaas-backend  | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+prosaas-backend  | 
+prosaas-backend  | 📊 Total users in database: 6
+prosaas-backend  |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+prosaas-backend  |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+prosaas-backend  |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+prosaas-backend  |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+prosaas-backend  |   - User 10: calliber@gmail.com | role=owner | business_id=10
+prosaas-backend  |   - User 8: admin@admin.com | role=system_admin | business_id=None
+prosaas-backend  | ✅ Lead statuses exist: 4 statuses found
+prosaas-backend  | ✅ FAQs table exists: 0 FAQs found across all businesses
+prosaas-backend  | ✅ Business settings exist (slot_size: 60min, 24/7: False)
+prosaas-backend  | 👥 Checking user ownership...
+prosaas-backend  | 🔄 Starting User-to-Owner migration...
+prosaas-backend  | 📊 Found 2 businesses
+prosaas-backend  | ✅ Business 'פרו סאס' (ID=1) already has owner: business@shai-offices.co.il
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | ✅ Business 'קליבר' (ID=10) already has owner: calliber@gmail.com
+prosaas-backend  | 
+prosaas-backend  | ✅ User-to-Owner migration completed!
+prosaas-backend  | 
+prosaas-backend  | ✅ All businesses have owners!
+prosaas-backend  | ✅ User ownership check completed
+prosaas-backend  | ✅ Database initialization completed successfully!
+prosaas-backend  | 📧 Admin login: admin@admin.com / admin123
+prosaas-backend  | 🏢 Business ID: 1
+prosaas-backend  | INFO:     172.18.0.5:58086 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:58100 - "GET /api/dashboard/activity?time_filter=today HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:58102 - "GET /api/dashboard/stats?time_filter=today HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:58106 - "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 403 Forbidden
+prosaas-backend  | INFO:     172.18.0.5:36854 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:36864 - "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 403 Forbidden
+prosaas-backend  | INFO:     127.0.0.1:47586 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | ✅ Resolved business_id=10 from to_number=+97233762734 (Business: קליבר)
+prosaas-backend  | ✅ call_log created immediately for CAf2a5102a8e4124b71ab047fd3dfbfc57
+prosaas-backend  | 🟢 INCOMING_CALL - Starting thread to create lead for +972504294724, call_sid=CAf2a5102a8e4124b71ab047fd3dfbfc57
+prosaas-backend  | 🔵 CREATE_LEAD_FROM_CALL - Starting for +972504294724, call_sid=CAf2a5102a8e4124b71ab047fd3dfbfc57
+prosaas-backend  | 🔵 CREATE_LEAD_FROM_CALL - App context created
+prosaas-backend  | 🟢 INCOMING_CALL - Thread started successfully
+prosaas-backend  | ✅ incoming_call: 1273ms - CAf2a5102a8e4124
+prosaas-backend  | 🔥 TWIML_HOST=prosaas.pro
+prosaas-backend  | 🔥 TWIML_WS=wss://prosaas.pro/ws/twilio-media
+prosaas-backend  | 🔥 TWIML_FULL=<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://prosaas.pro/webhook/stream_ended"><Stream url="wss://prosaas.pro/ws/twilio-media"><Parameter name="CallSid" value="CAf2a5102a8e4124b71ab047fd3dfbfc57" /><Parameter name="To" value="+97233762734" /></Stream></Connect></Response>
+prosaas-backend  | INFO:     172.18.0.5:39792 - "POST /webhook/incoming_call HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.5:39796 - "WebSocket /ws/twilio-media" [accepted]
+prosaas-backend  | INFO:     connection open
+prosaas-backend  | 🎯 AI CONVERSATION STARTED
+prosaas-backend  | 🔵 [CALL] run() started - waiting for START event...
+prosaas-backend  | 🎯 [CALL DEBUG] START EVENT RECEIVED! session=SES-4efcaf87
+prosaas-backend  | 
+prosaas-backend  | 📞 START EVENT (customParameters path):
+prosaas-backend  |    customParams.From: None
+prosaas-backend  |    customParams.CallFrom: None
+prosaas-backend  |    ✅ self.phone_number set to: 'None'
+prosaas-backend  |    ✅ self.to_number set to: '+97233762734'
+prosaas-backend  | 🎯 [T0=1764893439.776] WS_START sid=MZ80d6fecef93032673cffedf625863db8 call_sid=CAf2a5102a8e4124b71ab047fd3dfbfc57 from=None to=+97233762734 mode=AI
+prosaas-backend  | 🚀 [PARALLEL] Starting OpenAI at T0+0ms (BEFORE DB query!)
+prosaas-backend  | 🚀 [REALTIME] Thread started for call CAf2a510 (FRESH SESSION)
+prosaas-backend  | ⚡ ULTRA-FAST: זיהוי עסק + ברכה + הגדרות בשאילתה אחת: to_number=+97233762734
+prosaas-backend  | 🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY
+prosaas-backend  | ⏱️ [PARALLEL] Client created in 0ms
+prosaas-backend  | ⏱️ [PARALLEL] OpenAI connected in 456ms (T0+462ms)
+prosaas-backend  | ⏳ [PARALLEL] Waiting for business info from DB query...
+prosaas-backend  | ✅ מצא עסק: קליבר (id=10)
+prosaas-backend  | 🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)
+prosaas-backend  | ⚡ BUILD 172: CallConfig loaded in 1010ms
+prosaas-backend  |    bot_speaks_first=True, auto_end_goodbye=True
+prosaas-backend  |    auto_end_lead=True, silence_timeout=5s
+prosaas-backend  | 🔍 [CONFIG] required_lead_fields=['city', 'service_type']
+prosaas-backend  | 🔍 [CONFIG] smart_hangup_enabled=True
+prosaas-backend  | ⚡ DB QUERY: business_id=10 in 1116ms
+prosaas-backend  | 🔧 DB_URL_AT_WRITE: driver=postgresql, BIZ=10, SID=CAf2a5102a8e4124b71ab047fd3dfbfc57
+prosaas-backend  | 🔊 TX_LOOP_START: Audio transmission thread started
+prosaas-backend  | 🎯 [T1=1764893440.894] STORING GREETING FOR REALTIME!
+prosaas-backend  | ✅ [REALTIME] Greeting stored: 'שלום! זה מ-אתר  ה-מנעולן איזה סוג שירות אתה צריך ?...' (len=50)
+prosaas-backend  | 🚀 [PARALLEL] Signaling business info ready at T0+1118ms
+prosaas-backend  | 🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress
+prosaas-backend  | 🎛️ VAD CALIBRATED (noise=18.5, threshold=80.0)
+prosaas-backend  | ✅ [PARALLEL] Business info ready! Wait time: 659ms
+prosaas-backend  | ⏱️ [PARALLEL] Using greeting: 'שלום! זה מ-אתר  ה-מנעולן איזה סוג שירות אתה צריך ?...'
+prosaas-backend  | 🎤 [VOICE] Using voice=shimmer for entire call (business=10)
+prosaas-backend  | 🎤 [GREETING] max_tokens=4096 for greeting length=50 chars (direction=inbound)
+prosaas-backend  | ⏱️ [PHASE 1] Session configured in 0ms (total: 1116ms)
+prosaas-backend  | ✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice=shimmer
+prosaas-backend  | 🎤 [GREETING] Bot speaks first - triggering greeting at 1764893440.897
+prosaas-backend  | ✅ [BUILD 163] response.create sent! OpenAI=1116ms, T0→speak=1122ms
+prosaas-backend  | ⚠️ [CRM] No customer phone or lead_id - skipping lead creation
+prosaas-backend  | 📤 [REALTIME] Audio sender started
+prosaas-backend  | 📥 [REALTIME] Audio receiver started
+prosaas-backend  | 📝 [REALTIME] Text sender started
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CjDhAhSSKzU0yI9...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CjDhAhSSKzU0yI9... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | [TX_LOOP] Frame 0: type=None, event=media, has_media=True
+prosaas-backend  | [TX_LOOP] Sent Realtime format: success=True
+prosaas-backend  | [TX_LOOP] Frame 1: type=None, event=media, has_media=True
+prosaas-backend  | [TX_LOOP] Sent Realtime format: success=True
+prosaas-backend  | [TX_LOOP] Frame 2: type=None, event=media, has_media=True
+prosaas-backend  | [TX_LOOP] Sent Realtime format: success=True
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | ✅ Call log already exists for CAf2a5102a8e4124b71ab047fd3dfbfc57
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | ✅ CustomerIntelligence SUCCESS: customer_id=7, lead_id=79, was_created=False
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | ✅ Recording started for CAf2a5102a8e4124b71ab047fd3dfbfc57: RE857c973d3c52aaf131345a314c90094e
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 📏 [PROMPT] Final length: 3575 chars
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | ⏳ [PHASE 2] Waiting for greeting to finish before session.update...
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 5868 bytes
+prosaas-backend  | [GREETING] Passing greeting audio to caller (greeting_sent=True, user_has_spoken=False)
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🎤 [GREETING] Greeting finished at 1764893442.423 (duration: 1526ms)
+prosaas-backend  | ✅ [GREETING] Barge-in now ENABLED for rest of call
+prosaas-backend  | 🛡️ [PROTECTION] Greeting completed - hangup blocked for 3000ms
+prosaas-backend  | 📞 [STATE] Transitioned WARMUP → ACTIVE (greeting done)
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: שלום! זה מאתר המנעולן, איזה סוג שירות אתה צריך?
+prosaas-backend  | [REALTIME] sending audio TO queue: chunk#1, μ-law bytes=160, first5=7e 7e 7e fe 7e, rms=8
+prosaas-backend  | [REALTIME] sending audio TO queue: chunk#2, μ-law bytes=160, first5=7e 7e fe fe fe, rms=8
+prosaas-backend  | [REALTIME] sending audio TO queue: chunk#3, μ-law bytes=160, first5=fe fe fe fe fe, rms=8
+prosaas-backend  | ✅ Updated call_log with customer_id=7
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=False, waiting_for_dtmf=False, rms=18, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=360.0 > threshold=80.0
+prosaas-backend  | ✅ [LEAD STATE] Updated: city_needs_retry=True
+prosaas-backend  | 📋 [LEAD STATE] Current state: {'city_needs_retry': 'True'}
+prosaas-backend  | ❌ [CITY] Rejected 'שלום!' (confidence=70%) - ask to repeat
+prosaas-backend  | 🛡️ [PROTECTION] Ignoring AI goodbye - only 1609ms since greeting
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'שלום! זה מאתר המנעולן, איזה סו...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (700ms)
+prosaas-backend  | 🔇 [SILENCE] Monitor started (timeout=5s, max_warnings=2)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🎚️ [BUILD 196.2] NOISE CALIBRATED: noise_rms=30 (from 30 frames)
+prosaas-backend  | 📊 [BUILD 196.2] Stats: sent=0 blocked=1 | 🎤NORMAL | noise=30 | state=SILENCE
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=13.3dB | noise=30 | music=True
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=6.2dB | noise=30 | music=True
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=17.2dB | noise=30 | music=True
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=18.9dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=18.9dB | noise=30 | music=False
+prosaas-backend  | 📼 [BUILD 196.2] Sending 10 pre-roll frames (with AGC gain=4.00x)
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-12.7dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-12.7dB | noise=30 | music=False
+prosaas-backend  | ✅ [PHASE 2] Greeting finished after 1.9s - now updating session
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=19.1dB | noise=30 | music=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=8.1dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=8.1dB | noise=30 | music=False
+prosaas-backend  | 📼 [BUILD 196.2] Sending 7 pre-roll frames (with AGC gain=4.00x)
+prosaas-backend  | [REALTIME] event: input_audio_buffer.speech_started
+prosaas-backend  | 🎤 [REALTIME] User started speaking - setting user_has_spoken=True
+prosaas-backend  | ✅ [LOOP GUARD] User started speaking - resetting consecutive counter (1 -> 0)
+prosaas-backend  | ⏳ [BUILD 195] Speech detected - will confirm after 600ms sustained speech...
+prosaas-backend  | 🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-9.5dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-9.5dB | noise=30 | music=False
+prosaas-backend  | 📞 [INBOUND] session.update with max_tokens=4096
+prosaas-backend  | ✅ [PHASE 2] Session updated with full prompt: 3575 chars, voice=shimmer locked, max_tokens=4096, transcription=Hebrew
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=11, voice_frames=0
+prosaas-backend  | 🎤 END OF UTTERANCE: 0.8s audio, conversation #0
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=12800 | silence_ms=506
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=170.0 > threshold=80.0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=11.9dB | noise=30 | music=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=20.6dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=20.6dB | noise=30 | music=False
+prosaas-backend  | 📼 [BUILD 196.2] Sending 10 pre-roll frames (with AGC gain=4.00x)
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-10.5dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-10.5dB | noise=30 | music=False
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=10.5dB | noise=30 | music=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=1.6dB | noise=30 | music=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=15, voice_frames=0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=16.3dB | noise=30 | music=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=37.6dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=37.6dB | noise=30 | music=False
+prosaas-backend  | 📼 [BUILD 196.2] Sending 10 pre-roll frames (with AGC gain=4.00x)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=1181, voice_frames=0
+prosaas-backend  | 💓 WS_KEEPALIVE #1 (prevents 5min timeout)
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 6.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['city', 'service_type'] | Collected: []
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-6.0dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-6.0dB | noise=30 | music=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=20, voice_frames=0
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=17, voice_frames=0
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🎙️ REAL_VOICE: rms=101.0 > threshold=80.0
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:54134 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=8.8dB | noise=30 | music=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=5.7dB | noise=30 | music=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=29, voice_frames=0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=9.4dB | noise=30 | music=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=7.7dB | noise=30 | music=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=20, voice_frames=0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=13.3dB | noise=30 | music=False
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SILENCE | SNR=-1.9dB | noise=30 | music=False
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=10.9dB | noise=30 | music=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=19.8dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=19.8dB | noise=30 | music=False
+prosaas-backend  | 📼 [BUILD 196.2] Sending 10 pre-roll frames (with AGC gain=1.16x)
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-1.9dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-1.9dB | noise=30 | music=False
+prosaas-backend  | 📊 [BUILD 196.2] Stats: sent=175 blocked=424 | 🎤NORMAL | noise=30 | state=SILENCE
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=31, voice_frames=0
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=21, voice_frames=0
+prosaas-backend  | 🎤 END OF UTTERANCE: 7.8s audio, conversation #1
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=124160 | silence_ms=1805
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #1
+prosaas-backend  | 🎙️ REAL_VOICE: rms=214.0 > threshold=80.0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=15.6dB | noise=30 | music=True
+prosaas-backend  | 🔇 [SILENCE] Warning 2/2 after 6.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['city', 'service_type'] | Collected: []
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=41.8dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=41.8dB | noise=30 | music=True
+prosaas-backend  | 📼 [BUILD 196.2] Sending 10 pre-roll frames (with AGC gain=2.22x)
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=1267, voice_frames=0
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-8.8dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-8.8dB | noise=30 | music=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=27, voice_frames=0
+prosaas-backend  | 🎤 END OF UTTERANCE: 1.6s audio, conversation #2
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=24960 | silence_ms=516
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #2
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=26, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=118.0 > threshold=80.0
+prosaas-backend  | 🎤 [BUILD 196.2] Music stopped - thresholds: start=8.0dB, stop=5.0dB
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=18, voice_frames=0
+prosaas-backend  | 🎤 END OF UTTERANCE: 1.0s audio, conversation #3
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=16000 | silence_ms=512
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #3
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=11.7dB | noise=30 | music=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=19.6dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=19.6dB | noise=30 | music=False
+prosaas-backend  | 📼 [BUILD 196.2] Sending 10 pre-roll frames (with AGC gain=1.15x)
+prosaas-backend  | 💓 WS_KEEPALIVE #2 (prevents 5min timeout)
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-0.3dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-0.3dB | noise=30 | music=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=19, voice_frames=0
+prosaas-backend  | 📊 [BUILD 196.2] State: SILENCE → MAYBE_SPEECH | SNR=26.0dB | noise=30 | music=False
+prosaas-backend  | 🎤 [BUILD 196.2] SPEECH STARTED (SNR=38.9dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: MAYBE_SPEECH → SPEECH | SNR=38.9dB | noise=30 | music=False
+prosaas-backend  | 📼 [BUILD 196.2] Sending 10 pre-roll frames (with AGC gain=4.00x)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=1731, voice_frames=0
+prosaas-backend  | 🎙️ REAL_VOICE: rms=10704.0 > threshold=80.0
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['city', 'service_type'] | Collected: []
+prosaas-backend  | 🔇 [SILENCE] Max warnings exceeded - initiating polite hangup
+prosaas-backend  | 🔒 [BUILD 194] Silence closing - blocking future transcripts
+prosaas-backend  | 🔒 [BUILD 194] Blocking _send_text_to_ai - closing already sent
+prosaas-backend  | INFO:     127.0.0.1:39510 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [BUILD 196.2] SPEECH ENDED (SNR=-7.3dB)
+prosaas-backend  | 📊 [BUILD 196.2] State: SPEECH → SILENCE | SNR=-7.3dB | noise=30 | music=False
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=38, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=17, voice_frames=0
+prosaas-backend  | 🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start=12.0dB, stop=8.0dB
+prosaas-backend  | 🎤 END OF UTTERANCE: 4.4s audio, conversation #4
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=70400 | silence_ms=1816
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #4
+prosaas-backend  | 📊 [BUILD 196.2] Stats: sent=369 blocked=760 | 🎵MUSIC | noise=30 | state=SILENCE
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=48, voice_frames=0
+prosaas-backend  | 📞 [SMART HANGUP] === CALL ENDING ===
+prosaas-backend  | 📞 [SMART HANGUP] Reason: silence_timeout
+prosaas-backend  | 📞 [SMART HANGUP] Lead captured: False
+prosaas-backend  | 📞 [SMART HANGUP] Goodbye detected: False
+prosaas-backend  | 📞 [SMART HANGUP] Lead state: {'city_needs_retry': 'True'}
+prosaas-backend  | 📞 [SMART HANGUP] Required fields: ['city', 'service_type']
+prosaas-backend  | 📞 [SMART HANGUP] ===================
+prosaas-backend  | ✅ [BUILD 163] Call CAf2a510... hung up successfully: silence_timeout
+prosaas-backend  | WS_STOP sid=MZ80d6fecef93032673cffedf625863db8 rx=1289 tx=265
+prosaas-backend  | 📞 [SES-4efcaf87] CALL ENDED - duration=25.6s, business_id=10, rx=1289, tx=265
+prosaas-backend  | 📤 [REALTIME] Audio sender ended
+prosaas-backend  | 📝 [REALTIME] Text sender ended
+prosaas-backend  | STREAM_ENDED call=CAf2a5102a8e4124b71ab047fd3dfbfc57 stream=N/A status=N/A
+prosaas-backend  | INFO:     172.18.0.5:35594 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+prosaas-backend  | 🧹 Waiting for 5 background threads...
+prosaas-backend  | ✅ Found existing recording for CAf2a5102a8e4124b71ab047fd3dfbfc57: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/RE857c973d3c52aaf131345a314c90094e.json
+prosaas-backend  | INFO:     172.18.0.5:35608 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+prosaas-backend  | ✅ Recording queued for processing: CAf2a5102a8e4124b71ab047fd3dfbfc57
+prosaas-backend  | INFO:     connection closed
+prosaas-backend  | ✅ CALL FINALIZED: CAf2a5102a8e4124b71ab047fd3dfbfc57
+prosaas-backend  | 📝 Summary: 
+prosaas-backend  | 🎯 Intent: general_inquiry
+prosaas-backend  | 📊 Next Action: מעקב תוך 24 שעות
+prosaas-backend  | ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)
+prosaas-backend  | 📱 [WEBHOOK] Phone extraction debug:
+prosaas-backend  |    - self.phone_number: None
+prosaas-backend  |    - self.customer_phone_dtmf: NOT_SET
+prosaas-backend  |    - call_log.from_number: +972504294724
+prosaas-backend  |    - crm_context.customer_phone: NO_CRM
+prosaas-backend  |    ✓ Using CallLog from_number: +972504294724
+prosaas-backend  | 🎯 [WEBHOOK] Found LAST professional in transcript: מנעולן (pos=21)
+prosaas-backend  | 📋 [WEBHOOK] Lead capture state: {'city_needs_retry': 'True'}
+prosaas-backend  | [WEBHOOK] 📦 Payload built: call_id=CAf2a5102a8e4124b71ab047fd3dfbfc57, phone=+972504294724, city=N/A, direction=inbound
+prosaas-backend  | [WEBHOOK] Sending call.completed to http://prosaas.pro/n8n/webhook/prosaas-call-comple... (attempt 1)
+prosaas-backend  | ✅ [WEBHOOK] Call completed webhook queued: phone=+972504294724, city=N/A, service=מנעולן
+prosaas-backend  | [WEBHOOK] 🔀 Following redirect to: https://prosaas.pro/n8n/webhook/prosaas-call-completed
+prosaas-backend  | [WEBHOOK] Sending call.completed to https://prosaas.pro/n8n/webhook/prosaas-call-compl... (attempt 2)
+prosaas-backend  | [WEBHOOK] ⚠️ Response 404: {"code":404,"message":"The requested webhook \"POST prosaas-call-completed\" is not registered.","hint":"The workflow must be active for a production URL to run successfully. You can activate the work
+prosaas-backend  | [WEBHOOK] Retrying in 3s...
+prosaas-backend  | ⚠️ Background thread 0 still running after timeout
+prosaas-backend  | ✅ All background threads cleanup complete
+prosaas-backend  | WS_DONE sid=MZ80d6fecef93032673cffedf625863db8 rx=1289 tx=265
+prosaas-backend  | [WEBHOOK] Sending call.completed to https://prosaas.pro/n8n/webhook/prosaas-call-compl... (attempt 3)
+prosaas-backend  | [WEBHOOK] ⚠️ Response 404: {"code":404,"message":"The requested webhook \"POST prosaas-call-completed\" is not registered.","hint":"The workflow must be active for a production URL to run successfully. You can activate the work
+prosaas-backend  | [WEBHOOK] ❌ Failed after 3 attempts
+prosaas-backend  | [WA-SESSION] 📱 Check #1: Found 0 stale sessions to process
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:47242 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     127.0.0.1:41186 - "GET /health HTTP/1.1" 200 OK
+^[[Ap

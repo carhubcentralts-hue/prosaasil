@@ -1,0 +1,76 @@
+מעולה, הלוג הזה זהב – הוא מסביר בדיוק למה אתה מרגיש ש*“היא לא מבינה אותי בכלל”*.
+
+מה רואים בלוגים?
+	1.	הברכה עובדת פיקס
+	•	יש response.created
+	•	יש response.audio.delta
+	•	יש 🤖 [REALTIME] AI said: שלום! זה מאתר המנעולן...
+זאת אומרת: החיבור ל-Realtime / TTS בסדר.
+	2.	אחרי שהלקוח מדבר:
+	•	הפייפליין החדש מזהה דיבור מצוין:
+	•	REAL_VOICE: rms=360 > threshold=80
+	•	SPEECH STARTED ...
+	•	Sending 10 pre-roll frames
+	•	יש END OF UTTERANCE: 0.8s / 7.8s / 1.6s audio, conversation #0–4
+	•	ויש ✅ Processing complete for conversation #0 / #1 / #2 / #3 / #4
+אבל – אין אפילו פעם אחת:
+	•	response.created
+	•	response.audio.delta
+	•	AI said: ...
+כלומר: אחרי כל משפט של הלקוח, OpenAI לא מקבל פקודה לתת תשובה.
+	3.	הלוג אומר במפורש:
+
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+
+כלומר:
+	•	Google STT/TTS כבוי ✅
+	•	אבל Realtime לא מקבל שום response.create על הטקסט של הלקוח ❌
+
+בסוף השיחה ה-SMART HANGUP תופס:
+	•	חסרים שדות ['city', 'service_type']
+	•	יש 2 התראות SILENCE
+	•	המערכת מנתקת בגלל silence_timeout
+כל זה כי האיי-איי לא ענה בכלל, אז גם לא התקדמת באיסוף פרטים.
+
+⸻
+
+בשורה אחת – מה הבעיה?
+
+הפייפליין האודיו (196.2) עובד, מזהה דיבור ושולח אודיו →
+אבל אחרי END OF UTTERANCE אין שליחת פקודה ל-Realtime להפיק תשובה.
+
+אתה כרגע במצב “בין לבין”:
+	•	❌ Google STT/TTS מבוטל
+	•	❌ _send_text_to_ai לא שולח כלום (בגלל using Realtime only)
+	•	❌ Realtime לא מקבל responses.create / input_text מהתמלול
+→ לכן אחרי הברכה אין יותר תשובות.
+
+⸻
+
+מה צריך להגיד לסוכן שיתקן בקוד
+
+בגדול:
+	1.	במקום “Skipping Google STT/TTS” – כן לשלוח ל-Realtime:
+	•	אחרי END OF UTTERANCE כשיש תמלול מוכן,
+	•	לקרוא ל־realtime_client.responses.create(...)
+	•	או לדחוף את הטקסט ל־realtime_text_input_queue (אם יש לך wrapper כזה).
+	2.	לוודא שבמצב Realtime:
+	•	END OF UTTERANCE לא רק מסיים לוג,
+	•	אלא באמת שולח:
+
+await client.responses.create({
+    "input": [
+        {"role": "user",
+         "content": [{"type": "input_text", "text": transcript_hebrew}]}
+    ]
+})
+
+
+	•	ואז נראה שוב בלוגים:
+	•	response.created
+	•	response.audio.delta
+	•	AI said: ... אחרי כל משפט.
+
+ברגע שהשורה הזאת תחזור –
+הפייפליין החדש כבר מוכן לעבוד כמו שצריך,
+והבעיה שלך תיעלם: הוא ישמע אותך (גם ברעש) וגם יענה.
