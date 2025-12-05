@@ -1105,6 +1105,12 @@ class MediaStreamHandler:
         self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
         
+        # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
+        self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
+        self._stats_audio_blocked = 0  # Total audio chunks blocked (greeting, etc.)
+        self._stats_last_log_ts = 0  # Last time we logged pipeline status
+        self._stats_log_interval_sec = 3.0  # Log every 3 seconds
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
@@ -1581,19 +1587,17 @@ class MediaStreamHandler:
                 self.greeting_sent = True  # Mark greeting as sent to allow audio through
                 self.is_playing_greeting = True
                 self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-                try:
-                    await client.send_event({"type": "response.create"})
+                # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
+                triggered = await self.trigger_response("GREETING", client, is_greeting=True)
+                if triggered:
                     t_speak = time.time()
-                    # 📊 Total time from OpenAI init to response.create
                     total_openai_ms = (t_speak - t_start) * 1000
-                    # Also log from T0 if available
-                    if hasattr(self, 't0_connected'):
-                        total_from_t0 = (t_speak - self.t0_connected) * 1000
-                        print(f"✅ [BUILD 163] response.create sent! OpenAI={total_openai_ms:.0f}ms, T0→speak={total_from_t0:.0f}ms")
-                    else:
-                        print(f"✅ [BUILD 163] response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
-                except Exception as e:
-                    print(f"❌ [BUILD 163] Failed to trigger bot speaks first: {e}")
+                    print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                else:
+                    print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
+                    # Reset flags since greeting failed
+                    self.greeting_sent = False
+                    self.is_playing_greeting = False
             else:
                 # Standard flow - AI waits for user speech first
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
@@ -1795,8 +1799,26 @@ ALWAYS mention their name in the first sentence.
                 logger.info(f"[CALL DEBUG] OpenAI Realtime disconnected")
     
     async def _realtime_audio_sender(self, client):
-        """Send audio from Twilio to Realtime API"""
-        print(f"📤 [REALTIME] Audio sender started")
+        """
+        Send audio from Twilio to Realtime API
+        
+        ═══════════════════════════════════════════════════════════════════════
+        🔥 BUILD 200: SINGLE AUDIO PIPELINE - This is the ONLY audio path!
+        ═══════════════════════════════════════════════════════════════════════
+        
+        Twilio Media (μ-law base64)
+             ↓
+        media frame handler (ws_handler → process_twilio_frame)
+             ↓
+        enqueue to realtime_audio_in_queue   # exactly one queue
+             ↓
+        THIS FUNCTION (audio sender task)    # single loop
+             ↓
+        client.send_audio_chunk(...)         # OpenAI Realtime
+        
+        ═══════════════════════════════════════════════════════════════════════
+        """
+        print(f"[PIPELINE] LIVE AUDIO PIPELINE ACTIVE: Twilio → realtime_audio_in_queue → send_audio_chunk (single path)")
         
         # 🛡️ BUILD 168.5: Track if we've logged the greeting block message
         _greeting_block_logged = False
@@ -1825,6 +1847,8 @@ ALWAYS mention their name in the first sentence.
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
+                    # 🔥 BUILD 200: Track blocked audio stats
+                    self._stats_audio_blocked += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
                 else:
@@ -1839,13 +1863,87 @@ ALWAYS mention their name in the first sentence.
                     self._user_speech_start = time.time()
                 self.realtime_audio_in_chunks += 1
                 
+                # 🔥 BUILD 200: Track audio sent stats
+                self._stats_audio_sent += 1
+                
                 await client.send_audio_chunk(audio_chunk)
+                
+                # 🔥 BUILD 200: Log pipeline status every 3 seconds
+                now = time.time()
+                if now - self._stats_last_log_ts >= self._stats_log_interval_sec:
+                    self._stats_last_log_ts = now
+                    print(
+                        f"[PIPELINE STATUS] sent={self._stats_audio_sent} blocked={self._stats_audio_blocked} | "
+                        f"active_response={self.active_response_id[:15] if self.active_response_id else 'None'}... | "
+                        f"ai_speaking={self.is_ai_speaking_event.is_set()} | user_has_spoken={self.user_has_spoken}"
+                    )
                 
             except Exception as e:
                 print(f"❌ [REALTIME] Audio sender error: {e}")
                 break
         
         print(f"📤 [REALTIME] Audio sender ended")
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
+    # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
+    # ═══════════════════════════════════════════════════════════════════════════════
+    async def trigger_response(self, reason: str, client=None, is_greeting: bool = False) -> bool:
+        """
+        🎯 BUILD 200: Central function for triggering response.create
+        
+        ALL response.create calls MUST go through this function!
+        This ensures:
+        1. Only ONE response is active at a time
+        2. Proper lifecycle tracking of active_response_id
+        3. Loop guard protection
+        4. Consistent logging
+        
+        Args:
+            reason: Why we're creating a response (for logging)
+            client: The realtime client (uses self.realtime_client if not provided)
+            is_greeting: If True, this is the initial greeting - skip loop guard (first response)
+            
+        Returns:
+            True if response was triggered, False if blocked
+        """
+        # Use stored client if not provided
+        _client = client or self.realtime_client
+        if not _client:
+            print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
+            return False
+        
+        # 🛡️ GUARD 1: Check if response is already active
+        if self.active_response_id is not None:
+            print(f"⏸️ [RESPONSE GUARD] Active response in progress ({self.active_response_id[:20]}...) - skipping ({reason})")
+            return False
+        
+        # 🛡️ GUARD 2: Check if response is pending (race condition prevention)
+        if self.response_pending_event.is_set():
+            print(f"⏸️ [RESPONSE GUARD] Response pending - skipping ({reason})")
+            return False
+        
+        # 🛡️ GUARD 3: Loop guard check (inbound calls only, skip for greeting)
+        if not is_greeting:
+            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            if not is_outbound:
+                if self._loop_guard_engaged:
+                    print(f"🛑 [RESPONSE GUARD] Loop guard engaged - blocking ({reason})")
+                    return False
+                if self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
+                    print(f"🛑 [RESPONSE GUARD] Too many consecutive responses ({self._consecutive_ai_responses}) - blocking ({reason})")
+                    return False
+        
+        # ✅ All guards passed - trigger response
+        try:
+            self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
+            await _client.send_event({"type": "response.create"})
+            print(f"🎯 [BUILD 200] response.create triggered ({reason})")
+            return True
+        except Exception as e:
+            # 🔓 CRITICAL: Clear lock immediately on failure
+            self.response_pending_event.clear()
+            print(f"❌ [RESPONSE GUARD] Failed to trigger ({reason}): {e}")
+            return False
     
     async def _realtime_text_sender(self, client):
         """
@@ -1924,6 +2022,17 @@ ALWAYS mention their name in the first sentence.
                             content = item.get("content", [])
                             content_types = [c.get("type", "?") for c in content] if content else []
                             _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        
+                        # 🔥 BUILD 200: Clear active_response_id when response is done (completed or cancelled)
+                        # This is the ONLY place where active_response_id should be cleared!
+                        resp_id = response.get("id", "")
+                        if resp_id and self.active_response_id == resp_id:
+                            self.active_response_id = None
+                            _orig_print(f"✅ [BUILD 200] Response lifecycle complete: {resp_id[:20]}... -> None (status={status})", flush=True)
+                        elif self.active_response_id:
+                            # Mismatch - log but still clear to prevent deadlock
+                            _orig_print(f"⚠️ [BUILD 200] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
+                            self.active_response_id = None
                         
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
@@ -2039,14 +2148,12 @@ ALWAYS mention their name in the first sentence.
                                 print(f"🔄 [BUILD 187] Recovery skipped - user still speaking")
                                 return
                             
-                            # All guards passed - trigger recovery
-                            print(f"🔄 [BUILD 187] RECOVERY: Triggering response.create (no response in {self._cancelled_response_recovery_delay_sec}s)")
-                            try:
-                                await client.send_event({"type": "response.create"})
-                            except Exception as e:
-                                print(f"⚠️ [BUILD 187] Recovery failed: {e}")
-                            finally:
-                                self._cancelled_response_needs_recovery = False
+                            # All guards passed - trigger recovery via central function
+                            # 🔥 BUILD 200: Use trigger_response for consistent response management
+                            self._cancelled_response_needs_recovery = False  # Clear BEFORE triggering
+                            triggered = await self.trigger_response("BUILD_187_RECOVERY", client)
+                            if not triggered:
+                                print(f"⚠️ [BUILD 187] Recovery was blocked by trigger_response guards")
                         asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
@@ -3016,31 +3123,19 @@ ALWAYS mention their name in the first sentence.
                 print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
                 print(f"🔔 [APPOINTMENT] Message content: {message_text}")
             
-            # 🔥 BUILD 165: LOOP GUARD - Block if engaged or too many consecutive responses
-            # 🔥 BUILD 178: COMPLETELY DISABLED for outbound calls!
-            # 🔥 BUILD 182: Also allow appointment-related messages through
-            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            # 🔥 BUILD 200: Use central trigger_response for ALL response.create calls
+            # The trigger_response function handles:
+            # - Active response ID check (prevents "already has active response" errors)
+            # - Response pending check (race condition prevention)
+            # - Loop guard check (for inbound calls)
             is_appointment_msg = "appointment" in message_text.lower() or "תור" in message_text or "זמינות" in message_text
-            if not is_outbound and not is_appointment_msg:
-                # INBOUND only: Check loop guard (unless appointment-related)
-                if self._loop_guard_engaged or self._consecutive_ai_responses >= self._max_consecutive_ai_responses:
-                    print(f"🛑 [LOOP GUARD] Blocking response.create (engaged={self._loop_guard_engaged}, consecutive={self._consecutive_ai_responses})")
-                    return
+            reason = f"SERVER_EVENT:{message_text[:30]}"
+            if is_appointment_msg:
+                reason = f"APPOINTMENT:{message_text[:30]}"
             
-            # 🎯 Thread-safe optimistic lock: Prevent response collision race condition
-            if not self.active_response_id and not self.response_pending_event.is_set():
-                try:
-                    self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
-                    await self.realtime_client.send_event({"type": "response.create"})
-                    print(f"🎯 [SERVER_EVENT] Triggered response.create (lock will be cleared by response.created)")
-                except Exception as send_error:
-                    # 🔓 CRITICAL: Clear lock immediately on send failure
-                    # Prevents deadlock when network errors occur
-                    self.response_pending_event.clear()
-                    print(f"❌ [SERVER_EVENT] Send failed, lock cleared: {send_error}")
-                    raise  # Re-raise to outer handler
-            else:
-                print(f"⏸️ [SERVER_EVENT] Skipping response.create - active: {self.active_response_id}, pending: {self.response_pending_event.is_set()}")
+            triggered = await self.trigger_response(reason)
+            if not triggered:
+                print(f"⏸️ [SERVER_EVENT] Response blocked by trigger_response guards")
             
         except Exception as e:
             print(f"❌ [SERVER_EVENT] Failed to send: {e}")
@@ -6371,21 +6466,27 @@ ALWAYS mention their name in the first sentence.
         """
         Send a text message to OpenAI Realtime for processing.
         Used for system prompts and silence handling.
+        
+        🔥 BUILD 200: Updated to use realtime_client and trigger_response
         """
         try:
-            if hasattr(self, 'openai_ws') and self.openai_ws:
-                msg = {
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "message",
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": text}]
-                    }
+            # 🔥 BUILD 200: Use realtime_client instead of openai_ws
+            if not self.realtime_client:
+                print(f"⚠️ [AI] No realtime_client - cannot send text")
+                return
+            
+            msg = {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}]
                 }
-                await self.openai_ws.send(json.dumps(msg))
-                
-                # Trigger response
-                await self.openai_ws.send(json.dumps({"type": "response.create"}))
+            }
+            await self.realtime_client.send_event(msg)
+            
+            # 🔥 BUILD 200: Use central trigger_response
+            await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}")
         except Exception as e:
             print(f"❌ [AI] Failed to send text: {e}")
 
