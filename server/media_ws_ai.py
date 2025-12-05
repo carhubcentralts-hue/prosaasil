@@ -5237,6 +5237,12 @@ ALWAYS mention their name in the first sentence.
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
+                        # 🔥 BUILD 196.4: DEBUG mode for Calliber (business_id=10)
+                        calliber_debug = getattr(self, 'business_id', None) == 10
+                        if calliber_debug:
+                            display_transcript = transcript[:80] + '...' if len(transcript) > 80 else transcript
+                            print(f"🔍 [DEBUG CALLIBER] AI_REPLY: '{display_transcript}'")
+                        
                         # 🔥 BUILD 195: Detect FINAL verification question (END OF CALL ONLY!)
                         # Only set pending_confirmation when lead already captured AND AI asks for confirmation
                         # This prevents casual "כן" mid-call from triggering confirmation
@@ -5825,6 +5831,11 @@ ALWAYS mention their name in the first sentence.
                     
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        
+                        # 🔥 BUILD 196.4: DEBUG mode for Calliber (business_id=10)
+                        calliber_debug = getattr(self, 'business_id', None) == 10
+                        if calliber_debug:
+                            print(f"🔍 [DEBUG CALLIBER] USER_UTTERANCE: text='{transcript}' echo_blocked={getattr(self, '_last_echo_blocked', False)}")
                         
                         # 🔥 BUILD 186: SEMANTIC COHERENCE GUARD
                         # Check if user's response makes sense given the last AI question
@@ -9804,6 +9815,12 @@ ALWAYS mention their name in the first sentence.
         self.lead_capture_state[field] = value
         print(f"✅ [LEAD STATE] Updated: {field}={value}")
         print(f"📋 [LEAD STATE] Current state: {self.lead_capture_state}")
+        
+        # 🔥 BUILD 196.4: DEBUG mode for Calliber (business_id=10)
+        calliber_debug = getattr(self, 'business_id', None) == 10
+        if calliber_debug:
+            source = "user_input" if getattr(self, '_last_update_source', '') == 'user' else "ai_confirmation"
+            print(f"🔍 [DEBUG CALLIBER] LEAD_STATE_UPDATE: {field}={value} source={source}")
         
         # Also update CRM context for legacy compatibility (name/phone)
         crm_context = getattr(self, 'crm_context', None)
