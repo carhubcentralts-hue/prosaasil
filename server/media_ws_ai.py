@@ -2080,6 +2080,12 @@ ALWAYS mention their name in the first sentence.
             print(f"⏸️ [RESPONSE GUARD] Waiting for first user utterance after greeting - skipping ({reason})")
             return False
         
+        # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
+        # Don't let AI start new conversation loops after call should end
+        if getattr(self, 'pending_hangup', False):
+            print(f"⏸️ [RESPONSE GUARD] Hangup pending - blocking new responses ({reason})")
+            return False
+        
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
         # After user says "לא", city is cleared so AI will naturally ask for it again
         # No artificial delay - the city clearing is the main fix
