@@ -394,3 +394,111 @@ def clear_vocabulary_cache(business_id: Optional[int] = None):
         _vocabulary_cache.clear()
         _cache_expiry.clear()
         logger.info("🗑️ Cleared all STT vocabulary caches")
+
+
+async def semantic_repair(text: str, business_id: int) -> str:
+    """
+    🔥 BUILD 300: Semantic repair for short/unclear transcriptions
+    
+    Uses GPT-4o-mini to fix obvious transcription errors in short Hebrew text
+    from telephony (8kHz μ-law) audio.
+    
+    Examples of fixes:
+    - "רמת איב" → "רמת אביב"
+    - "קרית ען" → "קריית ים"
+    - "נתיבות" kept as-is (correct city name)
+    
+    Args:
+        text: Short transcript to repair (typically < 12 chars)
+        business_id: Business ID for vocabulary context
+    
+    Returns:
+        Repaired text (or original if no repair needed/possible)
+    """
+    if not text or len(text.strip()) < 2:
+        return text
+    
+    try:
+        import openai
+        
+        vocab = get_business_vocabulary(business_id)
+        
+        # Build vocabulary context
+        vocab_items = []
+        for key in ["services", "staff", "products", "locations"]:
+            vocab_items.extend(vocab.get(key, [])[:5])
+        vocab_str = ", ".join(vocab_items[:15]) if vocab_items else ""
+        
+        business_context = vocab.get("business_context", "") or ""
+        business_name = vocab.get("business_name", "") or ""
+        
+        # 🔥 BUILD 300: Focused repair prompt
+        prompt = f"""הטקסט הבא הגיע משיחת טלפון באיכות μ-law.
+תקן אותו למילה/ביטוי ההגיוני ביותר בעברית.
+התייחס להקשר העסקי: {business_name}. {business_context}
+מילים רלוונטיות: {vocab_str}
+החזר רק את התיקון, בלי הסברים.
+
+"{text}"
+"""
+        
+        client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0,
+            max_tokens=20,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        repaired = (response.choices[0].message.content or "").strip()
+        
+        # Remove quotes if the model added them
+        if repaired.startswith('"') and repaired.endswith('"'):
+            repaired = repaired[1:-1]
+        if repaired.startswith("'") and repaired.endswith("'"):
+            repaired = repaired[1:-1]
+        
+        # Log repair if changed
+        if repaired and repaired != text:
+            logger.info(f"🔧 [STT_REPAIRED] '{text}' → '{repaired}' (business={business_id})")
+            return repaired
+        
+        return text
+        
+    except Exception as e:
+        logger.warning(f"⚠️ [SEMANTIC_REPAIR] Failed: {e}")
+        return text
+
+
+def should_apply_semantic_repair(text: str) -> bool:
+    """
+    🔥 BUILD 300: Determine if text needs semantic repair
+    
+    Criteria:
+    - Text < 12 characters
+    - OR low Hebrew character ratio (suggests garbled text)
+    - OR known problematic patterns
+    """
+    import re
+    
+    if not text:
+        return False
+    
+    text = text.strip()
+    
+    # Short text always benefits from repair
+    if len(text) < 12:
+        return True
+    
+    # Check Hebrew ratio - low ratio suggests garbled text
+    hebrew_chars = len(re.findall(r'[\u0590-\u05FF]', text))
+    total_chars = len(re.sub(r'\s', '', text))
+    
+    if total_chars > 0:
+        hebrew_ratio = hebrew_chars / total_chars
+        # If less than 50% Hebrew in what should be Hebrew text, repair it
+        if hebrew_ratio < 0.5 and total_chars > 3:
+            return True
+    
+    return False

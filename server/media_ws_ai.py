@@ -2685,6 +2685,9 @@ ALWAYS mention their name in the first sentence.
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
+                    # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
+                    print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
+                    
                     # 🔥 BUILD 170.4: Apply Hebrew normalization
                     text = normalize_hebrew_text(text)
                     
@@ -2692,28 +2695,36 @@ ALWAYS mention their name in the first sentence.
                     # This corrects domain-specific terms BEFORE other filters
                     vocab_corrections = {}
                     try:
-                        from server.services.dynamic_stt_service import apply_vocabulary_corrections
+                        from server.services.dynamic_stt_service import apply_vocabulary_corrections, semantic_repair, should_apply_semantic_repair
                         text_before = text
                         text, vocab_corrections = apply_vocabulary_corrections(text, self.business_id)
                         if vocab_corrections:
                             print(f"🔧 [BUILD 204] Vocabulary fix: '{text_before}' → '{text}' (corrections: {vocab_corrections})")
+                        
+                        # 🔥 BUILD 300: SEMANTIC REPAIR for short/unclear transcriptions
+                        if should_apply_semantic_repair(text):
+                            try:
+                                text_before_repair = text
+                                text = await semantic_repair(text, self.business_id)
+                                if text != text_before_repair:
+                                    print(f"[STT_REPAIRED] '{text_before_repair}' → '{text}'")
+                            except Exception as repair_err:
+                                print(f"⚠️ [BUILD 300] Semantic repair skipped: {repair_err}")
                     except Exception as vocab_err:
                         print(f"⚠️ [BUILD 204] Vocabulary correction skipped: {vocab_err}")
                     
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
                     
-                    # 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
-                    # Humans cannot form a coherent response in <800ms, so these are hallucinations
+                    # 🔥 BUILD 300: REMOVED POST_AI_COOLDOWN GATE
+                    # The guide says: "אסור לזרוק טקסט בגלל pause ארוך" and "המודל תמיד יודע טוב יותר"
+                    # OpenAI's VAD/STT is authoritative - if it transcribed something, it's valid
+                    # Old code rejected transcripts arriving <1200ms after AI spoke - this blocked valid responses!
                     if self._ai_finished_speaking_ts > 0:
                         time_since_ai_finished = (now_sec - self._ai_finished_speaking_ts) * 1000
-                        if time_since_ai_finished < POST_AI_COOLDOWN_MS:
-                            print(f"🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived {time_since_ai_finished:.0f}ms after AI finished (min: {POST_AI_COOLDOWN_MS}ms)")
-                            print(f"   Rejected text: '{text[:50]}...' (likely hallucination)")
-                            # 🔥 BUILD 182: Still record for transcript (with filtered flag)
-                            if len(text) >= 3:
-                                self.conversation_history.append({"speaker": "user", "text": text, "ts": time.time(), "filtered": True})
-                            continue
+                        # 🔥 BUILD 300: Only LOG, don't reject! OpenAI knows better than local timing
+                        if time_since_ai_finished < 500:  # Very fast response - just log for debugging
+                            print(f"⚡ [BUILD 300] Fast response: {time_since_ai_finished:.0f}ms after AI (trusting OpenAI)")
                     
                     # 🔥 BUILD 202 FIX: TRUST OPENAI STT OVER LOCAL RMS
                     # If OpenAI Realtime API transcribed the speech, it detected valid audio.
@@ -2936,6 +2947,10 @@ ALWAYS mention their name in the first sentence.
                     
                     self._stt_last_segment_ts = now_ms
                     transcript = text
+                    
+                    # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 3: Log final transcript
+                    # Format: [STT_FINAL] → what goes into Lead State / AI processing
+                    print(f"[STT_FINAL] '{transcript}' (from raw: '{raw_text[:30]}...')")
                     
                     # 🔥 BUILD 204: CONSOLIDATED STT LOGGING - One line per final utterance for easy debugging
                     # Includes: business_id, raw_text, corrected_text, prompt_used, corrections applied
