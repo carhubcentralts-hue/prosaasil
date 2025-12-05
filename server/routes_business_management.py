@@ -746,7 +746,10 @@ def get_current_business():
             "silence_timeout_sec": getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             "silence_max_warnings": getattr(settings, 'silence_max_warnings', 2) if settings else 2,
             "smart_hangup_enabled": getattr(settings, 'smart_hangup_enabled', True) if settings else True,
-            "required_lead_fields": getattr(settings, 'required_lead_fields', ["name", "phone"]) if settings else ["name", "phone"]
+            "required_lead_fields": getattr(settings, 'required_lead_fields', ["name", "phone"]) if settings else ["name", "phone"],
+            # 🔥 BUILD 204: Dynamic STT Vocabulary
+            "stt_vocabulary_json": getattr(settings, 'stt_vocabulary_json', None) if settings else None,
+            "business_context": getattr(settings, 'business_context', None) if settings else None
         })
         
     except Exception as e:
@@ -859,6 +862,37 @@ def update_current_business_settings():
             settings.smart_hangup_enabled = bool(data['smart_hangup_enabled'])
         if 'required_lead_fields' in data:
             settings.required_lead_fields = data['required_lead_fields']
+        
+        # 🔥 BUILD 204: Dynamic STT Vocabulary
+        if 'stt_vocabulary_json' in data:
+            vocab = data['stt_vocabulary_json']
+            # Validate vocabulary structure and limits
+            if vocab:
+                if isinstance(vocab, dict):
+                    # Enforce limits: max 20 items per category, max 50 chars per item
+                    validated_vocab = {}
+                    for key in ['services', 'staff', 'products', 'locations']:
+                        items = vocab.get(key, [])
+                        if isinstance(items, list):
+                            validated_vocab[key] = [str(item)[:50] for item in items[:20]]
+                    settings.stt_vocabulary_json = validated_vocab
+                else:
+                    logger.warning(f"⚠️ Invalid vocabulary format for business {business_id}, skipping")
+            else:
+                settings.stt_vocabulary_json = None
+            # Clear vocabulary cache when updated
+            try:
+                from server.services.dynamic_stt_service import clear_vocabulary_cache
+                clear_vocabulary_cache(business_id)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to clear STT vocabulary cache: {e}")
+        if 'business_context' in data:
+            # Limit business context to 500 chars
+            context = data['business_context']
+            if context:
+                settings.business_context = str(context)[:500]
+            else:
+                settings.business_context = None
             
         # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
         al_user = session.get('al_user') or {}

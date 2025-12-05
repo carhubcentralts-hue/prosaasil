@@ -66,6 +66,12 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
 - **Response Grace Period**: Ignores speech_started events shortly after response creation to prevent AI cutoff.
 - **City Correction Detection**: AI can unlock and accept explicit city corrections from users, even if previously locked.
 - **Trusted OpenAI STT (BUILD 202)**: Fixed SILENCE_GATE blocking valid transcriptions. The local RMS gate was rejecting valid OpenAI transcriptions due to race conditions. Now trusts OpenAI's VAD when it successfully transcribes speech, only rejects true silence (RMS<10 + text<3 chars). Fixes "AI ignores what user said" bug.
+- **Dynamic STT Vocabulary (BUILD 204)**: Business-specific vocabulary system for better transcription quality:
+  - Per-business vocabulary stored in DB (services, staff, products, locations)
+  - Dynamic STT prompts generated from business context
+  - Vocabulary-based fuzzy corrections (75% threshold)
+  - Prepared for GPT-4o-mini semantic post-processing on low-confidence transcriptions
+  - 100% dynamic - no hardcoded values, works for ANY business type
 
 # External Dependencies
 

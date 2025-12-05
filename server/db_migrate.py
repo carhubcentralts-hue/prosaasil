@@ -714,6 +714,20 @@ def apply_migrations():
             migrations_applied.append("add_enable_calendar_scheduling")
             log.info("✅ Applied migration 31: add_enable_calendar_scheduling - Toggle for AI appointment scheduling")
     
+    # Migration 32: BUILD 204 - Dynamic STT Vocabulary for per-business transcription quality
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'stt_vocabulary_json'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN stt_vocabulary_json JSON"))
+            migrations_applied.append("add_stt_vocabulary_json")
+            log.info("✅ Applied migration 32a: add_stt_vocabulary_json - Per-business STT vocabulary")
+        
+        if not check_column_exists('business_settings', 'business_context'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN business_context VARCHAR(500)"))
+            migrations_applied.append("add_business_context")
+            log.info("✅ Applied migration 32b: add_business_context - Business context for STT prompts")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
