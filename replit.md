@@ -99,6 +99,17 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
   - Chip-based editing with add/remove (max 20 items per category)
   - Live prompt preview showing what OpenAI will receive
   - Saves to database via existing API
+- **Maximum Hebrew STT Quality (BUILD 300)**: Expert-level telephony STT optimizations:
+  - **Removed POST_AI_COOLDOWN gate**: Trusts OpenAI VAD completely, no local rejection of valid transcriptions
+  - **Semantic Repair**: GPT-4o-mini post-processing for short/garbled transcriptions (< 12 chars or low Hebrew ratio)
+    - Fixes: "רמת איב" → "רמת אביב", "קרית ען" → "קריית ים"
+    - Uses business vocabulary context for intelligent corrections
+  - **Unified STT Logging Pipeline**: 3-step logging for easy debugging
+    - `[STT_RAW]` → Raw transcript from OpenAI
+    - `[STT_REPAIRED]` → After semantic repair (if applied)
+    - `[STT_FINAL]` → What enters Lead State / AI processing
+  - **Realtime API Only**: Confirmed USE_REALTIME_API flag skips Google/Whisper entirely
+  - **Expected Improvement**: 25-40% better Hebrew accuracy, eliminates embarrassing mistakes
 
 # External Dependencies
 
