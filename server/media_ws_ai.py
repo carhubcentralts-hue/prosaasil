@@ -1554,9 +1554,10 @@ class MediaStreamHandler:
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
             
             # 🎯 VOICE CONSISTENCY: Set voice once at call start, use same voice throughout
-            # 🔥 BUILD 205: Upgraded to 'coral' - OpenAI's expressive voice (Oct 2024)
-            # Better for Hebrew with natural intonation and multilingual support
-            call_voice = "coral"
+            # 🔥 BUILD 304: Changed to 'ash' - conversational male, lower pitch, no jumps
+            # User reported coral was too high-pitched and had voice jumps
+            # 'ash' = calm conversational male, better for professional calls
+            call_voice = "ash"
             self._call_voice = call_voice  # Store for session.update reuse
             print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
             
@@ -4690,53 +4691,59 @@ ALWAYS mention their name in the first sentence.
                         # This prevents OpenAI from transcribing its own voice output as user speech!
                         # The AI's TTS audio echoes back through the phone line and causes hallucinations
                         # 
-                        # KEY: Use ADAPTIVE threshold based on noise floor
-                        # Echo is typically 1.5-3x noise floor (100-400 RMS)
-                        # Real speech is 4-10x noise floor (400-2000+ RMS)
-                        # Use 2.5x noise floor as threshold (catches echo, allows speech)
-                        noise_floor = getattr(self, 'noise_floor', 100.0)
-                        echo_threshold = max(noise_floor * 2.5, 200.0)  # At least 200 RMS for echo detection
+                        # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
+                        # So we can't just use RMS threshold - we must block ALL audio during AI speech
+                        # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
                         
-                        # Also track consecutive high-RMS frames for more reliable barge-in detection
+                        # Track consecutive high-RMS frames for barge-in detection
                         if not hasattr(self, '_echo_gate_consec_frames'):
                             self._echo_gate_consec_frames = 0
                         
-                        is_above_echo_threshold = rms > echo_threshold
+                        # Use calibrated noise floor for RMS-based speech detection
+                        # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
+                        noise_floor_rms = getattr(self, 'noise_floor', 100.0)
+                        # Speech threshold = 3x noise floor, minimum 300 RMS (filters quiet echo)
+                        rms_speech_threshold = max(noise_floor_rms * 3.0, 300.0)
+                        is_above_speech = rms > rms_speech_threshold
                         
-                        # Count consecutive frames above threshold
-                        if is_above_echo_threshold:
+                        # Count consecutive frames above RMS speech threshold
+                        if is_above_speech:
                             self._echo_gate_consec_frames += 1
                         else:
+                            # Reset quickly when audio drops - echo is intermittent
                             self._echo_gate_consec_frames = 0
                         
-                        # Real speech = 2+ consecutive frames above echo threshold
-                        is_likely_real_speech = self._echo_gate_consec_frames >= 2
+                        # STRICT barge-in detection: 5+ consecutive frames (100ms) = real speech
+                        # Echo spikes are typically 1-3 frames, real speech is sustained
+                        ECHO_GATE_MIN_FRAMES = 5
+                        is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
                         
                         if self.is_ai_speaking_event.is_set():
-                            # AI is actively speaking - block echo but allow likely real speech
+                            # AI is actively speaking - block ALL audio UNLESS proven barge-in
                             if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
+                                # Block - this is echo or noise
                                 if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
-                                    print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking, rms={rms:.0f} < threshold={echo_threshold:.0f}")
+                                    print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
                                     self._echo_gate_logged = True
                                 continue
                             elif is_likely_real_speech:
-                                # Consecutive high RMS during AI speech = likely barge-in!
+                                # 5+ frames = real barge-in, let it through
                                 if not hasattr(self, '_echo_barge_logged'):
-                                    print(f"🎤 [ECHO GATE] Allowing barge-in: {self._echo_gate_consec_frames} frames above threshold={echo_threshold:.0f}")
+                                    print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
                                     self._echo_barge_logged = True
                         
                         # Check echo decay period (800ms after AI stops speaking)
                         if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
                             echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
                             if echo_decay_ms < POST_AI_COOLDOWN_MS:
-                                # Still in echo decay period - block unless likely real speech
+                                # Still in echo decay period - block unless proven real speech
                                 if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
                                     if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
-                                        print(f"🛡️ [ECHO GATE] Blocking rms={rms:.0f} - echo decay ({echo_decay_ms:.0f}ms)")
+                                        print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
                                         self._echo_decay_logged = True
                                     continue
                             else:
-                                # Echo decay complete - reset log flags
+                                # Echo decay complete - reset log flags for next AI response
                                 self._echo_gate_logged = False
                                 self._echo_decay_logged = False
                                 self._echo_barge_logged = False

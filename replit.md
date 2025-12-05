@@ -26,7 +26,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation. Key feat
 - **Semantic Repair**: GPT-4o-mini post-processing for short/garbled Hebrew transcriptions using business vocabulary.
 - **HARD Barge-In**: Immediate AI interruption and flushing of audio queue upon user speech detection.
 - **Greeting Flow & Patience**: Manages greeting state, allows barge-in on greeting, and uses gibberish bypass for early user utterances.
-- **ECHO GATE (BUILD 304)**: Blocks audio input to OpenAI while AI is speaking and 800ms after, preventing self-transcription hallucinations.
+- **ECHO GATE (BUILD 304)**: Blocks audio input to OpenAI while AI is speaking and 800ms after, preventing self-transcription hallucinations. Uses 5+ consecutive frames (100ms) to detect real barge-in vs echo spikes. Voice changed to 'ash' (conversational male, lower pitch).
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
