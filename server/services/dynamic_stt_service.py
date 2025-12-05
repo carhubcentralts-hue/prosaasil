@@ -398,16 +398,19 @@ def clear_vocabulary_cache(business_id: Optional[int] = None):
 
 async def semantic_repair(text: str, business_id: int) -> str:
     """
-    🔥 BUILD 301: Enhanced semantic repair for short/unclear transcriptions
+    🔥 BUILD 301: 100% DYNAMIC semantic repair - uses ONLY business vocabulary
     
     Uses GPT-4o-mini to fix obvious transcription errors in short Hebrew text
     from telephony (8kHz μ-law) audio.
     
-    Examples of fixes:
-    - "רמת איב" → "רמת אביב"
-    - "קרית ען" → "קריית ים"  
-    - "תפורת" → "תספורת"
-    - "נתיבות" kept as-is (correct city name)
+    100% DYNAMIC - NO HARDCODED VALUES:
+    - Uses only business vocabulary from DB (services, staff, products, locations)
+    - Uses business context and name from settings
+    - Fixes based on what the BUSINESS defined, not generic patterns
+    
+    Examples (with business vocabulary):
+    - "תפורת" → "תספורת" (if "תספורת" is in business services)
+    - "שניר" → "שניר" kept as-is (if staff name matches)
     
     Args:
         text: Short transcript to repair (typically < 12 chars or 1-2 tokens)
@@ -434,22 +437,22 @@ async def semantic_repair(text: str, business_id: int) -> str:
         business_context = vocab.get("business_context", "") or ""
         business_name = vocab.get("business_name", "") or ""
         
-        # 🔥 BUILD 301: Enhanced repair prompt per expert guidelines
-        # Focus on: Israeli cities, Israeli first names, business vocabulary
-        prompt = f"""You receive a short, noisy HEBREW transcription from an 8kHz μ-law phone call.
-Task:
-1. If the text is clearly Hebrew but slightly distorted, fix it to the most likely correct Hebrew phrase.
-2. Prefer valid Israeli city names, Israeli first names, and business-related terms.
-3. Do NOT change phone numbers, times, or dates.
-4. If you are not sure, return the original text unchanged.
+        # 🔥 BUILD 301: 100% DYNAMIC repair prompt - uses ONLY business vocabulary
+        # No hardcoded references to cities/names - everything comes from DB
+        prompt = f"""תמלול קצר מקו טלפון עברי (רועש).
+משימה:
+1. אם הטקסט עברית מעוותת, תקן לביטוי הסביר ביותר.
+2. השתמש רק באוצר המילים של העסק למטה.
+3. אל תשנה מספרים, שעות, או תאריכים.
+4. אם לא בטוח - החזר כמו שזה.
 
-Business: {business_name}
-Context: {business_context}
-Vocabulary: {vocab_str}
+עסק: {business_name}
+הקשר: {business_context}
+מילים: {vocab_str}
 
-Return ONLY the repaired text, nothing else.
+החזר רק את הטקסט המתוקן.
 
-Input: "{text}"
+קלט: "{text}"
 """
         
         client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))

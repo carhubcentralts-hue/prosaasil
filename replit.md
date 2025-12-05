@@ -116,8 +116,10 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
     - MIN_CONSECUTIVE_VOICE_FRAMES: 7 → 3 (60ms instead of 140ms)
     - MIN_UTT_SEC: 0.6s → 0.35s (allow short words like "כן")
     - BARGE_IN_VOICE_FRAMES: 45 → 25 (more responsive barge-in)
-  - **Enhanced Semantic Repair**: Improved prompt for Israeli cities/names with business vocabulary context
+  - **100% Dynamic Semantic Repair**: Hebrew prompt using ONLY business vocabulary from DB
+    - No hardcoded city/name references - fixes based on what business defined
     - Also applies to 1-2 token utterances (not just < 12 chars)
+    - Uses business_context, business_name, services, staff, products, locations from settings
   - **Stuck Response Detection**: Safety net clears active_response_id after 10 seconds if response.done is missed
     - Prevents AI freeze without adding a watchdog - inline check during pipeline status logging
   - **Expected Improvement**: Prevents AI freeze, better short word recognition, faster response
