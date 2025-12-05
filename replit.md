@@ -77,6 +77,17 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **user_has_spoken gating**: Only set to True when utterance passes duration threshold (not on speech_started or short segments).
   - **CLOSING state guard**: In CLOSING state, all speech events ignored for triggers and user_has_spoken.
   - **Result**: AI waits for user to finish speaking naturally, like a human conversation.
+- **BUILD 198 Audio Path Fix (STT Hallucination Fix)**:
+  - **Problem solved**: STT was transcribing things user never said ("תודה רבה", "שלום") due to audio path corruption.
+  - **Root cause**: Double μ-law encoding (Twilio→PCM→filter→μ-law→AGC→μ-law) corrupted audio sent to OpenAI.
+  - **Raw μ-law preservation**: `raw_ulaw_b64` saved immediately from Twilio - NEVER re-encoded.
+  - **DSP for VAD only**: Bandpass filter and RMS calculated on PCM copy for VAD decisions, NOT for audio sent.
+  - **AGC removed from send path**: No gain applied to audio sent to OpenAI - prevents distortion.
+  - **Echo blocking (not just trigger)**: Audio completely blocked when `is_ai_speaking=True`, not just `response.create` trigger.
+  - **Preroll uses raw μ-law**: Buffer stores original Twilio audio, not filtered/AGC'd copies.
+  - **Diagnostic mode**: Set `AUDIO_DIAGNOSTIC_MODE=true` to save call audio to `/tmp/realtime_{call_sid}.ulaw` and transcripts to `/tmp/realtime_{call_sid}_transcripts.txt` for debugging.
+  - **Pipeline order**: Twilio → raw_ulaw saved → decode to PCM for VAD → VAD decision → send raw_ulaw.
+  - **Result**: OpenAI receives exact audio from Twilio phone line, no processing artifacts.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

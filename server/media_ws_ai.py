@@ -4384,7 +4384,17 @@ ALWAYS mention their name in the first sentence.
         MIN_TRAILING_SILENCE_MS = int(os.getenv("MIN_TRAILING_SILENCE_MS", "500"))       # 0.5s silence required
         MIN_FIRST_UTTERANCE_MS = int(os.getenv("MIN_FIRST_UTTERANCE_MS", "1200"))        # 1.2s for first utterance
         
+        # ════════════════════════════════════════════════════════════════
+        # 🔥 BUILD 198: AUDIO PATH FIX + DIAGNOSTIC MODE
+        # CRITICAL: Send raw μ-law to Realtime WITHOUT re-encoding!
+        # DSP (filters, AGC) is only used for VAD decisions, NOT for audio sent
+        # ════════════════════════════════════════════════════════════════
+        DIAGNOSTIC_MODE = os.getenv("AUDIO_DIAGNOSTIC_MODE", "false").lower() == "true"
+        diagnostic_samples = []  # For saving raw audio to file
+        diagnostic_transcripts = []  # For saving transcripts with timestamps
+        
         print(f"🔧 [BUILD 197] VAD thresholds: MIN_UTTERANCE={MIN_UTTERANCE_DURATION_MS}ms, TRAILING_SILENCE={MIN_TRAILING_SILENCE_MS}ms, FIRST_UTTERANCE={MIN_FIRST_UTTERANCE_MS}ms")
+        print(f"🔧 [BUILD 198] AUDIO PATH FIX: Raw μ-law to Realtime | DIAGNOSTIC_MODE={DIAGNOSTIC_MODE}")
         
         # ════════════════════════════════════════════════════════════════
         # 🎤 STATE MACHINE: SILENCE → MAYBE_SPEECH → SPEECH
@@ -4467,9 +4477,10 @@ ALWAYS mention their name in the first sentence.
                         print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                         _greeting_resumed_logged = True
                 
-                # 🔥 BUILD 196.2: PRODUCTION-GRADE AUDIO PREPROCESSING
-                # CORRECTED Pipeline: μ-law → PCM16 → bandpass → SNR (pre-AGC) → state machine → AGC (SPEECH only) → send
-                # Key fix: SNR computed on pre-AGC audio; AGC only applied to SPEECH frames
+                # 🔥 BUILD 198: AUDIO PATH FIX
+                # CRITICAL: Send raw μ-law to Realtime WITHOUT re-encoding!
+                # Pipeline: raw μ-law saved → decode to PCM for VAD → VAD decision → send raw μ-law
+                # DSP (filters) is only used for VAD decisions, NOT for audio sent to OpenAI
                 total_frames += 1
                 
                 try:
@@ -4477,11 +4488,21 @@ ALWAYS mention their name in the first sentence.
                     import math
                     import statistics
                     
+                    # 🔥 BUILD 198: PRESERVE raw μ-law for sending to Realtime!
+                    # audio_chunk is already base64-encoded μ-law from Twilio
+                    raw_ulaw_b64 = audio_chunk  # DO NOT TOUCH THIS - send as-is to OpenAI
+                    
+                    # Decode to PCM ONLY for VAD analysis (not for sending!)
                     audio_bytes = base64.b64decode(audio_chunk)
-                    pcm_data = audioop.ulaw2lin(audio_bytes, 2)  # 16-bit PCM
+                    pcm_data = audioop.ulaw2lin(audio_bytes, 2)  # 16-bit PCM for analysis only
+                    
+                    # Save raw audio for diagnostic mode
+                    if DIAGNOSTIC_MODE:
+                        diagnostic_samples.append(audio_bytes)
                     
                     # ════════════════════════════════════════════════════════════════
-                    # STEP 1: SPEECH BAND FILTER (100Hz - 3400Hz)
+                    # STEP 1: SPEECH BAND FILTER (100Hz - 3400Hz) - FOR VAD ONLY!
+                    # This filtered audio is NEVER sent to OpenAI
                     # ════════════════════════════════════════════════════════════════
                     if not hasattr(self, '_hpf_prev_in'):
                         self._hpf_prev_in = 0
@@ -4500,26 +4521,21 @@ ALWAYS mention their name in the first sentence.
                         filtered_samples.append(int(max(-32768, min(32767, lp_out))))
                     
                     filtered_pcm = struct.pack(f'<{len(filtered_samples)}h', *filtered_samples)
-                    frame_rms = audioop.rms(filtered_pcm, 2)  # PRE-AGC RMS for SNR!
-                    
-                    # Pre-encode filtered audio for preroll (before AGC)
-                    filtered_ulaw = audioop.lin2ulaw(filtered_pcm, 2)
-                    filtered_chunk = base64.b64encode(filtered_ulaw).decode('ascii')
+                    frame_rms = audioop.rms(filtered_pcm, 2)  # RMS for VAD decision only
                     
                     # ════════════════════════════════════════════════════════════════
-                    # STEP 2: NOISE CALIBRATION (first 600ms) - USING PRE-AGC RMS!
-                    # Calibrate on raw signal, not AGC-boosted
+                    # STEP 2: NOISE CALIBRATION (first 600ms)
                     # ════════════════════════════════════════════════════════════════
                     if not is_calibrated:
-                        calibration_frames.append(frame_rms)  # Pre-AGC RMS
+                        calibration_frames.append(frame_rms)
                         if len(calibration_frames) >= CALIBRATION_FRAMES_NEEDED:
                             sorted_rms = sorted(calibration_frames)
                             percentile_20 = sorted_rms[len(sorted_rms) // 5]
                             noise_rms = max(30, percentile_20)
                             is_calibrated = True
-                            print(f"🎚️ [BUILD 196.2] NOISE CALIBRATED: noise_rms={noise_rms:.0f} (from {len(calibration_frames)} frames)")
-                        # Store filtered PCM for preroll (before AGC)
-                        preroll_buffer.append(filtered_chunk)
+                            print(f"🎚️ [BUILD 198] NOISE CALIBRATED: noise_rms={noise_rms:.0f} (from {len(calibration_frames)} frames)")
+                        # 🔥 BUILD 198: Store RAW μ-law for preroll (NOT filtered!)
+                        preroll_buffer.append(raw_ulaw_b64)
                         continue
                     
                     # ════════════════════════════════════════════════════════════════
@@ -4613,9 +4629,10 @@ ALWAYS mention their name in the first sentence.
                     # Music detection is for adjusting SNR thresholds, NOT for blocking user speech
                     echo_blocked = is_ai_speaking or in_echo_cooldown
                     
-                    # Buffer in SILENCE and MAYBE_SPEECH (pre-AGC filtered audio)
+                    # 🔥 BUILD 198: Buffer RAW μ-law in SILENCE and MAYBE_SPEECH
+                    # (NOT filtered audio - we send raw to OpenAI!)
                     if current_state in (STATE_SILENCE, STATE_MAYBE_SPEECH):
-                        preroll_buffer.append(filtered_chunk)
+                        preroll_buffer.append(raw_ulaw_b64)
                     
                     if current_state == STATE_SILENCE:
                         if snr_db >= snr_start:
@@ -4717,71 +4734,35 @@ ALWAYS mention their name in the first sentence.
                         print(f"📊 [BUILD 196.2] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected} | echo_blocked={echo_blocked}")
                     
                     # ════════════════════════════════════════════════════════════════
-                    # STEP 6: DECIDE WHETHER TO SEND
-                    # 🔥 BUILD 196.4: ALWAYS send audio in SPEECH state!
-                    # Echo protection only affects TRIGGER_RESPONSE, NOT audio transmission
-                    # OpenAI needs to hear everything to understand the user!
+                    # 🔥 BUILD 198: DECIDE WHETHER TO SEND
+                    # CRITICAL: Block audio when AI is speaking to prevent echo/hallucinations!
+                    # Send raw μ-law WITHOUT re-encoding - no AGC, no filters!
                     # ════════════════════════════════════════════════════════════════
                     should_send = False
-                    chunk_to_send = None
                     
-                    # 🔥 BUILD 196.4: REMOVED audio blocking during echo!
-                    # We ALWAYS send audio to OpenAI when in SPEECH state
-                    # Echo protection only blocks the manual response.create trigger
-                    # This ensures OpenAI hears short words like "כן", "לא", city names
+                    # 🔥 BUILD 198: BLOCK AUDIO WHEN AI IS SPEAKING!
+                    # This prevents echo from being transcribed as user speech
+                    # User can still barge-in via OpenAI's speech_started detection
+                    if is_ai_speaking:
+                        frames_blocked += 1
+                        now = time.time()
+                        if now - last_log_time > 10:
+                            print(f"🔇 [BUILD 198] Audio blocked - AI speaking | sent={frames_sent} blocked={frames_blocked}")
+                            last_log_time = now
+                        continue
                     
                     if current_state == STATE_SPEECH:
                         should_send = True
                         
-                        # ════════════════════════════════════════════════════════════════
-                        # STEP 7: AGC - ONLY ON SPEECH FRAMES!
-                        # This normalizes speech volume without boosting noise
-                        # ════════════════════════════════════════════════════════════════
-                        if frame_rms > 0:
-                            # Track caller's speech level (only during speech)
-                            if caller_rms_slow == 0:
-                                caller_rms_slow = frame_rms
-                            else:
-                                caller_rms_slow = AGC_ALPHA * frame_rms + (1 - AGC_ALPHA) * caller_rms_slow
-                            
-                            gain = TARGET_RMS / caller_rms_slow if caller_rms_slow > 0 else 1.0
-                            gain = max(AGC_MIN_GAIN, min(AGC_MAX_GAIN, gain))
-                            
-                            # Apply AGC to current frame
-                            agc_samples = [int(max(-32768, min(32767, s * gain))) for s in filtered_samples]
-                            agc_pcm = struct.pack(f'<{len(agc_samples)}h', *agc_samples)
-                            agc_ulaw = audioop.lin2ulaw(agc_pcm, 2)
-                            chunk_to_send = base64.b64encode(agc_ulaw).decode('ascii')
-                        else:
-                            chunk_to_send = filtered_chunk
-                            gain = 1.0
-                        
-                        # Flush pre-roll buffer on entering SPEECH
+                        # 🔥 BUILD 198: Flush pre-roll buffer on entering SPEECH
+                        # Send raw μ-law - NO AGC, NO re-encoding!
                         if not preroll_sent and len(preroll_buffer) > 0:
-                            print(f"📼 [BUILD 196.2] Sending {len(preroll_buffer)} pre-roll frames (with AGC gain={gain:.2f}x)")
+                            print(f"📼 [BUILD 198] Sending {len(preroll_buffer)} pre-roll frames (RAW μ-law)")
                             for preroll_chunk_raw in preroll_buffer:
-                                # Apply AGC to preroll frames too (for consistent volume)
-                                if gain != 1.0:
-                                    try:
-                                        pr_bytes = base64.b64decode(preroll_chunk_raw)
-                                        pr_pcm = audioop.ulaw2lin(pr_bytes, 2)
-                                        pr_samples = struct.unpack(f'<{len(pr_pcm)//2}h', pr_pcm)
-                                        pr_agc = [int(max(-32768, min(32767, s * gain))) for s in pr_samples]
-                                        pr_agc_pcm = struct.pack(f'<{len(pr_agc)}h', *pr_agc)
-                                        pr_agc_ulaw = audioop.lin2ulaw(pr_agc_pcm, 2)
-                                        preroll_chunk_agc = base64.b64encode(pr_agc_ulaw).decode('ascii')
-                                        await client.send_audio_chunk(preroll_chunk_agc)
-                                    except:
-                                        await client.send_audio_chunk(preroll_chunk_raw)
-                                else:
-                                    await client.send_audio_chunk(preroll_chunk_raw)
+                                await client.send_audio_chunk(preroll_chunk_raw)
                                 frames_sent += 1
                             preroll_buffer.clear()
                             preroll_sent = True
-                    
-                    # 🔥 BUILD 196.3: Removed is_ai_speaking path - we now block audio entirely during AI speech
-                    # Barge-in detection is handled by OpenAI's input_audio_buffer.speech_started event
-                    # when user speaks loudly enough to overcome the echo
                     
                     # Note: SILENCE and MAYBE_SPEECH NEVER send - prevents noise leaks
                     
@@ -4790,16 +4771,17 @@ ALWAYS mention their name in the first sentence.
                         now = time.time()
                         if now - last_log_time > 10:
                             mode = "🎵MUSIC" if music_detected else "🎤NORMAL"
-                            print(f"📊 [BUILD 196.2] Stats: sent={frames_sent} blocked={frames_blocked} | {mode} | noise={noise_rms:.0f} | state={current_state}")
+                            print(f"📊 [BUILD 198] Stats: sent={frames_sent} blocked={frames_blocked} | {mode} | noise={noise_rms:.0f} | state={current_state}")
                             last_log_time = now
                         continue
                     
                     frames_sent += 1
-                    audio_chunk = chunk_to_send
+                    # 🔥 BUILD 198: Send RAW μ-law from Twilio - NO AGC, NO re-encoding!
+                    audio_chunk = raw_ulaw_b64
                     
                 except Exception as e:
                     import traceback
-                    print(f"⚠️ [BUILD 196.2] Processing error: {e}")
+                    print(f"⚠️ [BUILD 198] Processing error: {e}")
                     traceback.print_exc()
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
@@ -4813,6 +4795,24 @@ ALWAYS mention their name in the first sentence.
             except Exception as e:
                 print(f"❌ [REALTIME] Audio sender error: {e}")
                 break
+        
+        # 🔥 BUILD 198: Save diagnostic audio file at end of call
+        if DIAGNOSTIC_MODE and diagnostic_samples:
+            try:
+                call_sid = getattr(self, 'call_sid', 'unknown')
+                filename = f"/tmp/realtime_{call_sid}.ulaw"
+                with open(filename, "wb") as f:
+                    f.write(b"".join(diagnostic_samples))
+                print(f"📼 [BUILD 198 DIAGNOSTIC] Saved {len(diagnostic_samples)} frames to {filename}")
+                
+                # Also save transcript log
+                transcript_file = f"/tmp/realtime_{call_sid}_transcripts.txt"
+                with open(transcript_file, "w") as f:
+                    for entry in diagnostic_transcripts:
+                        f.write(f"{entry.get('ts', 0)}: {entry.get('text', '')}\n")
+                print(f"📝 [BUILD 198 DIAGNOSTIC] Saved transcripts to {transcript_file}")
+            except Exception as e:
+                print(f"⚠️ [BUILD 198 DIAGNOSTIC] Failed to save: {e}")
         
         print(f"📤 [REALTIME] Audio sender ended")
     
