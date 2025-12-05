@@ -36,6 +36,9 @@ interface CallControlSettings {
   auto_end_after_lead_capture: boolean;
   auto_end_on_goodbye: boolean;
   enable_calendar_scheduling: boolean;  // 🔥 BUILD 186
+  // 🔥 BUILD 309: SIMPLE_MODE settings
+  call_goal: 'lead_only' | 'appointment';  // Call objective
+  confirm_before_hangup: boolean;  // Require user confirmation before hanging up
 }
 
 // 🔥 BUILD 207: STT Vocabulary Settings
@@ -95,7 +98,10 @@ export function BusinessAISettings() {
     bot_speaks_first: false,
     auto_end_after_lead_capture: false,
     auto_end_on_goodbye: false,
-    enable_calendar_scheduling: true  // 🔥 BUILD 186: Default true
+    enable_calendar_scheduling: true,  // 🔥 BUILD 186: Default true
+    // 🔥 BUILD 309: SIMPLE_MODE defaults
+    call_goal: 'lead_only',
+    confirm_before_hangup: true
   });
   const [businessName, setBusinessName] = useState<string>('');
 
@@ -117,6 +123,9 @@ export function BusinessAISettings() {
             auto_end_after_lead_capture?: boolean;
             auto_end_on_goodbye?: boolean;
             enable_calendar_scheduling?: boolean;  // 🔥 BUILD 186
+            // 🔥 BUILD 309: SIMPLE_MODE settings
+            call_goal?: 'lead_only' | 'appointment';
+            confirm_before_hangup?: boolean;
             // 🔥 BUILD 207: STT Vocabulary
             stt_vocabulary_json?: STTVocabulary | null;
             business_context?: string | null;
@@ -136,7 +145,10 @@ export function BusinessAISettings() {
           bot_speaks_first: businessData.bot_speaks_first ?? false,
           auto_end_after_lead_capture: businessData.auto_end_after_lead_capture ?? false,
           auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false,
-          enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false  // 🔥 BUILD 186
+          enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false,  // 🔥 BUILD 186
+          // 🔥 BUILD 309: SIMPLE_MODE settings
+          call_goal: businessData.call_goal ?? 'lead_only',
+          confirm_before_hangup: businessData.confirm_before_hangup !== false  // Default true
         });
         
         // 🔥 BUILD 207: Load STT Vocabulary settings
@@ -224,7 +236,10 @@ export function BusinessAISettings() {
         bot_speaks_first: callControl.bot_speaks_first,
         auto_end_after_lead_capture: callControl.auto_end_after_lead_capture,
         auto_end_on_goodbye: callControl.auto_end_on_goodbye,
-        enable_calendar_scheduling: callControl.enable_calendar_scheduling  // 🔥 BUILD 186
+        enable_calendar_scheduling: callControl.enable_calendar_scheduling,  // 🔥 BUILD 186
+        // 🔥 BUILD 309: SIMPLE_MODE settings
+        call_goal: callControl.call_goal,
+        confirm_before_hangup: callControl.confirm_before_hangup
       });
       
       alert('✅ הגדרות שליטת שיחה נשמרו בהצלחה!');
@@ -656,6 +671,68 @@ export function BusinessAISettings() {
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
             </label>
+          </div>
+
+          {/* BUILD 309: Confirm Before Hangup Toggle */}
+          <div className="flex items-center justify-between p-4 bg-teal-50 rounded-lg border border-teal-200">
+            <div>
+              <h4 className="font-medium text-slate-900">✅ אישור לפני ניתוק</h4>
+              <p className="text-sm text-slate-600 mt-1">
+                הבוט מבקש אישור מהלקוח לפני שמסיים את השיחה
+              </p>
+              <p className="text-xs text-teal-600 mt-1">
+                מומלץ להפעיל כדי להבטיח שהלקוח מרוצה לפני ניתוק
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={callControl.confirm_before_hangup}
+                onChange={(e) => setCallControl(prev => ({ ...prev, confirm_before_hangup: e.target.checked }))}
+                className="sr-only peer"
+                data-testid="checkbox-confirm-before-hangup"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+            </label>
+          </div>
+
+          {/* BUILD 309: Call Goal Selection */}
+          <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+            <h4 className="font-medium text-slate-900 mb-2">🎯 מטרת השיחה</h4>
+            <p className="text-sm text-slate-600 mb-3">
+              מה הבוט צריך להשיג בסוף השיחה
+            </p>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="call_goal"
+                  value="lead_only"
+                  checked={callControl.call_goal === 'lead_only'}
+                  onChange={(e) => setCallControl(prev => ({ ...prev, call_goal: 'lead_only' }))}
+                  className="w-4 h-4 text-indigo-600"
+                  data-testid="radio-goal-lead-only"
+                />
+                <span className="text-sm">📋 איסוף פרטים בלבד</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="call_goal"
+                  value="appointment"
+                  checked={callControl.call_goal === 'appointment'}
+                  onChange={(e) => setCallControl(prev => ({ ...prev, call_goal: 'appointment' }))}
+                  className="w-4 h-4 text-indigo-600"
+                  data-testid="radio-goal-appointment"
+                />
+                <span className="text-sm">📅 קביעת פגישה</span>
+              </label>
+            </div>
+            <p className="text-xs text-indigo-600 mt-2">
+              {callControl.call_goal === 'lead_only' 
+                ? 'הבוט יאסוף את הפרטים הנדרשים ויסיים את השיחה' 
+                : 'הבוט ינסה לקבוע פגישה עם הלקוח ביומן העסק'}
+            </p>
           </div>
 
           {/* Silence Timeout */}

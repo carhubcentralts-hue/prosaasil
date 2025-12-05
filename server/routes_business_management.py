@@ -749,7 +749,10 @@ def get_current_business():
             "required_lead_fields": getattr(settings, 'required_lead_fields', ["name", "phone"]) if settings else ["name", "phone"],
             # 🔥 BUILD 204: Dynamic STT Vocabulary
             "stt_vocabulary_json": getattr(settings, 'stt_vocabulary_json', None) if settings else None,
-            "business_context": getattr(settings, 'business_context', None) if settings else None
+            "business_context": getattr(settings, 'business_context', None) if settings else None,
+            # 🔥 BUILD 309: SIMPLE_MODE settings
+            "call_goal": getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only',
+            "confirm_before_hangup": getattr(settings, 'confirm_before_hangup', True) if settings else True
         })
         
     except Exception as e:
@@ -893,6 +896,16 @@ def update_current_business_settings():
                 settings.business_context = str(context)[:500]
             else:
                 settings.business_context = None
+        
+        # 🔥 BUILD 309: SIMPLE_MODE settings
+        if 'call_goal' in data:
+            goal = data['call_goal']
+            if goal in ('lead_only', 'appointment'):
+                settings.call_goal = goal
+            else:
+                settings.call_goal = 'lead_only'  # Default fallback
+        if 'confirm_before_hangup' in data:
+            settings.confirm_before_hangup = bool(data['confirm_before_hangup'])
             
         # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
         al_user = session.get('al_user') or {}
