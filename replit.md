@@ -62,8 +62,21 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Barge-in preserved**: User can interrupt during AI response - OpenAI's `speech_started` event handles real barge-in detection.
   - **TRIGGER_RESPONSE on SPEECH→SILENCE**: When state machine detects speech ending (and not in echo block), automatically sends `response.create` to OpenAI via queue.
   - **Utterance duration tracking**: Tracks `utterance_start_ms` when speech begins, calculates duration on SPEECH→SILENCE.
-  - **MIN_UTTERANCE_MS=150**: Reduced from 300ms - don't skip short Hebrew words like "כן", "לא", city names. Audio is still sent, only manual trigger is skipped.
   - **Active response guard**: Before sending `response.create`, checks `active_response_id` to prevent duplicate responses.
+- **BUILD 196.5 AI Transcript Storage**:
+  - **AI transcripts saved to conversation_history**: `response.audio_transcript.done` event now appends AI transcript to `conversation_history` with speaker="assistant".
+  - **Complete call transcription**: Both user and AI transcripts are now stored for call logging.
+- **BUILD 197 Human-Like VAD (Critical Fix)**:
+  - **Problem solved**: AI was responding to short noise bursts (4ms, 95ms, 126ms) instead of waiting for real speech.
+  - **MIN_UTTERANCE_DURATION_MS=900**: User must speak for at least 0.9 seconds before AI responds.
+  - **MIN_TRAILING_SILENCE_MS=500**: After speech ends, wait 0.5 seconds of silence to confirm end of utterance.
+  - **MIN_FIRST_UTTERANCE_MS=1200**: First utterance requires 1.2 seconds to prevent premature responses.
+  - **All thresholds configurable via env vars**: MIN_UTTERANCE_DURATION_MS, MIN_TRAILING_SILENCE_MS, MIN_FIRST_UTTERANCE_MS.
+  - **Short utterances IGNORED completely**: No trigger, no user_has_spoken flag - prevents AI from interrupting.
+  - **Trailing silence tracking**: `last_speech_frame_ts` updated on each speech frame; SPEECH→SILENCE only after silence threshold met.
+  - **user_has_spoken gating**: Only set to True when utterance passes duration threshold (not on speech_started or short segments).
+  - **CLOSING state guard**: In CLOSING state, all speech events ignored for triggers and user_has_spoken.
+  - **Result**: AI waits for user to finish speaking naturally, like a human conversation.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
