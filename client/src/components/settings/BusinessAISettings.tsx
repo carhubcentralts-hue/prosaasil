@@ -35,9 +35,10 @@ interface CallControlSettings {
   bot_speaks_first: boolean;
   auto_end_after_lead_capture: boolean;
   auto_end_on_goodbye: boolean;
-  enable_calendar_scheduling: boolean;  // 🔥 BUILD 186
-  // 🔥 BUILD 309: SIMPLE_MODE settings
-  call_goal: 'lead_only' | 'appointment';  // Call objective
+  // 🔥 BUILD 310: SIMPLE_MODE - call_goal replaces enable_calendar_scheduling
+  // call_goal 'appointment' = enable_calendar_scheduling true
+  // call_goal 'lead_only' = enable_calendar_scheduling false
+  call_goal: 'lead_only' | 'appointment';  // Call objective (also controls calendar scheduling)
   confirm_before_hangup: boolean;  // Require user confirmation before hanging up
 }
 
@@ -98,8 +99,7 @@ export function BusinessAISettings() {
     bot_speaks_first: false,
     auto_end_after_lead_capture: false,
     auto_end_on_goodbye: false,
-    enable_calendar_scheduling: true,  // 🔥 BUILD 186: Default true
-    // 🔥 BUILD 309: SIMPLE_MODE defaults
+    // 🔥 BUILD 310: SIMPLE_MODE - call_goal controls calendar scheduling
     call_goal: 'lead_only',
     confirm_before_hangup: true
   });
@@ -137,6 +137,13 @@ export function BusinessAISettings() {
         setPrompts(promptsData);
         
         // Set call control settings from business data
+        // 🔥 BUILD 310: call_goal replaces enable_calendar_scheduling
+        // If call_goal not set, derive from enable_calendar_scheduling for migration
+        let derivedCallGoal: 'lead_only' | 'appointment' = businessData.call_goal ?? 'lead_only';
+        if (!businessData.call_goal && businessData.enable_calendar_scheduling === true) {
+          derivedCallGoal = 'appointment';  // Legacy migration: calendar enabled = appointment goal
+        }
+        
         setCallControl({
           silence_timeout_sec: businessData.silence_timeout_sec ?? 15,
           silence_max_warnings: businessData.silence_max_warnings ?? 2,
@@ -145,9 +152,8 @@ export function BusinessAISettings() {
           bot_speaks_first: businessData.bot_speaks_first ?? false,
           auto_end_after_lead_capture: businessData.auto_end_after_lead_capture ?? false,
           auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false,
-          enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false,  // 🔥 BUILD 186
-          // 🔥 BUILD 309: SIMPLE_MODE settings
-          call_goal: businessData.call_goal ?? 'lead_only',
+          // 🔥 BUILD 310: SIMPLE_MODE settings
+          call_goal: derivedCallGoal,
           confirm_before_hangup: businessData.confirm_before_hangup !== false  // Default true
         });
         
@@ -228,6 +234,10 @@ export function BusinessAISettings() {
     setSaving(prev => ({ ...prev, callControl: true }));
     
     try {
+      // 🔥 BUILD 310: Derive enable_calendar_scheduling from call_goal
+      // appointment = calendar enabled, lead_only = calendar disabled
+      const enableCalendar = callControl.call_goal === 'appointment';
+      
       await http.put(`/api/business/current/settings`, {
         silence_timeout_sec: callControl.silence_timeout_sec,
         silence_max_warnings: callControl.silence_max_warnings,
@@ -236,8 +246,8 @@ export function BusinessAISettings() {
         bot_speaks_first: callControl.bot_speaks_first,
         auto_end_after_lead_capture: callControl.auto_end_after_lead_capture,
         auto_end_on_goodbye: callControl.auto_end_on_goodbye,
-        enable_calendar_scheduling: callControl.enable_calendar_scheduling,  // 🔥 BUILD 186
-        // 🔥 BUILD 309: SIMPLE_MODE settings
+        enable_calendar_scheduling: enableCalendar,  // 🔥 BUILD 310: Derived from call_goal
+        // 🔥 BUILD 310: SIMPLE_MODE settings
         call_goal: callControl.call_goal,
         confirm_before_hangup: callControl.confirm_before_hangup
       });
@@ -628,29 +638,6 @@ export function BusinessAISettings() {
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
               </label>
             </div>
-          </div>
-
-          {/* Calendar Scheduling Toggle - BUILD 186 */}
-          <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <div>
-              <h4 className="font-medium text-slate-900">📅 תיאום פגישות ביומן</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                הבוט ינסה לתאם פגישות עם הלקוח בזמן שיחה נכנסת
-              </p>
-              <p className="text-xs text-blue-600 mt-1">
-                בשיחות יוצאות הבוט פועל לפי הפרומפט בלבד
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.enable_calendar_scheduling}
-                onChange={(e) => setCallControl(prev => ({ ...prev, enable_calendar_scheduling: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-calendar-scheduling"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-            </label>
           </div>
 
           {/* Smart Hangup Toggle */}
