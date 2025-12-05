@@ -29,11 +29,11 @@ class STTEnhancement:
     semantic_fix_applied: bool
 
 
-def get_business_vocabulary(business_id: int) -> Dict[str, List[str]]:
+def get_business_vocabulary(business_id: int) -> Dict[str, Any]:
     """
     Load business vocabulary from database
     
-    Returns dict with keys: services, staff, products, locations
+    Returns dict with keys: services, staff, products, locations, business_name, business_type, business_context
     All 100% from DB - no hardcoded values
     """
     import time
@@ -256,7 +256,7 @@ async def semantic_post_process(
             ]
         )
         
-        corrected = response.choices[0].message.content.strip()
+        corrected = (response.choices[0].message.content or "").strip()
         
         # Track corrections
         corrections = []
@@ -287,80 +287,122 @@ async def semantic_post_process(
 def apply_vocabulary_corrections(
     transcript: str,
     business_id: int
-) -> str:
+) -> tuple[str, Dict[str, str]]:
     """
     Apply fast vocabulary-based corrections using fuzzy matching
     
-    This is the fast path that runs BEFORE semantic post-processing.
-    Uses RapidFuzz for near-matches to business vocabulary.
+    🔥 BUILD 204: CONSERVATIVE APPROACH - Only fix obvious near-misses, never damage critical data
+    
+    NEVER TOUCH:
+    - Numbers (phone numbers, times, dates, amounts)
+    - Very short tokens (< 3 chars)
+    - Words that are already exact matches
+    - Pure punctuation
     
     Args:
         transcript: Original transcript
         business_id: Business ID
     
     Returns:
-        Corrected transcript
+        Tuple of (corrected_transcript, corrections_dict)
     """
+    import re
+    
     if not transcript or len(transcript.strip()) < 2:
-        return transcript
+        return transcript, {}
     
     try:
         from rapidfuzz import fuzz, process
         
         vocab = get_business_vocabulary(business_id)
         
-        # Build vocabulary list for matching
-        all_terms = []
-        all_terms.extend(vocab.get("services", []))
-        all_terms.extend(vocab.get("staff", []))
-        all_terms.extend(vocab.get("products", []))
-        all_terms.extend(vocab.get("locations", []))
+        # Build vocabulary set for matching
+        dictionary = set()
+        for key in ("services", "products", "staff", "locations"):
+            for item in vocab.get(key) or []:
+                item = (item or "").strip()
+                if item:
+                    dictionary.add(item)
         
-        if not all_terms:
-            return transcript
+        if not dictionary:
+            return transcript, {}
         
-        # Split transcript into words and try to match each
         words = transcript.split()
+        corrections = {}
         corrected_words = []
-        corrections_made = False
         
-        for word in words:
-            if len(word) < 3:
-                corrected_words.append(word)
+        for w in words:
+            # Strip punctuation for matching, but preserve it
+            clean = w.strip(".,!?;:\"'")
+            
+            # 🔒 SAFETY: Skip tokens we should NEVER modify
+            # 1. Too short (< 3 chars)
+            if len(clean) < 3:
+                corrected_words.append(w)
                 continue
             
-            # Try fuzzy match
+            # 2. Contains digits (times, dates, phone numbers, amounts)
+            if re.search(r'\d', clean):
+                corrected_words.append(w)
+                continue
+            
+            # 3. Looks like a phone number pattern
+            if re.match(r'^[\d\-\+\(\)]+$', clean):
+                corrected_words.append(w)
+                continue
+            
+            # 4. Already an exact match in vocabulary
+            if clean in dictionary:
+                corrected_words.append(w)
+                continue
+            
+            # 5. Pure Hebrew numbers (שתיים, שלוש, etc.) - don't modify!
+            hebrew_numbers = ["אחד", "אחת", "שתיים", "שניים", "שלוש", "שלושה", "ארבע", "ארבעה",
+                           "חמש", "חמישה", "שש", "שישה", "שבע", "שבעה", "שמונה", "תשע", "תשעה",
+                           "עשר", "עשרה", "עשרים", "שלושים", "ארבעים", "חמישים", "מאה", "אלף"]
+            if clean in hebrew_numbers:
+                corrected_words.append(w)
+                continue
+            
+            # Try fuzzy match with conservative threshold
             result = process.extractOne(
-                word,
-                all_terms,
-                scorer=fuzz.ratio,
-                score_cutoff=75  # 75% threshold for vocabulary matching
+                clean,
+                dictionary,
+                scorer=fuzz.WRatio,  # 🔥 WRatio is better for Hebrew partial matches
+                score_cutoff=78  # 78% threshold - conservative
             )
             
             if result:
                 matched_term, score, _ = result
-                if score >= 75 and matched_term != word:
-                    logger.debug(f"🔧 [VOCAB-FIX] '{word}' → '{matched_term}' ({score:.0f}%)")
-                    corrected_words.append(matched_term)
-                    corrections_made = True
+                # Only correct if it's a clear win
+                if score >= 78 and matched_term != clean:
+                    # Preserve original punctuation
+                    if w.endswith(tuple(".,!?;:\"\'")):
+                        new_word = matched_term + w[-1]
+                    else:
+                        new_word = matched_term
+                    
+                    corrections[clean] = matched_term
+                    corrected_words.append(new_word)
+                    logger.info(f"🔧 [STT_CORRECTION] original='{clean}', corrected='{matched_term}', score={score:.0f}, business_id={business_id}")
                 else:
-                    corrected_words.append(word)
+                    corrected_words.append(w)
             else:
-                corrected_words.append(word)
+                corrected_words.append(w)
         
-        if corrections_made:
-            result = " ".join(corrected_words)
-            logger.info(f"🔧 [VOCAB-FIX] Applied vocabulary corrections for business {business_id}")
-            return result
+        corrected_text = " ".join(corrected_words)
         
-        return transcript
+        if corrections:
+            logger.info(f"🔧 [VOCAB-FIX] Applied {len(corrections)} corrections for business {business_id}: {corrections}")
+        
+        return corrected_text, corrections
         
     except ImportError:
         logger.debug("⚠️ RapidFuzz not available for vocabulary corrections")
-        return transcript
+        return transcript, {}
     except Exception as e:
         logger.warning(f"⚠️ [VOCAB-FIX] Failed: {e}")
-        return transcript
+        return transcript, {}
 
 
 def clear_vocabulary_cache(business_id: Optional[int] = None):

@@ -1567,6 +1567,7 @@ class MediaStreamHandler:
                     try:
                         from server.services.dynamic_stt_service import build_dynamic_stt_prompt
                         transcription_prompt = build_dynamic_stt_prompt(business_id_safe)
+                        self._last_stt_prompt = transcription_prompt  # Store for logging
                         print(f"🎤 [BUILD 204] Dynamic STT prompt: '{transcription_prompt}' ({len(transcription_prompt)} chars)")
                     except Exception as stt_err:
                         # Fallback to simpler prompt if dynamic service fails
@@ -1744,22 +1745,37 @@ ALWAYS mention their name in the first sentence.
                         current_call_direction = getattr(self, 'call_direction', 'inbound')
                         print(f"📞 [{current_call_direction.upper()}] session.update with max_tokens={session_max_tokens}")
                         
-                        # 🔥 BUILD 186: CRITICAL - Preserve Hebrew transcription config!
+                        # 🔥 BUILD 204: CRITICAL - Preserve Hebrew transcription config with gpt-4o-transcribe!
                         # Without this, STT defaults to English and transcribes Hebrew as "Thank you", "Good luck"
+                        
+                        # 🔥 BUILD 204: Rebuild dynamic STT prompt for session.update
+                        stt_prompt_for_update = ""
+                        try:
+                            from server.services.dynamic_stt_service import build_dynamic_stt_prompt
+                            app_for_stt = _get_flask_app()
+                            with app_for_stt.app_context():
+                                stt_prompt_for_update = build_dynamic_stt_prompt(business_id_safe)
+                        except Exception as stt_err:
+                            print(f"⚠️ [BUILD 204] Could not rebuild STT prompt for session.update: {stt_err}")
+                        
+                        # Build transcription config with gpt-4o-transcribe (better than whisper-1)
+                        transcription_config = {
+                            "model": "gpt-4o-transcribe",  # 🔥 BUILD 204: Best model for Hebrew!
+                            "language": "he"  # 🔒 Force Hebrew - prevents "Thank you" hallucinations
+                        }
+                        if stt_prompt_for_update:
+                            transcription_config["prompt"] = stt_prompt_for_update
+                        
                         await client.send_event({
                             "type": "session.update",
                             "session": {
                                 "instructions": full_prompt,
                                 "voice": voice_to_use,  # 🔒 Must re-send voice to lock it
                                 "max_response_output_tokens": session_max_tokens,
-                                # 🔥 BUILD 186 FIX: MUST preserve Hebrew transcription config!
-                                "input_audio_transcription": {
-                                    "model": "whisper-1",
-                                    "language": "he"  # 🔒 Force Hebrew - prevents "Thank you" hallucinations
-                                }
+                                "input_audio_transcription": transcription_config
                             }
                         })
-                        print(f"✅ [PHASE 2] Session updated with full prompt: {len(full_prompt)} chars, voice={voice_to_use} locked, max_tokens={session_max_tokens}, transcription=Hebrew")
+                        print(f"✅ [PHASE 2] Session updated: {len(full_prompt)} chars, voice={voice_to_use}, max_tokens={session_max_tokens}, stt=gpt-4o-transcribe+Hebrew")
                     else:
                         print(f"⚠️ [PHASE 2] Keeping minimal prompt - full prompt build failed")
                 except Exception as e:
@@ -2673,12 +2689,13 @@ ALWAYS mention their name in the first sentence.
                     
                     # 🔥 BUILD 204: Apply business vocabulary corrections (fast fuzzy matching)
                     # This corrects domain-specific terms BEFORE other filters
+                    vocab_corrections = {}
                     try:
                         from server.services.dynamic_stt_service import apply_vocabulary_corrections
                         text_before = text
-                        text = apply_vocabulary_corrections(text, self.business_id)
-                        if text != text_before:
-                            print(f"🔧 [BUILD 204] Vocabulary fix: '{text_before}' → '{text}'")
+                        text, vocab_corrections = apply_vocabulary_corrections(text, self.business_id)
+                        if vocab_corrections:
+                            print(f"🔧 [BUILD 204] Vocabulary fix: '{text_before}' → '{text}' (corrections: {vocab_corrections})")
                     except Exception as vocab_err:
                         print(f"⚠️ [BUILD 204] Vocabulary correction skipped: {vocab_err}")
                     
@@ -2918,6 +2935,20 @@ ALWAYS mention their name in the first sentence.
                     
                     self._stt_last_segment_ts = now_ms
                     transcript = text
+                    
+                    # 🔥 BUILD 204: CONSOLIDATED STT LOGGING - One line per final utterance for easy debugging
+                    # Includes: business_id, raw_text, corrected_text, prompt_used, corrections applied
+                    try:
+                        stt_prompt_used = getattr(self, '_last_stt_prompt', 'unknown')[:80] if hasattr(self, '_last_stt_prompt') else 'unknown'
+                        logger.info(
+                            f"[STT_FINAL] business_id={self.business_id} "
+                            f"raw='{raw_text[:50]}' "
+                            f"corrected='{transcript[:50]}' "
+                            f"vocab_corrections={vocab_corrections} "
+                            f"prompt='{stt_prompt_used}...'"
+                        )
+                    except Exception as log_err:
+                        pass  # Don't let logging errors break STT
                     
                     # Mark that the user really spoke at least once
                     self.user_has_spoken = True

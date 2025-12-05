@@ -69,9 +69,21 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
 - **Dynamic STT Vocabulary (BUILD 204)**: Business-specific vocabulary system for better transcription quality:
   - Per-business vocabulary stored in DB (services, staff, products, locations)
   - Dynamic STT prompts generated from business context
-  - Vocabulary-based fuzzy corrections (75% threshold)
-  - Prepared for GPT-4o-mini semantic post-processing on low-confidence transcriptions
+  - Vocabulary-based fuzzy corrections (78% threshold with WRatio scorer)
+  - Conservative approach: never modifies numbers, phone numbers, times, or short tokens
+  - Uses gpt-4o-transcribe model (upgraded from whisper-1) for better Hebrew
+  - Consolidated [STT_FINAL] logging for easy debugging
   - 100% dynamic - no hardcoded values, works for ANY business type
+  - **Example vocabulary for hair salon:**
+    ```json
+    {
+      "services": ["תספורת", "החלקה", "פן", "גוונים", "צביעה"],
+      "products": ["שמפו", "מסכה", "קרם לחות"],
+      "staff": ["דנה", "יוסי", "שי", "רוני"],
+      "locations": ["תל אביב", "רמת גן", "גבעתיים"]
+    }
+    ```
+  - **Example business_context:** "מספרה יוקרתית בתל אביב, מתמחה בהחלקות ותספורות גברים."
 
 # External Dependencies
 
