@@ -7121,10 +7121,24 @@ ALWAYS mention their name in the first sentence.
                         city_candidates.extend(matches)
                     
                     # Also try the full text as potential city name
+                    # 🔥 BUILD 306: Skip common words that are clearly NOT cities
+                    non_city_words = {
+                        'שלום', 'היי', 'הלו', 'צריך', 'צריכים', 'צריכה', 'רוצה', 'רוצים',
+                        'אני', 'אנחנו', 'אתה', 'את', 'אתם', 'הוא', 'היא', 'הם', 'הן',
+                        'כן', 'לא', 'אוקיי', 'בסדר', 'טוב', 'תודה', 'בבקשה', 'סליחה',
+                        'עיר', 'שירות', 'מנעולן', 'מנעול', 'דלת', 'דלתות', 'רכב', 'חכם',
+                        'פורץ', 'פריצה', 'פריצת', 'מפתח', 'מפתחות', 'סיוע', 'עזרה',
+                        'בוקר', 'צהריים', 'ערב', 'לילה', 'היום', 'מחר', 'עכשיו',
+                        'כמה', 'מתי', 'איפה', 'למה', 'מה', 'איך', 'מי', 'זה', 'זאת',
+                        'שריות', 'שריית', 'אתר', 'קליבר'  # Common mishearings
+                    }
                     words = text_normalized.split()
                     for i in range(len(words)):
                         for j in range(i+1, min(i+4, len(words)+1)):
                             candidate = ' '.join(words[i:j])
+                            # Skip if candidate is a single non-city word
+                            if len(words[i:j]) == 1 and words[i].replace('!', '').replace(',', '').replace('.', '') in non_city_words:
+                                continue
                             if 2 < len(candidate) < 25:
                                 city_candidates.append(candidate)
                     
@@ -7139,11 +7153,12 @@ ALWAYS mention their name in the first sentence.
                             continue
                         
                         # Phonetic validation
+                        # 🔥 BUILD 306: Relaxed thresholds to match phonetic_validator defaults
                         phonetic_result = validate_hebrew_word(
                             candidate, all_cities,
-                            auto_accept_threshold=93.0,
-                            confirm_threshold=85.0,
-                            reject_threshold=85.0
+                            auto_accept_threshold=90.0,  # Was 93, now 90 (BUILD 306)
+                            confirm_threshold=82.0,       # Was 85, now 82 (BUILD 306)
+                            reject_threshold=82.0         # Was 85, now 82 (BUILD 306)
                         )
                         
                         if phonetic_result.confidence > best_combined_score:
@@ -7166,11 +7181,11 @@ ALWAYS mention their name in the first sentence.
                             self._update_lead_capture_state('city_autocorrected', True)
                             print(f"🔒 [CITY] Majority locked: '{canonical}' from {self.city_raw_attempts}")
                         elif best_result.should_reject:
-                            # Below 85% - ask user to repeat
+                            # 🔥 BUILD 306: Below 82% - ask user to repeat
                             self._update_lead_capture_state('city_needs_retry', True)
                             print(f"❌ [CITY] Rejected '{raw_city}' (confidence={best_result.confidence:.0f}%) - ask to repeat")
                         elif best_result.needs_confirmation:
-                            # 85-92% - needs confirmation
+                            # 🔥 BUILD 306: 82-90% - needs confirmation
                             canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
                             self._update_lead_capture_state('city', canonical)
                             self._update_lead_capture_state('raw_city', raw_city)
