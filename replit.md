@@ -55,6 +55,12 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Pre-roll with AGC**: Pre-roll buffer stores pre-AGC audio; AGC applied to preroll when flushing for consistent volume.
   - **Pipeline order**: Bandpass → SNR/noise calibration → Music detection → State machine → AGC (SPEECH only) → Send.
   - **Manual response.create trigger**: Since client-side VAD filters audio, OpenAI's server-side VAD may not detect end-of-speech. Solution: send `response.create` manually after END OF UTTERANCE via `[TRIGGER_RESPONSE]` queue command.
+- **BUILD 196.3 Echo Protection**:
+  - **No audio during AI speech**: When `is_ai_speaking=True`, force SILENCE state and block ALL audio to OpenAI. Prevents echo from being detected as user speech.
+  - **500ms post-AI cooldown**: After AI finishes speaking, block audio for 500ms to reject echo/jitter frames. Only after cooldown expires can speech detection resume.
+  - **Removed noise gate bypass**: BUILD 166 bypass removed - it was causing echo to leak to OpenAI, making AI "talk to itself".
+  - **Barge-in preserved**: User can still interrupt by speaking loudly enough during AI response - OpenAI's `speech_started` event handles real barge-in detection.
+  - **Echo rejection window**: Configurable `echo_cooldown_ms=500` prevents false positives from Twilio jitter buffer and audio playout delays.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

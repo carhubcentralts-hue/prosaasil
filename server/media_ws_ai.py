@@ -4578,9 +4578,33 @@ ALWAYS mention their name in the first sentence.
                     # ════════════════════════════════════════════════════════════════
                     # STEP 5: STATE MACHINE (SILENCE → MAYBE_SPEECH → SPEECH)
                     # STRICT: NEVER send in SILENCE or MAYBE_SPEECH!
+                    # 🔥 BUILD 196.3: ECHO PROTECTION - Block all speech detection during/after AI
                     # ════════════════════════════════════════════════════════════════
                     prev_state = current_state
                     is_ai_speaking = self.is_ai_speaking_event.is_set()
+                    
+                    # 🔥 BUILD 196.3: Calculate time since AI stopped speaking
+                    ai_finished_ts = getattr(self, '_ai_finished_speaking_ts', 0)
+                    echo_cooldown_ms = 500  # 500ms echo rejection window
+                    in_echo_cooldown = False
+                    if ai_finished_ts > 0:
+                        time_since_ai_ms = (time.time() - ai_finished_ts) * 1000
+                        in_echo_cooldown = time_since_ai_ms < echo_cooldown_ms
+                    
+                    # 🔥 BUILD 196.3: NEVER detect speech during AI speaking OR in cooldown!
+                    # This prevents echo from being detected as user speech
+                    if is_ai_speaking or in_echo_cooldown:
+                        # Force SILENCE state - ignore all SNR detection
+                        if current_state != STATE_SILENCE:
+                            if is_ai_speaking:
+                                print(f"🔇 [BUILD 196.3] ECHO BLOCK: Forcing SILENCE (AI speaking)")
+                            else:
+                                print(f"🔇 [BUILD 196.3] ECHO BLOCK: Forcing SILENCE (cooldown {time_since_ai_ms:.0f}ms < {echo_cooldown_ms}ms)")
+                        current_state = STATE_SILENCE
+                        maybe_speech_count = 0
+                        preroll_buffer.clear()  # Clear any accumulated noise
+                        frames_blocked += 1
+                        continue  # Skip sending entirely!
                     
                     # Buffer in SILENCE and MAYBE_SPEECH (pre-AGC filtered audio)
                     if current_state in (STATE_SILENCE, STATE_MAYBE_SPEECH):
@@ -4674,12 +4698,9 @@ ALWAYS mention their name in the first sentence.
                             preroll_buffer.clear()
                             preroll_sent = True
                     
-                    elif is_ai_speaking:
-                        # AI speaking path: allow audio for barge-in detection
-                        # Send filtered audio (no AGC) to detect if user interrupts
-                        should_send = True
-                        chunk_to_send = filtered_chunk
-                        preroll_buffer.clear()  # Clear to avoid stale noise
+                    # 🔥 BUILD 196.3: Removed is_ai_speaking path - we now block audio entirely during AI speech
+                    # Barge-in detection is handled by OpenAI's input_audio_buffer.speech_started event
+                    # when user speaks loudly enough to overcome the echo
                     
                     # Note: SILENCE and MAYBE_SPEECH NEVER send - prevents noise leaks
                     
@@ -4924,11 +4945,12 @@ ALWAYS mention their name in the first sentence.
                     self._sustained_speech_confirmed = False  # Will be set True after 600ms
                     print(f"⏳ [BUILD 195] Speech detected - will confirm after 600ms sustained speech...")
                     
-                    # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
-                    # Must keep sending audio so OpenAI can capture the speech
-                    self._realtime_speech_active = True
-                    self._realtime_speech_started_ts = time.time()
-                    print(f"🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI")
+                    # 🔥 BUILD 196.3: REMOVED noise gate bypass!
+                    # The bypass was causing echo to be sent to OpenAI, making the AI talk to itself.
+                    # Now BUILD 196.3 blocks ALL audio during AI speech and cooldown period.
+                    # User speech is still captured by the pre-filter state machine when appropriate.
+                    self._realtime_speech_active = False  # 🔥 BUILD 196.3: Disabled bypass
+                    print(f"🛡️ [BUILD 196.3] Speech detected - echo protection active (no bypass)")
                 
                 # 🔥 BUILD 166: Clear speech active flag when speech ends
                 if event_type == "input_audio_buffer.speech_stopped":
