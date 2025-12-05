@@ -4452,9 +4452,9 @@ ALWAYS mention their name in the first sentence.
                         print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                         _greeting_resumed_logged = True
                 
-                # 🔥 BUILD 196.1: PRODUCTION-GRADE AUDIO PREPROCESSING
-                # Pipeline: μ-law → PCM16 → bandpass → AGC → SNR → state machine → send
-                # Key fix: AGC applied BEFORE SNR calculation for consistent thresholds
+                # 🔥 BUILD 196.2: PRODUCTION-GRADE AUDIO PREPROCESSING
+                # CORRECTED Pipeline: μ-law → PCM16 → bandpass → SNR (pre-AGC) → state machine → AGC (SPEECH only) → send
+                # Key fix: SNR computed on pre-AGC audio; AGC only applied to SPEECH frames
                 total_frames += 1
                 
                 try:
@@ -4467,7 +4467,6 @@ ALWAYS mention their name in the first sentence.
                     
                     # ════════════════════════════════════════════════════════════════
                     # STEP 1: SPEECH BAND FILTER (100Hz - 3400Hz)
-                    # HPF_ALPHA and LPF_ALPHA are configurable via env vars above
                     # ════════════════════════════════════════════════════════════════
                     if not hasattr(self, '_hpf_prev_in'):
                         self._hpf_prev_in = 0
@@ -4486,50 +4485,36 @@ ALWAYS mention their name in the first sentence.
                         filtered_samples.append(int(max(-32768, min(32767, lp_out))))
                     
                     filtered_pcm = struct.pack(f'<{len(filtered_samples)}h', *filtered_samples)
-                    raw_frame_rms = audioop.rms(filtered_pcm, 2)
+                    frame_rms = audioop.rms(filtered_pcm, 2)  # PRE-AGC RMS for SNR!
+                    
+                    # Pre-encode filtered audio for preroll (before AGC)
+                    filtered_ulaw = audioop.lin2ulaw(filtered_pcm, 2)
+                    filtered_chunk = base64.b64encode(filtered_ulaw).decode('ascii')
                     
                     # ════════════════════════════════════════════════════════════════
-                    # STEP 2: AGC (Automatic Gain Control) - ALWAYS FIRST
-                    # Apply gain to normalize quiet/loud callers for consistent levels
-                    # ════════════════════════════════════════════════════════════════
-                    if raw_frame_rms > 0:
-                        if caller_rms_slow == 0:
-                            caller_rms_slow = raw_frame_rms
-                        else:
-                            caller_rms_slow = AGC_ALPHA * raw_frame_rms + (1 - AGC_ALPHA) * caller_rms_slow
-                        
-                        gain = TARGET_RMS / caller_rms_slow if caller_rms_slow > 0 else 1.0
-                        gain = max(AGC_MIN_GAIN, min(AGC_MAX_GAIN, gain))
-                        
-                        agc_samples = [int(max(-32768, min(32767, s * gain))) for s in filtered_samples]
-                        agc_pcm = struct.pack(f'<{len(agc_samples)}h', *agc_samples)
-                        frame_rms = audioop.rms(agc_pcm, 2)  # RMS after AGC
-                    else:
-                        agc_pcm = filtered_pcm
-                        frame_rms = raw_frame_rms
-                        gain = 1.0
-                    
-                    # Encode to μ-law for sending
-                    agc_ulaw = audioop.lin2ulaw(agc_pcm, 2)
-                    processed_chunk = base64.b64encode(agc_ulaw).decode('ascii')
-                    
-                    # ════════════════════════════════════════════════════════════════
-                    # STEP 3: NOISE CALIBRATION (first 600ms) - USING POST-AGC RMS!
-                    # This ensures SNR thresholds are consistent with normalized audio
+                    # STEP 2: NOISE CALIBRATION (first 600ms) - USING PRE-AGC RMS!
+                    # Calibrate on raw signal, not AGC-boosted
                     # ════════════════════════════════════════════════════════════════
                     if not is_calibrated:
-                        calibration_frames.append(frame_rms)  # Use post-AGC RMS
+                        calibration_frames.append(frame_rms)  # Pre-AGC RMS
                         if len(calibration_frames) >= CALIBRATION_FRAMES_NEEDED:
                             sorted_rms = sorted(calibration_frames)
                             percentile_20 = sorted_rms[len(sorted_rms) // 5]
                             noise_rms = max(30, percentile_20)
                             is_calibrated = True
-                            print(f"🎚️ [BUILD 196.1] NOISE CALIBRATED: noise_rms={noise_rms:.0f} (from {len(calibration_frames)} frames, gain={gain:.2f}x)")
-                        preroll_buffer.append(processed_chunk)
+                            print(f"🎚️ [BUILD 196.2] NOISE CALIBRATED: noise_rms={noise_rms:.0f} (from {len(calibration_frames)} frames)")
+                        # Store filtered PCM for preroll (before AGC)
+                        preroll_buffer.append(filtered_chunk)
                         continue
                     
                     # ════════════════════════════════════════════════════════════════
-                    # STEP 4: MUSIC DETECTION (with hysteresis) - uses post-AGC RMS
+                    # STEP 3: SNR CALCULATION (using PRE-AGC RMS!)
+                    # This gives true SNR without AGC boosting noise
+                    # ════════════════════════════════════════════════════════════════
+                    snr_db = 10 * math.log10((frame_rms ** 2) / (noise_rms ** 2 + 1e-10)) if noise_rms > 0 and frame_rms > 0 else 0
+                    
+                    # ════════════════════════════════════════════════════════════════
+                    # STEP 4: MUSIC DETECTION (with hysteresis) - uses PRE-AGC RMS
                     # ════════════════════════════════════════════════════════════════
                     energy_history.append(frame_rms)
                     
@@ -4562,7 +4547,7 @@ ALWAYS mention their name in the first sentence.
                                     if music_consecutive_count >= MUSIC_CONFIRM_FRAMES:
                                         music_detected = False
                                         music_consecutive_count = 0
-                                        print(f"🎤 [BUILD 196.1] Music stopped - thresholds: start={SNR_START_NORMAL}dB, stop={SNR_STOP_NORMAL}dB")
+                                        print(f"🎤 [BUILD 196.2] Music stopped - thresholds: start={SNR_START_NORMAL}dB, stop={SNR_STOP_NORMAL}dB")
                                 else:
                                     music_consecutive_count = 0
                             else:
@@ -4571,17 +4556,13 @@ ALWAYS mention their name in the first sentence.
                                     if music_consecutive_count >= MUSIC_CONFIRM_FRAMES:
                                         music_detected = True
                                         music_consecutive_count = 0
-                                        print(f"🎵 [BUILD 196.1] MUSIC DETECTED - thresholds: start={SNR_START_MUSIC}dB, stop={SNR_STOP_MUSIC}dB")
+                                        print(f"🎵 [BUILD 196.2] MUSIC DETECTED - thresholds: start={SNR_START_MUSIC}dB, stop={SNR_STOP_MUSIC}dB")
                                 else:
                                     music_consecutive_count = 0
                         except Exception:
                             pass
                     
-                    # ════════════════════════════════════════════════════════════════
-                    # STEP 5: SNR CALCULATION (using post-AGC RMS)
-                    # ════════════════════════════════════════════════════════════════
-                    snr_db = 10 * math.log10((frame_rms ** 2) / (noise_rms ** 2 + 1e-10)) if noise_rms > 0 and frame_rms > 0 else 0
-                    
+                    # Select SNR thresholds based on music detection
                     if music_detected:
                         snr_start = SNR_START_MUSIC
                         snr_stop = SNR_STOP_MUSIC
@@ -4589,21 +4570,21 @@ ALWAYS mention their name in the first sentence.
                         snr_start = SNR_START_NORMAL
                         snr_stop = SNR_STOP_NORMAL
                     
-                    # Slowly adapt noise floor (only in SILENCE, using post-AGC RMS)
+                    # Slowly adapt noise floor (only in SILENCE, using PRE-AGC RMS)
                     if current_state == STATE_SILENCE and frame_rms < noise_rms * 2:
                         noise_rms = noise_rms_slow_alpha * frame_rms + (1 - noise_rms_slow_alpha) * noise_rms
                         noise_rms = max(30, noise_rms)
                     
                     # ════════════════════════════════════════════════════════════════
-                    # STEP 6: STATE MACHINE (SILENCE → MAYBE_SPEECH → SPEECH)
-                    # Strict gating: NEVER send in SILENCE even if SNR looks good
+                    # STEP 5: STATE MACHINE (SILENCE → MAYBE_SPEECH → SPEECH)
+                    # STRICT: NEVER send in SILENCE or MAYBE_SPEECH!
                     # ════════════════════════════════════════════════════════════════
                     prev_state = current_state
                     is_ai_speaking = self.is_ai_speaking_event.is_set()
                     
-                    # Buffer in SILENCE and MAYBE_SPEECH only
+                    # Buffer in SILENCE and MAYBE_SPEECH (pre-AGC filtered audio)
                     if current_state in (STATE_SILENCE, STATE_MAYBE_SPEECH):
-                        preroll_buffer.append(processed_chunk)
+                        preroll_buffer.append(filtered_chunk)
                     
                     if current_state == STATE_SILENCE:
                         if snr_db >= snr_start:
@@ -4617,7 +4598,7 @@ ALWAYS mention their name in the first sentence.
                                 current_state = STATE_SPEECH
                                 preroll_sent = False
                                 hangover_counter = HANGOVER_FRAMES
-                                print(f"🎤 [BUILD 196.1] SPEECH STARTED (SNR={snr_db:.1f}dB, gain={gain:.2f}x)")
+                                print(f"🎤 [BUILD 196.2] SPEECH STARTED (SNR={snr_db:.1f}dB)")
                         else:
                             maybe_speech_count = 0
                             current_state = STATE_SILENCE
@@ -4631,63 +4612,92 @@ ALWAYS mention their name in the first sentence.
                                 current_state = STATE_SILENCE
                                 maybe_speech_count = 0
                                 preroll_buffer.clear()  # Clear stale preroll on speech end
-                                print(f"🔇 [BUILD 196.1] SPEECH ENDED (SNR={snr_db:.1f}dB)")
+                                print(f"🔇 [BUILD 196.2] SPEECH ENDED (SNR={snr_db:.1f}dB)")
                     
                     if prev_state != current_state:
-                        print(f"📊 [BUILD 196.1] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected}")
+                        print(f"📊 [BUILD 196.2] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected}")
                     
                     # ════════════════════════════════════════════════════════════════
-                    # STEP 7: DECIDE WHETHER TO SEND
-                    # STRICT GATING: Only send when state==SPEECH or AI is speaking
-                    # NEVER send in SILENCE even if SNR looks good (avoids noise leaks)
+                    # STEP 6: DECIDE WHETHER TO SEND
+                    # STRICT: Only send when state==SPEECH (not MAYBE_SPEECH!)
+                    # Exception: AI speaking path for barge-in detection
                     # ════════════════════════════════════════════════════════════════
                     should_send = False
+                    chunk_to_send = None
                     
                     if current_state == STATE_SPEECH:
                         should_send = True
-                        # Flush pre-roll buffer on entering SPEECH (captures start of word)
+                        
+                        # ════════════════════════════════════════════════════════════════
+                        # STEP 7: AGC - ONLY ON SPEECH FRAMES!
+                        # This normalizes speech volume without boosting noise
+                        # ════════════════════════════════════════════════════════════════
+                        if frame_rms > 0:
+                            # Track caller's speech level (only during speech)
+                            if caller_rms_slow == 0:
+                                caller_rms_slow = frame_rms
+                            else:
+                                caller_rms_slow = AGC_ALPHA * frame_rms + (1 - AGC_ALPHA) * caller_rms_slow
+                            
+                            gain = TARGET_RMS / caller_rms_slow if caller_rms_slow > 0 else 1.0
+                            gain = max(AGC_MIN_GAIN, min(AGC_MAX_GAIN, gain))
+                            
+                            # Apply AGC to current frame
+                            agc_samples = [int(max(-32768, min(32767, s * gain))) for s in filtered_samples]
+                            agc_pcm = struct.pack(f'<{len(agc_samples)}h', *agc_samples)
+                            agc_ulaw = audioop.lin2ulaw(agc_pcm, 2)
+                            chunk_to_send = base64.b64encode(agc_ulaw).decode('ascii')
+                        else:
+                            chunk_to_send = filtered_chunk
+                            gain = 1.0
+                        
+                        # Flush pre-roll buffer on entering SPEECH
                         if not preroll_sent and len(preroll_buffer) > 0:
-                            print(f"📼 [BUILD 196.1] Sending {len(preroll_buffer)} pre-roll frames")
-                            for preroll_chunk in preroll_buffer:
-                                await client.send_audio_chunk(preroll_chunk)
-                                frames_sent += 1
-                            preroll_buffer.clear()
-                            preroll_sent = True
-                    
-                    elif current_state == STATE_MAYBE_SPEECH and is_ai_speaking:
-                        # Early barge-in path: allow speech during AI response
-                        # But only if we're in MAYBE_SPEECH (some SNR detected)
-                        should_send = True
-                        if not preroll_sent and len(preroll_buffer) > 0:
-                            for preroll_chunk in preroll_buffer:
-                                await client.send_audio_chunk(preroll_chunk)
+                            print(f"📼 [BUILD 196.2] Sending {len(preroll_buffer)} pre-roll frames (with AGC gain={gain:.2f}x)")
+                            for preroll_chunk_raw in preroll_buffer:
+                                # Apply AGC to preroll frames too (for consistent volume)
+                                if gain != 1.0:
+                                    try:
+                                        pr_bytes = base64.b64decode(preroll_chunk_raw)
+                                        pr_pcm = audioop.ulaw2lin(pr_bytes, 2)
+                                        pr_samples = struct.unpack(f'<{len(pr_pcm)//2}h', pr_pcm)
+                                        pr_agc = [int(max(-32768, min(32767, s * gain))) for s in pr_samples]
+                                        pr_agc_pcm = struct.pack(f'<{len(pr_agc)}h', *pr_agc)
+                                        pr_agc_ulaw = audioop.lin2ulaw(pr_agc_pcm, 2)
+                                        preroll_chunk_agc = base64.b64encode(pr_agc_ulaw).decode('ascii')
+                                        await client.send_audio_chunk(preroll_chunk_agc)
+                                    except:
+                                        await client.send_audio_chunk(preroll_chunk_raw)
+                                else:
+                                    await client.send_audio_chunk(preroll_chunk_raw)
                                 frames_sent += 1
                             preroll_buffer.clear()
                             preroll_sent = True
                     
                     elif is_ai_speaking:
                         # AI speaking path: allow audio for barge-in detection
-                        # But clear preroll to avoid stale noise
+                        # Send filtered audio (no AGC) to detect if user interrupts
                         should_send = True
-                        preroll_buffer.clear()
+                        chunk_to_send = filtered_chunk
+                        preroll_buffer.clear()  # Clear to avoid stale noise
                     
-                    # Note: SILENCE state NEVER sends - this prevents noise leaks
+                    # Note: SILENCE and MAYBE_SPEECH NEVER send - prevents noise leaks
                     
                     if not should_send:
                         frames_blocked += 1
                         now = time.time()
                         if now - last_log_time > 10:
                             mode = "🎵MUSIC" if music_detected else "🎤NORMAL"
-                            print(f"📊 [BUILD 196.1] Stats: sent={frames_sent} blocked={frames_blocked} | {mode} | noise={noise_rms:.0f} | state={current_state}")
+                            print(f"📊 [BUILD 196.2] Stats: sent={frames_sent} blocked={frames_blocked} | {mode} | noise={noise_rms:.0f} | state={current_state}")
                             last_log_time = now
                         continue
                     
                     frames_sent += 1
-                    audio_chunk = processed_chunk
+                    audio_chunk = chunk_to_send
                     
                 except Exception as e:
                     import traceback
-                    print(f"⚠️ [BUILD 196.1] Processing error: {e}")
+                    print(f"⚠️ [BUILD 196.2] Processing error: {e}")
                     traceback.print_exc()
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI

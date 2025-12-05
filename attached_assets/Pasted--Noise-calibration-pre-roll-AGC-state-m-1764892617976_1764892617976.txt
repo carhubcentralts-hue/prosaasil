@@ -1,0 +1,96 @@
+מעולה, זה כבר נראה ברמה מאוד גבוהה – כמעט בדיוק מה שרצינו:
+Noise calibration, pre-roll, AGC, state machine, ספים בקונפיג – הכול שם. 👌
+
+אבל יש 2–3 כיוונונים קטנים שאני כן הייתי עושה אחרת כדי שזה יהיה באמת “מושלם”:
+
+⸻
+
+1️⃣ סדר נכון: איפה AGC ואיפה מחשבים SNR
+
+הוא כתב:
+
+SNR צריך להיחשב אחרי AGC
+noise_rms צריך להתעדכן מ-post-AGC RMS
+
+אני הייתי הופך את זה:
+	•	SNR ו-noise_rms עדיף לחשב לפני AGC, על הסיגנל ה”אמיתי”.
+	•	AGC רצוי להחיל רק על frames שכבר סווגו כ-SPEECH (או לפחות “speech-candidate”), לא על רעש.
+
+למה?
+	•	AGC נועד ליישר רמות דיבור בין לקוח שקט לצעקן.
+אם הוא עובד גם על רעש, הוא מנפח את הרעש ומחרבש את ה-SNR.
+	•	אם מחשבים SNR אחרי AGC – אתה מיישר גם את הרעש וגם את הדיבור,
+ואז ההפרדה ביניהם קטנה יותר → הגייט פחות חד.
+
+🔧 הנחיה מתוקנת לפייפליין:
+
+1. Input PCM
+2. Band-pass + light denoise
+3. Noise calibration + noise_rms (pre-AGC)
+4. Compute frame_rms + SNR_dB (pre-AGC)
+5. State machine: SILENCE / MAYBE_SPEECH / SPEECH
+6. רק על frames במצב SPEECH:
+   - להחיל AGC → נורמליזציה ל- -20dBFS
+7. הרכבת pre-roll + hangover ושליחה ל-OpenAI
+
+
+⸻
+
+2️⃣ מתי שולחים אודיו – SPEECH בלבד + pre-roll
+
+ראיתי שהיה לו באמצע:
+
+שליחה צריכה להיות גם אם SNR טוב (לא רק ב-SPEECH)
+ואז תיקן ל:
+שליחה רק מ-SPEECH או MAYBE_SPEECH (לא מ-SILENCE)
+
+אני ממליץ לחדד:
+	•	שולחים רק כש־state == SPEECH,
+	•	אבל תמיד מצרפים את pre-roll (200ms) שמוחזק מהזמן שלפני המעבר ל-SPEECH.
+
+כך:
+	•	MAYBE_SPEECH זה רק מצב ביניים לוגי, לא מצב ששולח.
+	•	SILENCE אף פעם לא שולח, גם אם יש פיק אנרגיה חד-פעמי.
+	•	אתה לא מפספס את תחילת המילה בזכות pre-roll.
+
+🔧 ניסוח ברור לפיתוח:
+
+- Do NOT send audio in SILENCE or MAYBE_SPEECH.
+- When state transitions from SILENCE/MAYBE_SPEECH → SPEECH:
+    - prepend the 200ms pre-roll buffer to the first chunk.
+- Continue sending while state == SPEECH (with hangover frames).
+
+
+⸻
+
+3️⃣ Pre-roll – על איזה סיגנל?
+
+הוא כתב:
+
+Pre-roll buffer צריך לשמור PCM מעובד, לא base64 מקורי
+
+זה נכון, רק תוודא שהוא שומר:
+	•	אחרי band-pass + denoise,
+	•	לפני או אחרי AGC – אבל באותו שלב שבו אתה שולח ל-OpenAI, כדי שלא יהיה מיקס בין “לפני” ו”אחרי”.
+
+אני הייתי הולך על:
+	•	Pre-roll אחרי כל העיבודים שאתה עושה לפני שליחה (כולל AGC אם היא על דיבור),
+כדי שהחבילה שמגיעה ל-OpenAI תהיה אחידה.
+
+⸻
+
+4️⃣ סיכום למפתח – “מפרט מושלם” קצר
+
+תן לו את זה כ־checklist סופי:
+	1.	Compute noise_rms & SNR on pre-AGC audio.
+	2.	Apply AGC only on frames in SPEECH state (או על frames שנשלחים בפועל).
+	3.	Send audio only in SPEECH, עם:
+	•	200ms pre-roll,
+	•	hangover frames ביציאה.
+	4.	Never send SILENCE, גם אם יש SNR רגעית גבוהה.
+	5.	Pre-roll שומר processed PCM באותו פורמט כמו השליחה.
+
+אם הוא יישר קו לפי זה – יחד עם כל מה שכבר ב-BUILD 196.1 –
+אתה באמת במקום של עיבוד אודיו ברמת מוצר, גם ללקוח שקט, גם לצעקן, וגם בסביבה רועשת עם קצת מוזיקה/טלוויזיה. 💪
+
+אם אתה רוצה, תוכל להדביק לי אחרי זה קטע קצר מהלוגים של שיחה רועשת ונעשה “דיאגנוסטיקה” על אמת.
