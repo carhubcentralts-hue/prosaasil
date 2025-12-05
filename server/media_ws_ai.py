@@ -4666,18 +4666,17 @@ ALWAYS mention their name in the first sentence.
                     
                     # ════════════════════════════════════════════════════════════════
                     # STEP 6: DECIDE WHETHER TO SEND
-                    # STRICT: Only send when state==SPEECH (not MAYBE_SPEECH!)
-                    # 🔥 BUILD 196.3: Also block during echo protection!
+                    # 🔥 BUILD 196.4: ALWAYS send audio in SPEECH state!
+                    # Echo protection only affects TRIGGER_RESPONSE, NOT audio transmission
+                    # OpenAI needs to hear everything to understand the user!
                     # ════════════════════════════════════════════════════════════════
                     should_send = False
                     chunk_to_send = None
                     
-                    # 🔥 BUILD 196.3: Block all audio during echo protection
-                    if echo_blocked:
-                        # State machine still runs (for detecting SPEECH→SILENCE transitions)
-                        # But we don't send any audio to OpenAI
-                        frames_blocked += 1
-                        continue
+                    # 🔥 BUILD 196.4: REMOVED audio blocking during echo!
+                    # We ALWAYS send audio to OpenAI when in SPEECH state
+                    # Echo protection only blocks the manual response.create trigger
+                    # This ensures OpenAI hears short words like "כן", "לא", city names
                     
                     if current_state == STATE_SPEECH:
                         should_send = True

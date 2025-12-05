@@ -55,15 +55,14 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation and inte
   - **Pre-roll with AGC**: Pre-roll buffer stores pre-AGC audio; AGC applied to preroll when flushing for consistent volume.
   - **Pipeline order**: Bandpass → SNR/noise calibration → Music detection → State machine → AGC (SPEECH only) → Send.
   - **Manual response.create trigger**: Since client-side VAD filters audio, OpenAI's server-side VAD may not detect end-of-speech. Solution: send `response.create` manually after END OF UTTERANCE via `[TRIGGER_RESPONSE]` queue command.
-- **BUILD 196.3 Echo Protection**:
-  - **No audio during AI speech**: When `is_ai_speaking=True`, force SILENCE state and block ALL audio to OpenAI. Prevents echo from being detected as user speech.
-  - **500ms post-AI cooldown**: After AI finishes speaking, block audio for 500ms to reject echo/jitter frames. Only after cooldown expires can speech detection resume.
-  - **Removed noise gate bypass**: BUILD 166 bypass removed - it was causing echo to leak to OpenAI, making AI "talk to itself".
-  - **Barge-in preserved**: User can still interrupt by speaking loudly enough during AI response - OpenAI's `speech_started` event handles real barge-in detection.
-  - **Echo rejection window**: Configurable `echo_cooldown_ms=500` prevents false positives from Twilio jitter buffer and audio playout delays.
-  - **TRIGGER_RESPONSE on SPEECH→SILENCE**: When state machine detects speech ending (and not in echo block), automatically sends `response.create` to OpenAI via queue. This ensures AI responds even when audio filtering prevents OpenAI's server-side VAD from detecting end of speech.
+- **BUILD 196.4 Echo Protection (Fixed)**:
+  - **ALWAYS send audio to OpenAI**: Audio is NEVER blocked - OpenAI must hear everything to understand short Hebrew words ("כן", "לא", city names).
+  - **Echo blocking only affects TRIGGER_RESPONSE**: The manual `response.create` trigger is blocked during echo window, but audio transmission continues.
+  - **400ms post-AI cooldown**: Reduced from 500ms for faster user responses.
+  - **Barge-in preserved**: User can interrupt during AI response - OpenAI's `speech_started` event handles real barge-in detection.
+  - **TRIGGER_RESPONSE on SPEECH→SILENCE**: When state machine detects speech ending (and not in echo block), automatically sends `response.create` to OpenAI via queue.
   - **Utterance duration tracking**: Tracks `utterance_start_ms` when speech begins, calculates duration on SPEECH→SILENCE.
-  - **MIN_UTTERANCE_MS=300**: Ignores speech shorter than 300ms to filter noise spikes.
+  - **MIN_UTTERANCE_MS=150**: Reduced from 300ms - don't skip short Hebrew words like "כן", "לא", city names. Audio is still sent, only manual trigger is skipped.
   - **Active response guard**: Before sending `response.create`, checks `active_response_id` to prevent duplicate responses.
 
 ### Frontend
