@@ -66,6 +66,7 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
 - **Response Grace Period**: Ignores speech_started events shortly after response creation to prevent AI cutoff.
 - **City Correction Detection**: AI can unlock and accept explicit city corrections from users, even if previously locked.
 - **Trusted OpenAI STT (BUILD 202)**: Fixed SILENCE_GATE blocking valid transcriptions. The local RMS gate was rejecting valid OpenAI transcriptions due to race conditions. Now trusts OpenAI's VAD when it successfully transcribes speech, only rejects true silence (RMS<10 + text<3 chars). Fixes "AI ignores what user said" bug.
+- **Major Hebrew STT Upgrade (BUILD 202)**: Switched to `gpt-4o-transcribe` with minimal, focused transcription prompts. Prompt includes business name + required field types (שמות, שעות, ערים) as short rules, NOT long vocabulary lists. Under 100 chars for optimal performance.
 - **Dynamic STT Vocabulary (BUILD 204)**: Business-specific vocabulary system for better transcription quality:
   - Per-business vocabulary stored in DB (services, staff, products, locations)
   - Dynamic STT prompts generated from business context
@@ -84,6 +85,7 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
     }
     ```
   - **Example business_context:** "מספרה יוקרתית בתל אביב, מתמחה בהחלקות ותספורות גברים."
+- **Voice Upgrade (BUILD 205)**: Switched from "shimmer" to "coral" voice for OpenAI Realtime API. Coral is one of OpenAI's expressive voices (Oct 2024) with better Hebrew intonation and multilingual support.
 
 # External Dependencies
 
