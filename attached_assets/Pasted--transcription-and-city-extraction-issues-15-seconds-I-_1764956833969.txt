@@ -1,0 +1,94 @@
+ transcription and city extraction issues (15 seconds)
+I see critical issues in the transcripts. Let me analyze and fix all the bugs systematically:
+
+Issues identified:
+
+Vocabulary duplication: "פורץ דלתות פורץ דלתות" appearing twice
+City not clearing on "לא": Bot keeps suggesting wrong cities after user rejection
+Poor STT transcription: "קריית אתא" being heard as "ריעת עתה", "רגע אתה", "קליבר"
+Bot not listening: User says "אתה לא נותן לי לדבר"
+
+Show 16 more
+
+Executed rg -l 'פורץ|מנעול' server
+
+Decided on city clearing logic
+Now I'll fix all the critical bugs. Let me start with the city clearing issue and then address the duplication:
+
+
+Edited server/media_ws_ai.py
+
+Decided on STT duplication handling
+Now let me check the vocabulary fix and also look at the STT segment handling for potential duplication issues:
+
+
+Show 2 more
+
+Decided on STT segment merging issue (6 seconds)
+I see the issue now. The STT segment merging at lines 3090-3133 is combining segments, but the duplication "פורץ דלתות פורץ דלתות" is likely coming from:
+
+OpenAI Realtime API transcribing the same utterance twice (echo or repeated audio)
+The vocabulary fix not detecting exact matches before trying fuzzy matching
+Wait, I see the issue! In the transcripts, the user says "פורץ דלתות" and then it becomes "פורץ דלתות פורץ דלתות" - this is happening BEFORE the vocabulary fix because:
+
+User says "פורץ דלתות" (2 words)
+The STT segment merging joins multiple STT segments
+If OpenAI sends two transcription events for the same audio, they get merged!
+Let me check the STT segment merging code more carefully:
+
+
+Opened server/media_ws_ai.py
+שהבן אדם אמר שהבוט לא נותן לדבר זה כי הוא נכנס לloop בווידוא של הערים, ואחרי שהלקוח אמר לו לא, הוא לא נתן ללקוח רגע לדבר וישר חזר על אותה תשובה מפעם קודמץ, עד שהלקוח צעק עליו! על הפנים! שתמיד יתן ללקוח לוודא ולדבר! שלא סתם ידבר! שיהיה לו היגיון ויתן ללקוח זמן דיבור ויהיה תמלול וסאונד אש!!
+
+4 minutes ago
+
+Show less
+
+Decided on architect tool review (4 seconds)
+I understand. The bot is entering a loop on city verification, not giving the customer time to speak after they say "לא". Let me get architectural guidance on all these critical issues:
+
+
+Resolved AI loop and STT duplication issues
+
+Decided on STT dedupe logic
+The architect identified all the issues. Let me fix them now:
+
+Issue 1: AI speaks too quickly after rejection - need cool-off period
+Issue 2: STT segment duplication - need dedupe in merge logic
+Issue 3: City not fully cleared (BUILD 308 already added)
+
+
+Edited server/media_ws_ai.py
+
+Decided on constructor flag initialization
+Now let me add the initialization and implement the STT dedupe logic:
+
+
+Show 3 more
+
+Edited server/media_ws_ai.py
+
+Added STT merge dedupe logic
+Now let me add the STT merge dedupe logic to prevent duplicate phrases:
+
+
+Edited server/media_ws_ai.py
+
+Planned AI response cooldown logic
+Now let me add the cool-off logic to make AI wait after rejection before speaking again:
+
+
+Show 2 more
+
+Opened server/media_ws_ai.py
+
+(4 seconds)
+I see that the code now marks has_pending_ai_response = True at line 3397. I need to add logic somewhere to handle the post-rejection cool-off. The key issue is that after user says "לא", the AI immediately speaks again without giving user time.
+
+Let me find where the AI response is sent to OpenAI and add a delay. Looking at the code, I need to also clear the _awaiting_user_correction flag when user provides a new response (not just "לא").
+
+Let me add logic to:
+
+Clear the _awaiting_user_correction flag when user provides substantial input (not just rejection)
+Add a delay before AI can respond after rejection
+Let me first fin

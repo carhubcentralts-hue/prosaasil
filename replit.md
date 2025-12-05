@@ -30,6 +30,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation. Key feat
 - **CHOPPY AUDIO FIX (BUILD 305)**: Fixed mid-sentence audio cuts caused by LOOP GUARD clearing TX queue prematurely. Now lets existing audio play while blocking new audio. Also resets gap detector per response to prevent misleading warnings.
 - **CITY DETECTION FIX (BUILD 306)**: Relaxed thresholds (90/82 from 93/85), skip common non-city words (שלום, צריך, מנעולן, etc.), lock city immediately on high-confidence match to prevent subsequent overrides.
 - **SMART EXTRACTION (BUILD 307)**: City extraction now gated to user speech only - AI questions like "באיזו עיר אתה?" no longer trigger extraction. User confirmation words ("נכון") now lock city from AI's previous statement. Fixed vocabulary duplication bug where multi-word terms like "פורץ דלתות" were doubled. Silence prompts like "אתה עדיין שם?" no longer extract "עדי" as city.
+- **LOOP PREVENTION (BUILD 308)**: Critical fix for AI looping on wrong city after rejection. When user says "לא", city is now fully cleared from lead_capture_state (not just unlocked). Post-rejection cool-off (1.5s) gives user time to speak before AI responds. STT segment dedupe removes duplicate phrases like "פורץ דלתות פורץ דלתות". AI now waits for user content after rejection instead of immediately re-confirming.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

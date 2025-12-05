@@ -1186,6 +1186,10 @@ class MediaStreamHandler:
         self._silence_final_chance_given = False  # Tracks if we gave extra chance before silence hangup
         # 🔥 BUILD 203: REJECTION GATE - Blocks hangup when user rejects confirmation
         self.user_rejected_confirmation = False  # Set when user says "לא", "ממש לא" etc.
+        
+        # 🔥 BUILD 308: POST-REJECTION COOL-OFF - Give user time to provide correction
+        self._awaiting_user_correction = False  # Set after user rejects, cleared when they speak again
+        self._rejection_timestamp = 0  # When user last rejected
 
     def _init_streaming_stt(self):
         """
@@ -2042,6 +2046,22 @@ ALWAYS mention their name in the first sentence.
         if self.awaiting_greeting_answer and not is_greeting:
             print(f"⏸️ [RESPONSE GUARD] Waiting for first user utterance after greeting - skipping ({reason})")
             return False
+        
+        # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION COOL-OFF
+        # After user says "לא", give them time to speak before AI responds again
+        # This prevents the loop where AI immediately re-confirms wrong info
+        if getattr(self, '_awaiting_user_correction', False):
+            rejection_ts = getattr(self, '_rejection_timestamp', 0)
+            time_since_rejection = (time.time() - rejection_ts) * 1000  # ms
+            COOL_OFF_MS = 1500  # Wait 1.5s after rejection for user to speak
+            
+            if time_since_rejection < COOL_OFF_MS:
+                print(f"⏳ [BUILD 308] Post-rejection cool-off: {time_since_rejection:.0f}ms/{COOL_OFF_MS}ms - waiting for user")
+                return False
+            else:
+                # Cool-off expired - clear flag and allow response
+                self._awaiting_user_correction = False
+                print(f"✅ [BUILD 308] Cool-off expired after {time_since_rejection:.0f}ms - allowing response")
         
         # 🛡️ GUARD 1: Check if response is already active
         if self.active_response_id is not None:
@@ -3084,11 +3104,21 @@ ALWAYS mention their name in the first sentence.
                     
                     # 🔥 BUILD 169.1: IMPROVED SEGMENT MERGING (Architect-reviewed)
                     # Added: max length limit, flush on long pause, proper reset
+                    # 🔥 BUILD 308: Added DEDUPE to prevent duplicate phrases like "פורץ דלתות פורץ דלתות"
                     MAX_MERGE_LENGTH = 100  # Max characters before forced flush
                     LONG_PAUSE_MS = 1500  # Flush if pause > 1.5 seconds (distinct intents)
                     
                     should_merge = False
                     should_flush = False
+                    is_duplicate = False
+                    
+                    # 🔥 BUILD 308: DEDUPE - Skip if same as last buffered segment
+                    if self._stt_merge_buffer:
+                        last_buffered = self._stt_merge_buffer[-1].strip().lower()
+                        current_text = text.strip().lower()
+                        if last_buffered == current_text:
+                            is_duplicate = True
+                            print(f"🔄 [BUILD 308 DEDUPE] Skipping duplicate segment: '{text}'")
                     
                     if self._stt_last_segment_ts > 0:
                         time_since_last = now_ms - self._stt_last_segment_ts
@@ -3115,18 +3145,35 @@ ALWAYS mention their name in the first sentence.
                         # Process flushed text separately - let it flow through
                         # Current text will be processed as new segment
                     
-                    if should_merge:
-                        # Merge with previous segment
+                    if should_merge and not is_duplicate:
+                        # Merge with previous segment (but skip duplicates!)
                         self._stt_merge_buffer.append(text)
                         self._stt_last_segment_ts = now_ms
                         print(f"📝 [SEGMENT MERGE] Buffering: '{text}' (wait for more)")
                         continue  # Wait for more segments
+                    elif is_duplicate:
+                        # Skip duplicate, don't update timestamp
+                        continue
                     
                     # Either first segment or timeout - process now
                     if self._stt_merge_buffer:
-                        # Combine buffered segments with current
-                        self._stt_merge_buffer.append(text)
+                        # Combine buffered segments with current (skip duplicate current)
+                        if not is_duplicate:
+                            self._stt_merge_buffer.append(text)
                         text = " ".join(self._stt_merge_buffer)
+                        
+                        # 🔥 BUILD 308: Final DEDUPE - Remove repeated bigrams from merged text
+                        # Example: "פורץ דלתות פורץ דלתות" → "פורץ דלתות"
+                        words = text.split()
+                        if len(words) >= 4:
+                            # Check if second half is duplicate of first half
+                            mid = len(words) // 2
+                            first_half = ' '.join(words[:mid])
+                            second_half = ' '.join(words[mid:])
+                            if first_half.strip() == second_half.strip():
+                                text = first_half
+                                print(f"🔄 [BUILD 308 DEDUPE] Removed duplicate half: '{second_half}'")
+                        
                         print(f"📝 [SEGMENT MERGE] Combined {len(self._stt_merge_buffer)} segments: '{text}'")
                         self._stt_merge_buffer = []
                     
@@ -3198,6 +3245,12 @@ ALWAYS mention their name in the first sentence.
                             # If we're tracking what AI asked, mark it for retry
                             if self.last_ai_question_type:
                                 print(f"   Last AI question type: {self.last_ai_question_type} - needs retry")
+                        else:
+                            # 🔥 BUILD 308: User provided meaningful content (not just rejection)
+                            # Clear the cool-off flag so AI can respond normally
+                            if getattr(self, '_awaiting_user_correction', False):
+                                self._awaiting_user_correction = False
+                                print(f"✅ [BUILD 308] User provided content - clearing cool-off flag")
                         
                         # ═══════════════════════════════════════════════════════════════════════════
                         # 🔥 BUILD 303: CITY CORRECTION DETECTION
@@ -3317,6 +3370,31 @@ ALWAYS mention their name in the first sentence.
                             # 🔥 BUILD 201: Unlock city when user says correction words
                             if hasattr(self, 'stt_consistency_filter') and self.stt_consistency_filter.is_city_locked():
                                 self.stt_consistency_filter.unlock_city(reason="user_correction_word")
+                            
+                            # 🔥 BUILD 308: CRITICAL FIX - Also CLEAR city from lead_capture_state
+                            # Previously only unlocking from consistency filter, but AI still thought city was captured
+                            # This caused the bot to keep confirming the wrong city after user said "לא"
+                            if 'city' in self.lead_capture_state:
+                                old_city = self.lead_capture_state.get('city')
+                                del self.lead_capture_state['city']
+                                # Also clear related city fields
+                                self.lead_capture_state.pop('raw_city', None)
+                                self.lead_capture_state.pop('city_confidence', None)
+                                self.lead_capture_state.pop('city_needs_confirmation', None)
+                                self.lead_capture_state.pop('city_needs_retry', None)
+                                self.lead_capture_state.pop('city_autocorrected', None)
+                                self.lead_capture_state.pop('city_corrected_by_user', None)
+                                # Clear the last AI mentioned city so it doesn't get locked again
+                                self._last_ai_mentioned_city = None
+                                print(f"🗑️ [BUILD 308] CLEARED city from lead_capture_state: was '{old_city}'")
+                                # Clear city_raw_attempts for fresh start
+                                self.city_raw_attempts = []
+                            
+                            # 🔥 BUILD 308: POST-REJECTION COOL-OFF
+                            # Set flag to make AI WAIT before speaking - give user time to provide correction
+                            self._awaiting_user_correction = True
+                            self._rejection_timestamp = time.time()
+                            print(f"⏳ [BUILD 308] POST-REJECTION COOL-OFF - AI will wait for user to speak")
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
