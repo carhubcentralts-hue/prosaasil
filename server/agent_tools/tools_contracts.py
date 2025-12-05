@@ -40,23 +40,24 @@ def contracts_generate_and_send(
     business_id: int,
     template_id: str,
     customer_name: str,
-    service_description: str = "טיפולים",
+    service_description: str = "שירותים",  # 🔥 BUILD 200: Generic default
     price: str = "0",
-    treatment_count: str = "1",
+    service_count: str = "1",  # 🔥 BUILD 200: Renamed from treatment_count - generic
     validity_date: str = "",
     lead_id: Optional[int] = None,
     appointment_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Generate a contract from template and send for digital signature
+    🔥 BUILD 200: Generate a contract from template and send for digital signature
+    GENERIC for any business type - no hardcoded service types!
     
     Args:
         business_id: Business ID
-        template_id: Contract template ID (e.g., 'treatment_series', 'rental', 'purchase')
+        template_id: Contract template ID (e.g., 'service_series', 'rental', 'purchase')
         customer_name: Customer full name
-        service_description: Service description (default "טיפולים")
+        service_description: Service description (generic - set by AI/business)
         price: Price as string (default "0")
-        treatment_count: Number of treatments (default "1")
+        service_count: Number of services (default "1")
         validity_date: Expiration date (optional)
         lead_id: Related lead ID (optional)
         appointment_id: Related appointment ID (optional)
@@ -71,34 +72,34 @@ def contracts_generate_and_send(
         # Import models
         from server.models_sql import db, Contract, Customer, Lead
         
-        # Prepare variables for template
+        # 🔥 BUILD 200: Prepare variables for template - GENERIC for any business
         variables = {
             "customer_name": customer_name,
             "service_description": service_description,
             "price": price,
-            "treatment_count": treatment_count,
+            "service_count": service_count,
             "validity_date": validity_date or datetime.now().strftime("%Y-%m-%d"),
             "date": datetime.now().strftime("%Y-%m-%d"),
             "business_name": "העסק"  # TODO: Load from business settings
         }
         
-        # Get template (placeholder - would load from database)
+        # 🔥 BUILD 200: GENERIC templates - no hardcoded service types!
         templates = {
-            "treatment_series": {
-                "name": "חוזה לסדרת טיפולים",
+            "service_series": {
+                "name": "חוזה לסדרת שירותים",
                 "content": """
-חוזה טיפולים
+חוזה שירותים
 
 בין: {business_name}
 לבין: {customer_name}
 
-הלקוח מתחייב לרכישת סדרת טיפולים:
-- סוג הטיפול: {service_description}
-- מספר טיפולים: {treatment_count}
+הלקוח מתחייב לרכישת סדרת שירותים:
+- סוג השירות: {service_description}
+- כמות: {service_count}
 - מחיר כולל: {price} ₪
 - תוקף: {validity_date}
 
-תנאי ביטול: ניתן לבטל עד 24 שעות לפני הטיפול.
+תנאי ביטול: ניתן לבטל עד 24 שעות מראש.
 
 חתימת הלקוח: _______________
 תאריך: {date}

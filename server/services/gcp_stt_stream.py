@@ -169,8 +169,8 @@ class StreamingSTTSession:
                     # Phone numbers
                     "טלפון", "מספר", "נייד", "אפס חמש", "חמש אפס", "סולמית", "כוכבית",
                     
-                    # Services
-                    "חדר קריוקי", "טיפול", "עיסוי", "ייעוץ", "שירות", "סידור",
+                    # 🔥 BUILD 200: Generic service words only - no specific business types!
+                    "שירות", "סידור", "ייעוץ",
                     
                     # 🔥 FIX: Food & Kashrut (user reported STT issues)
                     "האוכל", "אוכל", "תפריט", "כשרות", "כשר", "בשרי", "חלבי", "פרווה", 

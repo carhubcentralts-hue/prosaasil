@@ -369,9 +369,9 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             logger.warning("⚠️ Creating appointment without phone number")
             phone = None
         
-        # ⚡ Validate treatment type
+        # 🔥 BUILD 200: Validate service type - GENERIC for any business
         if not input.treatment_type or input.treatment_type.strip() == "":
-            raise ValueError("חובה לציין סוג טיפול/שירות")
+            raise ValueError("חובה לציין סוג שירות")
         
         # 🔥 POLICY already loaded above - import additional validation helpers
         from server.policy.business_policy import validate_slot_time, get_nearby_slots
@@ -478,7 +478,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             contact_phone=phone,  # Can be None! Phone is in call log
             auto_generated=True,
             source=input.source or "phone_call",  # 🔥 FIX: Set source properly!
-            notes=f"נקבע ע״י AI Agent\nסוג טיפול: {input.treatment_type}"
+            notes=f"נקבע ע״י AI Agent\nשירות: {input.treatment_type}"
         )
         
         print(f"   Appointment object created: {appointment}")
