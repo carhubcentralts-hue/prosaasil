@@ -5237,6 +5237,15 @@ ALWAYS mention their name in the first sentence.
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
+                        # 🔥 BUILD 196.5: CRITICAL - Save AI transcript to conversation_history!
+                        # This was MISSING - AI transcripts were only printed, never stored
+                        self.conversation_history.append({
+                            "speaker": "assistant",
+                            "text": transcript,
+                            "ts": time.time()
+                        })
+                        print(f"💾 [BUILD 196.5] AI transcript saved to conversation_history (total: {len(self.conversation_history)} messages)")
+                        
                         # 🔥 BUILD 196.4: DEBUG mode for Calliber (business_id=10)
                         calliber_debug = getattr(self, 'business_id', None) == 10
                         if calliber_debug:
