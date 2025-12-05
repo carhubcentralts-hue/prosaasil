@@ -1563,31 +1563,17 @@ class MediaStreamHandler:
                 from server.models_sql import Business, BusinessSettings
                 app = _get_flask_app()
                 with app.app_context():
-                    business = Business.query.get(business_id_safe)
-                    settings = BusinessSettings.query.filter_by(tenant_id=business_id_safe).first()
-                    
-                    # Build minimal context (under 300 chars)
-                    biz_name_prompt = business.name if business and business.name else "עסק"
-                    
-                    # Determine what fields are important for this business
-                    key_fields = []
-                    if settings and settings.required_lead_fields:
-                        fields = settings.required_lead_fields if isinstance(settings.required_lead_fields, list) else []
-                        if 'name' in fields:
-                            key_fields.append("שמות")
-                        if 'city' in fields:
-                            key_fields.append("ערים")
-                        if 'phone' in fields:
-                            key_fields.append("טלפונים")
-                        if 'preferred_time' in fields:
-                            key_fields.append("שעות")
-                    
-                    fields_hint = ", ".join(key_fields) if key_fields else "שמות, שעות"
-                    
-                    # 🔥 BUILD 202: Short, focused transcription rules
-                    transcription_prompt = f"שיחה עברית לעסק {biz_name_prompt}. תמלל: {fields_hint}. העדף עברית. בקש הבהרה אם לא ברור."
-                    
-                    print(f"🎤 [BUILD 202] Transcription prompt: '{transcription_prompt}' ({len(transcription_prompt)} chars)")
+                    # 🔥 BUILD 204: Use dynamic STT service for vocabulary-aware transcription prompt
+                    try:
+                        from server.services.dynamic_stt_service import build_dynamic_stt_prompt
+                        transcription_prompt = build_dynamic_stt_prompt(business_id_safe)
+                        print(f"🎤 [BUILD 204] Dynamic STT prompt: '{transcription_prompt}' ({len(transcription_prompt)} chars)")
+                    except Exception as stt_err:
+                        # Fallback to simpler prompt if dynamic service fails
+                        business = Business.query.get(business_id_safe)
+                        biz_name_prompt = business.name if business and business.name else "עסק"
+                        transcription_prompt = f"שיחה עברית לעסק {biz_name_prompt}. העדף עברית."
+                        print(f"⚠️ [BUILD 204] Fallback STT prompt: {stt_err}")
                     
             except Exception as e:
                 print(f"⚠️ [BUILD 202] Failed to build transcription prompt: {e}")
@@ -2684,6 +2670,17 @@ ALWAYS mention their name in the first sentence.
                     
                     # 🔥 BUILD 170.4: Apply Hebrew normalization
                     text = normalize_hebrew_text(text)
+                    
+                    # 🔥 BUILD 204: Apply business vocabulary corrections (fast fuzzy matching)
+                    # This corrects domain-specific terms BEFORE other filters
+                    try:
+                        from server.services.dynamic_stt_service import apply_vocabulary_corrections
+                        text_before = text
+                        text = apply_vocabulary_corrections(text, self.business_id)
+                        if text != text_before:
+                            print(f"🔧 [BUILD 204] Vocabulary fix: '{text_before}' → '{text}'")
+                    except Exception as vocab_err:
+                        print(f"⚠️ [BUILD 204] Vocabulary correction skipped: {vocab_err}")
                     
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
