@@ -308,7 +308,36 @@ def apply_vocabulary_corrections(
         corrections = {}
         corrected_words = []
         
-        for w in words:
+        # 🔥 BUILD 307: Separate single-word and multi-word vocabulary
+        # This prevents duplication when matching individual words to multi-word terms
+        single_word_vocab = set()
+        multi_word_vocab = set()
+        for term in dictionary:
+            if ' ' in term:
+                multi_word_vocab.add(term)
+            else:
+                single_word_vocab.add(term)
+        
+        # 🔥 BUILD 307: First, check for multi-word matches in the full transcript
+        # Replace them before individual word processing
+        transcript_corrected = transcript
+        for multi_term in multi_word_vocab:
+            # Use fuzzy matching to find similar multi-word phrases
+            term_words = multi_term.split()
+            if len(term_words) == 2:
+                # Build pattern for 2-word terms with word boundaries
+                for i in range(len(words) - 1):
+                    candidate = words[i] + " " + words[i+1]
+                    candidate_clean = ' '.join(w.strip(".,!?;:\"'") for w in candidate.split())
+                    score = fuzz.ratio(candidate_clean, multi_term)
+                    if score >= 78:
+                        # Mark these words as part of multi-word match (don't process individually)
+                        # Just note it for logging
+                        pass
+        
+        i = 0
+        while i < len(words):
+            w = words[i]
             # Strip punctuation for matching, but preserve it
             clean = w.strip(".,!?;:\"'")
             
@@ -316,21 +345,25 @@ def apply_vocabulary_corrections(
             # 1. Too short (< 3 chars)
             if len(clean) < 3:
                 corrected_words.append(w)
+                i += 1
                 continue
             
             # 2. Contains digits (times, dates, phone numbers, amounts)
             if re.search(r'\d', clean):
                 corrected_words.append(w)
+                i += 1
                 continue
             
             # 3. Looks like a phone number pattern
             if re.match(r'^[\d\-\+\(\)]+$', clean):
                 corrected_words.append(w)
+                i += 1
                 continue
             
             # 4. Already an exact match in vocabulary
             if clean in dictionary:
                 corrected_words.append(w)
+                i += 1
                 continue
             
             # 5. Pure Hebrew numbers (שתיים, שלוש, etc.) - don't modify!
@@ -339,20 +372,46 @@ def apply_vocabulary_corrections(
                            "עשר", "עשרה", "עשרים", "שלושים", "ארבעים", "חמישים", "מאה", "אלף"]
             if clean in hebrew_numbers:
                 corrected_words.append(w)
+                i += 1
                 continue
             
-            # Try fuzzy match with conservative threshold
+            # 🔥 BUILD 307: Check if current word is PART of a multi-word vocab term
+            # If next words form a multi-word match, skip individual replacement
+            is_part_of_multiword = False
+            if i < len(words) - 1:
+                for mw in multi_word_vocab:
+                    mw_parts = mw.split()
+                    if len(mw_parts) >= 2:
+                        # Check if current position matches start of multi-word term
+                        candidate_words = words[i:i+len(mw_parts)]
+                        if len(candidate_words) == len(mw_parts):
+                            candidate = ' '.join(cw.strip(".,!?;:\"'") for cw in candidate_words)
+                            score = fuzz.ratio(candidate, mw)
+                            if score >= 78:
+                                # This is already a multi-word match - don't modify
+                                is_part_of_multiword = True
+                                # Keep original words
+                                for cw in candidate_words:
+                                    corrected_words.append(cw)
+                                i += len(mw_parts)
+                                break
+            
+            if is_part_of_multiword:
+                continue
+            
+            # 🔥 BUILD 307: Only match against single-word vocabulary to avoid duplication
+            # Skip matching if the only matches are multi-word terms
             result = process.extractOne(
                 clean,
-                dictionary,
+                single_word_vocab if single_word_vocab else dictionary,  # Fallback to all if no single words
                 scorer=fuzz.WRatio,  # 🔥 WRatio is better for Hebrew partial matches
                 score_cutoff=78  # 78% threshold - conservative
             )
             
             if result:
                 matched_term, score, _ = result
-                # Only correct if it's a clear win
-                if score >= 78 and matched_term != clean:
+                # Only correct if it's a clear win AND matched term is single word
+                if score >= 78 and matched_term != clean and ' ' not in matched_term:
                     # Preserve original punctuation
                     if w.endswith(tuple(".,!?;:\"\'")):
                         new_word = matched_term + w[-1]
@@ -366,6 +425,8 @@ def apply_vocabulary_corrections(
                     corrected_words.append(w)
             else:
                 corrected_words.append(w)
+            
+            i += 1
         
         corrected_text = " ".join(corrected_words)
         

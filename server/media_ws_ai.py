@@ -1177,6 +1177,7 @@ class MediaStreamHandler:
         self.stt_consistency_filter = ConsistencyFilter(max_attempts=3)
         self.city_raw_attempts = []  # Track raw STT attempts for webhook
         self.name_raw_attempts = []  # Track raw STT attempts for webhook
+        self._last_ai_mentioned_city = None  # 🔥 BUILD 307: Track city from AI confirmation for user "נכון" locking
         
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
@@ -3321,7 +3322,20 @@ ALWAYS mention their name in the first sentence.
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
-                        self._extract_lead_fields_from_ai(transcript)
+                        # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
+                        self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
+                        
+                        # 🔥 BUILD 307: Handle user confirmation with "נכון" - lock city from AI's previous statement
+                        confirmation_words = ["כן", "נכון", "בדיוק", "כן כן", "יופי", "מסכים"]
+                        if any(word in transcript_lower for word in confirmation_words):
+                            last_ai_city = getattr(self, '_last_ai_mentioned_city', None)
+                            if last_ai_city and 'city' in getattr(self, 'required_lead_fields', []):
+                                # User confirmed - lock the city!
+                                if hasattr(self, 'stt_consistency_filter'):
+                                    self.stt_consistency_filter.locked_city = last_ai_city
+                                    self._update_lead_capture_state('city', last_ai_city)
+                                    self._update_lead_capture_state('city_confidence', 100.0)
+                                    print(f"🔒 [BUILD 307] User confirmed city with '{transcript[:20]}' → locked '{last_ai_city}'")
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
@@ -7069,7 +7083,48 @@ ALWAYS mention their name in the first sentence.
         
         return False
 
-    def _extract_lead_fields_from_ai(self, ai_transcript: str):
+    def _extract_city_from_confirmation(self, text: str) -> str:
+        """
+        🔥 BUILD 307: Extract city from AI confirmation pattern
+        
+        Parses AI confirmations like:
+        - "בתל אביב, נכון?" → "תל אביב"
+        - "בקריית אתא, נכון?" → "קריית אתא"
+        - "עיר עפולה, נכון?" → "עפולה"
+        
+        Returns:
+            City name or empty string if not found
+        """
+        import re
+        
+        # Common patterns for city mention in confirmations
+        patterns = [
+            r'ב([א-ת\s\-]{2,20})[,\s]+נכון',  # "בתל אביב, נכון?"
+            r'(?:עיר|מ|ל)([א-ת\s\-]{2,20})[,\s]+נכון',  # "עיר חיפה, נכון?"
+            r'ב([א-ת\s\-]{2,20})\?',  # "בחיפה?"
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                city = match.group(1).strip()
+                # Validate it's a real city
+                try:
+                    from server.services.city_normalizer import normalize_city, get_all_city_names
+                    from server.services.phonetic_validator import validate_hebrew_word
+                    
+                    all_cities = get_all_city_names()
+                    result = validate_hebrew_word(city, all_cities, auto_accept_threshold=70.0)
+                    if result.confidence >= 70:
+                        normalized = normalize_city(result.best_match or city)
+                        return normalized.canonical or city
+                except Exception as e:
+                    print(f"⚠️ [BUILD 307] City extraction error: {e}")
+                    return city
+        
+        return ""
+
+    def _extract_lead_fields_from_ai(self, ai_transcript: str, is_user_speech: bool = False):
         """
         🎯 SMART HANGUP: Extract lead fields from AI confirmation patterns
         
@@ -7080,6 +7135,7 @@ ALWAYS mention their name in the first sentence.
         
         Args:
             ai_transcript: The AI's transcribed speech
+            is_user_speech: True if this is user speech, False if AI speech
         """
         import re
         
@@ -7091,6 +7147,42 @@ ALWAYS mention their name in the first sentence.
         required_fields = getattr(self, 'required_lead_fields', [])
         if not required_fields:
             return
+        
+        # 🔥 BUILD 307: Skip city extraction for AI questions and silence prompts
+        # These should NEVER be treated as city mentions
+        if not is_user_speech:
+            ai_question_patterns = [
+                'באיזו עיר', 'באיזה עיר', 'מאיפה אתה', 'איפה אתה',
+                'מאיזה עיר', 'מאיזו עיר', 'איזו עיר', 'איזה עיר'
+            ]
+            silence_prompt_patterns = [
+                'אתה עדיין שם', 'אתה שם', 'שומע אותי', 'עדיין בקו',
+                'יש מישהו', 'הלו', 'שומעים אותי'
+            ]
+            text_lower = text.lower()
+            
+            # Skip city extraction for AI questions about city
+            if any(pattern in text_lower for pattern in ai_question_patterns):
+                print(f"⏭️ [BUILD 307] Skipping city extraction - AI asking about city")
+                # Skip to service extraction
+                pass
+            # Skip city extraction for silence prompts
+            elif any(pattern in text_lower for pattern in silence_prompt_patterns):
+                print(f"⏭️ [BUILD 307] Skipping city extraction - silence prompt")
+                # Skip to service extraction
+                pass
+            # For AI confirmations, extract city only from confirmation patterns
+            elif 'נכון' in text or 'מאשר' in text or 'בסדר' in text:
+                # This is an AI confirmation - extract city from it
+                # Store this city for when user confirms with "נכון"
+                self._last_ai_mentioned_city = self._extract_city_from_confirmation(text)
+                if self._last_ai_mentioned_city:
+                    print(f"📍 [BUILD 307] AI mentioned city in confirmation: '{self._last_ai_mentioned_city}'")
+                return  # Let user confirmation handle the locking
+            else:
+                # Not a question, not a confirmation - skip city extraction from AI
+                print(f"⏭️ [BUILD 307] Skipping city extraction - AI speech not confirmation")
+                return
         
         # 🏙️ CITY EXTRACTION: Use 3-layer validation system
         # 🔥 BUILD 185: Phonetic validator + Consistency filter + RapidFuzz

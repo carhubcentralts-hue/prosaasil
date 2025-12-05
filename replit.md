@@ -29,6 +29,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation. Key feat
 - **ECHO GATE (BUILD 304)**: Blocks audio input to OpenAI while AI is speaking and 800ms after, preventing self-transcription hallucinations. Uses 5+ consecutive frames (100ms) to detect real barge-in vs echo spikes. Voice changed to 'ash' (conversational male, lower pitch).
 - **CHOPPY AUDIO FIX (BUILD 305)**: Fixed mid-sentence audio cuts caused by LOOP GUARD clearing TX queue prematurely. Now lets existing audio play while blocking new audio. Also resets gap detector per response to prevent misleading warnings.
 - **CITY DETECTION FIX (BUILD 306)**: Relaxed thresholds (90/82 from 93/85), skip common non-city words (שלום, צריך, מנעולן, etc.), lock city immediately on high-confidence match to prevent subsequent overrides.
+- **SMART EXTRACTION (BUILD 307)**: City extraction now gated to user speech only - AI questions like "באיזו עיר אתה?" no longer trigger extraction. User confirmation words ("נכון") now lock city from AI's previous statement. Fixed vocabulary duplication bug where multi-word terms like "פורץ דלתות" were doubled. Silence prompts like "אתה עדיין שם?" no longer extract "עדי" as city.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
