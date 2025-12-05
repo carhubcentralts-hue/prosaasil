@@ -86,6 +86,13 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
     ```
   - **Example business_context:** "מספרה יוקרתית בתל אביב, מתמחה בהחלקות ותספורות גברים."
 - **Voice Upgrade (BUILD 205)**: Switched from "shimmer" to "coral" voice for OpenAI Realtime API. Coral is one of OpenAI's expressive voices (Oct 2024) with better Hebrew intonation and multilingual support.
+- **Telephony Optimization (BUILD 206)**: Expert-recommended optimizations for 8kHz G.711 μ-law telephony:
+  - STT prompt now behavior-focused: "תמלל עברית בשיחה טלפונית. רק תמלל, לא להוסיף."
+  - Silence duration reduced from 900ms to 450ms (telephony sweet spot: 300-500ms)
+  - VAD threshold set to 0.85 (balanced for soft Hebrew speakers)
+  - Raw μ-law sent directly to OpenAI (no audio processing)
+  - Echo blocking during AI speech confirmed working
+  - Single response.create via central trigger_response function
 
 # External Dependencies
 

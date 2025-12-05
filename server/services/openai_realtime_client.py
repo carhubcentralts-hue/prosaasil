@@ -278,7 +278,7 @@ class OpenAIRealtimeClient:
         voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
+        vad_threshold: float = 0.85,  # 🔥 BUILD 206: 0.85 - balanced for Hebrew telephony
         silence_duration_ms: int = 450,  # 🔥 BUILD 206: 450ms - telephony sweet spot (300-500ms range)
         temperature: float = 0.18,
         max_tokens: int = 300,
