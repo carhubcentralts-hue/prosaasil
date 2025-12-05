@@ -110,6 +110,17 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
     - `[STT_FINAL]` → What enters Lead State / AI processing
   - **Realtime API Only**: Confirmed USE_REALTIME_API flag skips Google/Whisper entirely
   - **Expected Improvement**: 25-40% better Hebrew accuracy, eliminates embarrassing mistakes
+- **Trust OpenAI VAD (BUILD 301)**: Critical fixes for transcription quality and AI freeze prevention:
+  - **Relaxed Audio Gate Thresholds**: Lowered local thresholds to trust OpenAI's superior VAD
+    - MIN_SPEECH_RMS: 180 → 60 (allow quiet speech through)
+    - MIN_CONSECUTIVE_VOICE_FRAMES: 7 → 3 (60ms instead of 140ms)
+    - MIN_UTT_SEC: 0.6s → 0.35s (allow short words like "כן")
+    - BARGE_IN_VOICE_FRAMES: 45 → 25 (more responsive barge-in)
+  - **Enhanced Semantic Repair**: Improved prompt for Israeli cities/names with business vocabulary context
+    - Also applies to 1-2 token utterances (not just < 12 chars)
+  - **Stuck Response Detection**: Safety net clears active_response_id after 10 seconds if response.done is missed
+    - Prevents AI freeze without adding a watchdog - inline check during pipeline status logging
+  - **Expected Improvement**: Prevents AI freeze, better short word recognition, faster response
 
 # External Dependencies
 

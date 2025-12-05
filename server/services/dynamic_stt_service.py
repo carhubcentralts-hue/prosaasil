@@ -398,18 +398,19 @@ def clear_vocabulary_cache(business_id: Optional[int] = None):
 
 async def semantic_repair(text: str, business_id: int) -> str:
     """
-    🔥 BUILD 300: Semantic repair for short/unclear transcriptions
+    🔥 BUILD 301: Enhanced semantic repair for short/unclear transcriptions
     
     Uses GPT-4o-mini to fix obvious transcription errors in short Hebrew text
     from telephony (8kHz μ-law) audio.
     
     Examples of fixes:
     - "רמת איב" → "רמת אביב"
-    - "קרית ען" → "קריית ים"
+    - "קרית ען" → "קריית ים"  
+    - "תפורת" → "תספורת"
     - "נתיבות" kept as-is (correct city name)
     
     Args:
-        text: Short transcript to repair (typically < 12 chars)
+        text: Short transcript to repair (typically < 12 chars or 1-2 tokens)
         business_id: Business ID for vocabulary context
     
     Returns:
@@ -420,6 +421,7 @@ async def semantic_repair(text: str, business_id: int) -> str:
     
     try:
         import openai
+        import re
         
         vocab = get_business_vocabulary(business_id)
         
@@ -432,14 +434,22 @@ async def semantic_repair(text: str, business_id: int) -> str:
         business_context = vocab.get("business_context", "") or ""
         business_name = vocab.get("business_name", "") or ""
         
-        # 🔥 BUILD 300: Focused repair prompt
-        prompt = f"""הטקסט הבא הגיע משיחת טלפון באיכות μ-law.
-תקן אותו למילה/ביטוי ההגיוני ביותר בעברית.
-התייחס להקשר העסקי: {business_name}. {business_context}
-מילים רלוונטיות: {vocab_str}
-החזר רק את התיקון, בלי הסברים.
+        # 🔥 BUILD 301: Enhanced repair prompt per expert guidelines
+        # Focus on: Israeli cities, Israeli first names, business vocabulary
+        prompt = f"""You receive a short, noisy HEBREW transcription from an 8kHz μ-law phone call.
+Task:
+1. If the text is clearly Hebrew but slightly distorted, fix it to the most likely correct Hebrew phrase.
+2. Prefer valid Israeli city names, Israeli first names, and business-related terms.
+3. Do NOT change phone numbers, times, or dates.
+4. If you are not sure, return the original text unchanged.
 
-"{text}"
+Business: {business_name}
+Context: {business_context}
+Vocabulary: {vocab_str}
+
+Return ONLY the repaired text, nothing else.
+
+Input: "{text}"
 """
         
         client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -473,12 +483,12 @@ async def semantic_repair(text: str, business_id: int) -> str:
 
 def should_apply_semantic_repair(text: str) -> bool:
     """
-    🔥 BUILD 300: Determine if text needs semantic repair
+    🔥 BUILD 301: Enhanced criteria for semantic repair
     
     Criteria:
-    - Text < 12 characters
+    - Text <= 12 characters
+    - OR 1-2 tokens only (single word / short phrase)
     - OR low Hebrew character ratio (suggests garbled text)
-    - OR known problematic patterns
     """
     import re
     
@@ -488,7 +498,12 @@ def should_apply_semantic_repair(text: str) -> bool:
     text = text.strip()
     
     # Short text always benefits from repair
-    if len(text) < 12:
+    if len(text) <= 12:
+        return True
+    
+    # 🔥 BUILD 301: 1-2 tokens = apply repair (per Watchdog doc)
+    tokens = text.split()
+    if len(tokens) <= 2:
         return True
     
     # Check Hebrew ratio - low ratio suggests garbled text

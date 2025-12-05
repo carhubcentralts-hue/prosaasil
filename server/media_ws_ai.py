@@ -1913,10 +1913,39 @@ ALWAYS mention their name in the first sentence.
                 
                 await client.send_audio_chunk(audio_chunk)
                 
-                # 🔥 BUILD 200: Log pipeline status every 3 seconds
+                # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
                 now = time.time()
                 if now - self._stats_last_log_ts >= self._stats_log_interval_sec:
                     self._stats_last_log_ts = now
+                    
+                    # 🔥 BUILD 301: SAFETY NET - Clear stuck active_response_id
+                    # If active_response_id has been set for >10 seconds, it's stuck (response.done was missed)
+                    # This prevents AI freeze without adding a watchdog - just inline check
+                    response_stuck_seconds = 10.0
+                    if self.active_response_id:
+                        # Get response start time - use _response_created_ts if available
+                        response_started = getattr(self, '_response_created_ts', None)
+                        if response_started and response_started > 0:
+                            response_age = now - response_started
+                        else:
+                            # Fallback: track first time we saw this response in status log
+                            if not hasattr(self, '_stuck_check_first_seen_ts'):
+                                self._stuck_check_first_seen_ts = now
+                            response_age = now - self._stuck_check_first_seen_ts
+                        
+                        if response_age > response_stuck_seconds:
+                            print(f"🔧 [BUILD 301] STUCK RESPONSE DETECTED! Clearing active_response_id after {response_age:.1f}s")
+                            print(f"   Was: {self.active_response_id[:20]}...")
+                            self.active_response_id = None
+                            self.response_pending_event.clear()
+                            self.is_ai_speaking_event.clear()
+                            self._stuck_check_first_seen_ts = None  # Reset for next response
+                            print(f"   ✅ Response guards cleared - AI can respond again")
+                    else:
+                        # No active response - reset the tracking
+                        if hasattr(self, '_stuck_check_first_seen_ts'):
+                            self._stuck_check_first_seen_ts = None
+                    
                     print(
                         f"[PIPELINE STATUS] sent={self._stats_audio_sent} blocked={self._stats_audio_blocked} | "
                         f"active_response={self.active_response_id[:15] if self.active_response_id else 'None'}... | "
