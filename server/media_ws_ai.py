@@ -4611,7 +4611,9 @@ ALWAYS mention their name in the first sentence.
                                 current_state = STATE_SPEECH
                                 preroll_sent = False
                                 hangover_counter = HANGOVER_FRAMES
-                                print(f"🎤 [BUILD 196.2] SPEECH STARTED (SNR={snr_db:.1f}dB)")
+                                # 🔥 BUILD 196.3: Track utterance start time for duration check
+                                utterance_start_ms = time.time() * 1000
+                                print(f"🎤 [BUILD 196.2] SPEECH STARTED (SNR={snr_db:.1f}dB) echo_blocked={echo_blocked}")
                         else:
                             maybe_speech_count = 0
                             current_state = STATE_SILENCE
@@ -4625,11 +4627,24 @@ ALWAYS mention their name in the first sentence.
                                 current_state = STATE_SILENCE
                                 maybe_speech_count = 0
                                 preroll_buffer.clear()  # Clear stale preroll on speech end
-                                print(f"🔇 [BUILD 196.2] SPEECH ENDED (SNR={snr_db:.1f}dB)")
                                 
-                                # 🔥 BUILD 196.3: Send TRIGGER_RESPONSE when speech ends!
-                                # This is CRITICAL - OpenAI won't auto-respond because we filter audio
-                                if not echo_blocked:
+                                # 🔥 BUILD 196.3: Calculate utterance duration
+                                MIN_UTTERANCE_MS = 300  # Minimum 300ms to be valid speech
+                                utterance_end_ms = time.time() * 1000
+                                duration_ms = utterance_end_ms - utterance_start_ms
+                                
+                                print(f"🔇 [BUILD 196.2] SPEECH ENDED (SNR={snr_db:.1f}dB) duration={duration_ms:.0f}ms echo_blocked={echo_blocked}")
+                                
+                                # 🔥 BUILD 196.3: END OF UTTERANCE with duration and echo check
+                                if duration_ms < MIN_UTTERANCE_MS:
+                                    print(f"⏭️ [BUILD 196.3] SKIPPED: duration={duration_ms:.0f}ms < MIN_UTTERANCE_MS={MIN_UTTERANCE_MS}ms")
+                                elif echo_blocked:
+                                    print(f"🔇 [BUILD 196.3] SPEECH→SILENCE during echo block - NOT triggering (echo protection)")
+                                elif getattr(self, 'closing_sent', False):
+                                    print(f"🔒 [BUILD 196.3] SPEECH→SILENCE during closing - NOT triggering")
+                                else:
+                                    # Valid utterance - trigger AI response!
+                                    print(f"🎤 END OF UTTERANCE: {duration_ms/1000:.1f}s echo_blocked=False")
                                     print(f"🎯 [BUILD 196.3] SPEECH→SILENCE: Triggering AI response...")
                                     if hasattr(self, 'realtime_text_input_queue'):
                                         try:
@@ -4637,8 +4652,6 @@ ALWAYS mention their name in the first sentence.
                                             print(f"✅ [BUILD 196.3] response.create queued (end of speech)")
                                         except Exception as e:
                                             print(f"⚠️ [BUILD 196.3] Failed to queue trigger: {e}")
-                                else:
-                                    print(f"🔇 [BUILD 196.3] SPEECH→SILENCE during echo block - NOT triggering (echo protection)")
                     
                     if prev_state != current_state:
                         print(f"📊 [BUILD 196.2] State: {prev_state} → {current_state} | SNR={snr_db:.1f}dB | noise={noise_rms:.0f} | music={music_detected} | echo_blocked={echo_blocked}")
@@ -4767,16 +4780,23 @@ ALWAYS mention their name in the first sentence.
                     print(f"📝 [REALTIME] Stop signal received")
                     break
                 
-                # 🔥 BUILD 196.2: Handle special trigger command
+                # 🔥 BUILD 196.3: Handle special trigger command with active response check
                 if text_message == "[TRIGGER_RESPONSE]":
                     try:
-                        # 🔥 CRITICAL: Send response.create to trigger AI response
-                        # This is needed when our client-side VAD detects end-of-speech
-                        # but OpenAI's server-side VAD hasn't triggered yet
-                        await client.send_event({"type": "response.create"})
-                        print(f"✅ [BUILD 196.2] response.create sent (manual trigger)")
+                        # 🔥 BUILD 196.3: Check if there's already an active response
+                        has_active_response = getattr(self, 'active_response_id', None) is not None
+                        is_closing = getattr(self, 'closing_sent', False)
+                        
+                        if has_active_response:
+                            print(f"⏭️ [BUILD 196.3] Active response in progress ({self.active_response_id[:15]}...) - NOT creating new one")
+                        elif is_closing:
+                            print(f"🔒 [BUILD 196.3] Call closing - NOT creating response")
+                        else:
+                            # 🔥 CRITICAL: Send response.create to trigger AI response
+                            await client.send_event({"type": "response.create"})
+                            print(f"✅ [BUILD 196.3] response.create sent (manual trigger)")
                     except Exception as e:
-                        print(f"⚠️ [BUILD 196.2] Failed to send response.create: {e}")
+                        print(f"⚠️ [BUILD 196.3] Failed to send response.create: {e}")
                     continue
                 
                 # ✅ Resilient send with retry
