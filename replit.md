@@ -29,7 +29,7 @@ ProSaaS utilizes a multi-tenant architecture with strict data isolation. Key fea
 - **Outbound Calls**: AI-initiated calls with concurrency limits and template-based prompts.
 - **Webhook**: Separate inbound/outbound URLs with HMAC signature verification and retry logic.
 - **Single Pipeline Lockdown**: Centralized `trigger_response()` function for all response creation, unified OpenAI Realtime STT, and robust response lifecycle tracking.
-- **Major Hebrew STT Upgrade**: Switched to `gpt-4o-transcribe` with dynamic transcription prompts built from business settings for enhanced accuracy.
+- **Major Hebrew STT Upgrade (BUILD 202)**: Switched to `gpt-4o-transcribe` with minimal, focused transcription prompts. Prompt includes business name + required field types (שמות, שעות, ערים) as short rules, NOT long vocabulary lists. Under 100 chars for optimal performance.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.

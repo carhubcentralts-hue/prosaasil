@@ -1553,8 +1553,9 @@ class MediaStreamHandler:
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} for greeting length={greeting_length} chars (direction={call_direction})")
             
-            # 🔥 BUILD 202: Build dynamic transcription prompt for better Hebrew STT
-            # Include business name, services, cities, staff names from settings
+            # 🔥 BUILD 202: Build MINIMAL transcription prompt for Hebrew STT
+            # Keep it short and focused - context + rules, NOT long vocab lists
+            # OpenAI docs: prompts should be brief context hints, not dictionaries
             transcription_prompt = ""
             try:
                 from server.models_sql import Business, BusinessSettings
@@ -1563,30 +1564,32 @@ class MediaStreamHandler:
                     business = Business.query.get(business_id_safe)
                     settings = BusinessSettings.query.filter_by(tenant_id=business_id_safe).first()
                     
-                    prompt_parts = []
+                    # Build minimal context (under 300 chars)
+                    biz_name_prompt = business.name if business and business.name else "עסק"
                     
-                    # Business name
-                    if business and business.name:
-                        prompt_parts.append(f"עסק: {business.name}")
-                    
-                    # Service types (from required fields if configured)
+                    # Determine what fields are important for this business
+                    key_fields = []
                     if settings and settings.required_lead_fields:
                         fields = settings.required_lead_fields if isinstance(settings.required_lead_fields, list) else []
-                        if 'service_type' in fields:
-                            prompt_parts.append("שירותים: מנעולן, פורץ דלתות, התקנת מנעול, החלפת צילינדר, כספת")
+                        if 'name' in fields:
+                            key_fields.append("שמות")
+                        if 'city' in fields:
+                            key_fields.append("ערים")
+                        if 'phone' in fields:
+                            key_fields.append("טלפונים")
+                        if 'preferred_time' in fields:
+                            key_fields.append("שעות")
                     
-                    # Common Hebrew names (helps with short names like שי)
-                    prompt_parts.append("שמות: שי, גיא, רון, דן, אור, עדי, יובל, איתי, נועם, רועי, צחי, אדם, תום, אלון")
+                    fields_hint = ", ".join(key_fields) if key_fields else "שמות, שעות"
                     
-                    # Israeli cities (helps with city recognition)
-                    prompt_parts.append("ערים: תל אביב, ירושלים, חיפה, באר שבע, מצפה רמון, רמלה, רמת גן, אילת, נתניה, אשדוד")
+                    # 🔥 BUILD 202: Short, focused transcription rules
+                    transcription_prompt = f"שיחה עברית לעסק {biz_name_prompt}. תמלל: {fields_hint}. העדף עברית. בקש הבהרה אם לא ברור."
                     
-                    transcription_prompt = ". ".join(prompt_parts)
-                    print(f"🎤 [BUILD 202] Transcription prompt built: {len(transcription_prompt)} chars")
+                    print(f"🎤 [BUILD 202] Transcription prompt: '{transcription_prompt}' ({len(transcription_prompt)} chars)")
                     
             except Exception as e:
                 print(f"⚠️ [BUILD 202] Failed to build transcription prompt: {e}")
-                transcription_prompt = "עסק ישראלי. שמות: שי, גיא, רון, דן, אור. ערים: תל אביב, ירושלים, מצפה רמון, רמלה"
+                transcription_prompt = "שיחה עברית. תמלל שמות, שעות, מספרים. העדף עברית."
             
             # 🔥 BUILD 187 FIX: AGGRESSIVE VAD - filter noise, prevent false turn_detected
             # vad_threshold=0.9 - VERY high threshold, only trigger on clear speech
