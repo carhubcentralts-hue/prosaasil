@@ -130,20 +130,16 @@ class StreamingSTTSession:
                     # 🔥 FIX: Short words that STT struggles with (user reported)
                     "כשר", "כשרות", "מיקום", "כתובת", "איפה", "מתי", "מה", "איך", "למה", "כמה",
                     
-                    # Business & property types
-                    "שי דירות ומשרדים", "לאה", "דירה", "משרד", "שכר", "שכירות", "מכירה", "קניה",
-                    "חדרים", "חדר", "שירותים", "מטבח", "מרפסת", "מחסן", "ממד", "חניה",
-                    "מטר", "מטר מרבע", "קומה", "מעלית", "אזור", "שכונה", "רחוב",
-                    "נכס", "דירת גן", "פנטהאוז", "דופלקס", "טריפלקס", "סטודיו", "יחידה",
+                    # 🔥 BUILD 200: Generic business words only - no industry-specific terms
+                    "שירות", "עסק", "חברה", "לקוח", "עזרה", "מידע", "פרטים",
                     
                     # 🔥 BUILD 186: NO hardcoded cities - generic location words only
                     # Cities should come from business settings, not hardcoded
                     "עיר", "יישוב", "אזור", "שכונה", "רחוב", "כתובת", "מיקום",
                     "צפון", "דרום", "מרכז", "מזרח", "מערב",
                     
-                    # Money & numbers
-                    "שקל", "שקלים", "אלף", "אלפים", "מיליון", "תקציב", "מחיר", "משכנתא", "נדלן", "עלות",
-                    "שכר דירה", "דמי שכירות", "דמי תיווך", "עמלה", "מקדמה", "ערבות", "חוזה",
+                    # Money & numbers - generic only
+                    "שקל", "שקלים", "אלף", "אלפים", "מיליון", "מחיר", "עלות",
                     
                     # Hebrew numbers
                     "אפס", "אחד", "שניים", "שתיים", "שלוש", "ארבע", "חמש", "שש", "שבע", "שמונה", "תשע", "עשר",

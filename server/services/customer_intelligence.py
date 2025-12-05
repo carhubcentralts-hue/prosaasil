@@ -346,17 +346,13 @@ class CustomerIntelligence:
         except Exception:
             pass  # If lexicon not available, skip area detection
         
-        # סוג נכס
-        property_types = ['דירה', 'חדרים', '2 חדרים', '3 חדרים', '4 חדרים', 'משרד', 'דופלקס', 'פנטהאוס']
-        for prop_type in property_types:
-            if prop_type in text:
-                info['property_type'] = prop_type
-                break
+        # 🔥 BUILD 200: REMOVED hardcoded property_type detection
+        # Property types are business-specific (real estate, medical, etc.)
+        # This is now handled dynamically by AI prompts per business
         
-        # תקציב - חפש מספרים עם שקל/אלף/מיליון
-        budget_match = re.search(r'(\d+(?:,\d+)*)\s*(שקל|אלף|מיליון|₪)', text)
-        if budget_match:
-            info['budget'] = budget_match.group(0)
+        # 🔥 BUILD 200: REMOVED hardcoded budget detection
+        # Budget is a business-specific field, not all businesses need it
+        # This is now handled dynamically by AI prompts per business
         
         return info
     

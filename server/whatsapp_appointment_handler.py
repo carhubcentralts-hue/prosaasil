@@ -16,13 +16,12 @@ tz = pytz.timezone("Asia/Jerusalem")
 
 def extract_appointment_info_from_whatsapp(message_text: str, customer_phone: str) -> Dict:
     """
-    מחלץ מידע לפגישה מהודעת ווצאפ
+    🔥 BUILD 200: מחלץ מידע לפגישה מהודעת ווצאפ - GENERIC for any business type
     """
     info = {
         'has_request': False,
         'area': '',
-        'property_type': '',
-        'budget': '',
+        'service_type': '',  # 🔥 BUILD 200: Generic service_type, not property_type
         'urgency': 'medium',
         'preferred_time': '',
         'meeting_ready': False
@@ -30,21 +29,23 @@ def extract_appointment_info_from_whatsapp(message_text: str, customer_phone: st
     
     text = message_text.lower()
     
-    # זיהוי בקשה לפגישה
+    # זיהוי בקשה לפגישה - generic keywords
     meeting_keywords = [
-        'פגישה', 'לראות', 'לצפות', 'לבקר', 'להיפגש',
-        'מתי אפשר', 'מתי נוכל', 'אפשר לקבוע', 'בואו נפגש'
+        'פגישה', 'לראות', 'לבקר', 'להיפגש',
+        'מתי אפשר', 'מתי נוכל', 'אפשר לקבוע', 'בואו נפגש',
+        'תור', 'קביעת', 'לקבוע'
     ]
     
     if any(keyword in text for keyword in meeting_keywords):
         info['has_request'] = True
     
-    # ✅ UNIFIED: Use shared parser (no duplication!)
-    from server.services.appointment_parser import parse_appointment_info
+    # 🔥 BUILD 200: Use dynamic parser - only area extraction
+    from server.services.appointment_parser import parse_appointment_info_dynamic
     
-    # Parse all info at once
-    parsed_info = parse_appointment_info(text)
-    info.update(parsed_info)  # Update with parsed values
+    # Parse area only - other fields come from AI prompt
+    parsed_info = parse_appointment_info_dynamic(text)
+    if parsed_info.get('area'):
+        info['area'] = parsed_info['area']
     
     # זיהוי דחיפות
     if any(word in text for word in ['דחוף', 'מיידי', 'היום', 'מחר']):
@@ -65,15 +66,14 @@ def extract_appointment_info_from_whatsapp(message_text: str, customer_phone: st
             info['preferred_time'] = match.group(0)
             break
     
-    # החלטה על כשירות לפגישה
+    # 🔥 BUILD 200: Simplified criteria - generic for any business
     criteria_met = sum([
         bool(info['has_request']),
         bool(info['area']),
-        bool(info['property_type']),
         True  # מספר טלפון תמיד קיים
     ])
     
-    info['meeting_ready'] = criteria_met >= 3
+    info['meeting_ready'] = criteria_met >= 2  # Has request + phone = ready
     info['criteria_score'] = criteria_met
     
     return info
@@ -122,10 +122,10 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
             db.session.add(customer)
             db.session.flush()
         
-        # בניית כותרת ותיאור
+        # 🔥 BUILD 200: בניית כותרת ותיאור - GENERIC for any business type
         title_parts = [customer.name or f"לקוח {customer_phone[-4:]}"]
-        if appointment_info['property_type']:
-            title_parts.append(appointment_info['property_type'])
+        if appointment_info.get('service_type'):
+            title_parts.append(appointment_info['service_type'])
         if appointment_info['area']:
             title_parts.append(f"ב{appointment_info['area']}")
         
@@ -138,10 +138,8 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
         
         if appointment_info['area']:
             description_parts.append(f"אזור: {appointment_info['area']}")
-        if appointment_info['property_type']:
-            description_parts.append(f"סוג נכס: {appointment_info['property_type']}")
-        if appointment_info['budget']:
-            description_parts.append(f"תקציב: {appointment_info['budget']}")
+        if appointment_info.get('service_type'):
+            description_parts.append(f"שירות: {appointment_info['service_type']}")
         if appointment_info['preferred_time']:
             description_parts.append(f"זמן מועדף: {appointment_info['preferred_time']}")
         
@@ -371,23 +369,19 @@ def process_incoming_whatsapp_message(phone_number: str, message_text: str, mess
             print(f"❌ [WA-APPT-ERROR] process_incoming_whatsapp_message: business_id required but not provided")
             return {'processed': False, 'error': 'business_id required for multi-tenant isolation'}
         
-        # אם יש בקשה לפגישה אבל לא מספיק מידע
+        # 🔥 BUILD 200: אם יש בקשה לפגישה אבל לא מספיק מידע - GENERIC message
         if appointment_info['has_request'] and not appointment_info['meeting_ready']:
-            # שלח הודעת בקשת מידע נוסף
+            # שלח הודעת בקשת מידע נוסף - GENERIC for any business
             missing_info = []
             if not appointment_info['area']:
-                missing_info.append('איזה אזור מעניין אתכם?')
-            if not appointment_info['property_type']:
-                missing_info.append('איזה סוג נכס אתם מחפשים? (כמה חדרים)')
+                missing_info.append('איזה אזור נוח לכם?')
             
             follow_up_message = f"""
-תודה על הפנייה! 🏠
+תודה על הפנייה!
 
-כדי לקבוע פגישה מותאמת אישית, אשמח לדעת:
+כדי לקבוע פגישה, אשמח לדעת:
 {chr(10).join(f"• {info}" for info in missing_info)}
-
-זה יעזור לי להכין עבורכם את האפשרויות הטובות ביותר!
-            """.strip()  # ✅ הסרת חתימה hardcoded
+            """.strip()  # 🔥 BUILD 200: Generic message - works for any business
             
             requests.post("http://localhost:5000/api/whatsapp/send", json={
                 'to': phone_number,
