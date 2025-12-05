@@ -153,18 +153,6 @@ class HebrewCityNormalizer:
             logger.warning(f"⚠️ Failed to load phonetic rules: {e}")
             self._phonetic_rules = {}
     
-    # 🔥 BUILD 195: Context-aware rejection words
-    # These are NEVER valid city names - reject immediately
-    REJECTED_NON_CITIES = {
-        # Affirmations/negations
-        "כן", "לא", "אוקיי", "בסדר", "אולי", "נכון", "טוב",
-        # Common filler phrases that STT might capture
-        "כן יפה", "כן כן", "לא לא", "אה", "אמ", "אממ", "מממ",
-        "תודה", "בבקשה", "סליחה", "רגע", "שניה", "חכה",
-        # Acknowledgments that aren't cities
-        "סבבה", "יאללה", "אחלה", "מעולה", "טוב מאוד", "בטח"
-    }
-    
     def normalize(self, raw_city: str, previous_value: Optional[str] = None) -> CityMatch:
         """
         Normalize a city name using fuzzy matching
@@ -185,18 +173,6 @@ class HebrewCityNormalizer:
             )
         
         raw_city = raw_city.strip()
-        
-        # 🔥 BUILD 195: CONTEXT-AWARE REJECTION
-        # Reject words that are NEVER valid city names
-        if raw_city in self.REJECTED_NON_CITIES:
-            logger.warning(f"🚫 [BUILD 195] Rejected non-city word: '{raw_city}'")
-            return CityMatch(
-                raw_input=raw_city,
-                canonical=None,
-                confidence=0,
-                needs_confirmation=False,
-                suggestion_hint="זה לא שם של עיר. באיזה עיר את/ה גר/ה?"
-            )
         
         if raw_city in self._name_to_canonical:
             canonical = self._name_to_canonical[raw_city]
