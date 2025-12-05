@@ -1109,6 +1109,19 @@ class MediaStreamHandler:
         # 🔥 BUILD 302: HARD BARGE-IN - When user speaks over AI, we hard-cancel everything
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
         self.barge_in_active = False
+        self._barge_in_started_ts = None  # When barge-in started (for timeout)
+        
+        # 🔥 BUILD 303: GREETING FLOW MANAGEMENT - Wait for user answer to greeting question
+        # Ensures we don't skip to next question before processing user's response to greeting
+        self.awaiting_greeting_answer = False  # True after greeting ends, until first utterance is processed
+        self.first_post_greeting_utterance_handled = False  # True after we processed first utterance post-greeting
+        self.user_utterance_count = 0  # Count total user utterances in this call (for patience with early STT)
+        
+        # 🔥 BUILD 303: NEGATIVE ANSWER DETECTION - Don't skip questions when user says "no"
+        self.last_ai_question_type = None  # Track what AI asked: 'city', 'service', 'confirmation', etc.
+        
+        # 🔥 BUILD 303: SMART HANGUP - Always send goodbye before disconnect
+        self.goodbye_message_sent = False  # Track if we sent a proper goodbye
         
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
@@ -2022,6 +2035,12 @@ ALWAYS mention their name in the first sentence.
             print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
             return False
         
+        # 🛡️ GUARD 0: BUILD 303 - Wait for first user utterance after greeting
+        # Don't let AI auto-respond before user answers the greeting question
+        if self.awaiting_greeting_answer and not is_greeting:
+            print(f"⏸️ [RESPONSE GUARD] Waiting for first user utterance after greeting - skipping ({reason})")
+            return False
+        
         # 🛡️ GUARD 1: Check if response is already active
         if self.active_response_id is not None:
             print(f"⏸️ [RESPONSE GUARD] Active response in progress ({self.active_response_id[:20]}...) - skipping ({reason})")
@@ -2196,10 +2215,41 @@ ALWAYS mention their name in the first sentence.
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
-                    # 🛡️ FIX: PROTECT GREETING - Don't trigger barge-in while greeting is playing!
+                    # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
+                    # Instead of ignoring, treat this as valid input and stop the greeting
                     if self.is_playing_greeting:
-                        print(f"🛡️ [PROTECT GREETING] Ignoring speech_started - greeting still playing")
-                        continue  # Don't process this event at all
+                        print(f"⛔ [BARGE-IN GREETING] User started talking during greeting - stopping greeting!")
+                        self.is_playing_greeting = False
+                        self.barge_in_active = True
+                        self._barge_in_started_ts = time.time()
+                        
+                        # 🔥 BUILD 303: User is answering the greeting question
+                        self.awaiting_greeting_answer = True
+                        self.greeting_completed_at = time.time()  # Mark greeting as done
+                        
+                        # Flush TX queue to stop greeting audio
+                        try:
+                            self._flush_twilio_tx_queue(reason="GREETING_BARGE_IN")
+                        except Exception as e:
+                            print(f"   ⚠️ Error flushing TX queue: {e}")
+                        
+                        # Cancel any pending response
+                        try:
+                            if self.realtime_client and self.active_response_id:
+                                await asyncio.wait_for(
+                                    self.realtime_client.cancel_response(),
+                                    timeout=0.5
+                                )
+                        except Exception:
+                            pass
+                        
+                        self.active_response_id = None
+                        self.response_pending_event.clear()
+                        self.is_ai_speaking_event.clear()
+                        
+                        # Enable barge-in for rest of call
+                        self.barge_in_enabled_after_greeting = True
+                        print(f"   ✅ [BARGE-IN GREETING] Greeting stopped, listening to user...")
                     
                     # 🔥 BUILD 187: RESPONSE GRACE PERIOD - Ignore speech_started within 500ms of response.created
                     # This prevents echo/noise from cancelling the response before audio starts
@@ -2466,6 +2516,12 @@ ALWAYS mention their name in the first sentence.
                         # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
                         print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
+                        
+                        # 🔥 BUILD 303: GREETING FLOW - Now waiting for first user utterance
+                        # Don't let AI create new response until user answers the greeting question
+                        self.awaiting_greeting_answer = True
+                        self.first_post_greeting_utterance_handled = False
+                        print(f"⏳ [BUILD 303] Waiting for user's first response to greeting...")
                         
                         # 🔥 BUILD 172: Transition to ACTIVE state and start silence monitor
                         if self.call_state == CallState.WARMUP:
@@ -2963,8 +3019,22 @@ ALWAYS mention their name in the first sentence.
                     # Uses linguistic rules from hebrew_stt_validator service
                     natural_elongations = ["אמממ", "אההה", "אממ", "אהה", "מממ", "ווו", "אה", "אם", "אוקי", "היי"]
                     
+                    # 🔥 BUILD 303: INCREMENT USER UTTERANCE COUNT for patience with early STT
+                    self.user_utterance_count += 1
+                    
                     is_gibberish_detected = False
-                    if hebrew_chars > 0 and text_stripped not in natural_elongations:
+                    
+                    # 🔥 BUILD 303: PATIENCE FOR FIRST 2 UTTERANCES - Don't reject as gibberish!
+                    # The first responses after greeting are critical - trust them even if slightly broken
+                    # Only require ≥4 Hebrew characters to pass
+                    bypass_gibberish_for_patience = (
+                        self.user_utterance_count <= 2 and
+                        hebrew_chars >= 4  # At least 4 Hebrew chars
+                    )
+                    
+                    if bypass_gibberish_for_patience:
+                        print(f"✅ [BUILD 303 PATIENCE] Bypassing gibberish check for utterance #{self.user_utterance_count}: '{text_stripped}' (hebrew_chars={hebrew_chars})")
+                    elif hebrew_chars > 0 and text_stripped not in natural_elongations:
                         # Use the generic Hebrew STT validator (no hardcoded patterns)
                         is_gib, gib_reason, gib_confidence = is_gibberish(text_stripped)
                         if is_gib and gib_confidence >= 0.5:
@@ -3109,6 +3179,65 @@ ALWAYS mention their name in the first sentence.
                     
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        
+                        # ═══════════════════════════════════════════════════════════════════════════
+                        # 🔥 BUILD 303: FIRST POST-GREETING UTTERANCE HANDLING
+                        # ═══════════════════════════════════════════════════════════════════════════
+                        # If we're waiting for the first response after greeting, mark it as handled
+                        if self.awaiting_greeting_answer and not self.first_post_greeting_utterance_handled:
+                            self.first_post_greeting_utterance_handled = True
+                            self.awaiting_greeting_answer = False
+                            print(f"✅ [BUILD 303] First post-greeting utterance: '{transcript[:50]}...' - processing as answer to greeting question")
+                        
+                        # ═══════════════════════════════════════════════════════════════════════════
+                        # 🔥 BUILD 303: NEGATIVE ANSWER DETECTION - Don't skip questions when user says "no"
+                        # ═══════════════════════════════════════════════════════════════════════════
+                        transcript_clean_neg = transcript.strip().lower().replace(".", "").replace("!", "").replace("?", "")
+                        negative_answers = ["לא", "ממש לא", "חד משמעית לא", "לא צריך", "אין צורך", "לא לא", "לא נכון", "טעות"]
+                        is_negative_answer = any(transcript_clean_neg.startswith(neg) for neg in negative_answers)
+                        
+                        if is_negative_answer:
+                            print(f"⚠️ [BUILD 303] NEGATIVE ANSWER detected: '{transcript}' - user is rejecting/correcting")
+                            # Mark that we need to handle this as a correction, not move forward
+                            self.user_rejected_confirmation = True
+                            # If we're tracking what AI asked, mark it for retry
+                            if self.last_ai_question_type:
+                                print(f"   Last AI question type: {self.last_ai_question_type} - needs retry")
+                        
+                        # ═══════════════════════════════════════════════════════════════════════════
+                        # 🔥 BUILD 303: CITY CORRECTION DETECTION
+                        # Handle patterns like: "לא, לא תל אביב - קריית אתא"
+                        # ═══════════════════════════════════════════════════════════════════════════
+                        if is_negative_answer and hasattr(self, 'stt_consistency_filter'):
+                            # Check if this is a city correction
+                            cities_set, _, _ = load_hebrew_lexicon()
+                            
+                            # Find all cities mentioned in the transcript
+                            cities_mentioned = []
+                            for city in cities_set:
+                                if city in transcript_clean_neg and len(city) > 2:
+                                    cities_mentioned.append(city)
+                            
+                            if len(cities_mentioned) >= 1:
+                                # User mentioned at least one city after "לא" - this is a correction!
+                                # Take the LAST city mentioned (the correction)
+                                new_city = cities_mentioned[-1]
+                                
+                                # Check if city is currently locked to something different
+                                current_city = self.lead_capture_state.get('city', '')
+                                
+                                if current_city and current_city != new_city:
+                                    print(f"🔧 [BUILD 303 CITY CORRECTION] User correcting city: '{current_city}' → '{new_city}'")
+                                    
+                                    # Unlock the city in consistency filter
+                                    if self.stt_consistency_filter.is_city_locked():
+                                        self.stt_consistency_filter.unlock_city()
+                                        print(f"   🔓 Unlocked city in consistency filter")
+                                    
+                                    # Update lead capture state with new city
+                                    self._update_lead_capture_state('city', new_city)
+                                    self._update_lead_capture_state('city_corrected_by_user', True)
+                                    print(f"   ✅ Updated city to: {new_city}")
                         
                         # 🔥 BUILD 186: SEMANTIC COHERENCE GUARD
                         # Check if user's response makes sense given the last AI question
@@ -4560,17 +4689,25 @@ ALWAYS mention their name in the first sentence.
                         # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT
                         # Track consecutive voice frames before considering it real speech
                         # This prevents random noise spikes from triggering transcription
+                        # 🔥 BUILD 303: During barge-in, don't decay frames - let everything through!
                         if not is_noise and rms >= MIN_SPEECH_RMS:
                             self._consecutive_voice_frames += 1
-                        else:
+                        elif not self.barge_in_active:  # Only decay if NOT in barge-in mode
                             # Reset on silence/noise - require sustained speech
                             if self._consecutive_voice_frames > 0:
                                 self._consecutive_voice_frames = max(0, self._consecutive_voice_frames - 2)  # Decay slowly
                         
                         # 🔥 BUILD 171: Only send audio if we have enough consecutive frames OR bypass is active
-                        # 🔥 BUILD 302: ALWAYS send during barge-in!
+                        # 🔥 BUILD 302/303: ALWAYS send during barge-in, even if noise/low RMS!
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
-                        should_send_audio = (has_sustained_speech or speech_bypass_active or self.barge_in_active) and not is_noise
+                        
+                        # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
+                        # Also bypass during _realtime_speech_active (OpenAI VAD detected speech)
+                        if self.barge_in_active or self._realtime_speech_active:
+                            should_send_audio = True  # Send EVERYTHING during barge-in or active speech
+                            is_noise = False  # Force override noise flag too
+                        else:
+                            should_send_audio = (has_sustained_speech or speech_bypass_active) and not is_noise
                         
                         # 🔥 BUILD 165: ONLY send audio above noise threshold AND sustained speech!
                         if should_send_audio:
@@ -6533,6 +6670,42 @@ ALWAYS mention their name in the first sentence.
                 self._hangup_retry_count += 1
                 threading.Timer(remaining_ms / 1000.0, self._trigger_auto_hangup, args=(reason,)).start()
                 return
+        
+        # 🔥 BUILD 303: SMART HANGUP - Always send goodbye before disconnect!
+        # If we haven't sent a goodbye message yet, schedule it and delay hangup
+        if not self.goodbye_message_sent:
+            self.goodbye_message_sent = True
+            self._hangup_retry_count += 1
+            print(f"📞 [BUILD 303] SMART HANGUP - Scheduling goodbye before disconnect...")
+            
+            # Use closing sentence if available, otherwise use generic goodbye
+            goodbye_text = None
+            if self.call_config and self.call_config.closing_sentence:
+                goodbye_text = self.call_config.closing_sentence
+            
+            # Send goodbye via separate thread with its own event loop (non-blocking)
+            def send_goodbye_thread():
+                try:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    async def do_goodbye():
+                        if goodbye_text:
+                            await self._send_text_to_ai(f"[SYSTEM] השיחה מסתיימת. אמור: {goodbye_text}")
+                        else:
+                            await self._send_text_to_ai("[SYSTEM] השיחה מסתיימת. אמור משפט סיום קצר ומנומס בעברית, כמו 'תודה שהתקשרת, בעל המקצוע יחזור אליך בהקדם. להתראות!'")
+                    
+                    loop.run_until_complete(do_goodbye())
+                    loop.close()
+                except Exception as e:
+                    print(f"⚠️ [BUILD 303] Error sending goodbye: {e}")
+            
+            # Start goodbye thread and schedule hangup after delay
+            threading.Thread(target=send_goodbye_thread, daemon=True).start()
+            # Retry hangup after 4 seconds (time for TTS to play)
+            threading.Timer(4.0, self._trigger_auto_hangup, args=(reason,)).start()
+            return
         
         # 🔥 BUILD 172: Wait for audio to finish, but with timeout
         openai_queue_size = self.realtime_audio_out_queue.qsize()
