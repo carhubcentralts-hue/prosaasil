@@ -9,7 +9,7 @@ class Business(db.Model):
     __tablename__ = "business"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
-    business_type = db.Column(db.String(255), nullable=False, default="real_estate")
+    business_type = db.Column(db.String(255), nullable=False, default="general")  # 🔥 BUILD 200: Generic default - works for any business type
     phone_e164 = db.Column('phone_number', db.String(255))  # ✅ Map to DB column phone_number
     whatsapp_number = db.Column(db.String(255))
     greeting_message = db.Column(db.Text)

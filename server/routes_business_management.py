@@ -135,7 +135,7 @@ def create_business():
             business = Business()
             business.name = data['name']
             business.phone_e164 = data['phone_e164']  # השם שהפרונטאנד שולח
-            business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
+            business.business_type = data.get('business_type', 'general')  # 🔥 BUILD 200: Generic default - works for any business type
             business.is_active = True
             
             # Set ALL required fields to prevent NOT NULL constraint violations
