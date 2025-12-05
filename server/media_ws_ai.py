@@ -1581,9 +1581,9 @@ class MediaStreamHandler:
                 print(f"⚠️ [BUILD 202] Failed to build transcription prompt: {e}")
                 transcription_prompt = "שיחה עברית. תמלל שמות, שעות, מספרים. העדף עברית."
             
-            # 🔥 BUILD 187 FIX: AGGRESSIVE VAD - filter noise, prevent false turn_detected
-            # vad_threshold=0.9 - VERY high threshold, only trigger on clear speech
-            # silence_duration_ms=900 - longer silence requirement before AI responds
+            # 🔥 BUILD 206: TELEPHONY-OPTIMIZED VAD settings (expert recommendations)
+            # vad_threshold=0.85 - High but not too aggressive (allows soft Hebrew speakers)
+            # silence_duration_ms=450 - Sweet spot for telephony (300-500ms range)
             # 🔥 BUILD 200 FIX: Removed prefix_padding_ms - not supported by SDK!
             # 🔥 BUILD 202: Use gpt-4o-transcribe model + dynamic transcription prompt
             await client.configure_session(
@@ -1591,8 +1591,8 @@ class MediaStreamHandler:
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.9,         # 🔥 BUILD 187: 0.9 (was 0.75) - VERY strict, only clear speech
-                silence_duration_ms=900,   # 🔥 BUILD 187: 900ms (was 700) - longer pause before responding
+                vad_threshold=0.85,        # 🔥 BUILD 206: 0.85 (was 0.9) - balanced for Hebrew telephony
+                silence_duration_ms=450,   # 🔥 BUILD 206: 450ms (was 900) - telephony sweet spot!
                 temperature=0.6,           # 🔒 Consistent, focused responses
                 max_tokens=greeting_max_tokens,  # 🔥 Dynamic based on greeting length!
                 transcription_prompt=transcription_prompt  # 🔥 BUILD 202: Dynamic vocab for Hebrew STT

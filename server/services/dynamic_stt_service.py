@@ -102,81 +102,58 @@ def get_business_vocabulary(business_id: int) -> Dict[str, Any]:
 
 def build_dynamic_stt_prompt(business_id: int, active_task: str = "") -> str:
     """
-    Build a dynamic, business-specific STT prompt for OpenAI transcription
+    Build a TELEPHONY-OPTIMIZED STT prompt for OpenAI transcription
     
-    Best practices from OpenAI research:
-    - Keep prompt under 120 chars for optimal performance
-    - Include business name, type, and key terminology
-    - Use Hebrew with minimal English
-    - Focus on "what to extract" not vocabulary lists
+    🔥 BUILD 206: Expert recommendations for 8kHz G.711 μ-law telephony:
+    - Keep prompt VERY short (under 100 chars)
+    - Focus on BEHAVIOR not vocabulary lists
+    - Tell model what NOT to do (prevent hallucinations)
+    - Business name + 4-6 key terms MAX
     
     Args:
         business_id: Business ID
         active_task: Current task context (e.g., "booking", "inquiry")
     
     Returns:
-        Dynamic transcription prompt string
+        Telephony-optimized transcription prompt
     """
     vocab = get_business_vocabulary(business_id)
     
     business_name = vocab.get("business_name", "")
-    business_type = vocab.get("business_type", "general")
-    business_context = vocab.get("business_context", "")
     
-    # Build compact prompt (aim for ~80-100 chars)
-    parts = []
+    # 🔥 BUILD 206: TELEPHONY-OPTIMIZED prompt structure
+    # Core instruction: behavior-focused, not vocabulary-focused
+    # Expert recommendation: "תמלל עברית בשיחה טלפונית. הימנע מהוספת מילים."
     
-    # Core context
-    if business_context:
-        parts.append(f"שיחה עם {business_context}.")
-    elif business_name:
-        parts.append(f"שיחה עם {business_name}.")
-    else:
-        parts.append("שיחה עברית.")
+    # Start with core telephony instruction
+    prompt_parts = ["תמלל עברית בשיחה טלפונית."]
     
-    # Key vocabulary hints (max 3-5 terms)
+    # Add business context (very brief)
+    if business_name:
+        prompt_parts.append(f"עסק: {business_name}.")
+    
+    # Add ONLY 4-6 key hints (expert recommendation)
     hints = []
-    
-    # Add a few service hints
     services = vocab.get("services", [])[:3]
+    staff = vocab.get("staff", [])[:2]
     if services:
         hints.extend(services)
-    
-    # Add staff names (first 2)
-    staff = vocab.get("staff", [])[:2]
     if staff:
         hints.extend(staff)
     
-    # Add product hints (first 2)
-    products = vocab.get("products", [])[:2]
-    if products:
-        hints.extend(products)
-    
     if hints:
-        parts.append(f"מונחים: {', '.join(hints[:5])}.")
+        prompt_parts.append(f"מילים: {', '.join(hints[:5])}.")
     
-    # Task context
-    if active_task:
-        task_hints = {
-            "booking": "קביעת תור",
-            "inquiry": "שאלות",
-            "support": "תמיכה",
-            "sales": "מכירות"
-        }
-        task_text = task_hints.get(active_task, active_task)
-        parts.append(f"נושא: {task_text}.")
+    # Critical: anti-hallucination instruction
+    prompt_parts.append("רק תמלל, לא להוסיף.")
     
-    # Always end with Hebrew preference
-    parts.append("העדף עברית.")
+    prompt = " ".join(prompt_parts)
     
-    prompt = " ".join(parts)
+    # Ensure prompt stays under 100 chars for optimal performance
+    if len(prompt) > 100:
+        prompt = f"תמלל עברית טלפונית. עסק: {business_name[:15] if business_name else 'כללי'}. רק תמלל."
     
-    # Ensure prompt stays under 120 chars
-    if len(prompt) > 120:
-        # Truncate hints
-        prompt = f"שיחה עברית עם {business_name or 'עסק'}. העדף עברית."
-    
-    logger.debug(f"📝 [STT-PROMPT] Built prompt for business {business_id}: '{prompt}' ({len(prompt)} chars)")
+    logger.debug(f"📝 [STT-PROMPT] Telephony prompt for business {business_id}: '{prompt}' ({len(prompt)} chars)")
     return prompt
 
 

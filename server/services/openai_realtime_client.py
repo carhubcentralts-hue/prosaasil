@@ -279,7 +279,7 @@ class OpenAIRealtimeClient:
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
         vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
-        silence_duration_ms: int = 1200,  # 🔥 BUILD 170: Raised from 500ms to reduce false triggers
+        silence_duration_ms: int = 450,  # 🔥 BUILD 206: 450ms - telephony sweet spot (300-500ms range)
         temperature: float = 0.18,
         max_tokens: int = 300,
         transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
