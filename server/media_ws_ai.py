@@ -7193,12 +7193,15 @@ ALWAYS mention their name in the first sentence.
                             self._update_lead_capture_state('city_needs_confirmation', True)
                             print(f"⚠️ [CITY] Needs confirmation: '{canonical}' (confidence={best_result.confidence:.0f}%)")
                         else:
-                            # ≥93% - auto-accept
+                            # 🔥 BUILD 306: ≥90% - auto-accept AND lock immediately
                             canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
                             self._update_lead_capture_state('city', canonical)
                             self._update_lead_capture_state('raw_city', raw_city)
                             self._update_lead_capture_state('city_confidence', best_result.confidence)
-                            print(f"✅ [CITY] Auto-accepted: '{canonical}' (confidence={best_result.confidence:.0f}%)")
+                            # 🔒 BUILD 306: Lock city immediately on high-confidence match
+                            # This prevents subsequent lower-confidence matches from overriding
+                            self.stt_consistency_filter.locked_city = canonical
+                            print(f"✅ [CITY] Auto-accepted AND locked: '{canonical}' (confidence={best_result.confidence:.0f}%)")
                         
             except Exception as e:
                 print(f"⚠️ [CITY] Phonetic validator error, falling back to basic: {e}")
