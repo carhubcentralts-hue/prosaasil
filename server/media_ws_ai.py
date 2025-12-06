@@ -1474,9 +1474,18 @@ class MediaStreamHandler:
             if DEBUG: print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
             t_connect_start = time.time()
-            await client.connect()
+            # 🔥 BUILD 312: Add timeout to detect slow connections
+            try:
+                await asyncio.wait_for(client.connect(), timeout=3.0)
+            except asyncio.TimeoutError:
+                print(f"⚠️ [PARALLEL] OpenAI connect TIMEOUT (>3s) - possible event loop blocking!")
+                # Try to connect anyway without timeout
+                await client.connect()
             connect_ms = (time.time() - t_connect_start) * 1000
             t_connected = time.time()
+            # 🔥 BUILD 312: Warn if connection is slow (>1.5s is too slow)
+            if connect_ms > 1500:
+                print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (should be <1000ms)")
             if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
             self.realtime_client = client
@@ -7047,7 +7056,7 @@ ALWAYS mention their name in the first sentence.
     async def _silence_monitor_loop(self):
         """
         Background loop that checks for silence and triggers warnings/hangup.
-        🔥 BUILD 311: Added post-greeting grace period
+        🔥 BUILD 312: Only start silence counting AFTER user has spoken!
         """
         try:
             while self.call_state == CallState.ACTIVE and not self.hangup_triggered:
@@ -7057,15 +7066,21 @@ ALWAYS mention their name in the first sentence.
                 if self.call_state in (CallState.CLOSING, CallState.ENDED):
                     break
                 
-                # 🔥 BUILD 311.1: Smart grace period - ends early when user speaks!
-                # Only apply grace if user hasn't spoken yet
-                if self.greeting_completed_at and not self.user_has_spoken:
-                    time_since_greeting = time.time() - self.greeting_completed_at
-                    grace_period = getattr(self, '_post_greeting_grace_period_sec', 5.0)
-                    if time_since_greeting < grace_period:
-                        # Still in grace period AND user hasn't spoken - don't count silence yet
-                        continue
-                # If user has spoken, proceed normally (no grace period)
+                # 🔥 BUILD 312: NEVER count silence until user has spoken at least once!
+                # This prevents AI from responding "are you there?" before user says anything
+                if not self.user_has_spoken:
+                    # User hasn't spoken yet - extend grace period indefinitely
+                    # But add a safety limit of 60 seconds to avoid zombie calls
+                    if self.greeting_completed_at:
+                        time_since_greeting = time.time() - self.greeting_completed_at
+                        if time_since_greeting > 60.0:
+                            # 60 seconds with no user speech - this is a dead call
+                            print(f"🔇 [SILENCE] 60s+ no user speech - closing dead call")
+                            self.call_state = CallState.CLOSING
+                            self._trigger_auto_hangup("no_user_speech_timeout")
+                            break
+                    # Still waiting for user to speak - don't count silence
+                    continue
                 
                 # Calculate silence duration
                 silence_duration = time.time() - self._last_speech_time
