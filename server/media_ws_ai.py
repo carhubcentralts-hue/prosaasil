@@ -1840,16 +1840,28 @@ ALWAYS mention their name in the first sentence.
                         if stt_prompt_for_update:
                             transcription_config["prompt"] = stt_prompt_for_update
                         
+                        # 🔥 BUILD 313: SIMPLE LEAD CAPTURE - Let OpenAI extract fields using Tool!
+                        # No word lists, no fuzzy matching - just let AI understand naturally
+                        lead_tool = self._build_lead_capture_tool()
+                        
+                        session_config = {
+                            "instructions": full_prompt,
+                            "voice": voice_to_use,  # 🔒 Must re-send voice to lock it
+                            "max_response_output_tokens": session_max_tokens,
+                            "input_audio_transcription": transcription_config
+                        }
+                        
+                        # 🔥 BUILD 313: Add tool for lead capture (if fields are required)
+                        if lead_tool:
+                            session_config["tools"] = [lead_tool]
+                            session_config["tool_choice"] = "auto"  # Let AI decide when to call
+                            print(f"🔧 [BUILD 313] Added save_lead_info tool for fields: {getattr(self, 'required_lead_fields', [])}")
+                        
                         await client.send_event({
                             "type": "session.update",
-                            "session": {
-                                "instructions": full_prompt,
-                                "voice": voice_to_use,  # 🔒 Must re-send voice to lock it
-                                "max_response_output_tokens": session_max_tokens,
-                                "input_audio_transcription": transcription_config
-                            }
+                            "session": session_config
                         })
-                        print(f"✅ [PHASE 2] Session updated: {len(full_prompt)} chars, voice={voice_to_use}, max_tokens={session_max_tokens}, stt=gpt-4o-transcribe+Hebrew")
+                        print(f"✅ [PHASE 2] Session updated: {len(full_prompt)} chars, voice={voice_to_use}, max_tokens={session_max_tokens}, stt=gpt-4o-transcribe+Hebrew, tools={'yes' if lead_tool else 'no'}")
                     else:
                         print(f"⚠️ [PHASE 2] Keeping minimal prompt - full prompt build failed")
                 except Exception as e:
@@ -2276,6 +2288,12 @@ ALWAYS mention their name in the first sentence.
                     print(f"[SAFETY] Transcription failed (#{self.transcription_failed_count}): {error_msg}")
                     print(f"[SAFETY] NO RETRY - continuing conversation without transcription")
                     # ✅ Continue processing - don't retry, don't crash, just log and move on
+                    continue
+                
+                # 🔥 BUILD 313: Handle function calls for lead capture
+                if event_type == "response.function_call_arguments.done":
+                    print(f"🔧 [BUILD 313] Function call received!")
+                    await self._handle_function_call(event, client)
                     continue
                 
                 # 🔍 DEBUG: Log all event types to catch duplicates
@@ -7317,21 +7335,146 @@ ALWAYS mention their name in the first sentence.
         
         return False
 
-    def _extract_city_from_confirmation(self, text: str) -> str:
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 🔥 BUILD 313: SIMPLE LEAD CAPTURE - Let OpenAI do all the understanding!
+    # No word lists, no fuzzy matching, no city normalizer - just pure AI
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def _build_lead_capture_tool(self):
         """
-        🔥 BUILD 307: Extract city from AI confirmation pattern
+        🔥 BUILD 313: Build dynamic tool schema based on required_lead_fields
         
-        Parses AI confirmations like:
-        - "בתל אביב, נכון?" → "תל אביב"
-        - "בקריית אתא, נכון?" → "קריית אתא"
-        - "עיר עפולה, נכון?" → "עפולה"
+        Creates a save_lead_info tool that OpenAI can call when user provides info.
+        Schema is generated dynamically from business config - 100% database-driven!
         
         Returns:
-            City name or empty string if not found
+            Tool definition dict, or None if no fields required
+        """
+        required_fields = getattr(self, 'required_lead_fields', [])
+        
+        # Skip if only phone (always captured from Twilio) or no fields
+        fields_to_capture = [f for f in required_fields if f != 'phone']
+        if not fields_to_capture:
+            return None
+        
+        # Build properties based on required fields
+        properties = {}
+        required_props = []
+        
+        field_descriptions = {
+            'name': 'שם הלקוח (כפי שהוא אמר)',
+            'city': 'שם העיר שהלקוח אמר (בדיוק כפי שהוא אמר)',
+            'service_type': 'סוג השירות שהלקוח צריך',
+            'budget': 'תקציב הלקוח (מספר בשקלים)',
+            'email': 'כתובת אימייל',
+            'preferred_time': 'זמן מועדף לפגישה',
+            'notes': 'הערות נוספות או תיאור הבעיה'
+        }
+        
+        for field in fields_to_capture:
+            desc = field_descriptions.get(field, f'ערך עבור {field}')
+            properties[field] = {
+                "type": "string",
+                "description": desc
+            }
+        
+        tool = {
+            "type": "function",
+            "name": "save_lead_info",
+            "description": "שמור פרטים שהלקוח מסר בשיחה. קרא לפונקציה הזו כשהלקוח נותן מידע כמו שם, עיר, או סוג שירות.",
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": []  # None required - save whatever user provides
+            }
+        }
+        
+        print(f"🔧 [BUILD 313] Tool schema built for fields: {fields_to_capture}")
+        return tool
+    
+    async def _handle_function_call(self, event: dict, client):
+        """
+        🔥 BUILD 313: Handle OpenAI function calls for lead capture
+        
+        When AI calls save_lead_info, we extract the fields and update lead_capture_state.
+        No fuzzy matching, no word lists - just trust what OpenAI extracted!
+        """
+        import json
+        
+        function_name = event.get("name", "")
+        call_id = event.get("call_id", "")
+        arguments_str = event.get("arguments", "{}")
+        
+        print(f"🔧 [BUILD 313] Function call: {function_name}, call_id={call_id[:20] if call_id else 'none'}...")
+        
+        if function_name == "save_lead_info":
+            try:
+                args = json.loads(arguments_str)
+                print(f"📝 [BUILD 313] Lead info from AI: {args}")
+                
+                # Update lead_capture_state with each field AI provided
+                for field, value in args.items():
+                    if value and str(value).strip():
+                        self._update_lead_capture_state(field, str(value).strip())
+                        print(f"✅ [BUILD 313] Saved {field} = '{value}'")
+                
+                # Send success response back to AI
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({"success": True, "saved_fields": list(args.keys())})
+                    }
+                })
+                
+                # Trigger response to continue conversation
+                await client.send_event({"type": "response.create"})
+                
+                # Check if all fields are captured
+                self._check_lead_complete()
+                
+            except json.JSONDecodeError as e:
+                print(f"❌ [BUILD 313] Failed to parse function arguments: {e}")
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({"success": False, "error": str(e)})
+                    }
+                })
+                await client.send_event({"type": "response.create"})
+        else:
+            print(f"⚠️ [BUILD 313] Unknown function: {function_name}")
+    
+    def _check_lead_complete(self):
+        """
+        🔥 BUILD 313: Check if all required lead fields are captured
+        """
+        required = set(getattr(self, 'required_lead_fields', []))
+        captured = set(self.lead_capture_state.keys())
+        
+        # Phone is always captured from Twilio
+        if 'phone' in required and hasattr(self, 'phone_number') and self.phone_number:
+            captured.add('phone')
+        
+        missing = required - captured
+        
+        if not missing:
+            self.lead_captured = True
+            print(f"🎯 [BUILD 313] All lead fields captured! {self.lead_capture_state}")
+        else:
+            print(f"📋 [BUILD 313] Still missing fields: {missing}")
+    
+    def _extract_city_from_confirmation(self, text: str) -> str:
+        """
+        🔥 BUILD 313: SIMPLIFIED - Just extract city from pattern
+        No city normalizer, no fuzzy matching - trust the AI!
         """
         import re
         
-        # Common patterns for city mention in confirmations
+        # Simple patterns for city mention
         patterns = [
             r'ב([א-ת\s\-]{2,20})[,\s]+נכון',  # "בתל אביב, נכון?"
             r'(?:עיר|מ|ל)([א-ת\s\-]{2,20})[,\s]+נכון',  # "עיר חיפה, נכון?"
@@ -7341,31 +7484,16 @@ ALWAYS mention their name in the first sentence.
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                city = match.group(1).strip()
-                # Validate it's a real city
-                try:
-                    from server.services.city_normalizer import normalize_city, get_all_city_names
-                    from server.services.phonetic_validator import validate_hebrew_word
-                    
-                    all_cities = get_all_city_names()
-                    result = validate_hebrew_word(city, all_cities, auto_accept_threshold=70.0)
-                    if result.confidence >= 70:
-                        normalized = normalize_city(result.best_match or city)
-                        return normalized.canonical or city
-                except Exception as e:
-                    print(f"⚠️ [BUILD 307] City extraction error: {e}")
-                    return city
+                return match.group(1).strip()
         
         return ""
 
     def _extract_lead_fields_from_ai(self, ai_transcript: str, is_user_speech: bool = False):
         """
-        🎯 SMART HANGUP: Extract lead fields from AI confirmation patterns
+        🔥 BUILD 313: SIMPLIFIED - OpenAI Tool handles most extraction!
         
-        Parses AI responses to identify confirmed information:
-        - "אתה מתל אביב" → city=תל אביב
-        - "שירות ניקיון" → service_type=ניקיון
-        - "תקציב של X שקל" → budget=X
+        This is now a minimal FALLBACK for basic patterns only.
+        The main extraction happens via the save_lead_info Tool that OpenAI calls.
         
         Args:
             ai_transcript: The AI's transcribed speech
@@ -7374,213 +7502,46 @@ ALWAYS mention their name in the first sentence.
         import re
         
         text = ai_transcript.strip()
-        if not text or len(text) < 5:
+        if not text or len(text) < 3:
             return
         
-        # Get required fields to know what we're looking for
+        # 🔥 BUILD 313: ONLY extract from USER speech - AI speech should NEVER set lead fields!
+        if not is_user_speech:
+            # Track city mentioned by AI for user "נכון" confirmation
+            if 'נכון' in text or 'מאשר' in text:
+                self._last_ai_mentioned_city = self._extract_city_from_confirmation(text)
+            return
+        
+        # 🔥 BUILD 313: Minimal fallback patterns - OpenAI Tool handles the rest!
         required_fields = getattr(self, 'required_lead_fields', [])
         if not required_fields:
             return
         
-        # 🔥 BUILD 312: ONLY extract from USER speech - AI speech should NEVER set lead fields!
-        # AI speech is only used for tracking what city AI mentioned (for user confirmation "נכון")
-        if not is_user_speech:
-            # 🔥 BUILD 312: For AI confirmations ONLY, track the city mentioned for user "נכון" locking
-            if 'נכון' in text or 'מאשר' in text:
-                # This is an AI confirmation - extract city ONLY for tracking (not for lead state)
-                self._last_ai_mentioned_city = self._extract_city_from_confirmation(text)
-                if self._last_ai_mentioned_city:
-                    print(f"📍 [BUILD 312] AI mentioned city in confirmation (tracking only): '{self._last_ai_mentioned_city}'")
-            # ALWAYS return for AI speech - never extract lead fields from AI!
-            return
+        # 📧 EMAIL EXTRACTION: Simple pattern match (email format is universal)
+        if 'email' in required_fields and 'email' not in self.lead_capture_state:
+            email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+            match = re.search(email_pattern, text)
+            if match:
+                self._update_lead_capture_state('email', match.group(0))
+                print(f"📧 [BUILD 313] Email extracted: {match.group(0)}")
         
-        # 🏙️ CITY EXTRACTION: Use 3-layer validation system
-        # 🔥 BUILD 185: Phonetic validator + Consistency filter + RapidFuzz
-        # 🔥 BUILD 201: User correction detection - don't ignore locked if user explicitly corrects
-        if 'city' in required_fields:
-            try:
-                from server.services.city_normalizer import normalize_city, get_all_city_names
-                from server.services.phonetic_validator import (
-                    validate_hebrew_word, phonetic_similarity, normalize_for_comparison
-                )
-                
-                # 🔥 BUILD 201: ALWAYS process city extraction - let ConsistencyFilter handle corrections
-                # The filter will detect if user is correcting and unlock if needed
-                if True:
-                    # Normalize text for matching
-                    text_normalized = text.replace('-', ' ').replace('־', ' ')
-                    
-                    # Try to extract city mentions using patterns
-                    city_patterns = [
-                        r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',  # "מתל אביב", "בירושלים"
-                        r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',  # "גר בחיפה"
-                        r'עיר[:\s]+([א-ת\s\-]{3,20})',  # "עיר: תל אביב"
-                    ]
-                    
-                    city_candidates = []
-                    for pattern in city_patterns:
-                        matches = re.findall(pattern, text_normalized)
-                        city_candidates.extend(matches)
-                    
-                    # Also try the full text as potential city name
-                    # 🔥 BUILD 306/312: Skip common words that are clearly NOT cities
-                    non_city_words = {
-                        'שלום', 'היי', 'הלו', 'צריך', 'צריכים', 'צריכה', 'רוצה', 'רוצים',
-                        'אני', 'אנחנו', 'אתה', 'את', 'אתם', 'הוא', 'היא', 'הם', 'הן',
-                        'כן', 'לא', 'אוקיי', 'בסדר', 'טוב', 'תודה', 'בבקשה', 'סליחה',
-                        'עיר', 'שירות', 'מנעולן', 'מנעול', 'דלת', 'דלתות', 'רכב', 'חכם',
-                        'פורץ', 'פריצה', 'פריצת', 'מפתח', 'מפתחות', 'סיוע', 'עזרה',
-                        'בוקר', 'צהריים', 'ערב', 'לילה', 'היום', 'מחר', 'עכשיו',
-                        'כמה', 'מתי', 'איפה', 'למה', 'מה', 'איך', 'מי', 'זה', 'זאת',
-                        'שריות', 'שריית', 'אתר', 'קליבר',  # Common mishearings
-                        # 🔥 BUILD 312: Words that sound like cities but aren't
-                        'עדיין', 'עדי', 'עדין', 'לדעת', 'ידעת', 'שם', 'כאן', 'פה',
-                        'נכון', 'מוודא', 'מוודאת', 'רק', 'אולי', 'באמת', 'ממש',
-                        'איתי', 'איתך', 'שומע', 'שומעת', 'עוד', 'כבר', 'עוזר', 'עוזרת'
-                    }
-                    words = text_normalized.split()
-                    for i in range(len(words)):
-                        for j in range(i+1, min(i+4, len(words)+1)):
-                            candidate = ' '.join(words[i:j])
-                            # Skip if candidate is a single non-city word
-                            if len(words[i:j]) == 1 and words[i].replace('!', '').replace(',', '').replace('.', '') in non_city_words:
-                                continue
-                            if 2 < len(candidate) < 25:
-                                city_candidates.append(candidate)
-                    
-                    # 🔥 LAYER 2: Phonetic validation with confidence thresholds
-                    all_cities = get_all_city_names()
-                    best_result = None
-                    best_combined_score = 0
-                    
-                    for candidate in city_candidates:
-                        candidate = candidate.strip()
-                        if not candidate:
-                            continue
-                        
-                        # Phonetic validation
-                        # 🔥 BUILD 306: Relaxed thresholds to match phonetic_validator defaults
-                        phonetic_result = validate_hebrew_word(
-                            candidate, all_cities,
-                            auto_accept_threshold=90.0,  # Was 93, now 90 (BUILD 306)
-                            confirm_threshold=82.0,       # Was 85, now 82 (BUILD 306)
-                            reject_threshold=82.0         # Was 85, now 82 (BUILD 306)
-                        )
-                        
-                        if phonetic_result.confidence > best_combined_score:
-                            best_combined_score = phonetic_result.confidence
-                            best_result = phonetic_result
-                    
-                    if best_result:
-                        raw_city = best_result.raw_input
-                        
-                        # 🔥 LAYER 3: Add to consistency filter and check majority
-                        self.city_raw_attempts.append(raw_city)
-                        locked = self.stt_consistency_filter.add_city_attempt(raw_city)
-                        
-                        if locked:
-                            # Majority achieved - use locked value
-                            canonical = normalize_city(locked).canonical or locked
-                            self._update_lead_capture_state('city', canonical)
-                            self._update_lead_capture_state('raw_city', raw_city)
-                            self._update_lead_capture_state('city_confidence', 100.0)
-                            self._update_lead_capture_state('city_autocorrected', True)
-                            print(f"🔒 [CITY] Majority locked: '{canonical}' from {self.city_raw_attempts}")
-                        elif best_result.should_reject:
-                            # 🔥 BUILD 306: Below 82% - ask user to repeat
-                            self._update_lead_capture_state('city_needs_retry', True)
-                            print(f"❌ [CITY] Rejected '{raw_city}' (confidence={best_result.confidence:.0f}%) - ask to repeat")
-                        elif best_result.needs_confirmation:
-                            # 🔥 BUILD 306: 82-90% - needs confirmation
-                            canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
-                            self._update_lead_capture_state('city', canonical)
-                            self._update_lead_capture_state('raw_city', raw_city)
-                            self._update_lead_capture_state('city_confidence', best_result.confidence)
-                            self._update_lead_capture_state('city_needs_confirmation', True)
-                            print(f"⚠️ [CITY] Needs confirmation: '{canonical}' (confidence={best_result.confidence:.0f}%)")
-                        else:
-                            # 🔥 BUILD 306: ≥90% - auto-accept AND lock immediately
-                            canonical = normalize_city(best_result.best_match or raw_city).canonical or raw_city
-                            self._update_lead_capture_state('city', canonical)
-                            self._update_lead_capture_state('raw_city', raw_city)
-                            self._update_lead_capture_state('city_confidence', best_result.confidence)
-                            # 🔒 BUILD 306: Lock city immediately on high-confidence match
-                            # This prevents subsequent lower-confidence matches from overriding
-                            self.stt_consistency_filter.locked_city = canonical
-                            print(f"✅ [CITY] Auto-accepted AND locked: '{canonical}' (confidence={best_result.confidence:.0f}%)")
-                        
-            except Exception as e:
-                print(f"⚠️ [CITY] Phonetic validator error, falling back to basic: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # 🔧 SERVICE_TYPE EXTRACTION: Look for service mentions
-        # 🔥 BUILD 179: ALWAYS extract - update to LAST mentioned service (user may change mind)
-        # 🔥 BUILD 180: Filter out AI question fragments to prevent false extraction
-        if 'service_type' in required_fields:
-            # Skip if this looks like an AI question (contains question indicators)
-            ai_question_indicators = [
-                'איזה סוג שירות', 'מה השירות', 'באיזה תחום', 'מה אתה צריך',
-                'איך אני יכול לעזור', 'במה אוכל לעזור', 'מה הבעיה', 'איזה שירות אתה'
-            ]
-            is_ai_question = any(indicator in text for indicator in ai_question_indicators)
-            
-            if not is_ai_question:
-                # 🔥 BUILD 180: Look for AI CONFIRMATION patterns like "אתה צריך X, נכון?"
-                confirmation_patterns = [
-                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,25})(?:[\s,]+נכון|[\s,]+בעיר|[\s,]+ב)',  # "אתה צריך קיצור דלתות, נכון?"
-                    r'(?:שירות|טיפול)\s+(?:של\s+)?([א-ת\s]{3,25})(?:[\s,]+נכון|[\s,]+בעיר|[\s,]+ב)',  # "שירות ניקיון, נכון?"
-                    r'ב(?:תחום|נושא)\s+(?:של\s+)?([א-ת\s]{3,25})',  # "בתחום השיפוצים"
-                ]
-                for pattern in confirmation_patterns:
-                    match = re.search(pattern, text)
-                    if match:
-                        service = match.group(1).strip()
-                        # 🔥 Filter out question fragments and generic words
-                        question_fragments = ['אתה צריך', 'צריכים', 'צריך', 'תרצה', 'תרצו', 'רוצה', 'רוצים']
-                        if len(service) > 3 and service not in question_fragments:
-                            self._update_lead_capture_state('service_type', service)
-                            print(f"✅ [LEAD STATE] Extracted service_type from confirmation: {service}")
-                            break
-        
-        # 💰 BUDGET EXTRACTION: Look for budget/price mentions
+        # 💰 BUDGET EXTRACTION: Numbers with currency (universal pattern)
         if 'budget' in required_fields and 'budget' not in self.lead_capture_state:
             budget_patterns = [
-                r'תקציב\s+(?:של\s+)?(\d[\d,\.]*)\s*(?:שקל|ש"ח|₪)?',  # "תקציב של 5000 שקל"
                 r'(\d[\d,\.]*)\s*(?:שקל|ש"ח|₪)',  # "5000 שקל"
+                r'תקציב\s+(?:של\s+)?(\d[\d,\.]*)',  # "תקציב של 5000"
             ]
             for pattern in budget_patterns:
                 match = re.search(pattern, text)
                 if match:
                     budget = match.group(1).replace(',', '')
                     self._update_lead_capture_state('budget', budget)
+                    print(f"💰 [BUILD 313] Budget extracted: {budget}")
                     break
         
-        # 📧 EMAIL EXTRACTION: Look for email mentions
-        if 'email' in required_fields and 'email' not in self.lead_capture_state:
-            email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-            match = re.search(email_pattern, text)
-            if match:
-                self._update_lead_capture_state('email', match.group(0))
-        
-        # ⏰ PREFERRED_TIME EXTRACTION: Look for time preferences
-        if 'preferred_time' in required_fields and 'preferred_time' not in self.lead_capture_state:
-            time_indicators = ['בוקר', 'צהריים', 'ערב', 'לילה', 'בשעה', 'ביום']
-            for indicator in time_indicators:
-                if indicator in text:
-                    # Extract nearby text as time preference
-                    idx = text.find(indicator)
-                    time_context = text[max(0, idx-10):min(len(text), idx+20)]
-                    self._update_lead_capture_state('preferred_time', time_context.strip())
-                    break
-        
-        # 📝 NOTES EXTRACTION: If AI confirms problem description
-        if 'notes' in required_fields and 'notes' not in self.lead_capture_state:
-            notes_indicators = ['הבנתי', 'בסדר אז', 'אני מבין', 'הבעיה היא', 'תיאור הבעיה']
-            for indicator in notes_indicators:
-                if indicator in text and len(text) > 20:
-                    self._update_lead_capture_state('notes', text[:100])
-                    break
+        # 🔥 BUILD 313: All other fields (city, name, service_type) handled by OpenAI Tool!
+        # No more word lists, no fuzzy matching, no city normalizer
+        # OpenAI understands context and calls save_lead_info with correct values
     
     def _update_lead_capture_state(self, field: str, value: str):
         """
