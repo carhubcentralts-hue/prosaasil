@@ -1226,8 +1226,10 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 311: POST-GREETING PATIENCE - Don't skip questions after greeting!
         # Grace period: Don't count consecutive responses or trigger LOOP GUARD for X seconds after greeting
-        self._post_greeting_grace_period_sec = 10.0  # 10 seconds after greeting to let user respond
+        # 🔥 BUILD 311.1: Reduced to 5 seconds - enough time but not too long
+        self._post_greeting_grace_period_sec = 5.0  # 5 seconds after greeting to let user respond
         self._is_silence_handler_response = False  # Track if current response is from SILENCE_HANDLER (shouldn't count)
+        self._user_responded_after_greeting = False  # Track if user has responded after greeting (end grace early)
 
     def _init_streaming_stt(self):
         """
@@ -2707,14 +2709,15 @@ ALWAYS mention their name in the first sentence.
                         else:
                             self._mishearing_count = 0  # Reset on clear response
                         
-                        # 🔥 BUILD 311: POST-GREETING PATIENCE - Don't skip questions!
-                        # Check if we're in the grace period after greeting
+                        # 🔥 BUILD 311.1: POST-GREETING PATIENCE - Smart grace period!
+                        # Grace period ends early when user speaks (user_has_spoken=True)
                         in_post_greeting_grace = False
-                        if self.greeting_completed_at:
+                        if self.greeting_completed_at and not self.user_has_spoken:
                             time_since_greeting = time.time() - self.greeting_completed_at
-                            grace_period = getattr(self, '_post_greeting_grace_period_sec', 10.0)
+                            grace_period = getattr(self, '_post_greeting_grace_period_sec', 5.0)
                             if time_since_greeting < grace_period:
                                 in_post_greeting_grace = True
+                        # If user has spoken, grace period is over - normal rules apply
                         
                         # 🔥 BUILD 311: DON'T count SILENCE_HANDLER responses towards consecutive
                         is_silence_handler = getattr(self, '_is_silence_handler_response', False)
@@ -7054,13 +7057,15 @@ ALWAYS mention their name in the first sentence.
                 if self.call_state in (CallState.CLOSING, CallState.ENDED):
                     break
                 
-                # 🔥 BUILD 311: Skip during post-greeting grace period - give customer time to respond!
-                if self.greeting_completed_at:
+                # 🔥 BUILD 311.1: Smart grace period - ends early when user speaks!
+                # Only apply grace if user hasn't spoken yet
+                if self.greeting_completed_at and not self.user_has_spoken:
                     time_since_greeting = time.time() - self.greeting_completed_at
-                    grace_period = getattr(self, '_post_greeting_grace_period_sec', 10.0)
+                    grace_period = getattr(self, '_post_greeting_grace_period_sec', 5.0)
                     if time_since_greeting < grace_period:
-                        # Still in grace period - don't count silence yet
+                        # Still in grace period AND user hasn't spoken - don't count silence yet
                         continue
+                # If user has spoken, proceed normally (no grace period)
                 
                 # Calculate silence duration
                 silence_duration = time.time() - self._last_speech_time
@@ -7125,14 +7130,19 @@ ALWAYS mention their name in the first sentence.
             print(f"❌ [SILENCE] Monitor error: {e}")
     
     async def _send_silence_warning(self):
-        """Send a gentle 'are you there?' prompt to the AI."""
+        """
+        Send a gentle prompt to continue the conversation.
+        🔥 BUILD 311.1: Made fully dynamic - AI decides based on context, no hardcoded phrases
+        """
         try:
             # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
             fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
             if fields_collected and not self.verification_confirmed:
-                warning_prompt = "[SYSTEM] פרטים נאספו אבל הלקוח לא אישר. שאל: 'אתה עדיין שם? רק רציתי לוודא - הפרטים שמסרת נכונים?'"
+                warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
             else:
-                warning_prompt = "[SYSTEM] User has been silent. Gently ask if they are still there: 'אתה עדיין איתי?'"
+                # 🔥 BUILD 311.1: Dynamic - let AI continue naturally based on conversation context
+                # Don't hardcode "אתה עדיין איתי?" - let AI decide what makes sense
+                warning_prompt = "[SYSTEM] הלקוח שותק. המשך את השיחה בטבעיות - שאל שוב את השאלה האחרונה בניסוח אחר או בדוק אם הלקוח שם."
             await self._send_text_to_ai(warning_prompt)
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
