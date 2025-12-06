@@ -6243,7 +6243,14 @@ ALWAYS mention their name in the first sentence.
             return self._hebrew_stt(pcm16_8k)
 
     def _hebrew_stt(self, pcm16_8k: bytes) -> str:
-        """Hebrew STT using Google STT Streaming with speech contexts (לפי ההנחיות)"""
+        """🔥 BUILD 314: LEGACY CODE - Never used when USE_REALTIME_API=True
+        OpenAI Realtime API handles ALL transcription via gpt-4o-transcribe.
+        This is kept only for backwards compatibility.
+        """
+        # 🚀 REALTIME API: Skip Google STT completely - use gpt-4o-transcribe via Realtime API
+        if USE_REALTIME_API:
+            return ""
+        
         try:
             print(f"🎵 STT_PROCEED: Processing {len(pcm16_8k)} bytes with Google STT (audio validated)")
             
@@ -6383,7 +6390,14 @@ ALWAYS mention their name in the first sentence.
             return ""
     
     def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
-        """✅ FIXED: Whisper fallback with smart validation - לא ימציא מילים!"""
+        """🔥 BUILD 314: LEGACY CODE - Never used when USE_REALTIME_API=True
+        OpenAI Realtime API handles ALL transcription via gpt-4o-transcribe.
+        This is kept only for backwards compatibility if someone sets USE_REALTIME_API=False.
+        """
+        # 🚀 REALTIME API: Skip Whisper completely - use gpt-4o-transcribe via Realtime API
+        if USE_REALTIME_API:
+            return ""
+        
         try:
             print(f"🔄 WHISPER_VALIDATED: Processing {len(pcm16_8k)} bytes with fabrication prevention")
             
@@ -7921,10 +7935,14 @@ ALWAYS mention their name in the first sentence.
     
     
     def _hebrew_tts(self, text: str) -> bytes | None:
+        """🔥 BUILD 314: LEGACY CODE - Never used when USE_REALTIME_API=True
+        OpenAI Realtime API handles ALL TTS natively.
+        This is kept only for backwards compatibility.
         """
-        ✅ UPGRADED Hebrew TTS with natural voice, SSML, and smart pronunciation
-        Uses gcp_tts_live.py with all professional enhancements
-        """
+        # 🚀 REALTIME API: Skip Google TTS completely - OpenAI Realtime generates audio natively
+        if USE_REALTIME_API:
+            return None
+        
         try:
             print(f"🔊 TTS_START: Generating Natural Hebrew TTS for '{text[:50]}...' ({len(text)} chars)")
             
