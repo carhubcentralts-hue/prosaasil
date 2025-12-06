@@ -7367,41 +7367,17 @@ ALWAYS mention their name in the first sentence.
         if not required_fields:
             return
         
-        # 🔥 BUILD 307: Skip city extraction for AI questions and silence prompts
-        # These should NEVER be treated as city mentions
+        # 🔥 BUILD 312: ONLY extract from USER speech - AI speech should NEVER set lead fields!
+        # AI speech is only used for tracking what city AI mentioned (for user confirmation "נכון")
         if not is_user_speech:
-            ai_question_patterns = [
-                'באיזו עיר', 'באיזה עיר', 'מאיפה אתה', 'איפה אתה',
-                'מאיזה עיר', 'מאיזו עיר', 'איזו עיר', 'איזה עיר'
-            ]
-            silence_prompt_patterns = [
-                'אתה עדיין שם', 'אתה שם', 'שומע אותי', 'עדיין בקו',
-                'יש מישהו', 'הלו', 'שומעים אותי'
-            ]
-            text_lower = text.lower()
-            
-            # Skip city extraction for AI questions about city
-            if any(pattern in text_lower for pattern in ai_question_patterns):
-                print(f"⏭️ [BUILD 307] Skipping city extraction - AI asking about city")
-                # Skip to service extraction
-                pass
-            # Skip city extraction for silence prompts
-            elif any(pattern in text_lower for pattern in silence_prompt_patterns):
-                print(f"⏭️ [BUILD 307] Skipping city extraction - silence prompt")
-                # Skip to service extraction
-                pass
-            # For AI confirmations, extract city only from confirmation patterns
-            elif 'נכון' in text or 'מאשר' in text or 'בסדר' in text:
-                # This is an AI confirmation - extract city from it
-                # Store this city for when user confirms with "נכון"
+            # 🔥 BUILD 312: For AI confirmations ONLY, track the city mentioned for user "נכון" locking
+            if 'נכון' in text or 'מאשר' in text:
+                # This is an AI confirmation - extract city ONLY for tracking (not for lead state)
                 self._last_ai_mentioned_city = self._extract_city_from_confirmation(text)
                 if self._last_ai_mentioned_city:
-                    print(f"📍 [BUILD 307] AI mentioned city in confirmation: '{self._last_ai_mentioned_city}'")
-                return  # Let user confirmation handle the locking
-            else:
-                # Not a question, not a confirmation - skip city extraction from AI
-                print(f"⏭️ [BUILD 307] Skipping city extraction - AI speech not confirmation")
-                return
+                    print(f"📍 [BUILD 312] AI mentioned city in confirmation (tracking only): '{self._last_ai_mentioned_city}'")
+            # ALWAYS return for AI speech - never extract lead fields from AI!
+            return
         
         # 🏙️ CITY EXTRACTION: Use 3-layer validation system
         # 🔥 BUILD 185: Phonetic validator + Consistency filter + RapidFuzz
@@ -7432,7 +7408,7 @@ ALWAYS mention their name in the first sentence.
                         city_candidates.extend(matches)
                     
                     # Also try the full text as potential city name
-                    # 🔥 BUILD 306: Skip common words that are clearly NOT cities
+                    # 🔥 BUILD 306/312: Skip common words that are clearly NOT cities
                     non_city_words = {
                         'שלום', 'היי', 'הלו', 'צריך', 'צריכים', 'צריכה', 'רוצה', 'רוצים',
                         'אני', 'אנחנו', 'אתה', 'את', 'אתם', 'הוא', 'היא', 'הם', 'הן',
@@ -7441,7 +7417,11 @@ ALWAYS mention their name in the first sentence.
                         'פורץ', 'פריצה', 'פריצת', 'מפתח', 'מפתחות', 'סיוע', 'עזרה',
                         'בוקר', 'צהריים', 'ערב', 'לילה', 'היום', 'מחר', 'עכשיו',
                         'כמה', 'מתי', 'איפה', 'למה', 'מה', 'איך', 'מי', 'זה', 'זאת',
-                        'שריות', 'שריית', 'אתר', 'קליבר'  # Common mishearings
+                        'שריות', 'שריית', 'אתר', 'קליבר',  # Common mishearings
+                        # 🔥 BUILD 312: Words that sound like cities but aren't
+                        'עדיין', 'עדי', 'עדין', 'לדעת', 'ידעת', 'שם', 'כאן', 'פה',
+                        'נכון', 'מוודא', 'מוודאת', 'רק', 'אולי', 'באמת', 'ממש',
+                        'איתי', 'איתך', 'שומע', 'שומעת', 'עוד', 'כבר', 'עוזר', 'עוזרת'
                     }
                     words = text_normalized.split()
                     for i in range(len(words)):
