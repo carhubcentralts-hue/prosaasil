@@ -1564,26 +1564,29 @@ class MediaStreamHandler:
             else:
                 # 🔥 BUILD 317: INBOUND - AI ALWAYS generates greeting from prompt!
                 # This ensures greeting matches business context and AI understands responses
-                greeting_instruction = f"""
-🎯 משימה ראשונה: הזדהה כנציג וברך את הלקוח
-(ברכה קצרה לפי ההקשר למעלה, אל תקרא את כל הפרומפט)
+                greeting_instruction = """
+משימה ראשונה: הזדהה כנציג וברך את הלקוח בקצרה.
 """
                 print(f"📞 [BUILD 317] AI will generate DYNAMIC greeting from prompt context")
             
-            # 🔥 BUILD 316: Combine COMPACT prompt + greeting instruction
-            # Fast greeting with essential context - full prompt loaded after greeting
+            # 🔥 BUILD 317: Combine COMPACT prompt FIRST + greeting instruction LAST
+            # AI reads context first, then knows what to do
             if compact_prompt:
-                greeting_prompt = f"""{greeting_instruction}
+                greeting_prompt = f"""{compact_prompt}
 
 ---
 
-{compact_prompt}"""
+{greeting_instruction}"""
                 has_custom_greeting = True
             else:
-                # Fallback: No compact prompt - use minimal greeting
-                greeting_prompt = f"""אתה נציג טלפוני של {biz_name}. עברית בלבד.
-{greeting_instruction}
-חוקים: קצר מאוד, המתן לתשובת הלקוח."""
+                # Fallback: No compact prompt - use better fallback with context
+                greeting_prompt = f"""אתה נציג טלפוני מקצועי של {biz_name}. דבר בעברית, היה אדיב וקצר.
+שאל את הלקוח במה תוכל לעזור ואסוף את הפרטים הנדרשים.
+אם לא שמעת ברור - בקש לחזור. אל תמציא מידע.
+
+---
+
+{greeting_instruction}"""
                 has_custom_greeting = bool(greeting_text and greeting_text.strip())
             
             t_before_config = time.time()

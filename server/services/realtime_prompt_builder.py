@@ -130,7 +130,10 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         logger.error(f"❌ [BUILD 317] Compact prompt error: {e}")
         import traceback
         traceback.print_exc()
-        return "נציג AI. עברית בלבד."
+        # 🔥 BUILD 317: Better fallback with clear instruction
+        return """אתה נציג טלפוני מקצועי. דבר בעברית, היה אדיב וקצר.
+שאל את הלקוח במה תוכל לעזור ואסוף את הפרטים הנדרשים: שם, טלפון, עיר, סוג שירות.
+אם לא שמעת ברור - בקש לחזור. אל תמציא מידע."""
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
