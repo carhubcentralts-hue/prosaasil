@@ -43,73 +43,94 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
 
 def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbound") -> str:
     """
-    🔥 BUILD 316: COMPACT prompt for FAST greeting
+    🔥 BUILD 317: COMPACT prompt DERIVED FROM BUSINESS'S OWN ai_prompt
     
-    Contains essential context only:
-    - Business name & type
-    - Required lead fields (so AI knows what to ask)
-    - Basic conversation rules
+    NO HARDCODED VALUES - extracts context directly from the business's prompt!
+    This ensures AI understands the business context (locksmith, salon, etc.)
+    and can interpret user responses correctly (e.g., "קריית גת" is a city).
     
-    Full prompt loaded in Phase 2 after greeting finishes.
+    Strategy:
+    1. Load the business's actual ai_prompt from DB
+    2. Extract first 600-800 chars as context summary
+    3. AI greets based on THIS context (not generic template)
+    
     Target: Under 800 chars for < 2 second greeting response.
     """
     try:
         from server.models_sql import Business, BusinessSettings
-        from datetime import datetime
-        import pytz
+        import json
         
         business = Business.query.get(business_id)
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
         if not business:
-            return f"נציג AI. עברית בלבד."
+            logger.warning(f"⚠️ [BUILD 317] Business {business_id} not found")
+            return "נציג AI. עברית בלבד. שאל במה אוכל לעזור."
         
         business_name = business.name or "העסק"
-        business_type = business.business_type or "שירות"
         
-        # Get required lead fields
-        required_fields = ['name', 'phone']
-        if settings and settings.required_lead_fields:
-            required_fields = settings.required_lead_fields
+        # 🔥 BUILD 317: Extract context from ACTUAL business ai_prompt!
+        ai_prompt_text = ""
+        if settings and settings.ai_prompt:
+            raw_prompt = settings.ai_prompt.strip()
+            
+            # Handle JSON format (with 'calls' key)
+            if raw_prompt.startswith('{'):
+                try:
+                    prompt_obj = json.loads(raw_prompt)
+                    if 'calls' in prompt_obj:
+                        ai_prompt_text = prompt_obj['calls']
+                    elif 'whatsapp' in prompt_obj:
+                        ai_prompt_text = prompt_obj['whatsapp']
+                    else:
+                        ai_prompt_text = raw_prompt
+                except json.JSONDecodeError:
+                    ai_prompt_text = raw_prompt
+            else:
+                ai_prompt_text = raw_prompt
         
-        # Map fields to Hebrew
-        field_map = {
-            'name': 'שם',
-            'phone': 'טלפון', 
-            'city': 'עיר',
-            'service_type': 'סוג שירות',
-            'email': 'אימייל'
-        }
-        fields_hebrew = [field_map.get(f, f) for f in required_fields[:4]]
+        # 🔥 BUILD 317: Summarize the prompt to ~600 chars
+        # This keeps the BUSINESS CONTEXT (locksmith, services, cities, etc.)
+        if ai_prompt_text:
+            # Replace placeholders
+            ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
+            ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
+            
+            # Take first 600 chars, try to end at sentence boundary
+            if len(ai_prompt_text) > 600:
+                # Find good cut point (end of sentence)
+                cut_point = 600
+                for delimiter in ['. ', '.\n', '\n\n', '\n']:
+                    last_pos = ai_prompt_text[:650].rfind(delimiter)
+                    if last_pos > 400:
+                        cut_point = last_pos + len(delimiter)
+                        break
+                compact_context = ai_prompt_text[:cut_point].strip()
+            else:
+                compact_context = ai_prompt_text.strip()
+            
+            logger.info(f"✅ [BUILD 317] Extracted {len(compact_context)} chars from business ai_prompt")
+        else:
+            # No ai_prompt - use minimal fallback
+            compact_context = f"אתה נציג של {business_name}. דבר בעברית, היה קצר וברור."
+            logger.warning(f"⚠️ [BUILD 317] No ai_prompt for business {business_id} - using minimal")
         
-        # Get current date
-        try:
-            tz = pytz.timezone('Asia/Jerusalem')
-            today = datetime.now(tz)
-            date_str = today.strftime("%d/%m")
-        except:
-            date_str = ""
+        # 🔥 BUILD 317: Add essential rules (very short)
+        direction = "שיחה נכנסת" if call_direction == "inbound" else "שיחה יוצאת"
         
-        direction = "מקבל שיחה" if call_direction == "inbound" else "מתקשר"
-        
-        # 🔥 BUILD 316: COMPACT prompt - under 800 chars!
-        prompt = f"""נציג AI "{business_name}" ({business_type}) | {direction} {date_str}
+        final_prompt = f"""{compact_context}
 
-שדות לאסוף: {', '.join(fields_hebrew)}
+---
+{direction} | אם לא שמעת ברור - בקש לחזור. אל תמציא."""
 
-כללים:
-1. עברית טבעית, קצר וברור
-2. לא להמציא - רק מה שנאמר
-3. אם לא ברור: "סליחה, לא שמעתי - תוכל לחזור?"
-4. אישור: "רק מוודא - אמרת X, נכון?"
-5. המתן לבקשה ברורה לפני המשך"""
-
-        logger.info(f"📦 [BUILD 316] Compact prompt: {len(prompt)} chars")
-        return prompt
+        logger.info(f"📦 [BUILD 317] Final compact prompt: {len(final_prompt)} chars")
+        return final_prompt
         
     except Exception as e:
-        logger.error(f"❌ [BUILD 316] Compact prompt error: {e}")
-        return f"נציג AI. עברית בלבד."
+        logger.error(f"❌ [BUILD 317] Compact prompt error: {e}")
+        import traceback
+        traceback.print_exc()
+        return "נציג AI. עברית בלבד."
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
