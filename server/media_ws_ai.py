@@ -1204,13 +1204,8 @@ class MediaStreamHandler:
         # Updated by _update_lead_capture_state() from AI responses and DTMF
         self.lead_capture_state = {}  # e.g., {'name': 'דני', 'city': 'תל אביב', 'service_type': 'ניקיון'}
         
-        # 🔥 BUILD 185: STT CONSISTENCY FILTER - Tracks last 3 attempts for majority voting
-        # Prevents hallucinations like "בית שמש" → "מצפה רמון" by locking after 2/3 match
-        from server.services.phonetic_validator import ConsistencyFilter
-        self.stt_consistency_filter = ConsistencyFilter(max_attempts=3)
-        self.city_raw_attempts = []  # Track raw STT attempts for webhook
-        self.name_raw_attempts = []  # Track raw STT attempts for webhook
-        self._last_ai_mentioned_city = None  # 🔥 BUILD 307: Track city from AI confirmation for user "נכון" locking
+        # 🔥 BUILD 313: SIMPLIFIED - Only track last AI mentioned city for confirmation
+        self._last_ai_mentioned_city = None  # Track city from AI confirmation for user "נכון" locking
         
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
@@ -3354,40 +3349,9 @@ ALWAYS mention their name in the first sentence.
                                 self._awaiting_user_correction = False
                                 print(f"✅ [BUILD 308] User provided content - clearing cool-off flag")
                         
-                        # ═══════════════════════════════════════════════════════════════════════════
-                        # 🔥 BUILD 303: CITY CORRECTION DETECTION
-                        # Handle patterns like: "לא, לא תל אביב - קריית אתא"
-                        # ═══════════════════════════════════════════════════════════════════════════
-                        if is_negative_answer and hasattr(self, 'stt_consistency_filter'):
-                            # Check if this is a city correction
-                            cities_set, _, _ = load_hebrew_lexicon()
-                            
-                            # Find all cities mentioned in the transcript
-                            cities_mentioned = []
-                            for city in cities_set:
-                                if city in transcript_clean_neg and len(city) > 2:
-                                    cities_mentioned.append(city)
-                            
-                            if len(cities_mentioned) >= 1:
-                                # User mentioned at least one city after "לא" - this is a correction!
-                                # Take the LAST city mentioned (the correction)
-                                new_city = cities_mentioned[-1]
-                                
-                                # Check if city is currently locked to something different
-                                current_city = self.lead_capture_state.get('city', '')
-                                
-                                if current_city and current_city != new_city:
-                                    print(f"🔧 [BUILD 303 CITY CORRECTION] User correcting city: '{current_city}' → '{new_city}'")
-                                    
-                                    # Unlock the city in consistency filter
-                                    if self.stt_consistency_filter.is_city_locked():
-                                        self.stt_consistency_filter.unlock_city()
-                                        print(f"   🔓 Unlocked city in consistency filter")
-                                    
-                                    # Update lead capture state with new city
-                                    self._update_lead_capture_state('city', new_city)
-                                    self._update_lead_capture_state('city_corrected_by_user', True)
-                                    print(f"   ✅ Updated city to: {new_city}")
+                        # 🔥 BUILD 313: SIMPLIFIED - City correction handled by OpenAI Tool
+                        # When user says "לא", AI naturally asks again and user provides correct city
+                        # No need for complex city correction detection - AI handles it!
                         
                         # 🔥 BUILD 186: SEMANTIC COHERENCE GUARD
                         # Check if user's response makes sense given the last AI question
@@ -3504,31 +3468,16 @@ ALWAYS mention their name in the first sentence.
                             if self.call_state == CallState.CLOSING:
                                 self.call_state = CallState.ACTIVE
                                 print(f"📞 [BUILD 203] CLOSING → ACTIVE (user rejected confirmation)")
-                            # 🔥 BUILD 201: Unlock city when user says correction words
-                            if hasattr(self, 'stt_consistency_filter') and self.stt_consistency_filter.is_city_locked():
-                                self.stt_consistency_filter.unlock_city(reason="user_correction_word")
                             
-                            # 🔥 BUILD 308: CRITICAL FIX - Also CLEAR city from lead_capture_state
-                            # Previously only unlocking from consistency filter, but AI still thought city was captured
-                            # This caused the bot to keep confirming the wrong city after user said "לא"
+                            # 🔥 BUILD 313: SIMPLIFIED - Just clear city from lead_capture_state
+                            # OpenAI Tool will capture the new city when user provides it
                             if 'city' in self.lead_capture_state:
                                 old_city = self.lead_capture_state.get('city')
                                 del self.lead_capture_state['city']
-                                # Also clear related city fields
-                                self.lead_capture_state.pop('raw_city', None)
-                                self.lead_capture_state.pop('city_confidence', None)
-                                self.lead_capture_state.pop('city_needs_confirmation', None)
-                                self.lead_capture_state.pop('city_needs_retry', None)
-                                self.lead_capture_state.pop('city_autocorrected', None)
-                                self.lead_capture_state.pop('city_corrected_by_user', None)
-                                # Clear the last AI mentioned city so it doesn't get locked again
                                 self._last_ai_mentioned_city = None
-                                print(f"🗑️ [BUILD 308] CLEARED city from lead_capture_state: was '{old_city}'")
-                                # Clear city_raw_attempts for fresh start
-                                self.city_raw_attempts = []
+                                print(f"🗑️ [BUILD 313] CLEARED city: was '{old_city}'")
                             
                             # 🔥 BUILD 308: POST-REJECTION COOL-OFF
-                            # Set flag to make AI WAIT before speaking - give user time to provide correction
                             self._awaiting_user_correction = True
                             self._rejection_timestamp = time.time()
                             print(f"⏳ [BUILD 308] POST-REJECTION COOL-OFF - AI will wait for user to speak")
@@ -3543,17 +3492,14 @@ ALWAYS mention their name in the first sentence.
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
                         self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
                         
-                        # 🔥 BUILD 307: Handle user confirmation with "נכון" - lock city from AI's previous statement
+                        # 🔥 BUILD 313: Handle user confirmation with "נכון" - save city from AI's previous statement
                         confirmation_words = ["כן", "נכון", "בדיוק", "כן כן", "יופי", "מסכים"]
                         if any(word in transcript_lower for word in confirmation_words):
                             last_ai_city = getattr(self, '_last_ai_mentioned_city', None)
                             if last_ai_city and 'city' in getattr(self, 'required_lead_fields', []):
-                                # User confirmed - lock the city!
-                                if hasattr(self, 'stt_consistency_filter'):
-                                    self.stt_consistency_filter.locked_city = last_ai_city
-                                    self._update_lead_capture_state('city', last_ai_city)
-                                    self._update_lead_capture_state('city_confidence', 100.0)
-                                    print(f"🔒 [BUILD 307] User confirmed city with '{transcript[:20]}' → locked '{last_ai_city}'")
+                                # User confirmed - save the city!
+                                self._update_lead_capture_state('city', last_ai_city)
+                                print(f"🔒 [BUILD 313] User confirmed city '{last_ai_city}'")
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
@@ -8500,64 +8446,8 @@ ALWAYS mention their name in the first sentence.
                                         print(f"⚠️ [WEBHOOK] Could not load lead data: {lead_err}")
                                         traceback.print_exc()
                             
-                            # 🔍 Last resort: Extract city and service from transcript if still missing
-                            if (not city or not service_category) and full_conversation:
-                                import re
-                                transcript_text = full_conversation.replace('\n', ' ')
-                                
-                                # Extract city from transcript using fuzzy matching
-                                # 🔥 BUILD 184: Use city normalizer with RapidFuzz
-                                if not city:
-                                    try:
-                                        from server.services.city_normalizer import normalize_city
-                                        # Extract potential city mentions from transcript
-                                        city_patterns = [
-                                            r'(?:מ|ב|ל)([א-ת\s\-]{3,20})',
-                                            r'(?:גר\s+ב|נמצא\s+ב|מגיע\s+מ)([א-ת\s\-]{3,20})',
-                                        ]
-                                        city_candidates = []
-                                        for pattern in city_patterns:
-                                            matches = re.findall(pattern, transcript_text)
-                                            city_candidates.extend(matches)
-                                        
-                                        # Find best match
-                                        best_match = None
-                                        best_confidence = 0
-                                        for candidate in city_candidates:
-                                            result = normalize_city(candidate.strip())
-                                            if result.canonical and result.confidence > best_confidence:
-                                                best_match = result
-                                                best_confidence = result.confidence
-                                        
-                                        if best_match and best_match.canonical:
-                                            city = best_match.canonical
-                                            raw_city = best_match.raw_input
-                                            city_confidence = best_match.confidence
-                                            print(f"   └─ City from transcript (fuzzy): {city} (confidence={city_confidence:.0f}%)")
-                                    except Exception as e:
-                                        print(f"   └─ City normalizer error: {e}")
-                                
-                                # Extract service/professional from transcript
-                                # 🔥 BUILD 179: Find the LAST mentioned service (user may change mind)
-                                if not service_category:
-                                    services = ['חשמלאי', 'אינסטלטור', 'שיפוצים', 'ניקיון', 'הובלות', 'מנעולן',
-                                                'מיזוג', 'גינון', 'צביעה', 'ריצוף', 'נגרות', 'אלומיניום',
-                                                'תיקון מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנות']
-                                    last_service_pos = -1
-                                    last_service = None
-                                    for service in services:
-                                        pos = transcript_text.rfind(service)  # rfind = LAST occurrence
-                                        if pos > last_service_pos:
-                                            last_service_pos = pos
-                                            last_service = service
-                                    if last_service:
-                                        service_category = last_service
-                                        print(f"   └─ LAST service from transcript: {service_category} (pos={last_service_pos})")
-                            
-                            # 🔥 BUILD 185: Pass consistency filter data to webhook
-                            city_raw_attempts = getattr(self, 'city_raw_attempts', [])
-                            name_raw_attempts = getattr(self, 'name_raw_attempts', [])
-                            city_autocorrected = lead_state.get('city_autocorrected', False) if lead_state else False
+                            # 🔥 BUILD 313: SIMPLIFIED - City and service already captured by OpenAI Tool
+                            # No more fuzzy matching or city normalizer - trust what AI captured!
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
@@ -8572,12 +8462,7 @@ ALWAYS mention their name in the first sentence.
                                 agent_name=getattr(self, 'bot_name', 'Assistant'),
                                 direction=getattr(self, 'call_direction', 'inbound'),
                                 city=city,
-                                service_category=service_category,
-                                raw_city=raw_city,
-                                city_confidence=city_confidence,
-                                city_raw_attempts=city_raw_attempts,
-                                city_autocorrected=city_autocorrected,
-                                name_raw_attempts=name_raw_attempts
+                                service_category=service_category
                             )
                             print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
                         except Exception as webhook_err:
