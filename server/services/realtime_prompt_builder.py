@@ -41,6 +41,77 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
         return ("", "")  # Return empty - let AI handle naturally
 
 
+def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbound") -> str:
+    """
+    🔥 BUILD 316: COMPACT prompt for FAST greeting
+    
+    Contains essential context only:
+    - Business name & type
+    - Required lead fields (so AI knows what to ask)
+    - Basic conversation rules
+    
+    Full prompt loaded in Phase 2 after greeting finishes.
+    Target: Under 800 chars for < 2 second greeting response.
+    """
+    try:
+        from server.models_sql import Business, BusinessSettings
+        from datetime import datetime
+        import pytz
+        
+        business = Business.query.get(business_id)
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        
+        if not business:
+            return f"נציג AI. עברית בלבד."
+        
+        business_name = business.name or "העסק"
+        business_type = business.business_type or "שירות"
+        
+        # Get required lead fields
+        required_fields = ['name', 'phone']
+        if settings and settings.required_lead_fields:
+            required_fields = settings.required_lead_fields
+        
+        # Map fields to Hebrew
+        field_map = {
+            'name': 'שם',
+            'phone': 'טלפון', 
+            'city': 'עיר',
+            'service_type': 'סוג שירות',
+            'email': 'אימייל'
+        }
+        fields_hebrew = [field_map.get(f, f) for f in required_fields[:4]]
+        
+        # Get current date
+        try:
+            tz = pytz.timezone('Asia/Jerusalem')
+            today = datetime.now(tz)
+            date_str = today.strftime("%d/%m")
+        except:
+            date_str = ""
+        
+        direction = "מקבל שיחה" if call_direction == "inbound" else "מתקשר"
+        
+        # 🔥 BUILD 316: COMPACT prompt - under 800 chars!
+        prompt = f"""נציג AI "{business_name}" ({business_type}) | {direction} {date_str}
+
+שדות לאסוף: {', '.join(fields_hebrew)}
+
+כללים:
+1. עברית טבעית, קצר וברור
+2. לא להמציא - רק מה שנאמר
+3. אם לא ברור: "סליחה, לא שמעתי - תוכל לחזור?"
+4. אישור: "רק מוודא - אמרת X, נכון?"
+5. המתן לבקשה ברורה לפני המשך"""
+
+        logger.info(f"📦 [BUILD 316] Compact prompt: {len(prompt)} chars")
+        return prompt
+        
+    except Exception as e:
+        logger.error(f"❌ [BUILD 316] Compact prompt error: {e}")
+        return f"נציג AI. עברית בלבד."
+
+
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
     """
     Build system prompt for OpenAI Realtime API based on business settings
