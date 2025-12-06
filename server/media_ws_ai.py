@@ -1223,6 +1223,11 @@ class MediaStreamHandler:
         # 🔥 BUILD 308: POST-REJECTION COOL-OFF - Give user time to provide correction
         self._awaiting_user_correction = False  # Set after user rejects, cleared when they speak again
         self._rejection_timestamp = 0  # When user last rejected
+        
+        # 🔥 BUILD 311: POST-GREETING PATIENCE - Don't skip questions after greeting!
+        # Grace period: Don't count consecutive responses or trigger LOOP GUARD for X seconds after greeting
+        self._post_greeting_grace_period_sec = 10.0  # 10 seconds after greeting to let user respond
+        self._is_silence_handler_response = False  # Track if current response is from SILENCE_HANDLER (shouldn't count)
 
     def _init_streaming_stt(self):
         """
@@ -2702,8 +2707,24 @@ ALWAYS mention their name in the first sentence.
                         else:
                             self._mishearing_count = 0  # Reset on clear response
                         
-                        # 🔥 BUILD 170.3: IMPROVED LOOP PREVENTION with time-based check
-                        self._consecutive_ai_responses += 1
+                        # 🔥 BUILD 311: POST-GREETING PATIENCE - Don't skip questions!
+                        # Check if we're in the grace period after greeting
+                        in_post_greeting_grace = False
+                        if self.greeting_completed_at:
+                            time_since_greeting = time.time() - self.greeting_completed_at
+                            grace_period = getattr(self, '_post_greeting_grace_period_sec', 10.0)
+                            if time_since_greeting < grace_period:
+                                in_post_greeting_grace = True
+                        
+                        # 🔥 BUILD 311: DON'T count SILENCE_HANDLER responses towards consecutive
+                        is_silence_handler = getattr(self, '_is_silence_handler_response', False)
+                        if is_silence_handler:
+                            print(f"📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive")
+                            self._is_silence_handler_response = False  # Reset flag
+                            # Don't increment consecutive counter for silence warnings
+                        else:
+                            # 🔥 BUILD 170.3: IMPROVED LOOP PREVENTION with time-based check
+                            self._consecutive_ai_responses += 1
                         
                         # 🔥 BUILD 170.3: Only count as "no user input" if >8 seconds since last speech
                         last_user_ts = getattr(self, '_last_user_speech_ts', 0) or 0
@@ -2717,6 +2738,7 @@ ALWAYS mention their name in the first sentence.
                         # 🔥 BUILD 178: COMPLETELY DISABLE loop guard for outbound calls!
                         # 🔥 BUILD 179: Also disable if call is CLOSING or hangup already triggered
                         # 🔥 BUILD 182: Also disable during appointment scheduling flow
+                        # 🔥 BUILD 311: Also disable during post-greeting grace period!
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                         is_closing = getattr(self, 'call_state', None) == CallState.CLOSING
                         is_hanging_up = getattr(self, 'hangup_triggered', False)
@@ -2728,7 +2750,11 @@ ALWAYS mention their name in the first sentence.
                         appointment_keywords = ['תור', 'פגישה', 'לקבוע', 'זמינות', 'אשר', 'מאשר']
                         is_scheduling = any(kw in transcript for kw in appointment_keywords) if transcript else False
                         
-                        if is_outbound:
+                        if in_post_greeting_grace:
+                            # 🔥 BUILD 311: NEVER engage loop guard during grace period - give customer time to respond!
+                            should_engage_guard = False
+                            print(f"⏳ [BUILD 311] Post-greeting grace period ({time_since_greeting:.1f}s/{grace_period}s) - LOOP GUARD DISABLED")
+                        elif is_outbound:
                             # 🔥 OUTBOUND: Never engage loop guard - let AI talk freely
                             should_engage_guard = False
                         elif is_closing or is_hanging_up:
@@ -7018,6 +7044,7 @@ ALWAYS mention their name in the first sentence.
     async def _silence_monitor_loop(self):
         """
         Background loop that checks for silence and triggers warnings/hangup.
+        🔥 BUILD 311: Added post-greeting grace period
         """
         try:
             while self.call_state == CallState.ACTIVE and not self.hangup_triggered:
@@ -7026,6 +7053,14 @@ ALWAYS mention their name in the first sentence.
                 # Skip if call is ending
                 if self.call_state in (CallState.CLOSING, CallState.ENDED):
                     break
+                
+                # 🔥 BUILD 311: Skip during post-greeting grace period - give customer time to respond!
+                if self.greeting_completed_at:
+                    time_since_greeting = time.time() - self.greeting_completed_at
+                    grace_period = getattr(self, '_post_greeting_grace_period_sec', 10.0)
+                    if time_since_greeting < grace_period:
+                        # Still in grace period - don't count silence yet
+                        continue
                 
                 # Calculate silence duration
                 silence_duration = time.time() - self._last_speech_time
@@ -7137,6 +7172,7 @@ ALWAYS mention their name in the first sentence.
         Used for system prompts and silence handling.
         
         🔥 BUILD 200: Updated to use realtime_client and trigger_response
+        🔥 BUILD 311: Mark SILENCE_HANDLER responses - shouldn't count towards LOOP GUARD
         """
         try:
             # 🔥 BUILD 200: Use realtime_client instead of openai_ws
@@ -7153,6 +7189,9 @@ ALWAYS mention their name in the first sentence.
                 }
             }
             await self.realtime_client.send_event(msg)
+            
+            # 🔥 BUILD 311: Mark this as silence handler response (don't count towards consecutive)
+            self._is_silence_handler_response = True
             
             # 🔥 BUILD 200: Use central trigger_response
             await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}")
