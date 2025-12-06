@@ -33,13 +33,13 @@ class OpenAIRealtimeClient:
             print(event)
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-realtime-preview"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini-realtime-preview"):
         """
         Initialize Realtime API client
         
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-            model: Model to use (default: gpt-4o-realtime-preview)
+            model: Model to use (default: gpt-4o-mini-realtime-preview for cost efficiency)
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -48,6 +48,12 @@ class OpenAIRealtimeClient:
         self.model = model
         self.ws = None
         self.url = f"wss://api.openai.com/v1/realtime?model={model}"
+        
+        # 🔥 BUILD 318: COST OPTIMIZATION - Instruction caching
+        # Track last sent instructions to avoid redundant session.update calls
+        self._last_instructions_hash = None
+        self._last_voice = None
+        self._session_update_count = 0
         
         if websockets is None:
             raise ImportError("websockets library is required. Install with: pip install websockets")
@@ -336,14 +342,27 @@ class OpenAIRealtimeClient:
         }
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
-        logger.info(f"🎯 [REALTIME CONFIG] model=gpt-4o-realtime-preview, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
+        logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
         
         # 🚫 NO TOOLS for phone calls - appointment scheduling via NLP only
         
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
         # No need to explicitly set it - it's implicit in the format
         
-        logger.info(f"✅ Configuring session WITH internal transcription (required for functionality)")
+        # 🔥 BUILD 318: INSTRUCTION CACHING - Skip if same instructions already sent
+        # This prevents redundant session.update calls that cost $11+ in text input!
+        import hashlib
+        instructions_hash = hashlib.md5(instructions.encode()).hexdigest()[:16]
+        
+        if self._last_instructions_hash == instructions_hash and self._last_voice == voice:
+            logger.info(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
+            return
+        
+        self._last_instructions_hash = instructions_hash
+        self._last_voice = voice
+        self._session_update_count += 1
+        
+        logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
         await self.send_event({
             "type": "session.update",
             "session": session_config
