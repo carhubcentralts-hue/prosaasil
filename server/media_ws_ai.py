@@ -58,10 +58,14 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
 USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 
 # 🔥 BUILD 309: SIMPLE_MODE - Simplified call flow without aggressive filters
+# 🔥 BUILD 318: COST OPTIMIZATION - Even in SIMPLE_MODE, filter silence
 try:
-    from server.config.calls import SIMPLE_MODE
+    from server.config.calls import SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS
 except ImportError:
     SIMPLE_MODE = True  # Default to SIMPLE_MODE if config not found
+    COST_EFFICIENT_MODE = True  # Default to cost-efficient mode
+    COST_MIN_RMS_THRESHOLD = 100  # Minimum RMS to send audio
+    COST_MAX_FPS = 40  # Maximum 40 FPS to OpenAI
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -1811,6 +1815,12 @@ class MediaStreamHandler:
         _greeting_block_logged = False
         _greeting_resumed_logged = False
         
+        # 🔥 BUILD 318: FPS LIMITER - Prevent sending too many frames/second
+        # This is a critical cost optimization - limits frames to COST_MAX_FPS per second
+        _fps_frame_count = 0
+        _fps_window_start = time.time()
+        _fps_throttle_logged = False
+        
         while not self.realtime_stop_flag:
             try:
                 if not hasattr(self, 'realtime_audio_in_queue'):
@@ -1843,6 +1853,28 @@ class MediaStreamHandler:
                     if _greeting_block_logged and not _greeting_resumed_logged:
                         print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                         _greeting_resumed_logged = True
+                
+                # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
+                current_time = time.time()
+                elapsed = current_time - _fps_window_start
+                
+                if elapsed >= 1.0:
+                    # Reset window every second
+                    if _fps_frame_count > COST_MAX_FPS and not _fps_throttle_logged:
+                        print(f"⚠️ [BUILD 318] FPS exceeded: {_fps_frame_count}/sec (max={COST_MAX_FPS})")
+                    _fps_frame_count = 0
+                    _fps_window_start = current_time
+                    _fps_throttle_logged = False
+                
+                # Check if we've exceeded FPS limit
+                if COST_EFFICIENT_MODE and _fps_frame_count >= COST_MAX_FPS:
+                    # Skip this frame - we're over the limit
+                    if not _fps_throttle_logged:
+                        print(f"💰 [FPS LIMIT] Throttling audio - {_fps_frame_count} frames this second (max={COST_MAX_FPS})")
+                        _fps_throttle_logged = True
+                    continue
+                
+                _fps_frame_count += 1
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
                 # Start timer on first chunk
@@ -4798,12 +4830,23 @@ class MediaStreamHandler:
                         # 🔥 BUILD 302/303: ALWAYS send during barge-in, even if noise/low RMS!
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
                         
+                        # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
                         # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
                         # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
-                        # Also bypass during _realtime_speech_active (OpenAI VAD detected speech)
                         if SIMPLE_MODE:
-                            should_send_audio = True  # SIMPLE_MODE: always send audio to OpenAI
-                            is_noise = False  # Trust OpenAI's VAD
+                            # 🔥 BUILD 318: Apply RMS threshold even in SIMPLE_MODE to save costs!
+                            # Pure silence (RMS < 100) costs money but provides no value
+                            if COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
+                                # Pure silence - don't send to OpenAI (saves $$$)
+                                should_send_audio = False
+                                if not hasattr(self, '_cost_silence_blocked'):
+                                    self._cost_silence_blocked = 0
+                                self._cost_silence_blocked += 1
+                                if self._cost_silence_blocked % 200 == 0:
+                                    print(f"💰 [COST SAVE] Blocked {self._cost_silence_blocked} silence frames (rms={rms:.0f} < {COST_MIN_RMS_THRESHOLD})")
+                            else:
+                                should_send_audio = True  # SIMPLE_MODE: send audio above threshold
+                            is_noise = False  # Trust OpenAI's VAD for actual noise filtering
                         elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
