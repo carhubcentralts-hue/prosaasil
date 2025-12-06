@@ -17,8 +17,9 @@ SIMPLE_MODE = True  # Set to False only if you need aggressive filtering (not re
 COST_EFFICIENT_MODE = True  # Enable cost-saving filters (recommended!)
 
 # Minimum RMS to send audio to OpenAI (pure silence = ~0-50 RMS)
-# Setting this to 100 filters pure silence but passes all speech (speech = 200+)
-COST_MIN_RMS_THRESHOLD = 100  # Don't send audio below this RMS
+# 🔥 BUILD 319: DISABLED - Twilio audio comes with RMS ~12, threshold 100 blocked ALL speech!
+# Set to 0 to let all audio through. Re-enable with lower threshold (e.g., 5) after testing.
+COST_MIN_RMS_THRESHOLD = 0  # DISABLED - was blocking all user audio!
 
 # Maximum audio frames per second to OpenAI (prevents runaway costs)
 # 50 FPS is typical for real-time audio. Lower = cheaper but may affect quality.

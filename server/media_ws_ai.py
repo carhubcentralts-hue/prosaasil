@@ -1539,10 +1539,10 @@ class MediaStreamHandler:
                 print(f"⚠️ [BUILD 316] Failed to build compact prompt: {prompt_err}")
                 compact_prompt = None
             
-            # 🔥 BUILD 317: AI generates greeting DYNAMICALLY from prompt context!
-            # No static greeting_message - AI creates natural greeting based on business context
+            # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
+            # AI just speaks the exact greeting text, ensuring consistency
             if call_direction == 'outbound' and outbound_lead_name:
-                # OUTBOUND: Use template greeting if exists, otherwise AI generates
+                # OUTBOUND: Use template greeting if exists
                 outbound_greeting = None
                 outbound_template_id = getattr(self, 'outbound_template_id', None)
                 if outbound_template_id:
@@ -1556,23 +1556,31 @@ class MediaStreamHandler:
                 
                 if outbound_greeting:
                     greeting_instruction = f"""
-🎯 משימה ראשונה: פתח בברכה יוצאת
-ברכה: "{outbound_greeting}"
+🎯 משימה ראשונה: אמור בדיוק את הברכה הבאה (מילה במילה):
+"{outbound_greeting}"
 """
                 else:
-                    # AI generates outbound greeting naturally
+                    # Fallback for outbound without template
                     greeting_instruction = f"""
 🎯 משימה ראשונה: התקשר ללקוח בשם {outbound_lead_name}
-הזדהה בקצרה והסבר למה התקשרת (לפי הפרומפט למעלה)
+הזדהה בקצרה והסבר למה התקשרת.
 """
                 print(f"📤 [OUTBOUND] Greeting for: {outbound_lead_name}")
             else:
-                # 🔥 BUILD 317: INBOUND - AI ALWAYS generates greeting from prompt!
-                # This ensures greeting matches business context and AI understands responses
-                greeting_instruction = """
-משימה ראשונה: הזדהה כנציג וברך את הלקוח בקצרה.
+                # 🔥 BUILD 319: INBOUND - Use EXACT greeting from DB!
+                # greeting_text is loaded from business.greeting_message in DB
+                if greeting_text and greeting_text.strip():
+                    greeting_instruction = f"""
+🎯 משימה ראשונה: אמור בדיוק את הברכה הבאה (מילה במילה, בלי להוסיף כלום):
+"{greeting_text.strip()}"
 """
-                print(f"📞 [BUILD 317] AI will generate DYNAMIC greeting from prompt context")
+                    print(f"📞 [BUILD 319] Using PRE-WARMED greeting from DB: '{greeting_text[:50]}...'")
+                else:
+                    # Fallback if no greeting in DB
+                    greeting_instruction = f"""
+🎯 משימה ראשונה: הזדהה כנציג של {biz_name} וברך את הלקוח בקצרה.
+"""
+                    print(f"📞 [BUILD 319] No DB greeting - using fallback for {biz_name}")
             
             # 🔥 BUILD 317: Combine COMPACT prompt FIRST + greeting instruction LAST
             # AI reads context first, then knows what to do
