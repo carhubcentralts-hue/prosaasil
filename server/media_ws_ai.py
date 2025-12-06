@@ -1450,7 +1450,7 @@ class MediaStreamHandler:
         4. Stream audio bidirectionally
         """
         from server.services.openai_realtime_client import OpenAIRealtimeClient
-        from server.services.realtime_prompt_builder import build_realtime_system_prompt
+        # Note: realtime_prompt_builder imported inside try block at line ~1527
         
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
         
