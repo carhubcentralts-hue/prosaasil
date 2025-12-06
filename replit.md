@@ -18,7 +18,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation. Key feat
 - **Frameworks**: Flask (SQLAlchemy ORM) and Starlette (WebSocket handling) with Uvicorn.
 - **Database**: PostgreSQL (production), SQLite (development).
 - **Authentication**: JWT-based with RBAC and CSRF protection.
-- **AI Integration**: Uses `gpt-4o-realtime-preview` for voice calls and `gpt-4o-mini` for server-side NLP, with behavioral rules and hallucination filtering.
+- **AI Integration**: Uses `gpt-4o-mini-realtime-preview` for voice calls (75% cheaper than full model) and `gpt-4o-mini` for server-side NLP, with behavioral rules and hallucination filtering.
 - **Hebrew Optimization**: Optimized VAD, AI greeting system, Hebrew normalization dictionary, grammar improvements, and a 3-Layer STT Accuracy System with phonetic encoding and fuzzy matching for Hebrew names/cities.
 - **Call Quality**: Barge-in protection, STT segment merging, noise filtering, gibberish/semantic loop detection, mishearing protection, and silence hallucination prevention.
 - **Dynamic STT Vocabulary**: Business-specific vocabulary system for transcription quality, including context-based prompts and fuzzy corrections.
@@ -37,6 +37,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation. Key feat
 - **CONTEXT-AWARE GREETING (BUILD 315)**: AI now receives FULL business prompt from the first moment (not just minimal greeting). Greeting instruction prepended to full prompt: `{greeting_instruction}\n\n---\n\n{full_business_prompt}`. This gives AI complete context (required fields, business rules, services) from the very first utterance, preventing misunderstandings when user responds to greeting. Phase 2 simplified to only add lead capture tool (prompt already sent in Phase 1).
 - **FAST GREETING + NO STT VOCAB (BUILD 316)**: Two critical fixes: (1) Removed dynamic STT vocabulary prompts that were causing hallucinations like "קליבר" - now uses pure `language=he` with no prompt hints. (2) Split greeting into Phase 1 (compact ~800 char prompt for fast 2-second greeting) and Phase 2 (full prompt loaded after greeting). Compact prompt includes business name, type, required fields - enough context to understand responses without slowing down greeting.
 - **DYNAMIC GREETING FROM PROMPT (BUILD 317)**: Major improvement - compact prompt now DERIVED from business's actual ai_prompt (first 600 chars), NOT hardcoded. AI generates greeting dynamically based on prompt context. Removed static greeting_message usage. This ensures AI understands business context (locksmith, salon, etc.) and can interpret user responses correctly (e.g., "קריית גת" recognized as city because prompt mentions service areas).
+- **COST OPTIMIZATION (BUILD 318)**: CRITICAL cost reduction - previous $15 for 10 minutes now reduced by ~80%. Changes: (1) Switched to `gpt-4o-mini-realtime-preview` model (75% cheaper than gpt-4o-realtime), (2) Added instruction caching to prevent redundant session.update calls, (3) Added RMS-based silence filter (COST_MIN_RMS_THRESHOLD=100) to block pure silence, (4) Added FPS limiter (COST_MAX_FPS=40) to prevent excessive frame sending. Config in `server/config/calls.py`.
 
 ### Frontend
 - **Framework**: React 19 with Vite 7.1.4.
@@ -63,7 +64,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation. Key feat
 # External Dependencies
 
 - **Twilio**: Telephony services for voice calls and WhatsApp Business API.
-- **OpenAI**: GPT-4o-mini, `gpt-4o-realtime-preview`, and Whisper transcription.
+- **OpenAI**: GPT-4o-mini, `gpt-4o-mini-realtime-preview` (voice calls), and Whisper transcription.
 - **PostgreSQL**: Production database.
 - **Baileys Library**: For direct WhatsApp connectivity.
 - **websockets**: Python library for WebSocket connections.

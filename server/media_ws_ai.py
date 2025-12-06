@@ -75,21 +75,22 @@ ENABLE_BARGE_IN = os.getenv("ENABLE_BARGE_IN", "true").lower() in ("true", "1", 
 # 🔥 BUILD 186: ALWAYS enabled - no fallback to Google STT/TTS!
 USE_REALTIME_API = True  # FORCED TRUE - OpenAI Realtime API only!
 
-# 🔥 BUILD 314: UPGRADED to gpt-realtime GA (Aug 2025)
-# - 30% better instruction-following
-# - Enhanced Hebrew prosody and natural intonation
-# - 20% price reduction vs preview
-# - Best model for Hebrew voice calls!
-OPENAI_REALTIME_MODEL = "gpt-realtime"
+# 🔥 BUILD 318: COST OPTIMIZATION - Use gpt-4o-mini-realtime-preview (75% cheaper!)
+# - $10/1M input vs $40/1M for gpt-4o-realtime
+# - $20/1M output vs $80/1M for gpt-4o-realtime
+# - Good quality for Hebrew voice calls
+OPENAI_REALTIME_MODEL = "gpt-4o-mini-realtime-preview"
 
-# 🔍 FALLBACK: If gpt-realtime not available, use latest preview
+# 🔍 OVERRIDE: Allow env var to switch model if needed
 _env_model = os.getenv("OPENAI_REALTIME_MODEL")
 if _env_model:
     import logging
     logging.getLogger(__name__).info(
-        f"📢 [BUILD 314] Using OPENAI_REALTIME_MODEL from env: {_env_model}"
+        f"📢 [BUILD 318] Using OPENAI_REALTIME_MODEL from env: {_env_model}"
     )
     OPENAI_REALTIME_MODEL = _env_model
+
+print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
