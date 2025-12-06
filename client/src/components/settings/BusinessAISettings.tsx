@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Phone, 
   PhoneOutgoing,
@@ -8,11 +8,7 @@ import {
   AlertCircle,
   Timer,
   Brain,
-  User,
-  Mic,
-  X,
-  Plus,
-  Eye
+  User
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
@@ -42,46 +38,18 @@ interface CallControlSettings {
   confirm_before_hangup: boolean;  // Require user confirmation before hanging up
 }
 
-// 🔥 BUILD 207: STT Vocabulary Settings
-interface STTVocabulary {
-  services: string[];
-  products: string[];
-  staff: string[];
-  locations: string[];
-}
-
-interface STTSettings {
-  vocabulary: STTVocabulary;
-  business_context: string;
-}
+// 🔥 BUILD 310: STT Vocabulary removed - using OpenAI Realtime native transcription
 
 export function BusinessAISettings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<{ calls: boolean; outbound: boolean; whatsapp: boolean; callControl: boolean; stt: boolean }>({
+  const [saving, setSaving] = useState<{ calls: boolean; outbound: boolean; whatsapp: boolean; callControl: boolean }>({
     calls: false,
     outbound: false,
     whatsapp: false,
-    callControl: false,
-    stt: false
+    callControl: false
   });
   
-  // 🔥 BUILD 207: STT Vocabulary State
-  const [sttSettings, setSttSettings] = useState<STTSettings>({
-    vocabulary: {
-      services: [],
-      products: [],
-      staff: [],
-      locations: []
-    },
-    business_context: ''
-  });
-  const [newVocabItem, setNewVocabItem] = useState<Record<keyof STTVocabulary, string>>({
-    services: '',
-    products: '',
-    staff: '',
-    locations: ''
-  });
   const [prompts, setPrompts] = useState<PromptData>({
     calls_prompt: '',
     outbound_calls_prompt: '',
@@ -126,9 +94,6 @@ export function BusinessAISettings() {
             // 🔥 BUILD 309: SIMPLE_MODE settings
             call_goal?: 'lead_only' | 'appointment';
             confirm_before_hangup?: boolean;
-            // 🔥 BUILD 207: STT Vocabulary
-            stt_vocabulary_json?: STTVocabulary | null;
-            business_context?: string | null;
           }>(`/api/business/current`),
           http.get<PromptData>(`/api/business/current/prompt`)
         ]);
@@ -156,24 +121,6 @@ export function BusinessAISettings() {
           call_goal: derivedCallGoal,
           confirm_before_hangup: businessData.confirm_before_hangup !== false  // Default true
         });
-        
-        // 🔥 BUILD 207: Load STT Vocabulary settings
-        if (businessData.stt_vocabulary_json) {
-          setSttSettings({
-            vocabulary: {
-              services: businessData.stt_vocabulary_json.services || [],
-              products: businessData.stt_vocabulary_json.products || [],
-              staff: businessData.stt_vocabulary_json.staff || [],
-              locations: businessData.stt_vocabulary_json.locations || []
-            },
-            business_context: businessData.business_context || ''
-          });
-        } else {
-          setSttSettings(prev => ({
-            ...prev,
-            business_context: businessData.business_context || ''
-          }));
-        }
         
         console.log('✅ Loaded AI prompts:', promptsData);
       } catch (err) {
@@ -261,83 +208,7 @@ export function BusinessAISettings() {
     }
   };
 
-  // 🔥 BUILD 207: Save STT Vocabulary settings
-  const saveSTTSettings = async () => {
-    setSaving(prev => ({ ...prev, stt: true }));
-    
-    try {
-      await http.put(`/api/business/current/settings`, {
-        stt_vocabulary_json: sttSettings.vocabulary,
-        business_context: sttSettings.business_context
-      });
-      
-      alert('✅ הגדרות מילון תמלול נשמרו בהצלחה!');
-    } catch (err) {
-      console.error('❌ Failed to save STT settings:', err);
-      alert('שגיאה בשמירת הגדרות מילון תמלול');
-    } finally {
-      setSaving(prev => ({ ...prev, stt: false }));
-    }
-  };
-
-  // 🔥 BUILD 207: Vocabulary chip management
-  const addVocabItem = (category: keyof STTVocabulary) => {
-    const item = newVocabItem[category].trim();
-    if (!item) return;
-    if (sttSettings.vocabulary[category].includes(item)) return; // Prevent duplicates
-    if (sttSettings.vocabulary[category].length >= 20) {
-      alert('מקסימום 20 פריטים בכל קטגוריה');
-      return;
-    }
-    
-    setSttSettings(prev => ({
-      ...prev,
-      vocabulary: {
-        ...prev.vocabulary,
-        [category]: [...prev.vocabulary[category], item]
-      }
-    }));
-    setNewVocabItem(prev => ({ ...prev, [category]: '' }));
-  };
-
-  const removeVocabItem = (category: keyof STTVocabulary, item: string) => {
-    setSttSettings(prev => ({
-      ...prev,
-      vocabulary: {
-        ...prev.vocabulary,
-        [category]: prev.vocabulary[category].filter(i => i !== item)
-      }
-    }));
-  };
-
-  // 🔥 BUILD 207: Live prompt preview (mimics backend logic)
-  const sttPromptPreview = useMemo(() => {
-    const parts = ["תמלל עברית בשיחה טלפונית."];
-    
-    if (businessName) {
-      parts.push(`עסק: ${businessName}.`);
-    }
-    
-    const hints: string[] = [];
-    const services = sttSettings.vocabulary.services.slice(0, 3);
-    const staff = sttSettings.vocabulary.staff.slice(0, 2);
-    hints.push(...services, ...staff);
-    
-    if (hints.length > 0) {
-      parts.push(`מילים: ${hints.slice(0, 5).join(', ')}.`);
-    }
-    
-    parts.push("רק תמלל, לא להוסיף.");
-    
-    let prompt = parts.join(" ");
-    
-    // Truncate if too long (like backend does)
-    if (prompt.length > 100) {
-      prompt = `תמלל עברית טלפונית. עסק: ${(businessName || 'כללי').slice(0, 15)}. רק תמלל.`;
-    }
-    
-    return prompt;
-  }, [businessName, sttSettings.vocabulary]);
+  // 🔥 BUILD 310: STT Vocabulary functions removed - using OpenAI Realtime native transcription
 
   // Toggle required field
   const toggleRequiredField = (field: string) => {
@@ -843,159 +714,7 @@ export function BusinessAISettings() {
         </div>
       </div>
 
-      {/* 🔥 BUILD 207: STT Vocabulary Settings */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-            <Mic className="h-5 w-5 text-indigo-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">מילון תמלול (STT)</h3>
-            <p className="text-sm text-slate-500">מילים ייחודיות לעסק שלך שישפרו את דיוק התמלול</p>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          {/* Info Alert */}
-          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-indigo-600 flex-shrink-0 mt-0.5" />
-              <div className="text-indigo-800">
-                <p className="font-medium">💡 למה זה חשוב?</p>
-                <p className="text-sm mt-1">
-                  הוספת מילים ייחודיות לעסק (שמות עובדים, שירותים, מוצרים, מיקומים) משפרת משמעותית את דיוק התמלול בשיחות טלפון.
-                  המערכת תזהה מילים אלה בקלות רבה יותר.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Business Context */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              📝 תיאור העסק (אופציונלי)
-            </label>
-            <textarea
-              value={sttSettings.business_context}
-              onChange={(e) => setSttSettings(prev => ({ ...prev, business_context: e.target.value.slice(0, 500) }))}
-              placeholder="תיאור קצר של העסק, למשל: מספרה יוקרתית בתל אביב, מתמחה בהחלקות ותספורות גברים"
-              className="w-full h-20 p-3 border border-slate-300 rounded-lg resize-none text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              dir="rtl"
-              data-testid="textarea-business-context"
-            />
-            <p className="text-xs text-slate-500 mt-1">
-              {sttSettings.business_context.length}/500 תווים
-            </p>
-          </div>
-
-          {/* Vocabulary Categories */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {[
-              { key: 'services' as const, label: '🛠️ שירותים', placeholder: 'תספורת, החלקה, צביעה...' },
-              { key: 'products' as const, label: '📦 מוצרים', placeholder: 'שמפו, מסכה, קרם...' },
-              { key: 'staff' as const, label: '👤 צוות', placeholder: 'דנה, יוסי, רוני...' },
-              { key: 'locations' as const, label: '📍 מיקומים', placeholder: 'תל אביב, רמת גן...' }
-            ].map(category => (
-              <div key={category.key} className="space-y-2">
-                <label className="block text-sm font-medium text-slate-700">
-                  {category.label}
-                </label>
-                
-                {/* Chips */}
-                <div className="flex flex-wrap gap-2 min-h-[36px] p-2 bg-slate-50 rounded-lg border border-slate-200">
-                  {sttSettings.vocabulary[category.key].length === 0 && (
-                    <span className="text-sm text-slate-400">אין פריטים</span>
-                  )}
-                  {sttSettings.vocabulary[category.key].map(item => (
-                    <span
-                      key={item}
-                      className="inline-flex items-center gap-1 px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm"
-                    >
-                      {item}
-                      <button
-                        type="button"
-                        onClick={() => removeVocabItem(category.key, item)}
-                        className="hover:text-indigo-900 transition-colors"
-                        data-testid={`remove-vocab-${category.key}-${item}`}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                
-                {/* Add Input */}
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newVocabItem[category.key]}
-                    onChange={(e) => setNewVocabItem(prev => ({ ...prev, [category.key]: e.target.value.slice(0, 50) }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        addVocabItem(category.key);
-                      }
-                    }}
-                    placeholder={category.placeholder}
-                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    dir="rtl"
-                    data-testid={`input-vocab-${category.key}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => addVocabItem(category.key)}
-                    disabled={!newVocabItem[category.key].trim()}
-                    className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    data-testid={`button-add-vocab-${category.key}`}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </div>
-                
-                <p className="text-xs text-slate-500">
-                  {sttSettings.vocabulary[category.key].length}/20 פריטים
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* Live Prompt Preview */}
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Eye className="h-4 w-4 text-slate-600" />
-              <span className="text-sm font-medium text-slate-700">תצוגה מקדימה של הנחיית התמלול</span>
-            </div>
-            <div className="bg-white rounded-lg p-3 border border-slate-200">
-              <code className="text-sm text-slate-700 font-mono break-all" dir="rtl" data-testid="text-stt-prompt-preview">
-                {sttPromptPreview}
-              </code>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              זו ההנחיה שתישלח ל-AI בזמן תמלול שיחות • {sttPromptPreview.length} תווים
-              {sttPromptPreview.length > 100 && (
-                <span className="text-amber-600 mr-2">⚠️ קוצר ל-100 תווים</span>
-              )}
-            </p>
-          </div>
-
-          {/* Save Button */}
-          <div className="flex justify-end pt-4 border-t border-slate-200">
-            <button
-              onClick={saveSTTSettings}
-              disabled={saving.stt}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              data-testid="button-save-stt"
-            >
-              {saving.stt ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              {saving.stt ? 'שומר...' : 'שמור הגדרות מילון תמלול'}
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* 🔥 BUILD 310: STT Vocabulary section removed - using OpenAI Realtime native transcription */}
 
       {/* Version Info */}
       {prompts.last_updated && (
