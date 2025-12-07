@@ -7531,6 +7531,57 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 return match.group(1).strip()
         
         return ""
+    
+    def _build_confirmation_from_state(self) -> str:
+        """
+        🔥 BUILD 326: Build confirmation message using LOCKED values from state
+        
+        This ensures AI says the EXACT city user said, not a hallucinated one.
+        Uses lead_capture_state as the source of truth.
+        
+        Returns confirmation template like:
+        "אז בוא נוודא שאני מבין נכון: אתה צריך שירות בעפולה. נכון?"
+        """
+        state = self.lead_capture_state
+        
+        parts = []
+        
+        # Add service type if captured
+        service = state.get('service_type', '')
+        if service:
+            parts.append(f"אתה צריך {service}")
+        
+        # Add city - MUST use locked value!
+        city = state.get('city', '')
+        if city:
+            if parts:
+                parts.append(f"ב{city}")
+            else:
+                parts.append(f"אתה נמצא ב{city}")
+        
+        # Add name if captured
+        name = state.get('name', '')
+        if name:
+            parts.append(f"השם שלך {name}")
+        
+        if not parts:
+            return ""
+        
+        # Build full confirmation
+        confirmation = "אז בוא נוודא שאני מבין נכון: " + ", ".join(parts) + ". נכון?"
+        print(f"📋 [BUILD 326] Built confirmation from state: '{confirmation}'")
+        return confirmation
+    
+    def _get_city_for_ai_response(self) -> str:
+        """
+        🔥 BUILD 326: Get city value for AI to use in responses
+        
+        If city is locked, ALWAYS returns the locked value.
+        AI must use this instead of inventing its own city.
+        """
+        if self._city_locked and self._city_raw_from_stt:
+            return self._city_raw_from_stt
+        return self.lead_capture_state.get('city', '')
 
     def _extract_lead_fields_from_ai(self, ai_transcript: str, is_user_speech: bool = False):
         """

@@ -364,6 +364,7 @@ def _build_critical_rules_compact(business_name: str, today_date: str, weekday_n
 7. If customer asks for appointment: say a rep will call back soon"""
     
     # 🔥 BUILD 324: English rules - AI speaks Hebrew to customer
+    # 🔥 BUILD 326: Added city exactness rule
     return f"""AI Rep for "{business_name}" | {direction_context} call
 Date: {weekday_name}, {today_date}
 
@@ -374,6 +375,7 @@ RULES:
 4. Be brief and clear, no repetition
 5. If unclear: ask to repeat politely
 {scheduling_rules}
+9. CITY EXACTNESS: Use EXACT city name customer said. Never "correct" or change city names!
 
 PATIENCE (CRITICAL):
 - After each question: WAIT! Let customer finish before responding
