@@ -1586,20 +1586,26 @@ class MediaStreamHandler:
 """
                 print(f"📤 [OUTBOUND] Greeting for: {outbound_lead_name}")
             else:
-                # 🔥 BUILD 319: INBOUND - Use EXACT greeting from DB!
+                # 🔥 BUILD 321: INBOUND - Use EXACT greeting from DB!
                 # greeting_text is loaded from business.greeting_message in DB
                 if greeting_text and greeting_text.strip():
-                    greeting_instruction = f"""
-🎯 משימה ראשונה: אמור בדיוק את הברכה הבאה (מילה במילה, בלי להוסיף כלום):
+                    # 🔥 BUILD 321: FORCE EXACT GREETING - no reformulation!
+                    greeting_instruction = f"""🔒 משימה קריטית - ברכה:
+1. אמור בדיוק את המשפט הבא, מילה במילה, בלי לשנות אותו בשום צורה:
+
 "{greeting_text.strip()}"
+
+2. אחרי הברכה - המתן! תן ללקוח לדבר. אל תשאל שאלות נוספות מיד.
+3. אל תקפוץ לשאלה הבאה לפני שהבנת את התשובה.
 """
-                    print(f"📞 [BUILD 319] Using PRE-WARMED greeting from DB: '{greeting_text[:50]}...'")
+                    print(f"📞 [BUILD 321] Using EXACT greeting from DB: '{greeting_text[:50]}...'")
                 else:
                     # Fallback if no greeting in DB
                     greeting_instruction = f"""
 🎯 משימה ראשונה: הזדהה כנציג של {biz_name} וברך את הלקוח בקצרה.
+אחרי הברכה - המתן! תן ללקוח לדבר.
 """
-                    print(f"📞 [BUILD 319] No DB greeting - using fallback for {biz_name}")
+                    print(f"📞 [BUILD 321] No DB greeting - using fallback for {biz_name}")
             
             # 🔥 BUILD 317: Combine COMPACT prompt FIRST + greeting instruction LAST
             # AI reads context first, then knows what to do

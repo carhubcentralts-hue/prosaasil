@@ -115,13 +115,14 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             compact_context = f"אתה נציג של {business_name}. דבר בעברית, היה קצר וברור."
             logger.warning(f"⚠️ [BUILD 317] No ai_prompt for business {business_id} - using minimal")
         
-        # 🔥 BUILD 317: Add essential rules (very short)
+        # 🔥 BUILD 321: Add essential rules (very short) + patience
         direction = "שיחה נכנסת" if call_direction == "inbound" else "שיחה יוצאת"
         
         final_prompt = f"""{compact_context}
 
 ---
-{direction} | אם לא שמעת ברור - בקש לחזור. אל תמציא."""
+{direction} | אם לא שמעת ברור - בקש לחזור. אל תמציא.
+⚠️ סבלנות: שאל שאלה אחת בלבד, חכה לתשובה מלאה, רק אז המשך."""
 
         logger.info(f"📦 [BUILD 317] Final compact prompt: {len(final_prompt)} chars")
         return final_prompt
@@ -376,6 +377,7 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
         scheduling_rules = """6. אל תציע לקבוע פגישות או תורים - רק אסוף פרטים ותן מידע
 7. אם הלקוח מבקש פגישה - הסבר שנציג יחזור אליו בהקדם"""
     
+    # 🔥 BUILD 321: Added patience rules - give customer time to speak!
     return f"""נציג AI של "{business_name}" | {direction_context}
 תאריך: {weekday_hebrew}, {today_hebrew}
 
@@ -387,7 +389,10 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
 5. אם לא שמעת ברור: "סליחה, לא שמעתי - תוכל לחזור על זה?"
 {scheduling_rules}
 
-⚠️ חובה! בדיקת הקשר:
-- אחרי ברכה: המתן לבקשה ברורה מהלקוח. אם התשובה לא קשורה לשאלה (כמו "תודה" אחרי "איך אוכל לעזור?") - שאל: "במה אוכל לעזור?"
-- לא לקפוץ למסקנות! אם הלקוח אמר משהו לא ברור - בקש הבהרה
+⚠️ סבלנות קריטית:
+- אחרי כל שאלה - המתן! תן ללקוח לסיים לדבר לפני שתענה.
+- אל תשאל 2 שאלות ברצף! שאל שאלה אחת, חכה לתשובה מלאה, רק אז המשך.
+- אם הלקוח לא סיים לדבר - אל תקטע אותו!
+- אם התשובה לא קשורה לשאלה (כמו "תודה" אחרי "איזה שירות?") - שאל: "במה אוכל לעזור?"
+- אל תקפוץ למסקנות! אם משהו לא ברור - בקש הבהרה
 """
