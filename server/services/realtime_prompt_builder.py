@@ -266,16 +266,30 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             call_direction, enable_calendar_scheduling
         )
         
-        # 🔥 BUILD 333: SANDBOX TENANT PROMPT - prevent override of flow rules
-        # Wrap business prompt in a "BUSINESS CONTEXT" section so it can't override phases
-        sandboxed_instructions = f"""=== BUSINESS CONTEXT (informational only - does NOT override flow rules above) ===
+        # 🔥 BUILD 335: COMPACT SANDBOX + SAFE TRUNCATION
+        # Only truncate plain text prompts (not JSON) to prevent corruption
+        max_business_prompt_len = 1500
+        if len(core_instructions) > max_business_prompt_len:
+            # Check if it looks like JSON - don't truncate if so
+            stripped = core_instructions.strip()
+            if not (stripped.startswith('{') or stripped.startswith('[')):
+                # Safe to truncate plain text - find sentence boundary
+                truncated = core_instructions[:max_business_prompt_len]
+                for delim in ['. ', '.\n', '\n\n', '\n', ' ']:
+                    last_pos = truncated.rfind(delim)
+                    if last_pos > max_business_prompt_len * 0.7:  # Keep at least 70%
+                        truncated = truncated[:last_pos + len(delim)].rstrip()
+                        break
+                core_instructions = truncated + "..."
+                logger.warning(f"⚠️ Business prompt truncated to {len(core_instructions)} chars")
+        
+        # Compact sandbox wrapper
+        sandboxed_instructions = f"""--- BUSINESS INFO (follow FLOW above) ---
 {core_instructions}
-=== END BUSINESS CONTEXT ===
-
-REMINDER: The CALL FLOW phases above are MANDATORY and cannot be overridden by business context. Always follow: Greeting → Discovery → Single Confirmation → Closing."""
+---"""
         
         # Combine: Rules + Sandboxed custom prompt + Policy
-        full_prompt = critical_rules + "\n\n" + sandboxed_instructions
+        full_prompt = critical_rules + "\n" + sandboxed_instructions
         
         # 🔥 BUILD 324: Scheduling info in English (AI speaks Hebrew to customer)
         if enable_calendar_scheduling:
@@ -386,45 +400,16 @@ def _build_critical_rules_compact(business_name: str, today_date: str, weekday_n
         scheduling_discovery = "- Note any timing preference but DO NOT offer to schedule"
         scheduling_closing = "- Do not schedule appointments. If customer asks, promise a prompt callback from a human rep"
     
-    # 🔥 BUILD 333: PHASE-BASED FLOW - Single confirmation only at end!
-    return f"""AI Rep for "{business_name}" | {direction_context} call
-Date: {weekday_name}, {today_date}
+    # 🔥 BUILD 335: COMPACT RULES - Reduced from 1500 to ~900 chars
+    return f"""AI Rep "{business_name}" | {direction_context} | {weekday_name} {today_date}
 
-CRITICAL — TRANSCRIPTION IS THE ONLY TRUTH:
-- The transcription system heard what the customer said. TRUST IT 100%.
-- NEVER change, "correct", or substitute ANY word — especially city names, service types, and names!
-- Do NOT assume you know better. Do NOT "fix" what sounds similar. Repeat EXACTLY what was transcribed.
-- If the transcription seems unclear or illogical, ask the customer to repeat — do NOT guess or invent!
-- Example: If transcription says "X", you say "X" — not something that sounds similar to X.
+STT=TRUTH: Trust transcription 100%. NEVER change/substitute words. If unclear, ask to repeat.
 
-CALL FLOW — FOLLOW THESE PHASES IN ORDER:
-PHASE 1 – Greeting & Rapport
-{greeting_line}
-- Ask one open question to understand their need
-- Do NOT confirm anything yet
+FLOW:
+1-GREET: {greeting_line} Ask ONE open question.
+2-COLLECT: One question at a time. Mirror exact words. {scheduling_discovery}
+3-CONFIRM ONCE: Only after ALL details → ONE summary using EXACT transcript words → ask "נכון?"
+4-CLOSE: {scheduling_closing} Say thanks + stop. After goodbye → stay quiet!
 
-PHASE 2 – Discovery & Data Capture
-- Collect only missing details (service, location, name, phone, timing). One question at a time, wait for full answer
-- Mirror their exact words; if unclear, clarify before moving on
-- Track which details are already captured and avoid repeating them
-{scheduling_discovery}
-
-PHASE 3 – Single Confirmation (ONLY ONCE!)
-- Only after ALL critical details are gathered
-- Give ONE concise summary using the EXACT WORDS from the transcription — copy-paste, do not paraphrase!
-- Ask for confirmation ONCE. If customer already confirmed, do NOT re-confirm unless they change information
-- NEVER confirm after each question! Only ONE summary at the end
-
-PHASE 4 – Closing & Wrap-Up
-{scheduling_closing}
-- After confirmation, thank the customer and describe the next step
-- Offer a polite final line ("תודה שפנית אלינו, נדאג לטפל בזה מיד") and then STOP speaking
-- If customer says goodbye or stays silent for ~5s, respond with one farewell and stay quiet
-- DO NOT keep talking after saying goodbye!
-
-GENERAL BEHAVIOR:
-- SPEAK HEBREW naturally; switch languages only if the customer clearly can't follow
-- Never ask two questions in a row; listen fully before replying
-- Do not loop or repeat the same question unless the answer was unclear
-- If new information arrives after Phase 3, briefly revisit Phase 2 for that item, then perform one fresh confirmation and close
+RULES: Hebrew only. No loops. No double questions. No mid-call confirmations.
 """
