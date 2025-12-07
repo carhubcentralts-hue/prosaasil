@@ -62,7 +62,8 @@ try:
     from server.config.calls import (
         SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
-        ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES
+        ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
+        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -74,6 +75,8 @@ except ImportError:
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
+    MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
+    MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -1110,6 +1113,14 @@ class MediaStreamHandler:
         self.realtime_thread = None  # Thread running asyncio loop
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
+        # 🔥 BUILD 331: Usage guard tracking fields
+        self._limit_exceeded = False
+        self._limit_frames = 0
+        self._limit_seconds = 0.0
+        self._usage_guard_frames = 0
+        self._usage_guard_seconds = 0.0
+        self._usage_guard_limit_hit = False
+        
         # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
         self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
         self.has_pending_ai_response = False  # Is AI response pending?
@@ -1816,7 +1827,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
             self._calculate_and_log_cost()
             
             if client:
-                await client.disconnect()
+                # 🔥 BUILD 331: Pass reason for disconnect logging
+                disconnect_reason = "limit_exceeded" if getattr(self, 'realtime_stop_flag', False) else "normal_end"
+                await client.disconnect(reason=disconnect_reason)
                 print(f"🔌 [REALTIME] Disconnected")
                 logger.info(f"[CALL DEBUG] OpenAI Realtime disconnected")
     
@@ -1851,6 +1864,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
         _fps_frame_count = 0
         _fps_window_start = time.time()
         _fps_throttle_logged = False
+        
+        # 🔥 BUILD 331: HARD SAFETY LIMITS - Prevent runaway token consumption
+        _call_start_time = time.time()
+        _total_frames_sent = 0
+        _limit_exceeded = False
+        _limit_logged = False
         
         while not self.realtime_stop_flag:
             try:
@@ -1906,6 +1925,43 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     continue
                 
                 _fps_frame_count += 1
+                
+                # 🔥 BUILD 331: HARD SAFETY LIMITS - Check before sending any audio!
+                call_elapsed = time.time() - _call_start_time
+                _total_frames_sent += 1
+                
+                # Check if we've exceeded hard limits
+                if not _limit_exceeded:
+                    if call_elapsed > MAX_REALTIME_SECONDS_PER_CALL:
+                        _limit_exceeded = True
+                        print(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! call_duration={call_elapsed:.1f}s > max={MAX_REALTIME_SECONDS_PER_CALL}s")
+                    elif _total_frames_sent > MAX_AUDIO_FRAMES_PER_CALL:
+                        _limit_exceeded = True
+                        print(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! frames={_total_frames_sent} > max={MAX_AUDIO_FRAMES_PER_CALL}")
+                
+                # If limit exceeded, stop sending audio and trigger IMMEDIATE call termination
+                if _limit_exceeded:
+                    if not _limit_logged:
+                        _limit_logged = True
+                        print(f"🛑 [BUILD 331] OPENAI_USAGE_GUARD: frames_sent={_total_frames_sent}, estimated_seconds={call_elapsed:.1f}")
+                        print(f"🛑 [BUILD 331] HARD LIMIT HIT - Triggering immediate call termination!")
+                        
+                        # 🔥 BUILD 331: Set flags to trigger FULL call shutdown
+                        self.realtime_stop_flag = True
+                        self._limit_exceeded = True  # Store for logging in finally block
+                        self._limit_frames = _total_frames_sent
+                        self._limit_seconds = call_elapsed
+                        
+                        # Signal the main loop to end the call via Twilio
+                        # This will make run() exit cleanly and trigger proper teardown
+                        if hasattr(self, 'ws') and self.ws:
+                            try:
+                                # Try to close the WebSocket which will trigger the main loop to exit
+                                self.ws.close()
+                            except:
+                                pass
+                    
+                    break  # Exit the audio sender loop immediately
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
                 # Start timer on first chunk
@@ -1973,7 +2029,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 print(f"❌ [REALTIME] Audio sender error: {e}")
                 break
         
-        print(f"📤 [REALTIME] Audio sender ended")
+        # 🔥 BUILD 331: Store values for final logging in main finally block
+        self._usage_guard_frames = _total_frames_sent
+        self._usage_guard_seconds = time.time() - _call_start_time
+        self._usage_guard_limit_hit = _limit_exceeded
+        print(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 302: FLUSH TX QUEUE - Stop old audio from playing on barge-in
@@ -4571,6 +4631,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
         
         try:
             while True:
+                # 🔥 BUILD 331: Check if hard limit was exceeded - exit immediately
+                if self._limit_exceeded:
+                    print(f"🛑 [BUILD 331] LIMIT_EXCEEDED flag detected in main loop - exiting immediately")
+                    break
+                
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None
                 try:
@@ -4602,6 +4667,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     if raw is None or raw == '':
                         print("📞 WebSocket connection closed normally", flush=True)
                         break
+                    
+                    # 🔥 BUILD 331: Check limit flag after receiving - exit if limit exceeded
+                    if self._limit_exceeded:
+                        print(f"🛑 [BUILD 331] LIMIT_EXCEEDED after receive - exiting main loop")
+                        break
                         
                     # Handle both string and bytes
                     if isinstance(raw, bytes):
@@ -4614,6 +4684,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     print(f"⚠️ Invalid JSON received: {str(raw)[:100] if raw else 'None'}... Error: {e}", flush=True)
                     continue
                 except Exception as e:
+                    # 🔥 BUILD 331: Check limit flag on exception - exit if limit exceeded
+                    if self._limit_exceeded:
+                        print(f"🛑 [BUILD 331] LIMIT_EXCEEDED during exception - exiting main loop")
+                        break
                     print(f"⚠️ WebSocket receive error: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
@@ -5530,6 +5604,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # 💰 CALCULATE AND LOG CALL COST
             if USE_REALTIME_API:
                 self._calculate_and_log_cost()
+            
+            # 🔥 BUILD 331: OPENAI_USAGE_GUARD - Final logging regardless of exit path
+            frames_sent = getattr(self, '_usage_guard_frames', 0)
+            seconds_used = getattr(self, '_usage_guard_seconds', 0.0)
+            limit_hit = getattr(self, '_usage_guard_limit_hit', False)
+            limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
+            print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
             try: 
                 self.ws.close()

@@ -88,7 +88,9 @@ class OpenAIRealtimeClient:
                     ping_timeout=10,
                     close_timeout=5
                 )
+                # 🔥 BUILD 331: Clear logging when WebSocket opens
                 logger.info(f"[REALTIME] Connected (attempt {attempt}/{max_retries})")
+                print(f"🟢 REALTIME_WS_OPEN model={self.model}")
                 return self.ws
                 
             except Exception as e:
@@ -102,15 +104,18 @@ class OpenAIRealtimeClient:
         
         raise last_error or RuntimeError("Connection failed")
     
-    async def disconnect(self):
+    async def disconnect(self, reason: str = "normal"):
         """Close WebSocket connection and cleanup session"""
         if self.ws:
             try:
                 # 🧹 COST SAFETY: Explicitly close connection to prevent session reuse
                 await self.ws.close()
                 logger.info("✅ WebSocket connection closed cleanly")
+                # 🔥 BUILD 331: Clear logging when WebSocket closes
+                print(f"🔴 REALTIME_WS_CLOSED reason={reason}")
             except Exception as e:
                 logger.warning(f"⚠️ Error during disconnect: {e}")
+                print(f"🔴 REALTIME_WS_CLOSED reason=error:{e}")
             finally:
                 self.ws = None
                 logger.info("🔌 Disconnected from Realtime API (session destroyed)")

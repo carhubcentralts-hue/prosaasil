@@ -12,6 +12,11 @@ COST_EFFICIENT_MODE = False  # DISABLED - must send ALL audio for good STT!
 COST_MIN_RMS_THRESHOLD = 0   # No RMS gating - all audio passes through
 COST_MAX_FPS = 60            # Raised to 60 (above 50 FPS phone requirement)
 
+# 🔥 BUILD 331: HARD SAFETY LIMITS - Prevent runaway token consumption
+# These are ABSOLUTE limits that cannot be bypassed - protects from bugs burning money
+MAX_REALTIME_SECONDS_PER_CALL = 90   # Max 90 seconds per call
+MAX_AUDIO_FRAMES_PER_CALL = 4500     # 50 fps × 90s = 4500 frames maximum
+
 # AUDIO GUARD: DISABLED - was blocking real speech!
 # Analysis showed rms=8 frames being blocked while user was speaking.
 AUDIO_GUARD_ENABLED = False  # OFF - trust OpenAI VAD
