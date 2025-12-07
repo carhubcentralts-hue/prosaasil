@@ -111,8 +111,8 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             
             logger.info(f"✅ [BUILD 317] Extracted {len(compact_context)} chars from business ai_prompt")
         else:
-            # No ai_prompt - use minimal fallback
-            compact_context = f"אתה נציג של {business_name}. דבר בעברית, היה קצר וברור."
+            # 🔥 BUILD 322: Consistent Hebrew fallback - no ai_prompt
+            compact_context = f"אתה נציג שירות מקצועי של {business_name}. דבר בעברית, היה קצר ומועיל."
             logger.warning(f"⚠️ [BUILD 317] No ai_prompt for business {business_id} - using minimal")
         
         # 🔥 BUILD 321: Add essential rules (very short) + patience
@@ -185,8 +185,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.outbound_ai_prompt.strip()
                 logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ONLY for business {business_id} ({len(core_instructions)} chars)")
             else:
-                # 🔥 BUILD 200: Minimal generic fallback - no business-specific assumptions
-                core_instructions = f"""אתה נציג של "{business_name}". דבר בעברית, היה אדיב וקצר."""
+                # 🔥 BUILD 322: Consistent Hebrew fallback - no outbound_ai_prompt
+                core_instructions = f"""אתה נציג שירות מקצועי של "{business_name}". דבר בעברית, היה קצר ומועיל."""
                 logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using minimal fallback")
             
             # Replace placeholders
@@ -217,9 +217,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.ai_prompt
         
         if not core_instructions:
-            # 🔥 BUILD 200: Minimal generic fallback - no business-specific assumptions
+            # 🔥 BUILD 322: Consistent Hebrew fallback - no ai_prompt in DB
             logger.error(f"❌ [INBOUND] No prompt in DB for business {business_id}")
-            core_instructions = f"""אתה נציג של "{business_name}". עונה בעברית, קצר וברור."""
+            core_instructions = f"""אתה נציג שירות מקצועי של "{business_name}". דבר בעברית, היה קצר ומועיל."""
         
         # Replace placeholders
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
