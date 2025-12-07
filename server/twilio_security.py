@@ -14,7 +14,6 @@ def _effective_url(req):
     """
     Get effective URL for Twilio signature validation.
     ✅ BUILD 156: Support PUBLIC_BASE_URL override and GET query strings
-    ✅ BUILD 177: Fixed POST with query params (outbound calls)
     """
     # Check if PUBLIC_BASE_URL is set (for production/custom domains)
     public_base_url = os.getenv('PUBLIC_BASE_URL', '').rstrip('/')
@@ -28,9 +27,9 @@ def _effective_url(req):
         host = (req.headers.get("X-Forwarded-Host") or req.host).split(",")[0].strip()
         base = f"{scheme}://{host}"
     
-    # 🔧 BUILD 177: Twilio signature includes query string for BOTH GET and POST
-    # When URL has query params, they must be included in signature validation
-    if req.query_string:
+    # For POST: URL without query string (params are in form body)
+    # For GET: URL WITH query string (params are in URL)
+    if req.method == "GET" and req.query_string:
         return f"{base}{req.path}?{req.query_string.decode('utf-8')}"
     return f"{base}{req.path}"
 
@@ -104,13 +103,12 @@ def _get_alternate_urls(req, primary_url):
     """
     Generate alternate URLs to try for signature validation.
     ✅ BUILD 156: Handle domain mismatches between Twilio config and actual request
-    ✅ BUILD 177: Include query params for POST requests too (outbound calls)
     """
     alternate_urls = []
     
-    # Get path and query - include query for ALL methods (not just GET)
+    # Get path and query
     path = req.path
-    query = f"?{req.query_string.decode('utf-8')}" if req.query_string else ""
+    query = f"?{req.query_string.decode('utf-8')}" if req.method == "GET" and req.query_string else ""
     
     # Try different host sources
     hosts = set()

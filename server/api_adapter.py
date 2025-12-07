@@ -148,11 +148,7 @@ def dashboard_stats():
             unread = 0
         
         # BUILD 135: Real revenue stats - FILTERED by tenant_id
-        # BUILD 173: Payment table may not exist on older production DBs
         from sqlalchemy import func
-        revenue_this_month = 0
-        revenue_ytd = 0
-        revenue_degraded = False  # Flag to indicate degraded data
         try:
             revenue_this_month = Payment.query.with_entities(func.sum(Payment.amount)).filter(
                 Payment.business_id == tenant_id,
@@ -160,13 +156,8 @@ def dashboard_stats():
                 func.extract('year', Payment.created_at) == today.year
             ).scalar() or 0
         except Exception as e:
-            err_str = str(e).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'payments' in err_str:
-                logger.warning(f"Payment table does not exist - returning 0 for revenue")
-                revenue_degraded = True
-            else:
-                logger.error(f"Unexpected Payment query error: {e}")
-                revenue_degraded = True
+            logger.error(f"Error in revenue_this_month query: {e}")
+            revenue_this_month = 0
             
         try:
             revenue_ytd = Payment.query.with_entities(func.sum(Payment.amount)).filter(
@@ -174,13 +165,8 @@ def dashboard_stats():
                 func.extract('year', Payment.created_at) == today.year
             ).scalar() or 0
         except Exception as e:
-            err_str = str(e).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'payments' in err_str:
-                logger.warning(f"Payment table does not exist - returning 0 for YTD revenue")
-                revenue_degraded = True
-            else:
-                logger.error(f"Unexpected Payment YTD query error: {e}")
-                revenue_degraded = True
+            logger.error(f"Error in revenue_ytd query: {e}")
+            revenue_ytd = 0
         
         return jsonify({
             "calls": {
@@ -195,8 +181,7 @@ def dashboard_stats():
             },
             "revenue": {
                 "thisMonth": revenue_this_month,
-                "ytd": revenue_ytd,
-                "degraded": revenue_degraded  # BUILD 173: Flag to indicate data quality issues
+                "ytd": revenue_ytd
             },
             "filter": {
                 "type": time_filter,
@@ -285,13 +270,9 @@ def dashboard_activity():
                 customer_id = getattr(msg, 'customer_id', None)
                 if customer_id:
                     if customer_id not in customer_to_lead:
-                        # BUILD 173: Handle Lead lookup errors gracefully
-                        try:
-                            lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
-                            customer_to_lead[customer_id] = lead.id if lead else None
-                        except Exception as lead_err:
-                            logger.warning(f"Lead lookup failed for tenant={tenant_id}, customer={customer_id}: {lead_err}")
-                            customer_to_lead[customer_id] = None
+                        # Look up lead by customer_id
+                        lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
+                        customer_to_lead[customer_id] = lead.id if lead else None
                     lead_id = customer_to_lead.get(customer_id)
                 
                 activities.append({
@@ -310,13 +291,8 @@ def dashboard_activity():
                 customer_id = call.customer_id
                 if customer_id:
                     if customer_id not in customer_to_lead:
-                        # BUILD 173: Handle Lead lookup errors gracefully (reuse cached value)
-                        try:
-                            lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
-                            customer_to_lead[customer_id] = lead.id if lead else None
-                        except Exception as lead_err:
-                            logger.warning(f"Lead lookup failed for call tenant={tenant_id}, customer={customer_id}: {lead_err}")
-                            customer_to_lead[customer_id] = None
+                        lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
+                        customer_to_lead[customer_id] = lead.id if lead else None
                     lead_id = customer_to_lead.get(customer_id)
                 
                 activities.append({

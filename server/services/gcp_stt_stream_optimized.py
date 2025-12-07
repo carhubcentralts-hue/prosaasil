@@ -119,13 +119,13 @@ class GcpHebrewStreamerOptimized:
         """Background worker with optimized config"""
         try:
             # ⚡ OPTIMIZED CONFIG for low latency
-            # 🔥 BUILD 186: NO hardcoded cities - only generic Hebrew phrases
             speech_contexts = [
                 speech.SpeechContext(
                     phrases=[
-                        "שלום", "היי", "תודה", "בבקשה", "כן", "לא", "בסדר",
-                        "תור", "פגישה", "מחר", "היום", "שבוע", "חודש",
-                        "אחד", "שניים", "שלוש", "ארבע", "חמש", "עשר", "עשרים"
+                        "דירה", "משרד", "נכס", "שכירות", "מכירה", "קניה",
+                        "חדרים", "מטר", "קומה", "מעלית", "חניה", "מרפסת", "אזור",
+                        "תל אביב", "ירושלים", "חיפה", "פתח תקווה", "רמת גן", "הרצליה", "רעננה",
+                        "שקל", "אלף", "מיליון", "תקציב", "משכנתא", "נדלן", "פגישה", "תור"
                     ],
                     boost=15.0  # Strong boost for common terms
                 )

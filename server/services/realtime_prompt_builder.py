@@ -41,118 +41,13 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
         return ("", "")  # Return empty - let AI handle naturally
 
 
-def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbound") -> str:
-    """
-    🔥 BUILD 317: COMPACT prompt DERIVED FROM BUSINESS'S OWN ai_prompt
-    
-    NO HARDCODED VALUES - extracts context directly from the business's prompt!
-    This ensures AI understands the business context (locksmith, salon, etc.)
-    and can interpret user responses correctly (e.g., "קריית גת" is a city).
-    
-    Strategy:
-    1. Load the business's actual ai_prompt from DB
-    2. Extract first 600-800 chars as context summary
-    3. AI greets based on THIS context (not generic template)
-    
-    Target: Under 800 chars for < 2 second greeting response.
-    """
-    try:
-        from server.models_sql import Business, BusinessSettings
-        import json
-        
-        business = Business.query.get(business_id)
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-        
-        if not business:
-            logger.warning(f"⚠️ [BUILD 324] Business {business_id} not found")
-            return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
-        
-        business_name = business.name or "Business"
-        
-        # 🔥 BUILD 317: Extract context from ACTUAL business ai_prompt!
-        ai_prompt_text = ""
-        if settings and settings.ai_prompt:
-            raw_prompt = settings.ai_prompt.strip()
-            
-            # Handle JSON format (with 'calls' key)
-            if raw_prompt.startswith('{'):
-                try:
-                    prompt_obj = json.loads(raw_prompt)
-                    if 'calls' in prompt_obj:
-                        ai_prompt_text = prompt_obj['calls']
-                    elif 'whatsapp' in prompt_obj:
-                        ai_prompt_text = prompt_obj['whatsapp']
-                    else:
-                        ai_prompt_text = raw_prompt
-                except json.JSONDecodeError:
-                    ai_prompt_text = raw_prompt
-            else:
-                ai_prompt_text = raw_prompt
-        
-        # 🔥 BUILD 317: Summarize the prompt to ~600 chars
-        # This keeps the BUSINESS CONTEXT (locksmith, services, cities, etc.)
-        if ai_prompt_text:
-            # Replace placeholders
-            ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
-            ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
-            
-            # Take first 600 chars, try to end at sentence boundary
-            if len(ai_prompt_text) > 600:
-                # Find good cut point (end of sentence)
-                cut_point = 600
-                for delimiter in ['. ', '.\n', '\n\n', '\n']:
-                    last_pos = ai_prompt_text[:650].rfind(delimiter)
-                    if last_pos > 400:
-                        cut_point = last_pos + len(delimiter)
-                        break
-                compact_context = ai_prompt_text[:cut_point].strip()
-            else:
-                compact_context = ai_prompt_text.strip()
-            
-            logger.info(f"✅ [BUILD 317] Extracted {len(compact_context)} chars from business ai_prompt")
-        else:
-            # 🔥 BUILD 324: English fallback - no ai_prompt
-            compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
-            logger.warning(f"⚠️ [BUILD 324] No ai_prompt for business {business_id} - using English fallback")
-        
-        # 🔥 BUILD 328: Add minimal scheduling info if calendar is enabled
-        # This allows AI to handle appointments without needing full prompt resend
-        scheduling_note = ""
-        if settings and hasattr(settings, 'enable_calendar_scheduling') and settings.enable_calendar_scheduling:
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(business_id, prompt_text=None)
-            if policy:
-                scheduling_note = f"\nAPPOINTMENTS: {policy.slot_size_min}min slots. Check availability first!"
-                logger.info(f"📅 [BUILD 328] Added scheduling info: {policy.slot_size_min}min slots")
-        
-        # 🔥 BUILD 327: STT AS SOURCE OF TRUTH + patience
-        direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
-        
-        final_prompt = f"""{compact_context}
-
----
-{direction} | CRITICAL: Use EXACT words customer says. NEVER invent or guess!
-If unclear - ask to repeat. SPEAK HEBREW.{scheduling_note}"""
-
-        logger.info(f"📦 [BUILD 328] Final compact prompt: {len(final_prompt)} chars")
-        return final_prompt
-        
-    except Exception as e:
-        logger.error(f"❌ [BUILD 324] Compact prompt error: {e}")
-        import traceback
-        traceback.print_exc()
-        # 🔥 BUILD 324: English fallback
-        return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
-
-
-def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
+def build_realtime_system_prompt(business_id: int, db_session=None) -> str:
     """
     Build system prompt for OpenAI Realtime API based on business settings
     
     Args:
         business_id: Business ID
         db_session: Optional SQLAlchemy session (for transaction safety)
-        call_direction: "inbound" or "outbound" - determines which prompt to use
     
     Returns:
         System prompt in Hebrew for the AI assistant
@@ -171,47 +66,20 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         except Exception as db_error:
             logger.error(f"❌ DB error loading business {business_id}: {db_error}")
-            return _get_fallback_prompt(business_id)
+            return _get_fallback_prompt()
         
         if not business:
             raise ValueError(f"Business {business_id} not found")
         
-        business_name = business.name or "Business"
+        business_name = business.name or "העסק"
         
         # Load business policy (slot size, opening hours, etc.)
         policy = get_business_policy(business_id, prompt_text=None, db_session=db_session)
         
-        logger.info(f"📋 Building Realtime prompt for {business_name} (business_id={business_id}, direction={call_direction})")
+        logger.info(f"📋 Building Realtime prompt for {business_name} (business_id={business_id})")
         
-        # 🔥 BUILD 186: SEPARATE LOGIC FOR INBOUND vs OUTBOUND
-        # - OUTBOUND: Uses ONLY the outbound_ai_prompt from DB (no call control settings)
-        # - INBOUND: Uses ai_prompt + call control settings (calendar scheduling, etc.)
-        
+        # 🔥 Load custom prompt from DB (just like WhatsApp)
         core_instructions = ""
-        
-        if call_direction == "outbound":
-            # 🔥 OUTBOUND CALLS: Use the outbound prompt + mandatory SPEAK HEBREW directive
-            if settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
-                core_instructions = settings.outbound_ai_prompt.strip()
-                logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt for business {business_id} ({len(core_instructions)} chars)")
-            else:
-                # 🔥 BUILD 324: English fallback - no outbound_ai_prompt
-                core_instructions = f"""You are a professional sales rep for "{business_name}". Be brief and persuasive."""
-                logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using English fallback")
-            
-            # Replace placeholders
-            core_instructions = core_instructions.replace("{{business_name}}", business_name)
-            core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
-            
-            # 🔥 BUILD 324: SPEAK HEBREW directive with language switch option
-            core_instructions = f"""CRITICAL: SPEAK HEBREW to customer. If they don't understand Hebrew - switch to their language.
-
-{core_instructions}"""
-            
-            logger.info(f"✅ [OUTBOUND] Final prompt length: {len(core_instructions)} chars")
-            return core_instructions
-        
-        # 🔥 INBOUND CALLS: Use ai_prompt + call control settings
         if settings and settings.ai_prompt and settings.ai_prompt.strip():
             import json
             try:
@@ -219,10 +87,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                     prompt_obj = json.loads(settings.ai_prompt)
                     if 'calls' in prompt_obj:
                         core_instructions = prompt_obj['calls']
-                        logger.info(f"✅ [INBOUND] Using 'calls' prompt from DB for business {business_id}")
+                        logger.info(f"✅ Using 'calls' prompt from DB for business {business_id}")
                     elif 'whatsapp' in prompt_obj:
                         core_instructions = prompt_obj['whatsapp']
-                        logger.info(f"⚠️ [INBOUND] Using 'whatsapp' as fallback for business {business_id}")
+                        logger.info(f"⚠️ Using 'whatsapp' as fallback for business {business_id}")
                     else:
                         core_instructions = settings.ai_prompt
                 else:
@@ -231,58 +99,48 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.ai_prompt
         
         if not core_instructions:
-            # 🔥 BUILD 324: English fallback - no ai_prompt in DB
-            logger.error(f"❌ [INBOUND] No prompt in DB for business {business_id}")
-            core_instructions = f"""You are a professional service rep for "{business_name}". SPEAK HEBREW to customer. Be brief and helpful."""
+            logger.error(f"❌ No 'calls' prompt in DB for business {business_id}")
+            core_instructions = f"""אתה נציג טלפוני של "{business_name}". עונה בעברית, קצר וברור."""
         
         # Replace placeholders
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
         core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
-        # 🔥 BUILD 324: English date context
+        # 🔥 Get current date for AI context
         tz = pytz.timezone(policy.tz)
         today = datetime.now(tz)
-        today_date = today.strftime("%d/%m/%Y")
-        weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        weekday_name = weekday_names[today.weekday()]
+        today_hebrew = today.strftime("%d/%m/%Y")
+        weekday_names = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+        weekday_hebrew = weekday_names[today.weekday()]
         
         # 🔥 LOAD GREETING FROM DB
         greeting_text = business.greeting_message if business else ""
         if not greeting_text:
             greeting_text = ""
         
-        # 🔥 BUILD 327: Removed required_lead_fields - AI follows prompt instructions
+        # 🔥 BUILD 168: Load required_lead_fields for dynamic verification prompt
+        required_lead_fields = ['name', 'phone']  # Default
+        if settings and hasattr(settings, 'required_lead_fields') and settings.required_lead_fields:
+            required_lead_fields = settings.required_lead_fields
+            logger.info(f"✅ Using custom required_lead_fields: {required_lead_fields}")
         
-        # 🔥 BUILD 186: Check calendar scheduling setting
-        enable_calendar_scheduling = True  # Default to enabled
-        if settings and hasattr(settings, 'enable_calendar_scheduling'):
-            enable_calendar_scheduling = settings.enable_calendar_scheduling
-        logger.info(f"📅 [INBOUND] Calendar scheduling: {'ENABLED' if enable_calendar_scheduling else 'DISABLED'}")
+        # 🎯 Build COMPACT system prompt with dynamic verification
+        critical_rules = _build_critical_rules_compact(business_name, today_hebrew, weekday_hebrew, greeting_text, required_lead_fields)
         
-        # 🎯 BUILD 324: COMPACT English system prompt with call control settings
-        # 🔥 BUILD 327: Simplified call without required_lead_fields
-        critical_rules = _build_critical_rules_compact(
-            business_name, today_date, weekday_name, greeting_text, 
-            call_direction, enable_calendar_scheduling
-        )
+        # Combine: Rules + Custom prompt + Policy (all in English)
+        full_prompt = critical_rules + "\n\nBUSINESS INSTRUCTIONS:\n" + core_instructions
         
-        # Combine: Rules + Custom prompt + Policy
-        full_prompt = critical_rules + "\n\n" + core_instructions
+        # Add policy info (hours, slots) - keep Hebrew for display to customers
+        hours_description = _build_hours_description(policy)
+        slot_description = _build_slot_description(policy.slot_size_min)
         
-        # 🔥 BUILD 324: Scheduling info in English (AI speaks Hebrew to customer)
-        if enable_calendar_scheduling:
-            hours_description = _build_hours_description(policy)
-            
-            min_notice = ""
-            if policy.min_notice_min > 0:
-                min_notice_hours = policy.min_notice_min // 60
-                if min_notice_hours > 0:
-                    min_notice = f" (advance booking: {min_notice_hours}h)"
-            
-            full_prompt += f"\n\nSCHEDULING: {policy.slot_size_min}min slots{min_notice}\n{hours_description}"
-        else:
-            # Explicitly tell AI not to schedule appointments
-            full_prompt += "\n\nNO SCHEDULING: Do NOT offer appointments. Focus on info and collecting lead details only."
+        min_notice = ""
+        if policy.min_notice_min > 0:
+            min_notice_hours = policy.min_notice_min // 60
+            if min_notice_hours > 0:
+                min_notice = f" (advance booking: {min_notice_hours}h)"
+        
+        full_prompt += f"\n\nSCHEDULING: Slots every {policy.slot_size_min} min{min_notice}\n{hours_description}"
         
         # Log final length
         logger.info(f"✅ REALTIME PROMPT [business_id={business_id}] LEN={len(full_prompt)} chars")
@@ -297,47 +155,26 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         logger.error(f"❌ Error building Realtime prompt: {e}")
         import traceback
         traceback.print_exc()
-        return _get_fallback_prompt(business_id)
+        return _get_fallback_prompt()
 
 
-def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
-    """Minimal fallback prompt - tries to use business settings first"""
-    try:
-        if business_id:
-            from server.models_sql import Business, BusinessSettings
-            business = Business.query.get(business_id)
-            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-            
-            # Try to get prompt from settings
-            if settings and settings.ai_prompt and settings.ai_prompt.strip():
-                return settings.ai_prompt
-            
-            # Try business.system_prompt
-            if business and business.system_prompt and business.system_prompt.strip():
-                return business.system_prompt
-            
-            # 🔥 BUILD 324: English fallback with business name
-            if business and business.name:
-                return f"You are a rep for {business.name}. SPEAK HEBREW to customer. Be brief and helpful."
-    except:
-        pass
-    
-    # 🔥 BUILD 324: Absolute minimal English fallback
-    return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
+def _get_fallback_prompt() -> str:
+    """Minimal fallback prompt - generic, no business type assumptions"""
+    return """You are a professional, friendly service representative. Respond in HEBREW, be brief and clear. Help the customer with what they need."""
 
 
 def _build_hours_description(policy) -> str:
-    """Build opening hours description in English"""
+    """Build opening hours description in Hebrew"""
     if policy.allow_24_7:
-        return "Open 24/7"
+        return "פתוח 24/7"
     
     hours = policy.opening_hours
     if not hours:
-        return "Hours not defined"
+        return "שעות פעילות לא הוגדרו"
     
     day_names = {
-        "sun": "Sun", "mon": "Mon", "tue": "Tue", "wed": "Wed",
-        "thu": "Thu", "fri": "Fri", "sat": "Sat"
+        "sun": "א", "mon": "ב", "tue": "ג", "wed": "ד",
+        "thu": "ה", "fri": "ו", "sat": "ש"
     }
     
     parts = []
@@ -347,55 +184,171 @@ def _build_hours_description(policy) -> str:
             time_ranges = ",".join([f"{w[0]}-{w[1]}" for w in windows])
             parts.append(f"{day_names[day_key]}:{time_ranges}")
     
-    return "Hours: " + " | ".join(parts) if parts else "Hours not set"
+    return "שעות: " + " | ".join(parts) if parts else "שעות לא הוגדרו"
 
 
 def _build_slot_description(slot_size_min: int) -> str:
-    """Build slot size description in English"""
-    return f"Every {slot_size_min}min"
-
-
-def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
-    """
-    🔥 BUILD 327: Simplified - removed required_fields parameter (AI follows prompt instructions)
-    🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
-    """
-    direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
-    
-    # 🔥 BUILD 324: Calendar scheduling rules in English
-    if enable_calendar_scheduling:
-        scheduling_rules = """6. APPOINTMENTS: Check availability before confirming!
-7. Never say "I scheduled" until system confirms!
-8. Only start booking if customer explicitly asks"""
+    """Build slot size description in Hebrew - COMPACT"""
+    if slot_size_min == 15:
+        return "כל 15 דק'"
+    elif slot_size_min == 30:
+        return "כל חצי שעה"
+    elif slot_size_min == 60:
+        return "כל שעה"
+    elif slot_size_min == 90:
+        return "כל 90 דק'"
+    elif slot_size_min == 120:
+        return "כל שעתיים"
     else:
-        scheduling_rules = """6. NO APPOINTMENTS: Only collect info, don't offer to schedule
-7. If customer asks for appointment: say a rep will call back soon"""
-    
-    # 🔥 BUILD 324: English rules - AI speaks Hebrew to customer
-    # 🔥 BUILD 327: STT AS SOURCE OF TRUTH - respond only to what customer actually said
-    return f"""AI Rep for "{business_name}" | {direction_context} call
-Date: {weekday_name}, {today_date}
+        return f"כל {slot_size_min} דק'"
 
-CRITICAL - TRANSCRIPTION IS TRUTH:
-- Respond ONLY to what customer ACTUALLY SAID
-- NEVER invent, guess, or change what you heard
-- If customer said "עפולה" - respond about "עפולה", not another city
-- If customer said a name - use THAT EXACT name
-- If unclear what customer said - ASK to repeat, don't guess!
-- NEVER imagine or hallucinate values the customer didn't say
 
-RULES:
-1. SPEAK HEBREW naturally. If customer speaks another language - switch to it
-2. Use EXACT words customer said. Never "correct" or change them
-3. Confirm details: "Just to verify - you said X, correct?" (use their EXACT words)
-4. Be brief and clear, no repetition
-5. If unclear: ask to repeat politely - "סליחה, לא שמעתי טוב, אפשר לחזור?"
-{scheduling_rules}
+def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None) -> str:
+    """
+    BUILD 172: NEW SYSTEM PROMPT - Multilingual, human-level AI call assistant
+    """
+    return f"""You are a multilingual, human-level AI call assistant for businesses.
+Your personality, tone, and logic must adapt dynamically to each business and scenario based on the instructions/messages provided by the system and developer.
+You must behave like a real human representative: calm, clear, natural, and intelligent.
 
-PATIENCE (CRITICAL):
-- After each question: WAIT! Let customer finish before responding
-- Never ask 2 questions in a row! Ask ONE, wait for FULL answer, then continue
-- Don't interrupt customer mid-speech
-- If answer doesn't match question: ask "How can I help?"
-- Don't jump to conclusions! If unclear - ask for clarification
+🧠 CORE BEHAVIOR RULES (ALWAYS ACTIVE)
+
+📌 1. Hebrew → Highest priority
+
+When the user speaks Hebrew, you respond in perfect, natural Hebrew:
+        •       Correct grammar
+        •       Natural phrasing
+        •       Human-like clarity
+        •       No robotic repetition
+        •       No invented details
+
+📌 2. If the user speaks a different language
+
+Automatically switch to the user's language and stay in that language for the entire call.
+No need to ask for confirmation.
+
+📌 3. NEVER hallucinate
+
+You must never:
+        •       Guess details
+        •       Invent information
+        •       Fill missing data
+        •       Assume what the user meant
+
+If something wasn't clearly said →
+Always ask politely for clarification.
+
+📌 4. STRICT verification rule before acting
+
+Whenever the user gives a critical detail (category, city, name, time, address, task, request) →
+You must verify it before continuing:
+
+"רק מוודא — אמרת {{{{detail}}}} נכון?"
+
+If the user changes the detail →
+You must verify it again:
+
+"בסדר, מוודא מחדש — אז הפרט הנכון הוא {{{{updated_detail}}}}, נכון?"
+
+You never continue without a clear confirmation.
+
+📌 5. If the detail is unsupported
+
+Before declining anything, you must verify with the user:
+
+"רק מוודא — אמרת {{{{detail}}}} נכון?"
+
+If user confirms →
+Then respond according to business rules
+(e.g., "מצטערים, לא תומכים" או פתרון אחר שמוגדר דינמית).
+
+📌 6. Silence handling
+
+If transcription is unclear / noisy / empty →
+Respond with:
+
+"לא שמעתי טוב, תוכל לחזור על זה?"
+
+You must NOT interpret silence as meaning.
+
+📌 7. Human-like thoughtfulness
+
+Your tone and logic should feel:
+        •       אמפתי
+        •       מקצועי
+        •       לא לוחץ
+        •       לא חוזר על עצמו
+        •       לא נותן תשובות אוטומטיות
+
+⚙️ DYNAMIC BEHAVIOR BASED ON BUSINESS LOGIC (CRITICAL)
+
+The backend may send dynamic instructions, such as:
+        •       Required fields
+        •       Conversation flow
+        •       Supported / unsupported options
+        •       Special actions (e.g., create lead, verify schedule, collect phone number, etc.)
+        •       Special closing sentence
+        •       Hangup triggers
+
+Your job:
+
+✔ Read and follow these dynamic instructions strictly
+
+✔ Never override them
+
+✔ Never invent new ones
+
+You are the execution engine of the backend's logic.
+
+🟦 FINAL CALL CLOSING RULES (UNIVERSAL)
+
+You are never allowed to end the call without:
+
+1️⃣ Gathering all required details defined by the backend
+2️⃣ Verifying every detail with the user
+3️⃣ Confirming the final summary:
+
+"מצוין, אז רק מוודא בפעם האחרונה — {{{{summary}}}} נכון?"
+
+4️⃣ WAIT for explicit verbal confirmation from customer!
+The customer MUST say: "כן", "נכון", "בדיוק", "כן כן", or similar confirmation word.
+DO NOT close the call if customer only repeats details or says "אוקי". Wait for real "כן"!
+
+5️⃣ ONLY after user confirms with "כן" →
+Use the dynamic closing sentence provided by the backend, or fallback to:
+"תודה רבה, נציג יחזור אליך בהמשך. יום טוב!"
+
+6️⃣ Only then signal the system to hang up. NEVER close before confirmation!
+
+🟣 TRANSCRIPTION UNDERSTANDING RULESET
+
+To reduce mistakes and mishearings:
+        •       Treat short fragments / unclear words as unreliable
+        •       If meaning is not 100% clear → ask again
+        •       Prioritize semantic meaning over literal noise
+        •       Never assume the user answered if the speech is extremely short or low confidence
+        •       Always resolve ambiguity safely
+
+You must behave like a human who prefers accuracy over speed.
+
+🟧 TONE GUIDELINES
+        •       Warm
+        •       Polite
+        •       Natural
+        •       Zero emojis
+        •       Short, clear sentences
+        •       No robotic "pattern loops"
+        •       No unnecessary extra information
+
+🟩 YOUR MAIN PURPOSE
+
+Adapt dynamically to each business,
+collect required information accurately,
+respond in perfect Hebrew (or user language),
+verify details,
+follow backend instructions,
+and close conversations cleanly and professionally
+
+Business: "{business_name}"
+Today: {weekday_hebrew}, {today_hebrew}
 """

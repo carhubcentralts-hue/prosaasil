@@ -135,7 +135,7 @@ def create_business():
             business = Business()
             business.name = data['name']
             business.phone_e164 = data['phone_e164']  # השם שהפרונטאנד שולח
-            business.business_type = data.get('business_type', 'general')  # 🔥 BUILD 200: Generic default - works for any business type
+            business.business_type = data.get('business_type', 'real_estate')  # ברירת מחדל
             business.is_active = True
             
             # Set ALL required fields to prevent NOT NULL constraint violations
@@ -691,68 +691,47 @@ def exit_impersonation():
 def get_current_business():
     """Get current business details for authenticated user"""
     try:
-        from flask import request, g, session
+        from flask import request, g
         
-        business_id = g.get('tenant') or getattr(g, 'business_id', None)
+        # Get business_id from context
+        business_id = getattr(g, 'business_id', None)
         if not business_id:
-            # 🔥 BUILD 186 FIX: Safely handle None values from session
-            user = session.get('user') or session.get('al_user') or {}
-            business_id = session.get('impersonated_tenant_id') or (user.get('business_id') if isinstance(user, dict) else None)
-        
-        if not business_id:
-            logger.warning("No business context found in get_current_business")
             return jsonify({"error": "No business context found"}), 400
             
         business = Business.query.filter_by(id=business_id).first()
         if not business:
             return jsonify({"error": "Business not found"}), 404
             
-        # 🔥 BUILD 186 FIX: Handle missing database columns gracefully
-        settings = None
-        try:
-            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-        except Exception as settings_err:
-            logger.warning(f"Could not load settings for business {business_id} (DB schema issue): {settings_err}")
-            # Continue with settings=None - will use defaults
+        # Get settings if available
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
-        # 🔥 BUILD 186 FIX: Use getattr with fallbacks to prevent 500 errors if columns don't exist
         return jsonify({
             "id": business.id,
             "name": business.name,
-            "phone_number": getattr(settings, 'phone_number', None) or business.phone_e164 if settings else business.phone_e164,
-            "email": getattr(settings, 'email', None) or f"office@{business.name.lower().replace(' ', '-')}.co.il" if settings else f"office@{business.name.lower().replace(' ', '-')}.co.il",
-            "address": getattr(settings, 'address', "") if settings else "",
-            "working_hours": getattr(settings, 'working_hours', None) or business.working_hours if settings else business.working_hours,
-            "timezone": getattr(settings, 'timezone', "Asia/Jerusalem") if settings else "Asia/Jerusalem",
+            "phone_number": settings.phone_number if settings and settings.phone_number else business.phone_e164,
+            "email": settings.email if settings and settings.email else f"office@{business.name.lower().replace(' ', '-')}.co.il",
+            "address": settings.address if settings else "",
+            "working_hours": settings.working_hours if settings and settings.working_hours else business.working_hours,
+            "timezone": settings.timezone if settings else "Asia/Jerusalem",
             # 🔥 BUILD 138: Appointment settings
-            "slot_size_min": getattr(settings, 'slot_size_min', 60) if settings else 60,
-            "allow_24_7": getattr(settings, 'allow_24_7', False) if settings else False,
-            "booking_window_days": getattr(settings, 'booking_window_days', 30) if settings else 30,
-            "min_notice_min": getattr(settings, 'min_notice_min', 0) if settings else 0,
-            "opening_hours_json": getattr(settings, 'opening_hours_json', None) if settings else None,
-            # 🔥 BUILD 177: Generic Webhook
-            "generic_webhook_url": getattr(settings, 'generic_webhook_url', None) if settings else None,
-            # 🔥 BUILD 183: Separate inbound/outbound webhooks
-            "inbound_webhook_url": getattr(settings, 'inbound_webhook_url', None) if settings else None,
-            "outbound_webhook_url": getattr(settings, 'outbound_webhook_url', None) if settings else None,
+            "slot_size_min": settings.slot_size_min if settings else 60,
+            "allow_24_7": settings.allow_24_7 if settings else False,
+            "booking_window_days": settings.booking_window_days if settings else 30,
+            "min_notice_min": settings.min_notice_min if settings else 0,
+            "opening_hours_json": settings.opening_hours_json if settings else None,
+            # 🔥 BUILD 163: Monday.com integration
+            "monday_webhook_url": settings.monday_webhook_url if settings else None,
+            "send_call_transcripts_to_monday": settings.send_call_transcripts_to_monday if settings else False,
             # 🔥 BUILD 163: Auto hang-up settings
-            "auto_end_after_lead_capture": getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
-            "auto_end_on_goodbye": getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
+            "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if settings else False,
+            "auto_end_on_goodbye": settings.auto_end_on_goodbye if settings else False,
             # 🔥 BUILD 163: Bot speaks first
-            "bot_speaks_first": getattr(settings, 'bot_speaks_first', False) if settings else False,
-            # 🔥 BUILD 186: Calendar scheduling toggle
-            "enable_calendar_scheduling": getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
+            "bot_speaks_first": settings.bot_speaks_first if settings else False,
             # 🔥 BUILD 164: Smart Call Control Settings
-            "silence_timeout_sec": getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
-            "silence_max_warnings": getattr(settings, 'silence_max_warnings', 2) if settings else 2,
-            "smart_hangup_enabled": getattr(settings, 'smart_hangup_enabled', True) if settings else True,
-            "required_lead_fields": getattr(settings, 'required_lead_fields', ["name", "phone"]) if settings else ["name", "phone"],
-            # 🔥 BUILD 204: Dynamic STT Vocabulary
-            "stt_vocabulary_json": getattr(settings, 'stt_vocabulary_json', None) if settings else None,
-            "business_context": getattr(settings, 'business_context', None) if settings else None,
-            # 🔥 BUILD 309: SIMPLE_MODE settings
-            "call_goal": getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only',
-            "confirm_before_hangup": getattr(settings, 'confirm_before_hangup', True) if settings else True
+            "silence_timeout_sec": settings.silence_timeout_sec if settings else 15,
+            "silence_max_warnings": settings.silence_max_warnings if settings else 2,
+            "smart_hangup_enabled": settings.smart_hangup_enabled if settings else True,
+            "required_lead_fields": settings.required_lead_fields if settings else ["name", "phone"]
         })
         
     except Exception as e:
@@ -760,7 +739,7 @@ def get_current_business():
         return jsonify({"error": "Internal server error"}), 500
 
 @biz_mgmt_bp.route('/api/business/current/settings', methods=['PUT'])
-@csrf.exempt
+@csrf.exempt  # ✅ Exempt from CSRF for authenticated API
 @require_api_auth(['system_admin', 'owner', 'admin', 'manager', 'business'])
 def update_current_business_settings():
     """Update current business settings"""
@@ -771,16 +750,10 @@ def update_current_business_settings():
         if not data:
             return jsonify({"error": "Invalid JSON data"}), 400
             
-        business_id = g.get('tenant') or getattr(g, 'business_id', None)
-        if not business_id:
-            # 🔥 BUILD 186 FIX: Safely handle None values from session
-            user = session.get('user') or session.get('al_user') or {}
-            business_id = session.get('impersonated_tenant_id') or (user.get('business_id') if isinstance(user, dict) else None)
-        
+        # Get business_id from context
+        business_id = getattr(g, 'business_id', None)
         if not business_id:
             return jsonify({"error": "No business context found"}), 400
-        
-        logger.info(f"Updating settings for business {business_id}")
             
         business = Business.query.filter_by(id=business_id).first()
         if not business:
@@ -832,15 +805,11 @@ def update_current_business_settings():
             settings.opening_hours_json = data['opening_hours_json']
             appointment_settings_changed = True
         
-        # 🔥 BUILD 177: Generic Webhook
-        if 'generic_webhook_url' in data:
-            settings.generic_webhook_url = data['generic_webhook_url'] or None
-        
-        # 🔥 BUILD 183: Separate inbound/outbound webhooks
-        if 'inbound_webhook_url' in data:
-            settings.inbound_webhook_url = data['inbound_webhook_url'] or None
-        if 'outbound_webhook_url' in data:
-            settings.outbound_webhook_url = data['outbound_webhook_url'] or None
+        # 🔥 BUILD 163: Monday.com integration settings
+        if 'monday_webhook_url' in data:
+            settings.monday_webhook_url = data['monday_webhook_url'] or None
+        if 'send_call_transcripts_to_monday' in data:
+            settings.send_call_transcripts_to_monday = bool(data['send_call_transcripts_to_monday'])
         
         # 🔥 BUILD 163: Auto hang-up settings
         if 'auto_end_after_lead_capture' in data:
@@ -852,10 +821,6 @@ def update_current_business_settings():
         if 'bot_speaks_first' in data:
             settings.bot_speaks_first = bool(data['bot_speaks_first'])
         
-        # 🔥 BUILD 186: Calendar scheduling toggle
-        if 'enable_calendar_scheduling' in data:
-            settings.enable_calendar_scheduling = bool(data['enable_calendar_scheduling'])
-        
         # 🔥 BUILD 164: Smart Call Control Settings
         if 'silence_timeout_sec' in data:
             settings.silence_timeout_sec = int(data['silence_timeout_sec'])
@@ -865,51 +830,9 @@ def update_current_business_settings():
             settings.smart_hangup_enabled = bool(data['smart_hangup_enabled'])
         if 'required_lead_fields' in data:
             settings.required_lead_fields = data['required_lead_fields']
-        
-        # 🔥 BUILD 204: Dynamic STT Vocabulary
-        if 'stt_vocabulary_json' in data:
-            vocab = data['stt_vocabulary_json']
-            # Validate vocabulary structure and limits
-            if vocab:
-                if isinstance(vocab, dict):
-                    # Enforce limits: max 20 items per category, max 50 chars per item
-                    validated_vocab = {}
-                    for key in ['services', 'staff', 'products', 'locations']:
-                        items = vocab.get(key, [])
-                        if isinstance(items, list):
-                            validated_vocab[key] = [str(item)[:50] for item in items[:20]]
-                    settings.stt_vocabulary_json = validated_vocab
-                else:
-                    logger.warning(f"⚠️ Invalid vocabulary format for business {business_id}, skipping")
-            else:
-                settings.stt_vocabulary_json = None
-            # Clear vocabulary cache when updated
-            try:
-                from server.services.dynamic_stt_service import clear_vocabulary_cache
-                clear_vocabulary_cache(business_id)
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to clear STT vocabulary cache: {e}")
-        if 'business_context' in data:
-            # Limit business context to 500 chars
-            context = data['business_context']
-            if context:
-                settings.business_context = str(context)[:500]
-            else:
-                settings.business_context = None
-        
-        # 🔥 BUILD 309: SIMPLE_MODE settings
-        if 'call_goal' in data:
-            goal = data['call_goal']
-            if goal in ('lead_only', 'appointment'):
-                settings.call_goal = goal
-            else:
-                settings.call_goal = 'lead_only'  # Default fallback
-        if 'confirm_before_hangup' in data:
-            settings.confirm_before_hangup = bool(data['confirm_before_hangup'])
             
-        # Track who updated - 🔥 BUILD 186 FIX: Safely handle None values
-        al_user = session.get('al_user') or {}
-        user_email = al_user.get('email', 'Unknown') if isinstance(al_user, dict) else 'Unknown'
+        # Track who updated
+        user_email = session.get('al_user', {}).get('email', 'Unknown')
         settings.updated_by = user_email
         settings.updated_at = datetime.now()
         

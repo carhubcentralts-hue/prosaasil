@@ -18,7 +18,7 @@ def agent_booking():
     
     Request JSON:
     {
-        "text": "רוצה לקבוע תור מחר ב-10",  # 🔥 BUILD 200: Generic example
+        "text": "רוצה לקבוע מסאז' מחר ב-10",
         "business_id": 1,
         "customer_name": "יוסי כהן",
         "customer_phone": "+972501234567",

@@ -3,7 +3,7 @@ Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
 from flask import Blueprint, jsonify, request, session, g
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, User, Business, CallLog
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, User, Business
 from server.db import db
 from server.auth_api import require_api_auth
 from datetime import datetime, timezone
@@ -14,25 +14,6 @@ import logging
 log = logging.getLogger(__name__)
 
 leads_bp = Blueprint("leads_bp", __name__)
-
-def normalize_source(source: str) -> str:
-    """
-    Normalize lead source to only 'phone' or 'whatsapp'
-    All phone-related sources (call, realtime_phone, phone_call, etc.) become 'phone'
-    All WhatsApp-related sources become 'whatsapp'
-    """
-    if not source:
-        return 'phone'
-    
-    source_lower = source.lower().strip()
-    
-    phone_sources = {'call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual'}
-    whatsapp_sources = {'whatsapp', 'wa', 'whats_app'}
-    
-    if source_lower in whatsapp_sources:
-        return 'whatsapp'
-    
-    return 'phone'
 
 def get_current_user():
     """
@@ -237,12 +218,7 @@ def list_leads():
         query = query.filter(func.lower(Lead.status) == status_filter.lower())
     
     if source_filter:
-        if source_filter == 'phone':
-            phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
-            query = query.filter(Lead.source.in_(phone_sources))
-        elif source_filter == 'whatsapp':
-            whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
-            query = query.filter(Lead.source.in_(whatsapp_sources))
+        query = query.filter(Lead.source == source_filter)
     
     if owner_filter:
         query = query.filter(Lead.owner_user_id == owner_filter)
@@ -273,18 +249,12 @@ def list_leads():
         except ValueError:
             pass
     
-    # Order by created_at DESC for faster sorting (indexed column)
-    # BUILD 174: Performance optimization - avoid ORDER BY on multiple columns
-    query = query.order_by(Lead.created_at.desc())
+    # Order by Kanban board: status first, then order_index within status
+    query = query.order_by(Lead.status, Lead.order_index)
     
-    # Pagination - BUILD 174: Optimize count query
+    # Pagination
     offset = (page - 1) * page_size
-    
-    # Use a lighter count query - only count IDs (faster)
-    count_query = query.with_entities(Lead.id)
-    total = count_query.count()
-    
-    # Fetch leads with pagination
+    total = query.count()
     leads = query.offset(offset).limit(page_size).all()
     
     # Format response
@@ -299,7 +269,7 @@ def list_leads():
             "display_phone": lead.display_phone,
             "email": lead.email,
             "status": lead.status,
-            "source": normalize_source(lead.source),
+            "source": lead.source,
             "owner_user_id": lead.owner_user_id,
             "tags": lead.tags or [],
             "created_at": lead.created_at.isoformat() if lead.created_at else None,
@@ -475,7 +445,7 @@ def create_lead():
                 "phone_e164": lead.phone_e164,
                 "email": lead.email,
                 "status": lead.status,
-                "source": normalize_source(lead.source),
+                "source": lead.source,
                 "created_at": lead.created_at.isoformat()
             }
         }), 201
@@ -549,7 +519,7 @@ def get_lead_detail(lead_id):
             "display_phone": lead.display_phone,
             "email": lead.email,
             "status": lead.status,
-            "source": normalize_source(lead.source),
+            "source": lead.source,
             "external_id": lead.external_id,
             "owner_user_id": lead.owner_user_id,
             "tags": lead.tags or [],
@@ -631,7 +601,7 @@ def update_lead(lead_id):
             "phone_e164": lead.phone_e164,
             "email": lead.email,
             "status": lead.status,
-            "source": normalize_source(lead.source),
+            "source": lead.source,
             "owner_user_id": lead.owner_user_id,
             "tags": lead.tags,
             "notes": lead.notes,
@@ -1189,56 +1159,33 @@ def bulk_delete_leads():
         LeadReminder.query.filter(LeadReminder.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
         
         # Delete LeadNote records (has cascade but be explicit)
-        # BUILD 173: Handle missing table on older production DBs
-        try:
-            LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
-        except Exception as note_err:
-            err_str = str(note_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_notes' in err_str:
-                log.warning(f"⚠️ LeadNote delete skipped (table does not exist)")
-            else:
-                log.error(f"❌ LeadNote delete error: {note_err}")
-                raise  # Re-raise unexpected errors
+        LeadNote.query.filter(LeadNote.lead_id.in_(actual_lead_ids)).delete(synchronize_session=False)
         
         # Delete LeadMergeCandidate records
-        # BUILD 173: Handle missing table on older production DBs
-        try:
-            LeadMergeCandidate.query.filter(
-                db.or_(
-                    LeadMergeCandidate.lead_id.in_(actual_lead_ids),
-                    LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
-                )
-            ).delete(synchronize_session=False)
-        except Exception as merge_err:
-            err_str = str(merge_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'lead_merge_candidates' in err_str:
-                log.warning(f"⚠️ LeadMergeCandidate delete skipped (table does not exist)")
-            else:
-                log.error(f"❌ LeadMergeCandidate delete error: {merge_err}")
-                raise  # Re-raise unexpected errors
-        
-        # Clear lead_id references in WhatsAppConversation (set to NULL)
-        # BUILD 174: Handle missing models gracefully - use WhatsAppConversation which has lead_id
-        try:
-            from server.models_sql import WhatsAppConversation
-            WhatsAppConversation.query.filter(WhatsAppConversation.lead_id.in_(actual_lead_ids)).update(
-                {"lead_id": None}, synchronize_session=False
+        LeadMergeCandidate.query.filter(
+            db.or_(
+                LeadMergeCandidate.lead_id.in_(actual_lead_ids),
+                LeadMergeCandidate.duplicate_lead_id.in_(actual_lead_ids)
             )
-        except Exception as wa_err:
-            err_str = str(wa_err).lower()
-            if 'undefinedtable' in err_str or 'does not exist' in err_str or 'cannot import' in err_str:
-                log.warning(f"⚠️ WhatsApp conversation clear skipped (table/model not available)")
-            else:
-                log.warning(f"⚠️ WhatsApp conversation clear skipped: {wa_err}")
+        ).delete(synchronize_session=False)
         
-        # Clear lead_id references in CallLog (set to NULL)
-        # BUILD 174: CallLog has lead_id for outbound calls
-        try:
-            CallLog.query.filter(CallLog.lead_id.in_(actual_lead_ids)).update(
-                {"lead_id": None}, synchronize_session=False
-            )
-        except Exception as call_err:
-            log.warning(f"⚠️ CallLog clear skipped: {call_err}")
+        # Clear lead_id references in WhatsAppSession (set to NULL)
+        from server.models_sql import WhatsAppSession
+        WhatsAppSession.query.filter(WhatsAppSession.lead_id.in_(actual_lead_ids)).update(
+            {"lead_id": None}, synchronize_session=False
+        )
+        
+        # Clear lead_id references in Task (set to NULL)
+        from server.models_sql import Task
+        Task.query.filter(Task.lead_id.in_(actual_lead_ids)).update(
+            {"lead_id": None}, synchronize_session=False
+        )
+        
+        # Clear lead_id references in RealtimeCallContext (set to NULL)
+        from server.models_sql import RealtimeCallContext
+        RealtimeCallContext.query.filter(RealtimeCallContext.lead_id.in_(actual_lead_ids)).update(
+            {"lead_id": None}, synchronize_session=False
+        )
         
         # Now delete the leads
         deleted_count = 0

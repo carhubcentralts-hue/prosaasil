@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2, Link2 } from 'lucide-react';
+import { Settings, Save, Eye, EyeOff, Key, MessageCircle, Phone, Zap, Globe, Shield, Bot, Plus, Edit, Trash2 } from 'lucide-react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { queryClient, apiRequest } from '@/lib/queryClient';
 import { BusinessAISettings } from '@/components/settings/BusinessAISettings';
@@ -64,13 +64,14 @@ interface BusinessSettings {
   address: string;
   working_hours: string;
   timezone: string;
+  // BUILD 163: Monday.com integration
+  monday_webhook_url?: string | null;
+  send_call_transcripts_to_monday?: boolean;
   // BUILD 163: Auto hang-up settings
   auto_end_after_lead_capture?: boolean;
   auto_end_on_goodbye?: boolean;
   // BUILD 163: Bot speaks first
   bot_speaks_first?: boolean;
-  // BUILD 186: Calendar scheduling toggle
-  enable_calendar_scheduling?: boolean;
 }
 
 interface AppointmentSettings {
@@ -96,11 +97,6 @@ interface IntegrationSettings {
   openai_api_key?: string;
   google_stt_enabled: boolean;
   google_tts_enabled: boolean;
-  // BUILD 177: Generic Webhook
-  generic_webhook_url?: string;
-  // BUILD 183: Separate webhooks for inbound/outbound
-  inbound_webhook_url?: string;
-  outbound_webhook_url?: string;
 }
 
 interface AISettings {
@@ -138,13 +134,14 @@ export function SettingsPage() {
     address: 'Tel Aviv, Israel',
     working_hours: '09:00-18:00',
     timezone: 'Asia/Jerusalem',
+    // BUILD 163: Monday.com integration
+    monday_webhook_url: '',
+    send_call_transcripts_to_monday: false,
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture: false,
     auto_end_on_goodbye: false,
     // BUILD 163: Bot speaks first
-    bot_speaks_first: false,
-    // BUILD 186: Calendar scheduling toggle
-    enable_calendar_scheduling: true
+    bot_speaks_first: false
   });
 
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings>({
@@ -156,12 +153,7 @@ export function SettingsPage() {
     openai_enabled: true,
     openai_api_key: 'sk-***************************',
     google_stt_enabled: true,
-    google_tts_enabled: true,
-    // BUILD 177: Generic Webhook
-    generic_webhook_url: '',
-    // BUILD 183: Separate webhooks
-    inbound_webhook_url: '',
-    outbound_webhook_url: ''
+    google_tts_enabled: true
   });
 
   const [aiSettings, setAISettings] = useState<AISettings>({
@@ -210,18 +202,14 @@ export function SettingsPage() {
     booking_window_days: number;
     min_notice_min: number;
     opening_hours_json?: Record<string, string[][]>;
-    // BUILD 177: Generic Webhook
-    generic_webhook_url?: string | null;
-    // BUILD 183: Separate webhooks
-    inbound_webhook_url?: string | null;
-    outbound_webhook_url?: string | null;
+    // BUILD 163: Monday.com integration
+    monday_webhook_url?: string | null;
+    send_call_transcripts_to_monday?: boolean;
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture?: boolean;
     auto_end_on_goodbye?: boolean;
     // BUILD 163: Bot speaks first
     bot_speaks_first?: boolean;
-    // BUILD 186: Calendar scheduling toggle
-    enable_calendar_scheduling?: boolean;
   }>({
     queryKey: ['/api/business/current'],
     refetchOnMount: true
@@ -237,13 +225,14 @@ export function SettingsPage() {
         address: businessData.address || '',
         working_hours: businessData.working_hours || '09:00-18:00',
         timezone: businessData.timezone || 'Asia/Jerusalem',
+        // BUILD 163: Monday.com integration
+        monday_webhook_url: businessData.monday_webhook_url || '',
+        send_call_transcripts_to_monday: businessData.send_call_transcripts_to_monday || false,
         // BUILD 163: Auto hang-up settings
         auto_end_after_lead_capture: businessData.auto_end_after_lead_capture || false,
         auto_end_on_goodbye: businessData.auto_end_on_goodbye || false,
         // BUILD 163: Bot speaks first
-        bot_speaks_first: businessData.bot_speaks_first || false,
-        // BUILD 186: Calendar scheduling toggle (default true)
-        enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false
+        bot_speaks_first: businessData.bot_speaks_first || false
       });
       
       // Load appointment settings
@@ -254,15 +243,6 @@ export function SettingsPage() {
         min_notice_min: businessData.min_notice_min || 0,
         opening_hours_json: businessData.opening_hours_json
       });
-
-      // BUILD 177: Load webhook URLs
-      // BUILD 183: Load separate inbound/outbound webhooks
-      setIntegrationSettings(prev => ({
-        ...prev,
-        generic_webhook_url: businessData.generic_webhook_url || '',
-        inbound_webhook_url: businessData.inbound_webhook_url || '',
-        outbound_webhook_url: businessData.outbound_webhook_url || ''
-      }));
 
       // ✅ Load working days from opening_hours_json
       if (businessData.opening_hours_json) {
@@ -528,13 +508,99 @@ export function SettingsPage() {
               </div>
             </Card>
 
-            {/* 🔥 BUILD 327: bot_speaks_first moved to Call Control settings only */}
+            {/* BUILD 163: Monday.com Integration Card */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">אינטגרציה עם Monday.com</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                כשהאפשרות מופעלת, תמלולי שיחות יישלחו אוטומטית ל-Monday.com אחרי סיום כל שיחה.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Monday Webhook URL</label>
+                  <input
+                    type="url"
+                    value={businessSettings.monday_webhook_url || ''}
+                    onChange={(e) => setBusinessSettings({...businessSettings, monday_webhook_url: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    dir="ltr"
+                    placeholder="https://hooks.monday.com/workflows/..."
+                    data-testid="input-monday-webhook-url"
+                  />
+                </div>
+                
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">שלח תמלולי שיחות אוטומטית ל-Monday</h4>
+                    <p className="text-sm text-gray-600">כל שיחה מוקלטת תישלח ל-Monday.com בסיומה</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessSettings.send_call_transcripts_to_monday || false}
+                      onChange={(e) => setBusinessSettings({...businessSettings, send_call_transcripts_to_monday: e.target.checked})}
+                      className="sr-only peer"
+                      data-testid="checkbox-monday-transcripts"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+              </div>
+            </Card>
+
+            {/* BUILD 163: Call Behavior Settings Card */}
             <Card className="p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">הגדרות התנהגות שיחות</h3>
               <div className="space-y-4">
-                <p className="text-sm text-gray-600 text-center p-4 bg-blue-50 rounded-lg">
-                  🔧 כל הגדרות השיחה (בוט מדבר ראשון, ניתוק אוטומטי, מטרת שיחה) נמצאות ב"הגדרות AI" → "הגדרות שליטת שיחה"
-                </p>
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">הבוט מדבר ראשון</h4>
+                    <p className="text-sm text-gray-600">הבוט מנגן הודעת פתיחה לפני שמקשיבים ללקוח</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessSettings.bot_speaks_first || false}
+                      onChange={(e) => setBusinessSettings({...businessSettings, bot_speaks_first: e.target.checked})}
+                      className="sr-only peer"
+                      data-testid="checkbox-bot-speaks-first"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">נתק שיחה אוטומטית אחרי קבלת כל פרטי הליד</h4>
+                    <p className="text-sm text-gray-600">לאחר שהליד נותן את כל הפרטים הנדרשים, השיחה תסתיים</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessSettings.auto_end_after_lead_capture || false}
+                      onChange={(e) => setBusinessSettings({...businessSettings, auto_end_after_lead_capture: e.target.checked})}
+                      className="sr-only peer"
+                      data-testid="checkbox-auto-end-lead"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-medium text-gray-900">נתק שיחה כשלקוח אומר ביי / תודה / אין צורך</h4>
+                    <p className="text-sm text-gray-600">כאשר הלקוח אומר ביטויי סיום, השיחה תסתיים אוטומטית</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessSettings.auto_end_on_goodbye || false}
+                      onChange={(e) => setBusinessSettings({...businessSettings, auto_end_on_goodbye: e.target.checked})}
+                      className="sr-only peer"
+                      data-testid="checkbox-auto-end-goodbye"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
               </div>
             </Card>
           </div>
@@ -866,110 +932,6 @@ export function SettingsPage() {
                   </div>
                 </div>
               )}
-            </Card>
-
-            {/* Generic Webhook - BUILD 177 + BUILD 183: Separate inbound/outbound */}
-            <Card className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <Link2 className="w-6 h-6 text-orange-600" />
-                <h3 className="text-lg font-semibold text-gray-900">הגדרות Webhook</h3>
-                <Badge variant={(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.generic_webhook_url) ? 'success' : 'default'}>
-                  {(integrationSettings.inbound_webhook_url || integrationSettings.outbound_webhook_url || integrationSettings.generic_webhook_url) ? 'מוגדר' : 'לא מוגדר'}
-                </Badge>
-              </div>
-              
-              <p className="text-sm text-gray-600 mb-4">
-                הגדר כתובות Webhook נפרדות לשיחות נכנסות ויוצאות, או כתובת כללית לשתיהן.
-                ניתן לחבר ל-n8n, Zapier, Monday.com או כל שירות אחר.
-              </p>
-              
-              <div className="space-y-4">
-                {/* Inbound Webhook */}
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <label className="block text-sm font-medium text-blue-800 mb-2">
-                    📞 Webhook לשיחות נכנסות
-                  </label>
-                  <input
-                    type="url"
-                    value={integrationSettings.inbound_webhook_url || ''}
-                    onChange={(e) => setIntegrationSettings({...integrationSettings, inbound_webhook_url: e.target.value})}
-                    placeholder="https://n8n.example.com/webhook/inbound"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    dir="ltr"
-                    data-testid="input-inbound-webhook-url"
-                  />
-                  <p className="text-xs text-blue-600 mt-1">שיחות שמגיעות מלקוחות לעסק</p>
-                </div>
-
-                {/* Outbound Webhook */}
-                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                  <label className="block text-sm font-medium text-green-800 mb-2">
-                    📲 Webhook לשיחות יוצאות
-                  </label>
-                  <input
-                    type="url"
-                    value={integrationSettings.outbound_webhook_url || ''}
-                    onChange={(e) => setIntegrationSettings({...integrationSettings, outbound_webhook_url: e.target.value})}
-                    placeholder="https://n8n.example.com/webhook/outbound"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-                    dir="ltr"
-                    data-testid="input-outbound-webhook-url"
-                  />
-                  <p className="text-xs text-green-600 mt-1">שיחות AI ליזום קשר עם לידים. אם לא מוגדר - לא יישלח Webhook לשיחות יוצאות</p>
-                </div>
-
-                {/* Generic Webhook (fallback) */}
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    🔗 Webhook כללי (גיבוי)
-                  </label>
-                  <input
-                    type="url"
-                    value={integrationSettings.generic_webhook_url || ''}
-                    onChange={(e) => setIntegrationSettings({...integrationSettings, generic_webhook_url: e.target.value})}
-                    placeholder="https://n8n.example.com/webhook/all"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 bg-white"
-                    dir="ltr"
-                    data-testid="input-webhook-url"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">משמש כגיבוי לשיחות נכנסות אם לא הוגדר webhook ספציפי</p>
-                </div>
-                
-                <Button
-                  onClick={async () => {
-                    try {
-                      await apiRequest('/api/business/current/settings', {
-                        method: 'PUT',
-                        body: { 
-                          generic_webhook_url: integrationSettings.generic_webhook_url || null,
-                          inbound_webhook_url: integrationSettings.inbound_webhook_url || null,
-                          outbound_webhook_url: integrationSettings.outbound_webhook_url || null
-                        }
-                      });
-                      queryClient.invalidateQueries({ queryKey: ['/api/business/current'] });
-                      alert('הגדרות Webhook נשמרו בהצלחה');
-                    } catch (error) {
-                      alert('שגיאה בשמירת הגדרות');
-                    }
-                  }}
-                  className="w-full justify-center"
-                  data-testid="button-save-webhook"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  שמור הגדרות Webhook
-                </Button>
-                
-                <div className="mt-4 p-3 bg-blue-50 rounded-md text-sm">
-                  <h4 className="font-medium text-blue-800 mb-2">📋 מידע שנשלח ב-Webhook:</h4>
-                  <ul className="text-blue-700 space-y-1 list-disc list-inside">
-                    <li>תמליל מלא של השיחה</li>
-                    <li>סיכום אוטומטי (AI)</li>
-                    <li>פרטי הלקוח והליד</li>
-                    <li>זמן התחלה וסיום</li>
-                    <li>כיוון השיחה (נכנסת/יוצאת)</li>
-                  </ul>
-                </div>
-              </div>
             </Card>
           </div>
         )}

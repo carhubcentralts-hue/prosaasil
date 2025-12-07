@@ -33,7 +33,7 @@ def initialize_production_database():
             logger.info("📊 No business found, creating default business...")
             business = Business(
                 name="עסק ראשי",
-                business_type="general",  # 🔥 BUILD 200: Generic default
+                business_type="real_estate",
                 phone_e164="+972500000000",  # Default placeholder phone
                 whatsapp_number="+972500000000",  # Default WhatsApp number
                 greeting_message="שלום! איך אפשר לעזור?",  # Default greeting

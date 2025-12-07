@@ -20,13 +20,11 @@ const AgentPromptsPage = lazy(() => import('../pages/Admin/AgentPromptsPage').th
 const AdminPromptsOverviewPage = lazy(() => import('../pages/Admin/AdminPromptsOverviewPage').then(m => ({ default: m.AdminPromptsOverviewPage })));
 const BusinessPromptsSelector = lazy(() => import('../pages/Admin/BusinessPromptsSelector').then(m => ({ default: m.BusinessPromptsSelector })));
 const AdminSupportPage = lazy(() => import('../pages/Admin/AdminSupportPage').then(m => ({ default: m.AdminSupportPage })));
-const BusinessMinutesPage = lazy(() => import('../pages/Admin/BusinessMinutesPage').then(m => ({ default: m.BusinessMinutesPage })));
 const CalendarPage = lazy(() => import('../pages/Calendar/CalendarPage').then(m => ({ default: m.CalendarPage })));
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 const LeadDetailPage = lazy(() => import('../pages/Leads/LeadDetailPage'));
 const WhatsAppPage = lazy(() => import('../pages/wa/WhatsAppPage').then(m => ({ default: m.WhatsAppPage })));
 const CallsPage = lazy(() => import('../pages/calls/CallsPage').then(m => ({ default: m.CallsPage })));
-const OutboundCallsPage = lazy(() => import('../pages/calls/OutboundCallsPage').then(m => ({ default: m.OutboundCallsPage })));
 const CrmPage = lazy(() => import('../pages/crm/CrmPage').then(m => ({ default: m.CrmPage })));
 const BillingPage = lazy(() => import('../pages/billing/BillingPage').then(m => ({ default: m.BillingPage })));
 const UsersPage = lazy(() => import('../pages/users/UsersPage').then(m => ({ default: m.UsersPage })));
@@ -130,15 +128,6 @@ export function AppRoutes() {
             </RoleGuard>
           }
         />
-        {/* BUILD 180: Business Minutes Management - Admin only */}
-        <Route
-          path="admin/business-minutes"
-          element={
-            <RoleGuard roles={['system_admin']}>
-              <BusinessMinutesPage />
-            </RoleGuard>
-          }
-        />
 
         {/* BUILD 157: AI Prompts moved to System Settings only - removed from business routes */}
 
@@ -192,16 +181,6 @@ export function AppRoutes() {
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
               <CallsPage />
-            </RoleGuard>
-          }
-        />
-        
-        {/* BUILD 174: Outbound Calls */}
-        <Route
-          path="outbound-calls"
-          element={
-            <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <OutboundCallsPage />
             </RoleGuard>
           }
         />

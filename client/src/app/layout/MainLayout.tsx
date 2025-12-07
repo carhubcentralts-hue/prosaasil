@@ -5,7 +5,6 @@ import {
   Users, 
   MessageCircle, 
   Phone, 
-  PhoneOutgoing,
   Building2, 
   CreditCard, 
   Settings, 
@@ -17,8 +16,7 @@ import {
   Search,
   Bell,
   User,
-  Bot,
-  Clock
+  Bot
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -54,12 +52,6 @@ const menuItems = [
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
-    icon: PhoneOutgoing, 
-    label: 'שיחות יוצאות',
-    to: '/app/outbound-calls',
-    roles: ['system_admin', 'owner', 'admin', 'agent']
-  },
-  { 
     icon: Building2, 
     label: 'משימות',
     to: '/app/crm',
@@ -77,12 +69,6 @@ const menuItems = [
     label: 'ניהול עסקים', 
     to: '/app/admin/businesses',
     roles: ['system_admin']  // ✅ BUILD 134: רק system_admin רואה רשימת כל העסקים
-  },
-  { 
-    icon: Clock, 
-    label: 'ניהול דקות', 
-    to: '/app/admin/business-minutes',
-    roles: ['system_admin']  // ✅ BUILD 180: רק system_admin רואה דקות שיחה לפי עסק
   },
   // ✅ AI Prompts moved to System Settings → AI tab (BUILD 130)
   { 
@@ -270,8 +256,7 @@ export function MainLayout() {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 md:hidden"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+          className="fixed inset-0 z-40 bg-black bg-opacity-50 md:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -285,7 +270,7 @@ export function MainLayout() {
           'md:relative md:translate-x-0 md:w-72 md:shadow-sm md:border-l md:border-slate-200',
           sidebarOpen ? 'translate-x-0' : 'translate-x-full'
         )}
-        style={{ height: '100dvh', maxHeight: '-webkit-fill-available' }}
+        style={{ height: '100vh' }}
         role="navigation"
         aria-label="תפריט ראשי"
         aria-expanded={sidebarOpen ? 'true' : 'false'}
@@ -345,33 +330,31 @@ export function MainLayout() {
           </div>
         </div>
 
-        {/* Navigation - scrollable with safe area padding */}
-        <nav className="flex-1 py-6 overflow-y-auto min-h-0 pb-safe">
-          <div className="space-y-1">
-            {filteredMenuItems.map((item, index) => {
-              const isActive = !!(item.to && location.pathname === item.to);
-              return (
-                <SidebarItem
-                  key={index}
-                  icon={<item.icon className="h-5 w-5" />}
-                  label={item.label}
-                  to={item.to}
-                  active={isActive}
-                  onClick={() => {
-                    if (item.to) {
-                      navigate(item.to);
-                      // Always close sidebar after navigation (mobile AND desktop)
-                      setTimeout(() => setSidebarOpen(false), 100);
-                    }
-                  }}
-                  navigate={navigate}
-                />
-              );
-            })}
-          </div>
+        {/* Navigation */}
+        <nav className="flex-1 py-6 overflow-y-auto min-h-0">
+          {filteredMenuItems.map((item, index) => {
+            const isActive = !!(item.to && location.pathname === item.to);
+            return (
+              <SidebarItem
+                key={index}
+                icon={<item.icon className="h-5 w-5" />}
+                label={item.label}
+                to={item.to}
+                active={isActive}
+                onClick={() => {
+                  if (item.to) {
+                    navigate(item.to);
+                    // Always close sidebar after navigation (mobile AND desktop)
+                    setTimeout(() => setSidebarOpen(false), 100);
+                  }
+                }}
+                navigate={navigate}
+              />
+            );
+          })}
           
-          {/* Logout in navigation - more visible, with extra bottom padding for mobile */}
-          <div className="px-2 mt-4 pb-20 md:pb-4">
+          {/* Logout in navigation - more visible */}
+          <div className="px-2 mt-4">
             <button
               className="w-full flex items-center px-4 py-3 text-red-600 rounded-xl hover:bg-red-50 transition-all duration-200 font-medium border border-red-200"
               onClick={() => {

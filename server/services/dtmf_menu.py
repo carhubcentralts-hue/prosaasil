@@ -1,6 +1,5 @@
 """
 DTMF Menu Handler - Interactive Voice Menu for Phone Calls
-🔥 BUILD 200: 100% DYNAMIC - No hardcoded business hours or service types!
 Allows callers to press digits for different actions (1=booking, 2=info, etc.)
 """
 import logging
@@ -11,7 +10,6 @@ logger = logging.getLogger(__name__)
 class DTMFMenuHandler:
     """
     Handle DTMF (keypad) input for call menus
-    🔥 BUILD 200: All business-specific values must come from context/settings!
     
     Menu structure:
     - Press 1: Book an appointment
@@ -30,7 +28,7 @@ class DTMFMenuHandler:
     @staticmethod
     def get_menu_prompt(business_name: str = "העסק שלנו") -> str:
         """
-        Get Hebrew voice menu prompt - GENERIC for any business type
+        Get Hebrew voice menu prompt
         
         Returns:
             Menu text in Hebrew for TTS
@@ -48,11 +46,10 @@ class DTMFMenuHandler:
     def handle_dtmf_input(digit: str, context: Dict[str, Any] = None) -> Dict[str, str]:
         """
         Process DTMF digit and return action
-        🔥 BUILD 200: All responses are GENERIC - no hardcoded hours or service types!
         
         Args:
             digit: Single DTMF digit ('0'-'9', '*', '#')
-            context: Optional conversation context (should contain business_hours from settings)
+            context: Optional conversation context
             
         Returns:
             Dict with 'action' and 'message' keys
@@ -67,29 +64,18 @@ class DTMFMenuHandler:
             }
         
         if action == 'booking':
-            # 🔥 BUILD 200: GENERIC message - no "טיפול" assumption!
             return {
                 'action': 'booking',
-                'message': 'מעולה! בואו נקבע לך תור. במה אוכל לעזור?',
+                'message': 'מעולה! בואו נקבע לך תור. איזה סוג טיפול אתה צריך?',
                 'context_update': {'menu_choice': 'booking', 'mode': 'booking'}
             }
         
         elif action == 'info':
-            # 🔥 BUILD 200: Get hours from context, or ask AI to provide from business settings
-            business_hours = context.get('business_hours', None) if context else None
-            if business_hours:
-                return {
-                    'action': 'info',
-                    'message': f'שעות הפעילות שלנו: {business_hours}. איך אני יכול לעזור?',
-                    'context_update': {'menu_choice': 'info'}
-                }
-            else:
-                # 🔥 No hardcoded hours - let AI respond with dynamic info
-                return {
-                    'action': 'info',
-                    'message': 'איך אני יכול לעזור? אם אתה רוצה לדעת את שעות הפעילות, אני אבדוק בשבילך.',
-                    'context_update': {'menu_choice': 'info', 'request_hours': True}
-                }
+            return {
+                'action': 'info',
+                'message': 'אנחנו פתוחים ביום ראשון עד חמישי מ-09:00 עד 22:00. איך אני יכול לעזור?',
+                'context_update': {'menu_choice': 'info'}
+            }
         
         elif action == 'representative':
             return {

@@ -139,27 +139,17 @@ def create_app():
     # ═══════════════════════════════════════════════════════════════════
     # BUILD 143 UNIFIED COOKIE CONFIGURATION - ONE SET FOR ALL ENVIRONMENTS
     # All cookies MUST use the same settings for Replit cross-origin to work!
-    # BUILD 177: Support HTTP mode via COOKIE_SECURE=false env var for external servers
     # ═══════════════════════════════════════════════════════════════════
-    
-    # Determine if cookies should be secure (HTTPS only)
-    # Default: True for production (HTTPS required)
-    # Set COOKIE_SECURE=false for HTTP-only deployments (not recommended for production!)
-    cookie_secure = os.getenv("COOKIE_SECURE", "true").lower() != "false"
-    cookie_samesite = 'None' if cookie_secure else 'Lax'  # SameSite=None requires Secure
-    
-    if not cookie_secure:
-        app.logger.warning("⚠️ COOKIE_SECURE=false - Running in HTTP mode. NOT recommended for production!")
     
     # Session Cookie Settings
     app.config.update(
         SESSION_COOKIE_NAME='session',
-        SESSION_COOKIE_SECURE=cookie_secure,       # BUILD 177: Configurable
-        SESSION_COOKIE_SAMESITE=cookie_samesite,   # Must be Lax if not Secure
+        SESSION_COOKIE_SECURE=True,       # Required for Replit HTTPS
+        SESSION_COOKIE_SAMESITE='None',   # Required for cross-origin
         SESSION_COOKIE_HTTPONLY=True,     # Security: JS can't read session
         SESSION_COOKIE_PATH='/',
-        REMEMBER_COOKIE_SECURE=cookie_secure,
-        REMEMBER_COOKIE_SAMESITE=cookie_samesite,
+        REMEMBER_COOKIE_SECURE=True,
+        REMEMBER_COOKIE_SAMESITE='None',
         REMEMBER_COOKIE_HTTPONLY=True,
     )
     
@@ -167,8 +157,8 @@ def create_app():
     app.config.update(
         SEASURF_COOKIE_NAME='csrf_token',
         SEASURF_HEADER='X-CSRFToken',
-        SEASURF_COOKIE_SECURE=cookie_secure,       # BUILD 177: Configurable
-        SEASURF_COOKIE_SAMESITE=cookie_samesite,   # Must be Lax if not Secure
+        SEASURF_COOKIE_SECURE=True,       # Required for Replit HTTPS
+        SEASURF_COOKIE_SAMESITE='None',   # Required for cross-origin
         SEASURF_COOKIE_HTTPONLY=False,    # MUST be False! Frontend needs to read it
         SEASURF_COOKIE_PATH='/',
         SEASURF_INCLUDE_OR_EXEMPT_VIEWS='include',  # Default include all views
@@ -271,7 +261,6 @@ def create_app():
     
     # CORS with security restrictions - SECURE: regex patterns work in Flask-CORS
     # BUILD 143: All origins unified - no more IS_PREVIEW checks
-    # BUILD 177: Support external domains via CORS_ALLOWED_ORIGINS env var
     cors_origins = [
         "http://localhost:5000",
         "http://localhost:3000",
@@ -280,16 +269,6 @@ def create_app():
         r"^https://[\w-]+\.replit\.app$",    # Regex pattern for *.replit.app
         r"^https://[\w-]+\.replit\.dev$"     # Regex pattern for *.replit.dev
     ]
-    
-    # Add external origins from environment variable (comma-separated)
-    # Example: CORS_ALLOWED_ORIGINS=https://myapp.contabo.com,https://api.example.com
-    external_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
-    if external_origins:
-        for origin in external_origins.split(","):
-            origin = origin.strip()
-            if origin:
-                cors_origins.append(origin)
-                app.logger.info(f"[CORS] Added external origin: {origin}")
     
     CORS(app, 
          origins=cors_origins,
@@ -377,10 +356,6 @@ def create_app():
         # Calls API for recordings and transcripts
         from server.routes_calls import calls_bp
         app.register_blueprint(calls_bp)
-        
-        # BUILD 174: Outbound Calls API
-        from server.routes_outbound import outbound_bp
-        app.register_blueprint(outbound_bp)
         
         # Register receipts and contracts endpoints
         from server.routes_receipts_contracts import receipts_contracts_bp

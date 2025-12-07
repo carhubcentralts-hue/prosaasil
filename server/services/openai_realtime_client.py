@@ -33,13 +33,13 @@ class OpenAIRealtimeClient:
             print(event)
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini-realtime-preview"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-realtime-preview"):
         """
         Initialize Realtime API client
         
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-            model: Model to use (default: gpt-4o-mini-realtime-preview for cost efficiency)
+            model: Model to use (default: gpt-4o-realtime-preview)
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
@@ -48,12 +48,6 @@ class OpenAIRealtimeClient:
         self.model = model
         self.ws = None
         self.url = f"wss://api.openai.com/v1/realtime?model={model}"
-        
-        # 🔥 BUILD 318: COST OPTIMIZATION - Instruction caching
-        # Track last sent instructions to avoid redundant session.update calls
-        self._last_instructions_hash = None
-        self._last_voice = None
-        self._session_update_count = 0
         
         if websockets is None:
             raise ImportError("websockets library is required. Install with: pip install websockets")
@@ -281,90 +275,65 @@ class OpenAIRealtimeClient:
     async def configure_session(
         self,
         instructions: str,
-        voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
+        voice: str = "alloy",
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.85,  # 🔥 BUILD 206: 0.85 - balanced for Hebrew telephony
-        silence_duration_ms: int = 450,  # 🔥 BUILD 206: 450ms - telephony sweet spot (300-500ms range)
+        vad_threshold: float = 0.75,  # 🔥 BUILD 170: Raised from 0.6 to prevent silence hallucinations
+        silence_duration_ms: int = 1200,  # 🔥 BUILD 170: Raised from 500ms to reduce false triggers
         temperature: float = 0.18,
-        max_tokens: int = 300,
-        transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
+        max_tokens: int = 300
     ):
         """
         Configure Realtime API session
         
-        ✅ REQUIRED: Internal transcription enabled (mandatory for AI to hear audio)
+        ✅ REQUIRED: Internal Whisper transcription enabled (mandatory for AI to hear audio)
         
         Args:
             instructions: System prompt for the AI
-            voice: Voice to use (coral, sage, verse, ash, ballad, alloy, shimmer, echo)
+            voice: Voice to use (alloy, echo, shimmer, verse, ash, ballad)
             input_audio_format: Audio format from Twilio (g711_ulaw, pcm16)
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
             vad_threshold: Voice activity detection threshold (0-1)
             silence_duration_ms: Silence duration to detect end of speech
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
-            transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
         """
-        # 🔥 BUILD 202: TRANSCRIPTION IMPROVEMENTS FOR HEBREW
-        # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
-        # - Add dynamic prompt with business vocabulary (names, cities, services)
-        # - Explicit Hebrew language setting
-        transcription_config = {
-            "model": "gpt-4o-transcribe",  # 🔥 BUILD 202: Better Hebrew accuracy than whisper-1
-            "language": "he"  # 🔥 Explicit Hebrew - mandatory for accuracy!
-        }
-        
-        # Add transcription prompt if provided (business-specific vocabulary)
-        if transcription_prompt:
-            transcription_config["prompt"] = transcription_prompt
-            logger.info(f"🎤 [STT PROMPT] Using dynamic transcription prompt ({len(transcription_prompt)} chars)")
-        
         # ✅ CRITICAL: Internal transcription is REQUIRED for AI to hear audio!
         # Without input_audio_transcription, the AI receives no STT events and stays silent.
+        # This is NOT the same as "logging transcription" - it's the core audio→text pipeline.
         session_config = {
             "instructions": instructions,
             "modalities": ["audio", "text"],
             "voice": voice,
             "input_audio_format": input_audio_format,
             "output_audio_format": output_audio_format,
-            # ✅ MANDATORY: Internal transcription for audio comprehension
+            # ✅ MANDATORY: Internal Whisper transcription for audio comprehension
             # DO NOT remove this - AI will be completely silent without it!
-            "input_audio_transcription": transcription_config,
-            # 🔥 BUILD 202: Removed prefix_padding_ms - not supported by SDK, caused crashes
+            "input_audio_transcription": {
+                "model": "whisper-1"
+                # Auto-detect language (Hebrew specified in system prompt)
+            },
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": vad_threshold,
-                "silence_duration_ms": silence_duration_ms
+                "silence_duration_ms": silence_duration_ms,
+                "prefix_padding_ms": 300
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
         }
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
-        logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
+        logger.info(f"🎯 [REALTIME CONFIG] model=gpt-4o-realtime-preview, temp={temperature}, max_tokens={max_tokens}")
         
         # 🚫 NO TOOLS for phone calls - appointment scheduling via NLP only
         
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
         # No need to explicitly set it - it's implicit in the format
         
-        # 🔥 BUILD 318: INSTRUCTION CACHING - Skip if same instructions already sent
-        # This prevents redundant session.update calls that cost $11+ in text input!
-        import hashlib
-        instructions_hash = hashlib.md5(instructions.encode()).hexdigest()[:16]
-        
-        if self._last_instructions_hash == instructions_hash and self._last_voice == voice:
-            logger.info(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
-            return
-        
-        self._last_instructions_hash = instructions_hash
-        self._last_voice = voice
-        self._session_update_count += 1
-        
-        logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
+        logger.info(f"✅ Configuring session WITH internal transcription (required for functionality)")
         await self.send_event({
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
+        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=ENABLED (whisper-1)")

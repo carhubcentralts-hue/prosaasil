@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Phone, 
-  PhoneOutgoing,
   MessageSquare, 
   Save, 
   RefreshCw,
@@ -15,7 +14,6 @@ import { useAuth } from '../../features/auth/hooks';
 
 interface PromptData {
   calls_prompt: string;
-  outbound_calls_prompt: string;  // 🔥 BUILD 174: Separate outbound calls prompt
   whatsapp_prompt: string;
   greeting_message: string;
   whatsapp_greeting: string;
@@ -27,29 +25,19 @@ interface CallControlSettings {
   silence_timeout_sec: number;
   silence_max_warnings: number;
   smart_hangup_enabled: boolean;
-  bot_speaks_first: boolean;
-  auto_end_on_goodbye: boolean;
-  // 🔥 BUILD 327: SIMPLIFIED - removed required_lead_fields and auto_end_after_lead_capture
-  // AI follows the prompt instructions for what to collect
-  call_goal: 'lead_only' | 'appointment';  // Call objective (also controls calendar scheduling)
-  confirm_before_hangup: boolean;  // Require user confirmation before hanging up
+  required_lead_fields: string[];
 }
-
-// 🔥 BUILD 310: STT Vocabulary removed - using OpenAI Realtime native transcription
 
 export function BusinessAISettings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<{ calls: boolean; outbound: boolean; whatsapp: boolean; callControl: boolean }>({
+  const [saving, setSaving] = useState<{ calls: boolean; whatsapp: boolean; callControl: boolean }>({
     calls: false,
-    outbound: false,
     whatsapp: false,
     callControl: false
   });
-  
   const [prompts, setPrompts] = useState<PromptData>({
     calls_prompt: '',
-    outbound_calls_prompt: '',
     whatsapp_prompt: '',
     greeting_message: '',
     whatsapp_greeting: '',
@@ -60,11 +48,7 @@ export function BusinessAISettings() {
     silence_timeout_sec: 15,
     silence_max_warnings: 2,
     smart_hangup_enabled: true,
-    bot_speaks_first: false,
-    auto_end_on_goodbye: false,
-    // 🔥 BUILD 327: SIMPLIFIED - AI follows prompt for what to collect
-    call_goal: 'lead_only',
-    confirm_before_hangup: true
+    required_lead_fields: ['name', 'phone']
   });
   const [businessName, setBusinessName] = useState<string>('');
 
@@ -81,12 +65,7 @@ export function BusinessAISettings() {
             silence_timeout_sec?: number;
             silence_max_warnings?: number;
             smart_hangup_enabled?: boolean;
-            bot_speaks_first?: boolean;
-            auto_end_on_goodbye?: boolean;
-            enable_calendar_scheduling?: boolean;  // 🔥 BUILD 186
-            // 🔥 BUILD 327: SIMPLIFIED settings
-            call_goal?: 'lead_only' | 'appointment';
-            confirm_before_hangup?: boolean;
+            required_lead_fields?: string[];
           }>(`/api/business/current`),
           http.get<PromptData>(`/api/business/current/prompt`)
         ]);
@@ -95,22 +74,11 @@ export function BusinessAISettings() {
         setPrompts(promptsData);
         
         // Set call control settings from business data
-        // 🔥 BUILD 310: call_goal replaces enable_calendar_scheduling
-        // If call_goal not set, derive from enable_calendar_scheduling for migration
-        let derivedCallGoal: 'lead_only' | 'appointment' = businessData.call_goal ?? 'lead_only';
-        if (!businessData.call_goal && businessData.enable_calendar_scheduling === true) {
-          derivedCallGoal = 'appointment';  // Legacy migration: calendar enabled = appointment goal
-        }
-        
         setCallControl({
           silence_timeout_sec: businessData.silence_timeout_sec ?? 15,
           silence_max_warnings: businessData.silence_max_warnings ?? 2,
           smart_hangup_enabled: businessData.smart_hangup_enabled ?? true,
-          bot_speaks_first: businessData.bot_speaks_first ?? false,
-          auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false,
-          // 🔥 BUILD 327: SIMPLIFIED settings
-          call_goal: derivedCallGoal,
-          confirm_before_hangup: businessData.confirm_before_hangup !== false  // Default true
+          required_lead_fields: businessData.required_lead_fields ?? ['name', 'phone']
         });
         
         console.log('✅ Loaded AI prompts:', promptsData);
@@ -125,19 +93,25 @@ export function BusinessAISettings() {
   }, []);
 
   // Save prompt for specific channel
-  const savePrompt = async (channel: 'calls' | 'outbound' | 'whatsapp') => {
+  const savePrompt = async (channel: 'calls' | 'whatsapp') => {
     setSaving(prev => ({ ...prev, [channel]: true }));
     
     try {
       const result = await http.put<{ success: boolean; version: number; message?: string; updated_at?: string }>(
         `/api/business/current/prompt`, 
-        { 
-          calls_prompt: prompts.calls_prompt,
-          outbound_calls_prompt: prompts.outbound_calls_prompt,
-          whatsapp_prompt: prompts.whatsapp_prompt,
-          greeting_message: prompts.greeting_message,
-          whatsapp_greeting: prompts.whatsapp_greeting
-        }
+        channel === 'calls' 
+          ? { 
+              calls_prompt: prompts.calls_prompt, 
+              whatsapp_prompt: prompts.whatsapp_prompt,
+              greeting_message: prompts.greeting_message,
+              whatsapp_greeting: prompts.whatsapp_greeting
+            }
+          : { 
+              calls_prompt: prompts.calls_prompt, 
+              whatsapp_prompt: prompts.whatsapp_prompt,
+              greeting_message: prompts.greeting_message,
+              whatsapp_greeting: prompts.whatsapp_greeting
+            }
       );
 
       if (result.success) {
@@ -147,21 +121,14 @@ export function BusinessAISettings() {
           last_updated: result.updated_at || new Date().toISOString()
         }));
         
-        const channelNames: Record<string, string> = {
-          calls: '✅ פרומפט שיחות נכנסות נשמר בהצלחה!',
-          outbound: '✅ פרומפט שיחות יוצאות נשמר בהצלחה!',
-          whatsapp: '✅ פרומפט WhatsApp נשמר בהצלחה!'
-        };
-        alert(channelNames[channel]);
+        alert(channel === 'calls' 
+          ? '✅ פרומפט שיחות נשמר בהצלחה!' 
+          : '✅ פרומפט WhatsApp נשמר בהצלחה!'
+        );
       }
     } catch (err) {
       console.error(`❌ Failed to save ${channel} prompt:`, err);
-      const channelNames: Record<string, string> = {
-        calls: 'שיחות נכנסות',
-        outbound: 'שיחות יוצאות',
-        whatsapp: 'WhatsApp'
-      };
-      alert(`שגיאה בשמירת פרומפט ${channelNames[channel]}`);
+      alert(`שגיאה בשמירת פרומפט ${channel === 'calls' ? 'שיחות' : 'WhatsApp'}`);
     } finally {
       setSaving(prev => ({ ...prev, [channel]: false }));
     }
@@ -172,20 +139,11 @@ export function BusinessAISettings() {
     setSaving(prev => ({ ...prev, callControl: true }));
     
     try {
-      // 🔥 BUILD 310: Derive enable_calendar_scheduling from call_goal
-      // appointment = calendar enabled, lead_only = calendar disabled
-      const enableCalendar = callControl.call_goal === 'appointment';
-      
       await http.put(`/api/business/current/settings`, {
         silence_timeout_sec: callControl.silence_timeout_sec,
         silence_max_warnings: callControl.silence_max_warnings,
         smart_hangup_enabled: callControl.smart_hangup_enabled,
-        bot_speaks_first: callControl.bot_speaks_first,
-        auto_end_on_goodbye: callControl.auto_end_on_goodbye,
-        enable_calendar_scheduling: enableCalendar,  // 🔥 BUILD 327: Derived from call_goal
-        // 🔥 BUILD 327: SIMPLIFIED settings
-        call_goal: callControl.call_goal,
-        confirm_before_hangup: callControl.confirm_before_hangup
+        required_lead_fields: callControl.required_lead_fields
       });
       
       alert('✅ הגדרות שליטת שיחה נשמרו בהצלחה!');
@@ -197,10 +155,17 @@ export function BusinessAISettings() {
     }
   };
 
-  // 🔥 BUILD 310: STT Vocabulary functions removed - using OpenAI Realtime native transcription
-
   // Toggle required field
-  // 🔥 BUILD 327: toggleRequiredField removed - AI follows prompt instructions
+  const toggleRequiredField = (field: string) => {
+    setCallControl(prev => {
+      const fields = prev.required_lead_fields;
+      if (fields.includes(field)) {
+        return { ...prev, required_lead_fields: fields.filter(f => f !== field) };
+      } else {
+        return { ...prev, required_lead_fields: [...fields, field] };
+      }
+    });
+  };
 
   if (loading) {
     return (
@@ -306,112 +271,64 @@ export function BusinessAISettings() {
           </div>
         </div>
 
-        {/* Outbound Calls Prompt - BUILD 174 */}
+        {/* WhatsApp Prompt */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-              <PhoneOutgoing className="h-5 w-5 text-orange-600" />
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <MessageSquare className="h-5 w-5 text-green-600" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-slate-900">פרומפט שיחות יוצאות</h3>
-              <p className="text-sm text-slate-500">הנחיות ל-AI עבור שיחות שאתה יוזם</p>
+              <h3 className="text-lg font-semibold text-slate-900">פרומפט WhatsApp</h3>
+              <p className="text-sm text-slate-500">הנחיות ל-AI עבור הודעות WhatsApp</p>
             </div>
           </div>
           
+          {/* Greeting Message for WhatsApp */}
           <div className="mb-4">
-            <p className="text-sm text-slate-600 mb-2">
-              💡 פרומפט זה ישמש כאשר ה-AI מתקשר ללקוחות (שיחות יוצאות). 
-              אם לא מוגדר, המערכת תשתמש בפרומפט השיחות הנכנסות.
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              💬 הודעת פתיחה (ברכה ראשונית)
+            </label>
+            <input
+              type="text"
+              value={prompts.whatsapp_greeting}
+              onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_greeting: e.target.value }))}
+              placeholder='שלום! אני העוזרת של {{business_name}} ב-WhatsApp. איך אפשר לעזור?'
+              className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              dir="rtl"
+              data-testid="input-greeting-whatsapp"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              זו ההודעה הראשונה שהלקוח יקבל ב-WhatsApp. השתמש ב-{'{{business_name}}'} לשם העסק
             </p>
           </div>
           
           <textarea
-            value={prompts.outbound_calls_prompt}
-            onChange={(e) => setPrompts(prev => ({ ...prev, outbound_calls_prompt: e.target.value }))}
-            placeholder="הכנס הנחיות עבור AI Agent בשיחות יוצאות... לדוגמה: 'אתה נציג מכירות שמתקשר ללקוח כדי להציע שירותים. היה אדיב וקצר, הצג את הערך ללקוח.'"
-            className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+            value={prompts.whatsapp_prompt}
+            onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_prompt: e.target.value }))}
+            placeholder="הכנס הנחיות עבור AI Agent בהודעות WhatsApp..."
+            className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500"
             dir="rtl"
-            data-testid="textarea-prompt-outbound"
+            data-testid="textarea-prompt-whatsapp"
           />
           
           <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
             <p className="text-xs text-slate-500">
-              {prompts.outbound_calls_prompt.length} תווים
+              {prompts.whatsapp_prompt.length} תווים
             </p>
             <button
-              onClick={() => savePrompt('outbound')}
-              disabled={saving.outbound}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              data-testid="button-save-outbound-prompt"
+              onClick={() => savePrompt('whatsapp')}
+              disabled={saving.whatsapp}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              data-testid="button-save-whatsapp-prompt"
             >
-              {saving.outbound ? (
+              {saving.whatsapp ? (
                 <RefreshCw className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              {saving.outbound ? 'שומר...' : 'שמור פרומפט יוצאות'}
+              {saving.whatsapp ? 'שומר...' : 'שמור פרומפט WhatsApp'}
             </button>
           </div>
-        </div>
-      </div>
-
-      {/* WhatsApp Prompt - Full Width */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-            <MessageSquare className="h-5 w-5 text-green-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900">פרומפט WhatsApp</h3>
-            <p className="text-sm text-slate-500">הנחיות ל-AI עבור הודעות WhatsApp</p>
-          </div>
-        </div>
-        
-        {/* Greeting Message for WhatsApp */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            💬 הודעת פתיחה (ברכה ראשונית)
-          </label>
-          <input
-            type="text"
-            value={prompts.whatsapp_greeting}
-            onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_greeting: e.target.value }))}
-            placeholder='שלום! אני העוזרת של {{business_name}} ב-WhatsApp. איך אפשר לעזור?'
-            className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-            dir="rtl"
-            data-testid="input-greeting-whatsapp"
-          />
-          <p className="text-xs text-slate-500 mt-1">
-            זו ההודעה הראשונה שהלקוח יקבל ב-WhatsApp. השתמש ב-{'{{business_name}}'} לשם העסק
-          </p>
-        </div>
-        
-        <textarea
-          value={prompts.whatsapp_prompt}
-          onChange={(e) => setPrompts(prev => ({ ...prev, whatsapp_prompt: e.target.value }))}
-          placeholder="הכנס הנחיות עבור AI Agent בהודעות WhatsApp..."
-          className="w-full h-64 p-4 border border-slate-300 rounded-lg resize-none text-sm leading-relaxed focus:ring-2 focus:ring-green-500 focus:border-green-500"
-          dir="rtl"
-          data-testid="textarea-prompt-whatsapp"
-        />
-        
-        <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
-          <p className="text-xs text-slate-500">
-            {prompts.whatsapp_prompt.length} תווים
-          </p>
-          <button
-            onClick={() => savePrompt('whatsapp')}
-            disabled={saving.whatsapp}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            data-testid="button-save-whatsapp-prompt"
-          >
-            {saving.whatsapp ? (
-              <RefreshCw className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            {saving.whatsapp ? 'שומר...' : 'שמור פרומפט WhatsApp'}
-          </button>
         </div>
       </div>
 
@@ -428,50 +345,10 @@ export function BusinessAISettings() {
         </div>
 
         <div className="space-y-6">
-          {/* Bot Speaks First Toggle */}
-          <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <div>
-              <h4 className="font-medium text-slate-900">🎙️ ה-AI מדבר ראשון</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                כאשר מופעל, ה-AI יפתח את השיחה עם הברכה ללא המתנה ללקוח. מומלץ לרוב העסקים.
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.bot_speaks_first}
-                onChange={(e) => setCallControl(prev => ({ ...prev, bot_speaks_first: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-bot-speaks-first"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-            </label>
-          </div>
-
-          {/* Auto-End On Goodbye - 🔥 BUILD 327: Simplified - removed auto_end_after_lead_capture */}
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">
-            <div>
-              <h4 className="font-medium text-slate-900">👋 סיום אוטומטי כשהלקוח נפרד</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                סיום כשהלקוח אומר "תודה", "ביי", "להתראות"
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.auto_end_on_goodbye}
-                onChange={(e) => setCallControl(prev => ({ ...prev, auto_end_on_goodbye: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-auto-end-goodbye"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-            </label>
-          </div>
-
           {/* Smart Hangup Toggle */}
           <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
             <div>
-              <h4 className="font-medium text-slate-900">🧠 סיום שיחה חכם מבוסס AI</h4>
+              <h4 className="font-medium text-slate-900">סיום שיחה חכם מבוסס AI</h4>
               <p className="text-sm text-slate-600 mt-1">
                 ה-AI מחליט מתי לסיים שיחה על בסיס הקשר השיחה, לא על מילות מפתח בודדות כמו "לא צריך"
               </p>
@@ -486,68 +363,6 @@ export function BusinessAISettings() {
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
             </label>
-          </div>
-
-          {/* BUILD 309: Confirm Before Hangup Toggle */}
-          <div className="flex items-center justify-between p-4 bg-teal-50 rounded-lg border border-teal-200">
-            <div>
-              <h4 className="font-medium text-slate-900">✅ אישור לפני ניתוק</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                הבוט מבקש אישור מהלקוח לפני שמסיים את השיחה
-              </p>
-              <p className="text-xs text-teal-600 mt-1">
-                מומלץ להפעיל כדי להבטיח שהלקוח מרוצה לפני ניתוק
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.confirm_before_hangup}
-                onChange={(e) => setCallControl(prev => ({ ...prev, confirm_before_hangup: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-confirm-before-hangup"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
-            </label>
-          </div>
-
-          {/* BUILD 309: Call Goal Selection */}
-          <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-            <h4 className="font-medium text-slate-900 mb-2">🎯 מטרת השיחה</h4>
-            <p className="text-sm text-slate-600 mb-3">
-              מה הבוט צריך להשיג בסוף השיחה
-            </p>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="call_goal"
-                  value="lead_only"
-                  checked={callControl.call_goal === 'lead_only'}
-                  onChange={(e) => setCallControl(prev => ({ ...prev, call_goal: 'lead_only' }))}
-                  className="w-4 h-4 text-indigo-600"
-                  data-testid="radio-goal-lead-only"
-                />
-                <span className="text-sm">📋 איסוף פרטים בלבד</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="call_goal"
-                  value="appointment"
-                  checked={callControl.call_goal === 'appointment'}
-                  onChange={(e) => setCallControl(prev => ({ ...prev, call_goal: 'appointment' }))}
-                  className="w-4 h-4 text-indigo-600"
-                  data-testid="radio-goal-appointment"
-                />
-                <span className="text-sm">📅 קביעת פגישה</span>
-              </label>
-            </div>
-            <p className="text-xs text-indigo-600 mt-2">
-              {callControl.call_goal === 'lead_only' 
-                ? 'הבוט יאסוף את הפרטים הנדרשים ויסיים את השיחה' 
-                : 'הבוט ינסה לקבוע פגישה עם הלקוח ביומן העסק'}
-            </p>
           </div>
 
           {/* Silence Timeout */}
@@ -596,7 +411,42 @@ export function BusinessAISettings() {
             </div>
           </div>
 
-          {/* 🔥 BUILD 327: Required Lead Fields removed - AI follows prompt instructions */}
+          {/* Required Lead Fields */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-3">
+              <User className="inline-block w-4 h-4 ml-1" />
+              פרטים נדרשים לאיסוף מהליד
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: 'name', label: 'שם מלא' },
+                { key: 'phone', label: 'טלפון' },
+                { key: 'email', label: 'אימייל' },
+                { key: 'city', label: 'עיר' },
+                { key: 'service_type', label: 'סוג שירות/תחום' },
+                { key: 'budget', label: 'תקציב' },
+                { key: 'preferred_time', label: 'זמן מועדף' },
+                { key: 'notes', label: 'הערות/תיאור בעיה' }
+              ].map(field => (
+                <button
+                  key={field.key}
+                  type="button"
+                  onClick={() => toggleRequiredField(field.key)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                    callControl.required_lead_fields.includes(field.key)
+                      ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
+                      : 'bg-slate-100 text-slate-600 border-2 border-transparent hover:bg-slate-200'
+                  }`}
+                  data-testid={`toggle-field-${field.key}`}
+                >
+                  {callControl.required_lead_fields.includes(field.key) ? '✓ ' : ''}{field.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              ה-AI יאסוף את הפרטים האלה לפני שמאפשר סיום שיחה. לחץ לבחירה/ביטול.
+            </p>
+          </div>
 
           {/* Info box about how it works */}
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
@@ -607,12 +457,9 @@ export function BusinessAISettings() {
                 <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
                   <li>ה-AI מנתח את כל השיחה כדי להבין אם הלקוח באמת רוצה לסיים</li>
                   <li>לא מסיים שיחה רק בגלל "לא תודה" או "אין צורך" בודד</li>
-                  <li>ה-AI עוקב אחר ההוראות בפרומפט לגבי איזה פרטים לאסוף</li>
+                  <li>מוודא שכל הפרטים הנדרשים נאספו לפני סיום</li>
                   <li>מזהה שקט ממושך ושואל בנימוס אם הלקוח עדיין בקו</li>
                 </ul>
-                <p className="text-sm mt-3 font-medium text-purple-900">
-                  📤 שים לב: הגדרות אלו חלות רק על שיחות נכנסות. שיחות יוצאות עוקבות רק אחרי הפרומפט שהוגדר בנפרד.
-                </p>
               </div>
             </div>
           </div>
@@ -635,8 +482,6 @@ export function BusinessAISettings() {
           </div>
         </div>
       </div>
-
-      {/* 🔥 BUILD 310: STT Vocabulary section removed - using OpenAI Realtime native transcription */}
 
       {/* Version Info */}
       {prompts.last_updated && (

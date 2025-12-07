@@ -248,7 +248,60 @@ export function BusinessViewPage() {
         </div>
       </div>
 
-      {/* BUILD 183: Recent Activity section removed per user request */}
+      {/* Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Calls */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+            <Phone className="h-5 w-5 text-blue-500" />
+            שיחות אחרונות
+          </h3>
+          {business.recent_calls.length > 0 ? (
+            <div className="space-y-3">
+              {business.recent_calls.map((call) => (
+                <div key={call.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <p className="font-medium direction-ltr">{call.from_number}</p>
+                    <p className="text-sm text-slate-500">{call.status}</p>
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm text-slate-500">{formatDate(call.created_at)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-slate-500 text-center py-8">אין שיחות אחרונות</p>
+          )}
+        </div>
+
+        {/* Recent WhatsApp */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-green-500" />
+            הודעות WhatsApp אחרונות
+          </h3>
+          {business.recent_whatsapp.length > 0 ? (
+            <div className="space-y-3">
+              {business.recent_whatsapp.map((msg) => (
+                <div key={msg.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <p className="font-medium direction-ltr">{msg.from_number}</p>
+                    <p className="text-sm text-slate-500">
+                      {msg.direction === 'incoming' ? 'נכנסת' : 'יוצאת'}
+                    </p>
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm text-slate-500">{formatDate(msg.created_at)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-slate-500 text-center py-8">אין הודעות אחרונות</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

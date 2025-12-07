@@ -80,7 +80,7 @@ def invoices_create(
     Args:
         business_id: Business ID
         customer_name: Customer full name
-        description: Item description (e.g., "שירות ללקוח", "ייעוץ")  # 🔥 BUILD 200: Generic examples
+        description: Item description (e.g., "עיסוי מרגיע", "שירותי תיווך")
         quantity: Quantity (default 1.0)
         unit_price: Price per unit in currency
         currency: Currency code (ILS/USD)
