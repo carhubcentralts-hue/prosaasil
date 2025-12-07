@@ -241,11 +241,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         if not greeting_text:
             greeting_text = ""
         
-        # 🔥 BUILD 168: Load required_lead_fields for dynamic verification prompt
-        required_lead_fields = ['name', 'phone']  # Default
-        if settings and hasattr(settings, 'required_lead_fields') and settings.required_lead_fields:
-            required_lead_fields = settings.required_lead_fields
-            logger.info(f"✅ Using custom required_lead_fields: {required_lead_fields}")
+        # 🔥 BUILD 327: Removed required_lead_fields - AI follows prompt instructions
         
         # 🔥 BUILD 186: Check calendar scheduling setting
         enable_calendar_scheduling = True  # Default to enabled
@@ -254,9 +250,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         logger.info(f"📅 [INBOUND] Calendar scheduling: {'ENABLED' if enable_calendar_scheduling else 'DISABLED'}")
         
         # 🎯 BUILD 324: COMPACT English system prompt with call control settings
+        # 🔥 BUILD 327: Simplified call without required_lead_fields
         critical_rules = _build_critical_rules_compact(
             business_name, today_date, weekday_name, greeting_text, 
-            required_lead_fields, call_direction, enable_calendar_scheduling
+            call_direction, enable_calendar_scheduling
         )
         
         # Combine: Rules + Custom prompt + Policy
@@ -293,7 +290,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         return _get_fallback_prompt(business_id)
 
 
-def _get_fallback_prompt(business_id: int = None) -> str:
+def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
     """Minimal fallback prompt - tries to use business settings first"""
     try:
         if business_id:
@@ -348,8 +345,9 @@ def _build_slot_description(slot_size_min: int) -> str:
     return f"Every {slot_size_min}min"
 
 
-def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
+def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
+    🔥 BUILD 327: Simplified - removed required_fields parameter (AI follows prompt instructions)
     🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
     direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
