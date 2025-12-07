@@ -1662,10 +1662,15 @@ SPEAK HEBREW to customer. Be brief and helpful.
             else:
                 greeting_length = len(greeting_text) if (has_custom_greeting and greeting_text) else 0
             
-            # 🔥 BUILD 316: ULTRA SIMPLE - No vocabulary, no STT prompts
-            # Just pure OpenAI + Twilio with language="he"
-            greeting_max_tokens = 4096
-            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
+            # 🔥 BUILD 328: COST OPTIMIZATION - Reduce max_tokens!
+            # 4096 tokens was causing AI to generate very long (slow + expensive) responses
+            # For greetings: 150-200 tokens is enough (5-10 seconds of speech)
+            # For regular responses: 300-400 tokens max
+            if greeting_length > 200:
+                greeting_max_tokens = 400  # Longer greetings need more tokens
+            else:
+                greeting_max_tokens = 250  # Short greetings - keep responses brief
+            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction}) 🔥 BUILD 328 OPTIMIZED")
             
             # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
             # Vocabulary prompts were causing hallucinations like "קליבר" 
@@ -1728,58 +1733,40 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 
                 asyncio.create_task(warmup_to_active())
             
-            # 🔥 BUILD 316: PHASE 2 - Load FULL prompt + tool after greeting
-            # Compact prompt used for fast greeting, full prompt adds complete context
-            async def _load_full_prompt_and_tool():
+            # 🔥 BUILD 328: PHASE 2 SIMPLIFIED - Only add tool, NOT full prompt
+            # Full prompt was costing extra tokens (3000+ chars = expensive!)
+            # Compact prompt already has business context - no need to resend
+            async def _load_lead_tool_only():
                 try:
-                    # Wait for greeting to finish
+                    # Wait for greeting to finish - FASTER check interval
                     wait_start = time.time()
                     max_wait_seconds = 15
                     
                     while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(0.05)  # 🔥 BUILD 328: 50ms check (was 200ms)
                     
-                    await asyncio.sleep(0.3)  # Small buffer
-                    
-                    # Build full prompt in background
-                    full_prompt = None
-                    try:
-                        from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                        app = _get_flask_app()
-                        with app.app_context():
-                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [BUILD 316] Full prompt loaded: {len(full_prompt)} chars")
-                    except Exception as e:
-                        print(f"⚠️ [BUILD 316] Failed to load full prompt: {e}")
-                    
-                    # Build lead capture tool
+                    # 🔥 BUILD 328: Only add lead capture tool - NO full prompt resend!
+                    # This saves significant OpenAI costs (no redundant 3000+ char prompt)
                     lead_tool = self._build_lead_capture_tool()
                     
-                    # Update session with full prompt and tool
-                    voice_to_use = getattr(self, '_call_voice', 'ash')
-                    session_config = {
-                        "voice": voice_to_use
-                    }
-                    
-                    if full_prompt:
-                        session_config["instructions"] = full_prompt
-                    
                     if lead_tool:
-                        session_config["tools"] = [lead_tool]
-                        session_config["tool_choice"] = "auto"
-                        print(f"🔧 [BUILD 316] Adding lead capture tool for: {getattr(self, 'required_lead_fields', [])}")
-                    
-                    await client.send_event({
-                        "type": "session.update",
-                        "session": session_config
-                    })
-                    print(f"✅ [BUILD 316] Phase 2 complete: full prompt + tool loaded")
+                        # Only update tools, not instructions (saves tokens!)
+                        await client.send_event({
+                            "type": "session.update",
+                            "session": {
+                                "tools": [lead_tool],
+                                "tool_choice": "auto"
+                            }
+                        })
+                        print(f"✅ [BUILD 328] Tool added (NO prompt resend = cost savings!)")
+                    else:
+                        print(f"ℹ️ [BUILD 328] No tool needed - skipping Phase 2 entirely")
                         
                 except Exception as e:
-                    print(f"⚠️ [BUILD 316] Phase 2 error: {e}")
+                    print(f"⚠️ [BUILD 328] Phase 2 error: {e}")
             
             # Start Phase 2 in background (non-blocking)
-            asyncio.create_task(_load_full_prompt_and_tool())
+            asyncio.create_task(_load_lead_tool_only())
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking

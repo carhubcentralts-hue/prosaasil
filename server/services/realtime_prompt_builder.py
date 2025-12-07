@@ -115,6 +115,16 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
             logger.warning(f"⚠️ [BUILD 324] No ai_prompt for business {business_id} - using English fallback")
         
+        # 🔥 BUILD 328: Add minimal scheduling info if calendar is enabled
+        # This allows AI to handle appointments without needing full prompt resend
+        scheduling_note = ""
+        if settings and hasattr(settings, 'enable_calendar_scheduling') and settings.enable_calendar_scheduling:
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(business_id, prompt_text=None)
+            if policy:
+                scheduling_note = f"\nAPPOINTMENTS: {policy.slot_size_min}min slots. Check availability first!"
+                logger.info(f"📅 [BUILD 328] Added scheduling info: {policy.slot_size_min}min slots")
+        
         # 🔥 BUILD 327: STT AS SOURCE OF TRUTH + patience
         direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
         
@@ -122,9 +132,9 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
 
 ---
 {direction} | CRITICAL: Use EXACT words customer says. NEVER invent or guess!
-If unclear - ask to repeat. SPEAK HEBREW."""
+If unclear - ask to repeat. SPEAK HEBREW.{scheduling_note}"""
 
-        logger.info(f"📦 [BUILD 324] Final compact prompt: {len(final_prompt)} chars")
+        logger.info(f"📦 [BUILD 328] Final compact prompt: {len(final_prompt)} chars")
         return final_prompt
         
     except Exception as e:
