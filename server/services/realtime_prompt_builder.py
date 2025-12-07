@@ -166,7 +166,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         if not business:
             raise ValueError(f"Business {business_id} not found")
         
-        business_name = business.name or "העסק"
+        business_name = business.name or "Business"
         
         # Load business policy (slot size, opening hours, etc.)
         policy = get_business_policy(business_id, prompt_text=None, db_session=db_session)
@@ -185,9 +185,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.outbound_ai_prompt.strip()
                 logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ONLY for business {business_id} ({len(core_instructions)} chars)")
             else:
-                # 🔥 BUILD 322: Consistent Hebrew fallback - no outbound_ai_prompt
-                core_instructions = f"""אתה נציג שירות מקצועי של "{business_name}". דבר בעברית, היה קצר ומועיל."""
-                logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using minimal fallback")
+                # 🔥 BUILD 324: English fallback - no outbound_ai_prompt
+                core_instructions = f"""You are a professional sales rep for "{business_name}". SPEAK HEBREW to customer. Be brief and persuasive."""
+                logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using English fallback")
             
             # Replace placeholders
             core_instructions = core_instructions.replace("{{business_name}}", business_name)
@@ -217,9 +217,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 core_instructions = settings.ai_prompt
         
         if not core_instructions:
-            # 🔥 BUILD 322: Consistent Hebrew fallback - no ai_prompt in DB
+            # 🔥 BUILD 324: English fallback - no ai_prompt in DB
             logger.error(f"❌ [INBOUND] No prompt in DB for business {business_id}")
-            core_instructions = f"""אתה נציג שירות מקצועי של "{business_name}". דבר בעברית, היה קצר ומועיל."""
+            core_instructions = f"""You are a professional service rep for "{business_name}". SPEAK HEBREW to customer. Be brief and helpful."""
         
         # Replace placeholders
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
@@ -258,7 +258,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         # Combine: Rules + Custom prompt + Policy
         full_prompt = critical_rules + "\n\n" + core_instructions
         
-        # 🔥 BUILD 186: Only add scheduling info if calendar scheduling is ENABLED
+        # 🔥 BUILD 324: Scheduling info in English (AI speaks Hebrew to customer)
         if enable_calendar_scheduling:
             hours_description = _build_hours_description(policy)
             
@@ -266,12 +266,12 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             if policy.min_notice_min > 0:
                 min_notice_hours = policy.min_notice_min // 60
                 if min_notice_hours > 0:
-                    min_notice = f" (הזמנה מראש: {min_notice_hours} שעות)"
+                    min_notice = f" (advance booking: {min_notice_hours}h)"
             
-            full_prompt += f"\n\n📅 קביעת תורים: כל {policy.slot_size_min} דקות{min_notice}\n{hours_description}"
+            full_prompt += f"\n\nSCHEDULING: {policy.slot_size_min}min slots{min_notice}\n{hours_description}"
         else:
-            # Explicitly tell AI not to schedule appointments - IN HEBREW
-            full_prompt += "\n\n⚠️ ללא קביעת תורים: אל תציע לקבוע פגישות או תורים. התמקד רק במתן מידע ואיסוף פרטי הלקוח."
+            # Explicitly tell AI not to schedule appointments
+            full_prompt += "\n\nNO SCHEDULING: Do NOT offer appointments. Focus on info and collecting lead details only."
         
         # Log final length
         logger.info(f"✅ REALTIME PROMPT [business_id={business_id}] LEN={len(full_prompt)} chars")
@@ -305,28 +305,28 @@ def _get_fallback_prompt(business_id: int = None) -> str:
             if business and business.system_prompt and business.system_prompt.strip():
                 return business.system_prompt
             
-            # Build minimal prompt from business name - IN HEBREW
+            # 🔥 BUILD 324: English fallback with business name
             if business and business.name:
-                return f"אתה נציג של {business.name}. דבר בעברית, היה קצר ומועיל."
+                return f"You are a rep for {business.name}. SPEAK HEBREW to customer. Be brief and helpful."
     except:
         pass
     
-    # Absolute minimal - no business info available - IN HEBREW
-    return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
+    # 🔥 BUILD 324: Absolute minimal English fallback
+    return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
 
 
 def _build_hours_description(policy) -> str:
-    """Build opening hours description in Hebrew"""
+    """Build opening hours description in English"""
     if policy.allow_24_7:
-        return "פתוח 24/7"
+        return "Open 24/7"
     
     hours = policy.opening_hours
     if not hours:
-        return "שעות פעילות לא הוגדרו"
+        return "Hours not defined"
     
     day_names = {
-        "sun": "א", "mon": "ב", "tue": "ג", "wed": "ד",
-        "thu": "ה", "fri": "ו", "sat": "ש"
+        "sun": "Sun", "mon": "Mon", "tue": "Tue", "wed": "Wed",
+        "thu": "Thu", "fri": "Fri", "sat": "Sat"
     }
     
     parts = []
@@ -336,60 +336,45 @@ def _build_hours_description(policy) -> str:
             time_ranges = ",".join([f"{w[0]}-{w[1]}" for w in windows])
             parts.append(f"{day_names[day_key]}:{time_ranges}")
     
-    return "שעות: " + " | ".join(parts) if parts else "שעות לא הוגדרו"
+    return "Hours: " + " | ".join(parts) if parts else "Hours not set"
 
 
 def _build_slot_description(slot_size_min: int) -> str:
-    """Build slot size description in Hebrew - COMPACT"""
-    if slot_size_min == 15:
-        return "כל 15 דק'"
-    elif slot_size_min == 30:
-        return "כל חצי שעה"
-    elif slot_size_min == 60:
-        return "כל שעה"
-    elif slot_size_min == 90:
-        return "כל 90 דק'"
-    elif slot_size_min == 120:
-        return "כל שעתיים"
-    else:
-        return f"כל {slot_size_min} דק'"
+    """Build slot size description in English"""
+    return f"Every {slot_size_min}min"
 
 
 def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
-    BUILD 186: FULLY DYNAMIC system prompt - no hardcoded values
-    All context comes from business settings, nothing hardcoded
-    
-    Args:
-        enable_calendar_scheduling: If True, AI can schedule appointments. If False, AI should NOT offer scheduling.
+    🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
-    direction_context = "מקבל שיחה" if call_direction == "inbound" else "מתקשר ללקוח"
+    direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
     
-    # 🔥 BUILD 186: Calendar scheduling rules based on setting
+    # 🔥 BUILD 324: Calendar scheduling rules in English
     if enable_calendar_scheduling:
-        scheduling_rules = """6. תורים: בדוק זמינות לפני אישור!
-7. אל תגיד "קבעתי/קבענו" עד שהמערכת מאשרת!
-8. רק אם הלקוח ביקש תור במפורש - התחל תהליך קביעה"""
+        scheduling_rules = """6. APPOINTMENTS: Check availability before confirming!
+7. Never say "I scheduled" until system confirms!
+8. Only start booking if customer explicitly asks"""
     else:
-        scheduling_rules = """6. אל תציע לקבוע פגישות או תורים - רק אסוף פרטים ותן מידע
-7. אם הלקוח מבקש פגישה - הסבר שנציג יחזור אליו בהקדם"""
+        scheduling_rules = """6. NO APPOINTMENTS: Only collect info, don't offer to schedule
+7. If customer asks for appointment: say a rep will call back soon"""
     
-    # 🔥 BUILD 321: Added patience rules - give customer time to speak!
-    return f"""נציג AI של "{business_name}" | {direction_context}
-תאריך: {weekday_hebrew}, {today_hebrew}
+    # 🔥 BUILD 324: English rules - AI speaks Hebrew to customer
+    return f"""AI Rep for "{business_name}" | {direction_context} call
+Date: {weekday_hebrew}, {today_hebrew}
 
-כללים:
-1. דבר עברית טבעית. אם הלקוח דובר שפה אחרת - עבור לשפתו
-2. לא להמציא - רק מה שנאמר או שהמערכת אישרה
-3. אישור פרטים: "רק מוודא - אמרת X, נכון?"
-4. קצר וברור, בלי חזרות
-5. אם לא שמעת ברור: "סליחה, לא שמעתי - תוכל לחזור על זה?"
+RULES:
+1. SPEAK HEBREW naturally. If customer speaks another language - switch to it
+2. Never invent info - only what was said or system confirmed
+3. Confirm details: "Just to verify - you said X, correct?"
+4. Be brief and clear, no repetition
+5. If unclear: ask to repeat politely
 {scheduling_rules}
 
-⚠️ סבלנות קריטית:
-- אחרי כל שאלה - המתן! תן ללקוח לסיים לדבר לפני שתענה.
-- אל תשאל 2 שאלות ברצף! שאל שאלה אחת, חכה לתשובה מלאה, רק אז המשך.
-- אם הלקוח לא סיים לדבר - אל תקטע אותו!
-- אם התשובה לא קשורה לשאלה (כמו "תודה" אחרי "איזה שירות?") - שאל: "במה אוכל לעזור?"
-- אל תקפוץ למסקנות! אם משהו לא ברור - בקש הבהרה
+PATIENCE (CRITICAL):
+- After each question: WAIT! Let customer finish before responding
+- Never ask 2 questions in a row! Ask ONE, wait for FULL answer, then continue
+- Don't interrupt customer mid-speech
+- If answer doesn't match question: ask "How can I help?"
+- Don't jump to conclusions! If unclear - ask for clarification
 """
