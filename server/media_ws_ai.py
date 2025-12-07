@@ -1589,16 +1589,17 @@ class MediaStreamHandler:
                 # 🔥 BUILD 321: INBOUND - Use EXACT greeting from DB!
                 # greeting_text is loaded from business.greeting_message in DB
                 if greeting_text and greeting_text.strip():
-                    # 🔥 BUILD 321: FORCE EXACT GREETING - no reformulation!
+                    # 🔥 BUILD 323: GREETING WITH CONTEXT - AI knows what question was asked!
                     greeting_instruction = f"""🔒 משימה קריטית - ברכה:
 1. אמור בדיוק את המשפט הבא, מילה במילה, בלי לשנות אותו בשום צורה:
 
 "{greeting_text.strip()}"
 
-2. אחרי הברכה - המתן! תן ללקוח לדבר. אל תשאל שאלות נוספות מיד.
-3. אל תקפוץ לשאלה הבאה לפני שהבנת את התשובה.
+2. 📌 הברכה הזו היא גם השאלה הראשונה שלך! כשהלקוח עונה - התייחס לתשובתו כתגובה לברכה.
+3. אחרי הברכה - המתן! תן ללקוח לדבר. אל תשאל שאלות נוספות מיד.
+4. אל תקפוץ לשאלה הבאה לפני שהבנת את התשובה.
 """
-                    print(f"📞 [BUILD 321] Using EXACT greeting from DB: '{greeting_text[:50]}...'")
+                    print(f"📞 [BUILD 323] Using EXACT greeting with context: '{greeting_text[:50]}...'")
                 else:
                     # Fallback if no greeting in DB
                     greeting_instruction = f"""
