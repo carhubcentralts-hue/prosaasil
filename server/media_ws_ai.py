@@ -1238,6 +1238,9 @@ class MediaStreamHandler:
         self._silence_warning_count = 0  # How many "are you there?" warnings sent
         self._silence_check_task = None  # Background task for silence monitoring
         
+        # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
+        self._response_create_count = 0  # Track for cost debugging
+        
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
         # Do NOT modify these directly - always use self.call_config for the authoritative values
@@ -2281,7 +2284,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
         try:
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
             await _client.send_event({"type": "response.create"})
-            print(f"🎯 [BUILD 200] response.create triggered ({reason})")
+            
+            # 🔥 BUILD 338: Track response.create count for cost debugging
+            self._response_create_count += 1
+            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}]")
             return True
         except Exception as e:
             # 🔓 CRITICAL: Clear lock immediately on failure
@@ -4909,8 +4915,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # Convert to NIS (₪) - approximate rate
             total_cost_nis = total_cost * 3.7
             
+            # 🔥 BUILD 338: Get response.create count for cost analysis
+            response_create_count = getattr(self, '_response_create_count', 0)
+            
             # ⚡ BUILD 168.2: Compact cost log (single line)
-            logger.info(f"[COST] {call_duration:.0f}s ${total_cost:.4f} (₪{total_cost_nis:.2f})")
+            # 🔥 BUILD 338: Added response.create count for cost debugging
+            logger.info(f"[COST] {call_duration:.0f}s ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create={response_create_count}")
+            print(f"💰 [COST SUMMARY] Duration: {call_duration:.0f}s | Cost: ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create: {response_create_count}")
+            
+            # 🚨 BUILD 338: WARN if too many response.create calls (cost indicator)
+            if response_create_count > 5:
+                print(f"⚠️ [COST WARNING] High response.create count: {response_create_count} (target: ≤5)")
             
             return total_cost
             
@@ -7517,8 +7532,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self._silence_warning_count += 1
                         print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
                         
-                        # Send prompt to AI to ask if user is there
-                        await self._send_silence_warning()
+                        # 🔥 BUILD 338 COST FIX: Only send AI prompt on LAST warning (not all warnings)
+                        # This reduces response.create calls by ~50% in silence scenarios
+                        if self._silence_warning_count >= self.silence_max_warnings:
+                            # Last warning - actually send AI prompt
+                            await self._send_silence_warning()
+                        else:
+                            # Not last warning - just log, don't spend tokens
+                            print(f"🔇 [SILENCE] Skipping AI prompt (cost optimization) - waiting for timeout")
                         
                         # Reset timer
                         self._last_speech_time = time.time()
