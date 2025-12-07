@@ -225,12 +225,12 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
         core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
-        # 🔥 Get current date for AI context
+        # 🔥 BUILD 324: English date context
         tz = pytz.timezone(policy.tz)
         today = datetime.now(tz)
-        today_hebrew = today.strftime("%d/%m/%Y")
-        weekday_names = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
-        weekday_hebrew = weekday_names[today.weekday()]
+        today_date = today.strftime("%d/%m/%Y")
+        weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        weekday_name = weekday_names[today.weekday()]
         
         # 🔥 LOAD GREETING FROM DB
         greeting_text = business.greeting_message if business else ""
@@ -249,9 +249,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             enable_calendar_scheduling = settings.enable_calendar_scheduling
         logger.info(f"📅 [INBOUND] Calendar scheduling: {'ENABLED' if enable_calendar_scheduling else 'DISABLED'}")
         
-        # 🎯 BUILD 177: COMPACT system prompt with call control settings
+        # 🎯 BUILD 324: COMPACT English system prompt with call control settings
         critical_rules = _build_critical_rules_compact(
-            business_name, today_hebrew, weekday_hebrew, greeting_text, 
+            business_name, today_date, weekday_name, greeting_text, 
             required_lead_fields, call_direction, enable_calendar_scheduling
         )
         
@@ -344,7 +344,7 @@ def _build_slot_description(slot_size_min: int) -> str:
     return f"Every {slot_size_min}min"
 
 
-def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday_hebrew: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
+def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
     🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
@@ -361,7 +361,7 @@ def _build_critical_rules_compact(business_name: str, today_hebrew: str, weekday
     
     # 🔥 BUILD 324: English rules - AI speaks Hebrew to customer
     return f"""AI Rep for "{business_name}" | {direction_context} call
-Date: {weekday_hebrew}, {today_hebrew}
+Date: {weekday_name}, {today_date}
 
 RULES:
 1. SPEAK HEBREW naturally. If customer speaks another language - switch to it
