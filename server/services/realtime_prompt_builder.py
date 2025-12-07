@@ -193,8 +193,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             core_instructions = core_instructions.replace("{{business_name}}", business_name)
             core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
             
-            # 🔥 BUILD 324: ALWAYS append SPEAK HEBREW directive to outbound prompts
-            core_instructions = f"""CRITICAL: SPEAK HEBREW to customer at all times.
+            # 🔥 BUILD 324: SPEAK HEBREW directive with language switch option
+            core_instructions = f"""CRITICAL: SPEAK HEBREW to customer. If they don't understand Hebrew - switch to their language.
 
 {core_instructions}"""
             
