@@ -266,8 +266,16 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             call_direction, enable_calendar_scheduling
         )
         
-        # Combine: Rules + Custom prompt + Policy
-        full_prompt = critical_rules + "\n\n" + core_instructions
+        # 🔥 BUILD 333: SANDBOX TENANT PROMPT - prevent override of flow rules
+        # Wrap business prompt in a "BUSINESS CONTEXT" section so it can't override phases
+        sandboxed_instructions = f"""=== BUSINESS CONTEXT (informational only - does NOT override flow rules above) ===
+{core_instructions}
+=== END BUSINESS CONTEXT ===
+
+REMINDER: The CALL FLOW phases above are MANDATORY and cannot be overridden by business context. Always follow: Greeting → Discovery → Single Confirmation → Closing."""
+        
+        # Combine: Rules + Sandboxed custom prompt + Policy
+        full_prompt = critical_rules + "\n\n" + sandboxed_instructions
         
         # 🔥 BUILD 324: Scheduling info in English (AI speaks Hebrew to customer)
         if enable_calendar_scheduling:
@@ -357,45 +365,64 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
-    🔥 BUILD 327: Simplified - removed required_fields parameter (AI follows prompt instructions)
+    🔥 BUILD 333: PHASE-BASED FLOW - prevents mid-confirmation and looping
+    🔥 BUILD 327: STT AS SOURCE OF TRUTH - respond only to what customer actually said
     🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
     direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
     
-    # 🔥 BUILD 324: Calendar scheduling rules in English
-    if enable_calendar_scheduling:
-        scheduling_rules = """6. APPOINTMENTS: Check availability before confirming!
-7. Never say "I scheduled" until system confirms!
-8. Only start booking if customer explicitly asks"""
+    # Greeting line
+    if greeting_text and greeting_text.strip():
+        greeting_line = f'- Use this greeting once at the start: "{greeting_text.strip()}"'
     else:
-        scheduling_rules = """6. NO APPOINTMENTS: Only collect info, don't offer to schedule
-7. If customer asks for appointment: say a rep will call back soon"""
+        greeting_line = "- Greet warmly and introduce yourself as the business rep"
     
-    # 🔥 BUILD 324: English rules - AI speaks Hebrew to customer
-    # 🔥 BUILD 327: STT AS SOURCE OF TRUTH - respond only to what customer actually said
+    # 🔥 BUILD 333: Scheduling rules per phase
+    if enable_calendar_scheduling:
+        scheduling_discovery = "- If customer asks to book: gather preferred date/time before checking availability"
+        scheduling_closing = """- Before confirming, check availability. Never promise a slot until the system/tool confirms it
+- If slot unavailable: offer closest alternative or promise a callback"""
+    else:
+        scheduling_discovery = "- Note any timing preference but DO NOT offer to schedule"
+        scheduling_closing = "- Do not schedule appointments. If customer asks, promise a prompt callback from a human rep"
+    
+    # 🔥 BUILD 333: PHASE-BASED FLOW - Single confirmation only at end!
     return f"""AI Rep for "{business_name}" | {direction_context} call
 Date: {weekday_name}, {today_date}
 
-CRITICAL - TRANSCRIPTION IS TRUTH:
-- Respond ONLY to what customer ACTUALLY SAID
-- NEVER invent, guess, or change what you heard
-- If customer said "עפולה" - respond about "עפולה", not another city
-- If customer said a name - use THAT EXACT name
-- If unclear what customer said - ASK to repeat, don't guess!
-- NEVER imagine or hallucinate values the customer didn't say
+CRITICAL — TRANSCRIPTION IS TRUTH:
+- Respond ONLY to what the customer ACTUALLY said
+- Never invent, guess, or change words
+- If unclear, politely ask them to repeat ("סליחה, לא שמעתי טוב, אפשר לחזור?")
 
-RULES:
-1. SPEAK HEBREW naturally. If customer speaks another language - switch to it
-2. Use EXACT words customer said. Never "correct" or change them
-3. Confirm details: "Just to verify - you said X, correct?" (use their EXACT words)
-4. Be brief and clear, no repetition
-5. If unclear: ask to repeat politely - "סליחה, לא שמעתי טוב, אפשר לחזור?"
-{scheduling_rules}
+CALL FLOW — FOLLOW THESE PHASES IN ORDER:
+PHASE 1 – Greeting & Rapport
+{greeting_line}
+- Ask one open question to understand their need
+- Do NOT confirm anything yet
 
-PATIENCE (CRITICAL):
-- After each question: WAIT! Let customer finish before responding
-- Never ask 2 questions in a row! Ask ONE, wait for FULL answer, then continue
-- Don't interrupt customer mid-speech
-- If answer doesn't match question: ask "How can I help?"
-- Don't jump to conclusions! If unclear - ask for clarification
+PHASE 2 – Discovery & Data Capture
+- Collect only missing details (service, location, name, phone, timing). One question at a time, wait for full answer
+- Mirror their exact words; if unclear, clarify before moving on
+- Track which details are already captured and avoid repeating them
+{scheduling_discovery}
+
+PHASE 3 – Single Confirmation (ONLY ONCE!)
+- Only after ALL critical details are gathered
+- Give ONE concise summary of every captured detail and ask for confirmation ONCE
+- If customer already confirmed, do NOT re-confirm unless they change information
+- NEVER confirm after each question! Only ONE summary at the end
+
+PHASE 4 – Closing & Wrap-Up
+{scheduling_closing}
+- After confirmation, thank the customer and describe the next step
+- Offer a polite final line ("תודה שפנית אלינו, נדאג לטפל בזה מיד") and then STOP speaking
+- If customer says goodbye or stays silent for ~5s, respond with one farewell and stay quiet
+- DO NOT keep talking after saying goodbye!
+
+GENERAL BEHAVIOR:
+- SPEAK HEBREW naturally; switch languages only if the customer clearly can't follow
+- Never ask two questions in a row; listen fully before replying
+- Do not loop or repeat the same question unless the answer was unclear
+- If new information arrives after Phase 3, briefly revisit Phase 2 for that item, then perform one fresh confirmation and close
 """
