@@ -1252,6 +1252,13 @@ class MediaStreamHandler:
         # 🔥 BUILD 313: SIMPLIFIED - Only track last AI mentioned city for confirmation
         self._last_ai_mentioned_city = None  # Track city from AI confirmation for user "נכון" locking
         
+        # 🔥 BUILD 326: CITY LOCK MECHANISM - Prevent AI from hallucinating cities
+        # When user says a city, we LOCK it and use it for confirmation template
+        # AI can NEVER change the locked city - only user correction can unlock
+        self._city_locked = False           # True = city is locked from user utterance
+        self._city_raw_from_stt = None      # Raw city text from STT (source of truth)
+        self._city_source = None            # 'user_utterance' or 'ai_extraction'
+        
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
@@ -3526,13 +3533,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self.call_state = CallState.ACTIVE
                                 print(f"📞 [BUILD 203] CLOSING → ACTIVE (user rejected confirmation)")
                             
-                            # 🔥 BUILD 313: SIMPLIFIED - Just clear city from lead_capture_state
-                            # OpenAI Tool will capture the new city when user provides it
-                            if 'city' in self.lead_capture_state:
-                                old_city = self.lead_capture_state.get('city')
-                                del self.lead_capture_state['city']
-                                self._last_ai_mentioned_city = None
-                                print(f"🗑️ [BUILD 313] CLEARED city: was '{old_city}'")
+                            # 🔥 BUILD 326: UNLOCK city - user is correcting
+                            # This allows user to provide new city
+                            self._unlock_city()
+                            self._last_ai_mentioned_city = None
                             
                             # 🔥 BUILD 308: POST-REJECTION COOL-OFF
                             self._awaiting_user_correction = True
@@ -7582,8 +7586,105 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # 🔥 BUILD 313: All other fields (city, name, service_type) handled by OpenAI Tool!
         # No more word lists, no fuzzy matching, no city normalizer
         # OpenAI understands context and calls save_lead_info with correct values
+        
+        # 🔥 BUILD 326: CITY LOCK - Detect and lock city from user utterance
+        if is_user_speech and 'city' in required_fields:
+            self._try_lock_city_from_utterance(text)
     
-    def _update_lead_capture_state(self, field: str, value: str):
+    def _try_lock_city_from_utterance(self, text: str):
+        """
+        🔥 BUILD 326: CITY LOCK MECHANISM
+        
+        When user says a city (short Hebrew, 1-4 words after AI asked for city),
+        lock it as the SOURCE OF TRUTH. AI can NEVER change it.
+        
+        No city dictionaries - just takes what user said literally.
+        """
+        import re
+        
+        # Only lock if city is needed and not already locked
+        if self._city_locked and 'city' in self.lead_capture_state:
+            print(f"🔒 [BUILD 326] City already locked: '{self.lead_capture_state.get('city')}'")
+            return
+        
+        # Check if last AI message asked for city
+        last_ai_msg = None
+        for msg in reversed(self.conversation_history):
+            if msg.get("speaker") == "ai":
+                last_ai_msg = msg.get("text", "").lower()
+                break
+        
+        ai_asked_for_city = last_ai_msg and any(
+            phrase in last_ai_msg for phrase in [
+                "עיר", "איפה", "מאיפה", "באיזו עיר", "באיזה אזור", "מאיזה"
+            ]
+        )
+        
+        if not ai_asked_for_city:
+            return
+        
+        # Clean the utterance
+        cleaned = text.strip()
+        
+        # Remove punctuation
+        cleaned = re.sub(r'[\.!\?:,;]', '', cleaned)
+        
+        # Skip if too long (more than 4 words = probably not just a city)
+        words = cleaned.split()
+        if len(words) > 4:
+            return
+        
+        # Skip non-Hebrew or nonsense responses
+        hebrew_chars = sum(1 for c in cleaned if '\u0590' <= c <= '\u05FF')
+        if hebrew_chars < 2:
+            return
+        
+        # Skip confirmation/rejection words (not cities)
+        skip_words = ["כן", "לא", "נכון", "בדיוק", "ממש לא", "תודה", "שלום", "עדיין", "רגע"]
+        if cleaned in skip_words or any(cleaned.startswith(sw) for sw in ["לא ", "כן ", "עדיין"]):
+            return
+        
+        # Clean common prefixes (בעיר, באזור, אני ב, אני מ, etc.)
+        city_prefixes = [
+            r'^בעיר\s+', r'^באזור\s+', r'^עיר\s+', r'^מעיר\s+',
+            r'^אני ב', r'^אני מ', r'^אנחנו ב', r'^אנחנו מ',
+            r'^ב', r'^מ'
+        ]
+        
+        city_name = cleaned
+        for prefix_pattern in city_prefixes:
+            city_name = re.sub(prefix_pattern, '', city_name, flags=re.IGNORECASE)
+            if city_name != cleaned:
+                break
+        
+        city_name = city_name.strip()
+        
+        # Must have at least 2 Hebrew characters
+        if len(city_name) < 2:
+            return
+        
+        # LOCK THE CITY!
+        self._city_raw_from_stt = city_name
+        self._city_locked = True
+        self._city_source = 'user_utterance'
+        self._update_lead_capture_state('city', city_name)
+        print(f"🔒 [BUILD 326] CITY LOCKED from STT: '{city_name}' (raw: '{text}')")
+    
+    def _unlock_city(self):
+        """
+        🔥 BUILD 326: Unlock city when user explicitly corrects
+        Called when user says "לא", "לא נכון", etc.
+        """
+        if self._city_locked:
+            old_city = self.lead_capture_state.get('city', '')
+            self._city_locked = False
+            self._city_raw_from_stt = None
+            self._city_source = None
+            if 'city' in self.lead_capture_state:
+                del self.lead_capture_state['city']
+            print(f"🔓 [BUILD 326] CITY UNLOCKED (was: '{old_city}') - waiting for new city")
+    
+    def _update_lead_capture_state(self, field: str, value: str, source: str = 'unknown'):
         """
         🎯 DYNAMIC LEAD CAPTURE: Update lead capture state with a new field value
         
@@ -7595,11 +7696,22 @@ SPEAK HEBREW to customer. Be brief and helpful.
         Args:
             field: Field identifier (e.g., 'name', 'phone', 'city', 'service_type')
             value: The captured value
+            source: Where this update came from ('user_utterance', 'ai_extraction', 'dtmf', etc.)
         """
         if not value or not str(value).strip():
             return
         
         value = str(value).strip()
+        
+        # 🔥 BUILD 326: CITY LOCK - Block AI from changing locked city!
+        if field == 'city' and self._city_locked:
+            existing_city = self.lead_capture_state.get('city', '')
+            if existing_city and value != existing_city:
+                # AI is trying to change locked city - BLOCK IT!
+                print(f"🛡️ [BUILD 326] BLOCKED: AI tried to change locked city '{existing_city}' → '{value}'")
+                print(f"🛡️ [BUILD 326] City remains: '{existing_city}' (locked from user utterance)")
+                return
+        
         self.lead_capture_state[field] = value
         print(f"✅ [LEAD STATE] Updated: {field}={value}")
         print(f"📋 [LEAD STATE] Current state: {self.lead_capture_state}")
