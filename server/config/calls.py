@@ -6,17 +6,11 @@
 SIMPLE_MODE = True  # All audio passes through - OpenAI handles speech detection
 
 # COST OPTIMIZATION
-# 🔥 BUILD 332: BALANCED FPS LIMITER - 48 FPS (96% audio vs 80% at 40 FPS)
-# Phone audio = 8kHz @ 20ms frames = 50 FPS. At 40 FPS we dropped 20% causing bad STT!
-# At 48 FPS we only drop 4% - much better transcription while still saving costs.
-COST_EFFICIENT_MODE = True   # RE-ENABLED with higher FPS limit for balance
+# 🔥 BUILD 330: DISABLED FPS LIMITER - was dropping 20% of audio causing bad transcription!
+# Phone audio = 8kHz @ 20ms frames = 50 FPS required. Limiting to 40 was dropping audio!
+COST_EFFICIENT_MODE = False  # DISABLED - must send ALL audio for good STT!
 COST_MIN_RMS_THRESHOLD = 0   # No RMS gating - all audio passes through
-COST_MAX_FPS = 48            # 48 FPS = 96% of audio (balanced: quality + cost)
-
-# 🔥 BUILD 331: HARD SAFETY LIMITS - Prevent runaway token consumption
-# These are ABSOLUTE limits that cannot be bypassed - protects from bugs burning money
-MAX_REALTIME_SECONDS_PER_CALL = 90   # Max 90 seconds per call
-MAX_AUDIO_FRAMES_PER_CALL = 4500     # 50 fps × 90s = 4500 frames maximum
+COST_MAX_FPS = 60            # Raised to 60 (above 50 FPS phone requirement)
 
 # AUDIO GUARD: DISABLED - was blocking real speech!
 # Analysis showed rms=8 frames being blocked while user was speaking.

@@ -62,21 +62,18 @@ try:
     from server.config.calls import (
         SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
-        ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
-        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL
+        ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = True   # BUILD 332: RE-ENABLED with higher FPS limit
+    COST_EFFICIENT_MODE = False  # BUILD 330: DISABLED - was dropping audio!
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 48  # BUILD 332: 48 FPS = 96% audio (balanced: quality + cost)
+    COST_MAX_FPS = 60  # BUILD 330: Raised above 50 FPS phone requirement
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
-    MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
-    MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
