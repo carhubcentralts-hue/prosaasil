@@ -27,13 +27,10 @@ interface CallControlSettings {
   silence_timeout_sec: number;
   silence_max_warnings: number;
   smart_hangup_enabled: boolean;
-  required_lead_fields: string[];
   bot_speaks_first: boolean;
-  auto_end_after_lead_capture: boolean;
   auto_end_on_goodbye: boolean;
-  // 🔥 BUILD 310: SIMPLE_MODE - call_goal replaces enable_calendar_scheduling
-  // call_goal 'appointment' = enable_calendar_scheduling true
-  // call_goal 'lead_only' = enable_calendar_scheduling false
+  // 🔥 BUILD 327: SIMPLIFIED - removed required_lead_fields and auto_end_after_lead_capture
+  // AI follows the prompt instructions for what to collect
   call_goal: 'lead_only' | 'appointment';  // Call objective (also controls calendar scheduling)
   confirm_before_hangup: boolean;  // Require user confirmation before hanging up
 }
@@ -63,11 +60,9 @@ export function BusinessAISettings() {
     silence_timeout_sec: 15,
     silence_max_warnings: 2,
     smart_hangup_enabled: true,
-    required_lead_fields: ['name', 'phone'],
     bot_speaks_first: false,
-    auto_end_after_lead_capture: false,
     auto_end_on_goodbye: false,
-    // 🔥 BUILD 310: SIMPLE_MODE - call_goal controls calendar scheduling
+    // 🔥 BUILD 327: SIMPLIFIED - AI follows prompt for what to collect
     call_goal: 'lead_only',
     confirm_before_hangup: true
   });
@@ -86,12 +81,10 @@ export function BusinessAISettings() {
             silence_timeout_sec?: number;
             silence_max_warnings?: number;
             smart_hangup_enabled?: boolean;
-            required_lead_fields?: string[];
             bot_speaks_first?: boolean;
-            auto_end_after_lead_capture?: boolean;
             auto_end_on_goodbye?: boolean;
             enable_calendar_scheduling?: boolean;  // 🔥 BUILD 186
-            // 🔥 BUILD 309: SIMPLE_MODE settings
+            // 🔥 BUILD 327: SIMPLIFIED settings
             call_goal?: 'lead_only' | 'appointment';
             confirm_before_hangup?: boolean;
           }>(`/api/business/current`),
@@ -113,11 +106,9 @@ export function BusinessAISettings() {
           silence_timeout_sec: businessData.silence_timeout_sec ?? 15,
           silence_max_warnings: businessData.silence_max_warnings ?? 2,
           smart_hangup_enabled: businessData.smart_hangup_enabled ?? true,
-          required_lead_fields: businessData.required_lead_fields ?? ['name', 'phone'],
           bot_speaks_first: businessData.bot_speaks_first ?? false,
-          auto_end_after_lead_capture: businessData.auto_end_after_lead_capture ?? false,
           auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false,
-          // 🔥 BUILD 310: SIMPLE_MODE settings
+          // 🔥 BUILD 327: SIMPLIFIED settings
           call_goal: derivedCallGoal,
           confirm_before_hangup: businessData.confirm_before_hangup !== false  // Default true
         });
@@ -189,12 +180,10 @@ export function BusinessAISettings() {
         silence_timeout_sec: callControl.silence_timeout_sec,
         silence_max_warnings: callControl.silence_max_warnings,
         smart_hangup_enabled: callControl.smart_hangup_enabled,
-        required_lead_fields: callControl.required_lead_fields,
         bot_speaks_first: callControl.bot_speaks_first,
-        auto_end_after_lead_capture: callControl.auto_end_after_lead_capture,
         auto_end_on_goodbye: callControl.auto_end_on_goodbye,
-        enable_calendar_scheduling: enableCalendar,  // 🔥 BUILD 310: Derived from call_goal
-        // 🔥 BUILD 310: SIMPLE_MODE settings
+        enable_calendar_scheduling: enableCalendar,  // 🔥 BUILD 327: Derived from call_goal
+        // 🔥 BUILD 327: SIMPLIFIED settings
         call_goal: callControl.call_goal,
         confirm_before_hangup: callControl.confirm_before_hangup
       });
@@ -211,16 +200,7 @@ export function BusinessAISettings() {
   // 🔥 BUILD 310: STT Vocabulary functions removed - using OpenAI Realtime native transcription
 
   // Toggle required field
-  const toggleRequiredField = (field: string) => {
-    setCallControl(prev => {
-      const fields = prev.required_lead_fields;
-      if (fields.includes(field)) {
-        return { ...prev, required_lead_fields: fields.filter(f => f !== field) };
-      } else {
-        return { ...prev, required_lead_fields: [...fields, field] };
-      }
-    });
-  };
+  // 🔥 BUILD 327: toggleRequiredField removed - AI follows prompt instructions
 
   if (loading) {
     return (
@@ -468,47 +448,24 @@ export function BusinessAISettings() {
             </label>
           </div>
 
-          {/* Auto-End Settings */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Auto-End After Lead Capture */}
-            <div className="flex items-center justify-between p-4 bg-green-50 rounded-lg border border-green-200">
-              <div>
-                <h4 className="font-medium text-slate-900">📋 סיום אוטומטי אחרי איסוף ליד</h4>
-                <p className="text-sm text-slate-600 mt-1">
-                  סיום השיחה אחרי שנאספו כל הפרטים הנדרשים
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={callControl.auto_end_after_lead_capture}
-                  onChange={(e) => setCallControl(prev => ({ ...prev, auto_end_after_lead_capture: e.target.checked }))}
-                  className="sr-only peer"
-                  data-testid="checkbox-auto-end-lead"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-              </label>
+          {/* Auto-End On Goodbye - 🔥 BUILD 327: Simplified - removed auto_end_after_lead_capture */}
+          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <div>
+              <h4 className="font-medium text-slate-900">👋 סיום אוטומטי כשהלקוח נפרד</h4>
+              <p className="text-sm text-slate-600 mt-1">
+                סיום כשהלקוח אומר "תודה", "ביי", "להתראות"
+              </p>
             </div>
-
-            {/* Auto-End On Goodbye */}
-            <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">
-              <div>
-                <h4 className="font-medium text-slate-900">👋 סיום אוטומטי כשהלקוח נפרד</h4>
-                <p className="text-sm text-slate-600 mt-1">
-                  סיום כשהלקוח אומר "תודה", "ביי", "להתראות"
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={callControl.auto_end_on_goodbye}
-                  onChange={(e) => setCallControl(prev => ({ ...prev, auto_end_on_goodbye: e.target.checked }))}
-                  className="sr-only peer"
-                  data-testid="checkbox-auto-end-goodbye"
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
-              </label>
-            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={callControl.auto_end_on_goodbye}
+                onChange={(e) => setCallControl(prev => ({ ...prev, auto_end_on_goodbye: e.target.checked }))}
+                className="sr-only peer"
+                data-testid="checkbox-auto-end-goodbye"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            </label>
           </div>
 
           {/* Smart Hangup Toggle */}
@@ -639,42 +596,7 @@ export function BusinessAISettings() {
             </div>
           </div>
 
-          {/* Required Lead Fields */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-3">
-              <User className="inline-block w-4 h-4 ml-1" />
-              פרטים נדרשים לאיסוף מהליד
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { key: 'name', label: 'שם מלא' },
-                { key: 'phone', label: 'טלפון' },
-                { key: 'email', label: 'אימייל' },
-                { key: 'city', label: 'עיר' },
-                { key: 'service_type', label: 'סוג שירות/תחום' },
-                { key: 'budget', label: 'תקציב' },
-                { key: 'preferred_time', label: 'זמן מועדף' },
-                { key: 'notes', label: 'הערות/תיאור בעיה' }
-              ].map(field => (
-                <button
-                  key={field.key}
-                  type="button"
-                  onClick={() => toggleRequiredField(field.key)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                    callControl.required_lead_fields.includes(field.key)
-                      ? 'bg-purple-100 text-purple-700 border-2 border-purple-300'
-                      : 'bg-slate-100 text-slate-600 border-2 border-transparent hover:bg-slate-200'
-                  }`}
-                  data-testid={`toggle-field-${field.key}`}
-                >
-                  {callControl.required_lead_fields.includes(field.key) ? '✓ ' : ''}{field.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              ה-AI יאסוף את הפרטים האלה לפני שמאפשר סיום שיחה. לחץ לבחירה/ביטול.
-            </p>
-          </div>
+          {/* 🔥 BUILD 327: Required Lead Fields removed - AI follows prompt instructions */}
 
           {/* Info box about how it works */}
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
@@ -685,7 +607,7 @@ export function BusinessAISettings() {
                 <ul className="text-sm mt-2 space-y-1 list-disc list-inside">
                   <li>ה-AI מנתח את כל השיחה כדי להבין אם הלקוח באמת רוצה לסיים</li>
                   <li>לא מסיים שיחה רק בגלל "לא תודה" או "אין צורך" בודד</li>
-                  <li>מוודא שכל הפרטים הנדרשים נאספו לפני סיום</li>
+                  <li>ה-AI עוקב אחר ההוראות בפרומפט לגבי איזה פרטים לאסוף</li>
                   <li>מזהה שקט ממושך ושואל בנימוס אם הלקוח עדיין בקו</li>
                 </ul>
                 <p className="text-sm mt-3 font-medium text-purple-900">
