@@ -3036,10 +3036,21 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # 🔥 BUILD 179: Never engage loop guard during call ending
                             should_engage_guard = False
                             print(f"⏭️ [LOOP GUARD] Skipped - call is ending (closing={is_closing}, hangup={is_hanging_up})")
-                        elif has_appointment or is_scheduling:
-                            # 🔥 BUILD 182: Never engage loop guard during appointment scheduling
+                        elif has_appointment:
+                            # 🔥 BUILD 182: Skip loop guard ONLY if appointment already created
                             should_engage_guard = False
-                            print(f"⏭️ [LOOP GUARD] Skipped - appointment flow (has_appointment={has_appointment}, is_scheduling={is_scheduling})")
+                            print(f"⏭️ [LOOP GUARD] Skipped - appointment confirmed (has_appointment=True)")
+                        elif is_scheduling:
+                            # 🔥 BUILD 337: LIMITED loop guard during scheduling - prevent AI monologues!
+                            # Allow 2 consecutive responses during scheduling, then engage guard
+                            # This prevents AI from looping while still allowing back-and-forth
+                            max_scheduling_consecutive = 2
+                            if self._consecutive_ai_responses >= max_scheduling_consecutive and user_silent_long_time:
+                                should_engage_guard = True
+                                print(f"⚠️ [BUILD 337] LOOP GUARD ENGAGED during scheduling! ({self._consecutive_ai_responses} consecutive, user silent)")
+                            else:
+                                should_engage_guard = False
+                                print(f"📋 [BUILD 337] Scheduling flow - limited guard ({self._consecutive_ai_responses}/{max_scheduling_consecutive})")
                         else:
                             # INBOUND: Normal loop guard logic
                             max_consecutive = self._max_consecutive_ai_responses
@@ -4162,6 +4173,20 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 print(f"⚠️ [NLP] Calendar scheduling is DISABLED - not checking availability")
                 await self._send_server_event_to_ai("⚠️ קביעת תורים מושבתת כרגע. הסבר ללקוח שנציג יחזור אליו בהקדם.")
                 return
+            
+            # 🔥 BUILD 337: CHECK IF NAME IS REQUIRED BUT MISSING - remind AI to ask!
+            # This prevents scheduling from proceeding without collecting the name first
+            crm_context = getattr(self, 'crm_context', None)
+            has_name = (crm_context and crm_context.customer_name) or (hasattr(self, 'pending_customer_name') and self.pending_customer_name) or customer_name
+            
+            # Check if name is required by business prompt
+            required_fields = getattr(self, 'required_lead_fields', ['city', 'service_type'])
+            name_required = 'name' in required_fields
+            
+            if name_required and not has_name:
+                print(f"⚠️ [BUILD 337] Name required but missing! Reminding AI to ask for name FIRST")
+                await self._send_server_event_to_ai("need_name_first - לפני שנקבע תור, שאל את הלקוח: מה השם שלך?")
+                # Still continue to check availability so we can offer a slot
             
             if not date_iso or not time_str:
                 # User wants appointment but didn't specify date/time
