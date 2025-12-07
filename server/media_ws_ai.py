@@ -1617,10 +1617,9 @@ class MediaStreamHandler:
 {greeting_instruction}"""
                 has_custom_greeting = True
             else:
-                # Fallback: No compact prompt - use better fallback with context
-                greeting_prompt = f"""אתה נציג טלפוני מקצועי של {biz_name}. דבר בעברית, היה אדיב וקצר.
-שאל את הלקוח במה תוכל לעזור ואסוף את הפרטים הנדרשים.
-אם לא שמעת ברור - בקש לחזור. אל תמציא מידע.
+                # 🔥 BUILD 322: Consistent Hebrew fallback
+                greeting_prompt = f"""אתה נציג שירות מקצועי של {biz_name}. דבר בעברית, היה קצר ומועיל.
+שאל במה תוכל לעזור. אם לא שמעת ברור - בקש לחזור. אל תמציא מידע.
 
 ---
 
@@ -6627,7 +6626,7 @@ class MediaStreamHandler:
                 
                 if not self.business_id:
                     print("❌ לא נמצא עסק - שימוש בפרומפט ברירת מחדל כללי")
-                    return "אתה נציג שירות מקצועי. עזור ללקוח במה שהוא צריך בצורה אדיבה וידידותית."
+                    return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל. שאל במה תוכל לעזור."
                 
                 # טען פרומפט מ-BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
@@ -6658,11 +6657,11 @@ class MediaStreamHandler:
                 return business.system_prompt
                 
             print(f"⚠️ לא נמצא פרומפט לעסק {self.business_id} - שימוש בברירת מחדל כללי")
-            return "אתה נציג שירות מקצועי. עזור ללקוח במה שהוא צריך בצורה אדיבה וידידותית."
+            return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל. שאל במה תוכל לעזור."
             
         except Exception as e:
             print(f"❌ שגיאה בטעינת פרומפט מדאטאבייס: {e}")
-            return "אתה נציג שירות מקצועי. עזור ללקוח במה שהוא צריך בצורה אדיבה וידידותית."
+            return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל. שאל במה תוכל לעזור."
 
     def _identify_business_and_get_greeting(self) -> tuple:
         """⚡ זיהוי עסק + ברכה + הגדרות שיחה בשאילתה אחת - חוסך 70% זמן!"""

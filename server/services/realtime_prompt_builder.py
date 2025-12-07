@@ -65,7 +65,7 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         
         if not business:
             logger.warning(f"⚠️ [BUILD 317] Business {business_id} not found")
-            return "נציג AI. עברית בלבד. שאל במה אוכל לעזור."
+            return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל. שאל במה תוכל לעזור."
         
         business_name = business.name or "העסק"
         
@@ -131,10 +131,8 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         logger.error(f"❌ [BUILD 317] Compact prompt error: {e}")
         import traceback
         traceback.print_exc()
-        # 🔥 BUILD 317: Better fallback with clear instruction
-        return """אתה נציג טלפוני מקצועי. דבר בעברית, היה אדיב וקצר.
-שאל את הלקוח במה תוכל לעזור ואסוף את הפרטים הנדרשים: שם, טלפון, עיר, סוג שירות.
-אם לא שמעת ברור - בקש לחזור. אל תמציא מידע."""
+        # 🔥 BUILD 322: Consistent Hebrew fallback
+        return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל. שאל במה תוכל לעזור."
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
@@ -263,18 +261,17 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         # 🔥 BUILD 186: Only add scheduling info if calendar scheduling is ENABLED
         if enable_calendar_scheduling:
             hours_description = _build_hours_description(policy)
-            slot_description = _build_slot_description(policy.slot_size_min)
             
             min_notice = ""
             if policy.min_notice_min > 0:
                 min_notice_hours = policy.min_notice_min // 60
                 if min_notice_hours > 0:
-                    min_notice = f" (advance booking: {min_notice_hours}h)"
+                    min_notice = f" (הזמנה מראש: {min_notice_hours} שעות)"
             
-            full_prompt += f"\n\nSCHEDULING: Slots every {policy.slot_size_min} min{min_notice}\n{hours_description}"
+            full_prompt += f"\n\n📅 קביעת תורים: כל {policy.slot_size_min} דקות{min_notice}\n{hours_description}"
         else:
-            # Explicitly tell AI not to schedule appointments
-            full_prompt += "\n\n⚠️ NO SCHEDULING: Do NOT offer to schedule appointments or meetings. Focus only on providing information and collecting lead details."
+            # Explicitly tell AI not to schedule appointments - IN HEBREW
+            full_prompt += "\n\n⚠️ ללא קביעת תורים: אל תציע לקבוע פגישות או תורים. התמקד רק במתן מידע ואיסוף פרטי הלקוח."
         
         # Log final length
         logger.info(f"✅ REALTIME PROMPT [business_id={business_id}] LEN={len(full_prompt)} chars")
@@ -308,14 +305,14 @@ def _get_fallback_prompt(business_id: int = None) -> str:
             if business and business.system_prompt and business.system_prompt.strip():
                 return business.system_prompt
             
-            # Build minimal prompt from business name
+            # Build minimal prompt from business name - IN HEBREW
             if business and business.name:
-                return f"You are a representative of {business.name}. Respond in HEBREW, be brief and helpful."
+                return f"אתה נציג של {business.name}. דבר בעברית, היה קצר ומועיל."
     except:
         pass
     
-    # Absolute minimal - no business info available
-    return "Respond in HEBREW, be brief and helpful."
+    # Absolute minimal - no business info available - IN HEBREW
+    return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
 
 
 def _build_hours_description(policy) -> str:
