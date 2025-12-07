@@ -7498,14 +7498,25 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         Background loop that checks for silence and triggers warnings/hangup.
         🔥 BUILD 312: Only start silence counting AFTER user has spoken!
+        🔥 BUILD 339: Comprehensive state checks to prevent action after goodbye
         """
         try:
-            while self.call_state == CallState.ACTIVE and not self.hangup_triggered:
+            while True:
                 await asyncio.sleep(2.0)  # Check every 2 seconds
                 
-                # Skip if call is ending
-                if self.call_state in (CallState.CLOSING, CallState.ENDED):
-                    break
+                # 🔥 BUILD 339 CRITICAL: Check EVERY iteration if call should continue
+                # This is the MASTER guard - checked at the TOP of every loop iteration
+                if self.call_state != CallState.ACTIVE:
+                    print(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
+                    return  # Use return, not break, to completely exit
+                
+                if self.hangup_triggered:
+                    print(f"🔇 [SILENCE] Monitor exiting - hangup_triggered=True")
+                    return
+                
+                if getattr(self, 'pending_hangup', False):
+                    print(f"🔇 [SILENCE] Monitor exiting - pending_hangup=True")
+                    return
                 
                 # 🔥 BUILD 312: NEVER count silence until user has spoken at least once!
                 # This prevents AI from responding "are you there?" before user says anything
@@ -7516,10 +7527,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         time_since_greeting = time.time() - self.greeting_completed_at
                         if time_since_greeting > 60.0:
                             # 60 seconds with no user speech - this is a dead call
-                            print(f"🔇 [SILENCE] 60s+ no user speech - closing dead call")
-                            self.call_state = CallState.CLOSING
-                            self._trigger_auto_hangup("no_user_speech_timeout")
-                            break
+                            # But only close if call is still ACTIVE!
+                            if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
+                                print(f"🔇 [SILENCE] 60s+ no user speech - closing dead call")
+                                self.call_state = CallState.CLOSING
+                                self._trigger_auto_hangup("no_user_speech_timeout")
+                            return
                     # Still waiting for user to speak - don't count silence
                     continue
                 
@@ -7527,6 +7540,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 silence_duration = time.time() - self._last_speech_time
                 
                 if silence_duration >= self.silence_timeout_sec:
+                    # 🔥 BUILD 339: RE-CHECK state before ANY action (state may have changed during sleep)
+                    if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                        print(f"🔇 [SILENCE] State changed before warning - exiting (state={self.call_state.value})")
+                        return
+                    
                     if self._silence_warning_count < self.silence_max_warnings:
                         # Send "are you there?" warning
                         self._silence_warning_count += 1
@@ -7535,7 +7553,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # 🔥 BUILD 338 COST FIX: Only send AI prompt on LAST warning (not all warnings)
                         # This reduces response.create calls by ~50% in silence scenarios
                         if self._silence_warning_count >= self.silence_max_warnings:
-                            # Last warning - actually send AI prompt
+                            # Last warning - actually send AI prompt (but _send_silence_warning has its own guards)
                             await self._send_silence_warning()
                         else:
                             # Not last warning - just log, don't spend tokens
@@ -7545,10 +7563,20 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self._last_speech_time = time.time()
                     else:
                         # Max warnings exceeded - check if we can hangup
+                        # 🔥 BUILD 339: FINAL state check before taking hangup action
+                        if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                            print(f"🔇 [SILENCE] Max warnings - but call already ending, exiting monitor")
+                            return
+                        
                         # 🔥 BUILD 172 FIX: Don't hangup if lead is captured but not confirmed!
                         fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
                         if fields_collected and not self.verification_confirmed:
                             # Fields captured but not confirmed - give one more chance
+                            # But ONLY if call is still active!
+                            if self.call_state != CallState.ACTIVE or getattr(self, 'pending_hangup', False):
+                                print(f"🔇 [SILENCE] Can't give final chance - call ending")
+                                return
+                            
                             print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final confirmation request")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
                             await self._send_text_to_ai(
@@ -7566,6 +7594,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 continue  # Don't close yet
                         
                         # OK to close - either no lead, or lead confirmed, or final chance given
+                        # 🔥 BUILD 339: One more state check before initiating hangup
+                        if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                            print(f"🔇 [SILENCE] State changed before hangup - exiting")
+                            return
+                        
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
                         
@@ -7584,7 +7617,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
                         self._trigger_auto_hangup("silence_timeout")
-                        break
+                        return  # Exit cleanly after hangup
                         
         except asyncio.CancelledError:
             print(f"🔇 [SILENCE] Monitor cancelled")
@@ -7595,8 +7628,19 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         Send a gentle prompt to continue the conversation.
         🔥 BUILD 311.1: Made fully dynamic - AI decides based on context, no hardcoded phrases
+        🔥 BUILD 339: Added critical state checks to prevent loop after goodbye
         """
         try:
+            # 🔥 BUILD 339 CRITICAL: Don't send any warnings if call is ending!
+            # This prevents the AI from asking questions AFTER saying goodbye
+            if self.call_state == CallState.CLOSING or self.call_state == CallState.ENDED:
+                print(f"🔇 [SILENCE] BLOCKED - call is {self.call_state.value}, not sending warning")
+                return
+            
+            if self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                print(f"🔇 [SILENCE] BLOCKED - hangup pending/triggered, not sending warning")
+                return
+            
             # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
             fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
             if fields_collected and not self.verification_confirmed:
