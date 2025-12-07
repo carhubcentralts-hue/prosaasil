@@ -1944,22 +1944,46 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     if not _limit_logged:
                         _limit_logged = True
                         print(f"🛑 [BUILD 331] OPENAI_USAGE_GUARD: frames_sent={_total_frames_sent}, estimated_seconds={call_elapsed:.1f}")
-                        print(f"🛑 [BUILD 331] HARD LIMIT HIT - Triggering immediate call termination!")
+                        print(f"🛑 [BUILD 332] HARD LIMIT HIT - Triggering immediate call termination!")
                         
-                        # 🔥 BUILD 331: Set flags to trigger FULL call shutdown
+                        # 🔥 BUILD 332: Set flags to trigger FULL call shutdown
                         self.realtime_stop_flag = True
                         self._limit_exceeded = True  # Store for logging in finally block
                         self._limit_frames = _total_frames_sent
                         self._limit_seconds = call_elapsed
                         
-                        # Signal the main loop to end the call via Twilio
-                        # This will make run() exit cleanly and trigger proper teardown
+                        # 🔥 BUILD 332: FORCE SOCKET SHUTDOWN - Unblocks Eventlet's wait() immediately!
+                        # ws.close() doesn't break Eventlet's wait() loop, but socket.shutdown() does
                         if hasattr(self, 'ws') and self.ws:
                             try:
-                                # Try to close the WebSocket which will trigger the main loop to exit
-                                self.ws.close()
-                            except:
-                                pass
+                                import socket
+                                # Get the underlying socket and force shutdown
+                                if hasattr(self.ws, 'socket'):
+                                    self.ws.socket.shutdown(socket.SHUT_RDWR)
+                                    print(f"✅ [BUILD 332] Socket shutdown triggered - main loop will exit!")
+                                elif hasattr(self.ws, '_socket'):
+                                    self.ws._socket.shutdown(socket.SHUT_RDWR)
+                                    print(f"✅ [BUILD 332] Socket shutdown triggered via _socket!")
+                                else:
+                                    # Fallback: try to close normally
+                                    self.ws.close()
+                                    print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
+                            except Exception as e:
+                                print(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
+                        
+                        # 🔥 BUILD 332: ALSO CALL TWILIO API as additional guarantee
+                        if hasattr(self, 'call_sid') and self.call_sid:
+                            try:
+                                import os
+                                from twilio.rest import Client as TwilioClient
+                                account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+                                auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+                                if account_sid and auth_token:
+                                    twilio_client = TwilioClient(account_sid, auth_token)
+                                    twilio_client.calls(self.call_sid).update(status='completed')
+                                    print(f"✅ [BUILD 332] Twilio call {self.call_sid} terminated via API!")
+                            except Exception as e:
+                                print(f"⚠️ [BUILD 332] Could not terminate call via Twilio API: {e}")
                     
                     break  # Exit the audio sender loop immediately
                 
