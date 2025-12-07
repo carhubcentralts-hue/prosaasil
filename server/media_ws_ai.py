@@ -1167,6 +1167,25 @@ class MediaStreamHandler:
         self._stats_last_log_ts = 0  # Last time we logged pipeline status
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
         
+        # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
+        # Imports config values - see server/config/calls.py for tuning
+        from server.config.calls import (
+            AUDIO_GUARD_ENABLED, AUDIO_GUARD_INITIAL_NOISE_FLOOR,
+            AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR, AUDIO_GUARD_MIN_ZCR_FOR_SPEECH,
+            AUDIO_GUARD_MIN_RMS_DELTA, AUDIO_GUARD_MUSIC_ZCR_THRESHOLD,
+            AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER, AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
+        )
+        self._audio_guard_enabled = AUDIO_GUARD_ENABLED
+        self._audio_guard_noise_floor = AUDIO_GUARD_INITIAL_NOISE_FLOOR
+        self._audio_guard_speech_factor = AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR
+        self._audio_guard_prev_rms = 0.0
+        self._audio_guard_music_mode = False
+        self._audio_guard_music_frames_counter = 0
+        self._audio_guard_music_cooldown_frames = 0
+        self._audio_guard_drop_count = 0  # Rate-limited logging
+        self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
+        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED} (dynamic noise floor, speech gating, music_mode, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
+        
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
         # 🎯 APPOINTMENT PARSER: DB-based deduplication via CallSession table
@@ -1974,6 +1993,125 @@ class MediaStreamHandler:
         return flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
+    # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
+    # ═══════════════════════════════════════════════════════════════════════════════
+    def _compute_zcr(self, pcm_samples: bytes) -> float:
+        """
+        Compute Zero-Crossing Rate (ZCR) for audio frame.
+        ZCR = (number of sign changes) / (total samples)
+        Speech typically has moderate ZCR (0.02-0.10), music/noise can be higher or lower.
+        """
+        if not pcm_samples or len(pcm_samples) < 4:
+            return 0.0
+        
+        import struct
+        try:
+            # PCM16 = 2 bytes per sample
+            num_samples = len(pcm_samples) // 2
+            if num_samples < 2:
+                return 0.0
+            
+            samples = struct.unpack(f'<{num_samples}h', pcm_samples[:num_samples*2])
+            zero_crossings = 0
+            for i in range(1, len(samples)):
+                if (samples[i] >= 0 and samples[i-1] < 0) or (samples[i] < 0 and samples[i-1] >= 0):
+                    zero_crossings += 1
+            
+            return zero_crossings / num_samples
+        except Exception:
+            return 0.0
+    
+    def _is_probable_speech(self, rms: float, zcr: float, effective_threshold: float, prev_rms: float) -> bool:
+        """
+        🔥 BUILD 320: Determine if audio frame is probably speech vs noise/music.
+        Uses RMS, ZCR, and RMS delta to distinguish speech from background noise.
+        
+        Returns True if frame should be sent to OpenAI, False to drop.
+        """
+        from server.config.calls import AUDIO_GUARD_MIN_ZCR_FOR_SPEECH, AUDIO_GUARD_MIN_RMS_DELTA
+        
+        # Hard silence - definitely not speech
+        if rms < 0.5 * effective_threshold:
+            return False
+        
+        # Clearly loud segment (speech or loud noise) - let OpenAI decide
+        if rms >= 1.5 * effective_threshold:
+            return True
+        
+        # Mid-range: use ZCR and dynamics to distinguish speech vs flat noise
+        # Speech has characteristic ZCR patterns and amplitude variations
+        if zcr >= AUDIO_GUARD_MIN_ZCR_FOR_SPEECH:
+            return True
+        
+        # Speech has dynamic amplitude changes between frames
+        if abs(rms - prev_rms) >= AUDIO_GUARD_MIN_RMS_DELTA:
+            return True
+        
+        return False
+    
+    def _update_audio_guard_state(self, rms: float, zcr: float) -> bool:
+        """
+        🔥 BUILD 320: Update audio guard state (noise floor, music mode) and decide if frame passes.
+        
+        Returns True if frame should be sent to OpenAI, False to drop.
+        """
+        from server.config.calls import (
+            AUDIO_GUARD_MUSIC_ZCR_THRESHOLD, AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER,
+            AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
+        )
+        
+        # Calculate effective speech threshold
+        effective_threshold = self._audio_guard_noise_floor * self._audio_guard_speech_factor
+        
+        # Update noise floor when frame is "probably silence" (below threshold)
+        if rms < effective_threshold:
+            # Exponential moving average: 90% old + 10% new
+            self._audio_guard_noise_floor = 0.9 * self._audio_guard_noise_floor + 0.1 * rms
+        
+        # ═══ MUSIC MODE DETECTION ═══
+        # Detect continuous background music: sustained RMS + moderate-high ZCR
+        if rms > effective_threshold and zcr > AUDIO_GUARD_MUSIC_ZCR_THRESHOLD:
+            self._audio_guard_music_frames_counter += 1
+        else:
+            self._audio_guard_music_frames_counter = 0
+        
+        # Enter music mode after sustained detection (~300ms)
+        if not self._audio_guard_music_mode and self._audio_guard_music_frames_counter >= AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER:
+            self._audio_guard_music_mode = True
+            self._audio_guard_music_cooldown_frames = AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
+            print(f"🎵 [AUDIO_GUARD] Entering music_mode (rms={rms:.1f}, zcr={zcr:.3f}) - filtering background music")
+        
+        # Exit music mode after cooldown
+        if self._audio_guard_music_mode:
+            self._audio_guard_music_cooldown_frames -= 1
+            if self._audio_guard_music_cooldown_frames <= 0:
+                self._audio_guard_music_mode = False
+                self._audio_guard_music_frames_counter = 0
+                print(f"🎵 [AUDIO_GUARD] Leaving music_mode - resuming normal audio")
+            # During music mode, drop all frames
+            return False
+        
+        # ═══ SPEECH DETECTION ═══
+        is_speech = self._is_probable_speech(rms, zcr, effective_threshold, self._audio_guard_prev_rms)
+        
+        # Update previous RMS for next frame
+        self._audio_guard_prev_rms = rms
+        
+        # Rate-limited logging for dropped frames
+        if not is_speech:
+            self._audio_guard_drop_count += 1
+            if self._audio_guard_drop_count % 50 == 0:  # Log every 50 drops (~1 second)
+                print(f"🔇 [AUDIO_GUARD] Dropped {self._audio_guard_drop_count} non-speech frames (rms={rms:.1f}, zcr={zcr:.3f}, threshold={effective_threshold:.1f})")
+        
+        # Periodic summary log every 5 seconds
+        now = time.time()
+        if now - self._audio_guard_last_summary_ts >= 5.0:
+            self._audio_guard_last_summary_ts = now
+            print(f"📊 [AUDIO_GUARD] noise_floor={self._audio_guard_noise_floor:.1f}, threshold={effective_threshold:.1f}, music_mode={self._audio_guard_music_mode}")
+        
+        return is_speech
+    
+    # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
     # ═══════════════════════════════════════════════════════════════════════════════
     async def trigger_response(self, reason: str, client=None, is_greeting: bool = False) -> bool:
@@ -2463,8 +2601,9 @@ class MediaStreamHandler:
                             print(f"⚠️ [AUDIO GAP] {gap_ms:.0f}ms gap between chunks #{self._openai_audio_chunks_received-1} and #{self._openai_audio_chunks_received} - OpenAI delay!")
                             
                             # 🔥 BUILD 181: GAP RECOVERY - Insert silence frames for gaps >3 seconds
+                            # 🔥 BUILD 320: DISABLED when AUDIO_GUARD is ON - let real timing flow naturally
                             # This prevents audio distortion by maintaining continuous playback
-                            if gap_ms > 3000:
+                            if gap_ms > 3000 and not getattr(self, '_audio_guard_enabled', False):
                                 # Calculate how many silence frames needed to smooth transition
                                 # Don't add full gap - just 500ms transition buffer
                                 silence_frames_needed = min(25, int(gap_ms / 100))  # 25 frames max = 500ms
@@ -4842,11 +4981,22 @@ class MediaStreamHandler:
                         # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
                         # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
                         # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
+                        # 🔥 BUILD 320: AUDIO_GUARD - Intelligent filtering for noisy PSTN calls
                         if SIMPLE_MODE:
-                            # 🔥 BUILD 318: Apply RMS threshold even in SIMPLE_MODE to save costs!
-                            # Pure silence (RMS < 100) costs money but provides no value
-                            if COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
-                                # Pure silence - don't send to OpenAI (saves $$$)
+                            # 🔥 BUILD 320: Use AUDIO_GUARD for intelligent speech filtering
+                            # Replaces simple RMS threshold with dynamic noise floor + ZCR analysis
+                            if getattr(self, '_audio_guard_enabled', False):
+                                # Compute ZCR for this frame (need PCM16 data)
+                                zcr = self._compute_zcr(pcm16) if pcm16 else 0.0
+                                
+                                # 🛡️ During barge-in or active speech - BYPASS audio guard
+                                if self.barge_in_active or self._realtime_speech_active:
+                                    should_send_audio = True
+                                else:
+                                    # Apply intelligent audio guard
+                                    should_send_audio = self._update_audio_guard_state(rms, zcr)
+                            elif COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
+                                # Fallback: Simple RMS threshold if audio guard disabled
                                 should_send_audio = False
                                 if not hasattr(self, '_cost_silence_blocked'):
                                     self._cost_silence_blocked = 0
