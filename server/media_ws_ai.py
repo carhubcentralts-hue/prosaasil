@@ -1005,9 +1005,9 @@ class MediaStreamHandler:
         
         # ✅ תיקון קריטי: מעקב נפרד אחר קול ושקט
         self.last_voice_ts = 0.0         # זמן הקול האחרון - לחישוב דממה אמיתי
-        # 🔥 BUILD 171: STRICTER noise thresholds to prevent hallucinations
-        self.noise_floor = 50.0          # 🔥 BUILD 171: 50 (was 30) - higher baseline
-        self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 171: Now 120 (was 60) - require real speech
+        # 🔥 BUILD 325: RELAXED thresholds - trust OpenAI VAD more
+        self.noise_floor = 50.0          # Starting baseline (will calibrate)
+        self.vad_threshold = MIN_SPEECH_RMS  # 🔥 BUILD 325: Uses MIN_SPEECH_RMS=60 - allow quiet speech
         self.is_calibrated = False       # האם כוילרנו את רמת הרעש
         self.calibration_frames = 0      # מונה פריימים לכיול
         
@@ -4875,14 +4875,16 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # Complete calibration after 40 quiet frames OR 4 seconds timeout
                         if self.calibration_frames >= 40 or total_frames >= 200:
                             if self.calibration_frames < 10:
-                                self.vad_threshold = 180.0  # Hebrew speech baseline
-                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=180")
-                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=180")
+                                # 🔥 BUILD 325: Lowered from 180 to 80 - trust OpenAI VAD more
+                                self.vad_threshold = 80.0  # Hebrew speech baseline (was 180)
+                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=80 (BUILD 325)")
+                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=80 (BUILD 325)")
                             else:
-                                # Adaptive: noise + 100, capped at 200 for quiet speakers
-                                self.vad_threshold = min(200.0, self.noise_floor + 100.0)
-                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
+                                # 🔥 BUILD 325: Adaptive: noise + 60, capped at 120 for quiet speakers
+                                # Lowered from noise+100/cap 200 to noise+60/cap 120
+                                self.vad_threshold = min(120.0, self.noise_floor + 60.0)
+                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (BUILD 325)")
+                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}) (BUILD 325)")
                             self.is_calibrated = True
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
@@ -4912,8 +4914,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # Use calibrated noise floor for RMS-based speech detection
                         # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
                         noise_floor_rms = getattr(self, 'noise_floor', 100.0)
-                        # Speech threshold = 3x noise floor, minimum 300 RMS (filters quiet echo)
-                        rms_speech_threshold = max(noise_floor_rms * 3.0, 300.0)
+                        # 🔥 BUILD 325: Lowered speech threshold from 3x/min 300 to 2x/min 100
+                        # Allows quieter speech to trigger barge-in
+                        rms_speech_threshold = max(noise_floor_rms * 2.0, 100.0)
                         is_above_speech = rms > rms_speech_threshold
                         
                         # Count consecutive frames above RMS speech threshold
