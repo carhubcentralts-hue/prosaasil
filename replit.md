@@ -31,7 +31,7 @@ ProSaaS employs a multi-tenant architecture with strict data isolation. Key feat
 - **Styling**: Tailwind CSS v4 with RTL support and Hebrew typography.
 - **Routing**: React Router v7 with AuthGuard/RoleGuard.
 - **Security**: CSRF protection, secure redirects, and role-based access control.
-- **UI/UX**: Consolidated AI prompt editing, dynamic sidebar, optimized lead search, fast status updates, and user-editable vocabulary settings.
+- **UI/UX**: Consolidated AI prompt editing, dynamic sidebar, optimized lead search, fast status updates, and user-editable vocabulary settings. BUILD 327: Simplified call control settings - removed `required_lead_fields` (duplicates prompt instructions) and `auto_end_after_lead_capture` (duplicates call_goal). Bot_speaks_first now only appears in call control settings, not business settings.
 
 ## Feature Specifications
 - **Call Logging & Conversation Memory**: Comprehensive tracking and history.
