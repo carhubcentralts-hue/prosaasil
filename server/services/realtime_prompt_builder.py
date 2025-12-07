@@ -65,7 +65,7 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         
         if not business:
             logger.warning(f"⚠️ [BUILD 317] Business {business_id} not found")
-            return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל. שאל במה תוכל לעזור."
+            return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
         
         business_name = business.name or "העסק"
         
@@ -132,7 +132,7 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         import traceback
         traceback.print_exc()
         # 🔥 BUILD 322: Consistent Hebrew fallback
-        return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל. שאל במה תוכל לעזור."
+        return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
