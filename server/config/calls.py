@@ -31,7 +31,10 @@ COST_MAX_FPS = 40  # Maximum 40 frames/second to OpenAI
 # - Speech detection using RMS + ZCR (zero-crossing rate)
 # - Music mode detection (filters continuous background music)
 # Changed only in code - no .env needed
-AUDIO_GUARD_ENABLED = True  # ON by default for noisy PSTN robustness
+# 🔥 BUILD 325: DISABLED - Audio guard was blocking real speech!
+# Analysis showed rms=8 frames being blocked continuously while user was speaking.
+# Trust OpenAI's VAD instead of our custom filtering.
+AUDIO_GUARD_ENABLED = False  # OFF - trust Twilio + OpenAI VAD
 
 # Audio guard tuning parameters
 AUDIO_GUARD_INITIAL_NOISE_FLOOR = 20.0  # Initial noise floor estimate
