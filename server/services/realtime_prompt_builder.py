@@ -266,24 +266,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             call_direction, enable_calendar_scheduling
         )
         
-        # 🔥 BUILD 335: COMPACT SANDBOX + SAFE TRUNCATION
-        # Only truncate plain text prompts (not JSON) to prevent corruption
-        max_business_prompt_len = 1500
-        if len(core_instructions) > max_business_prompt_len:
-            # Check if it looks like JSON - don't truncate if so
-            stripped = core_instructions.strip()
-            if not (stripped.startswith('{') or stripped.startswith('[')):
-                # Safe to truncate plain text - find sentence boundary
-                truncated = core_instructions[:max_business_prompt_len]
-                for delim in ['. ', '.\n', '\n\n', '\n', ' ']:
-                    last_pos = truncated.rfind(delim)
-                    if last_pos > max_business_prompt_len * 0.7:  # Keep at least 70%
-                        truncated = truncated[:last_pos + len(delim)].rstrip()
-                        break
-                core_instructions = truncated + "..."
-                logger.warning(f"⚠️ Business prompt truncated to {len(core_instructions)} chars")
+        # 🔥 BUILD 335: NO TRUNCATION OF BUSINESS PROMPTS - Keep full business context!
+        # Only system rules are compact, business prompts stay as-is
         
-        # Compact sandbox wrapper
+        # Compact sandbox wrapper - business prompt is NOT truncated
         sandboxed_instructions = f"""--- BUSINESS INFO (follow FLOW above) ---
 {core_instructions}
 ---"""
@@ -391,25 +377,36 @@ def _build_critical_rules_compact(business_name: str, today_date: str, weekday_n
     else:
         greeting_line = "- Greet warmly and introduce yourself as the business rep"
     
-    # 🔥 BUILD 333: Scheduling rules per phase
+    # 🔥 BUILD 335: CLEAR SCHEDULING RULES
     if enable_calendar_scheduling:
-        scheduling_discovery = "- If customer asks to book: gather preferred date/time before checking availability"
-        scheduling_closing = """- Before confirming, check availability. Never promise a slot until the system/tool confirms it
-- If slot unavailable: offer closest alternative or promise a callback"""
+        scheduling_section = """
+APPOINTMENT BOOKING:
+- When customer wants to book: ask for preferred date and time
+- Wait for system to check availability before confirming
+- If slot taken: offer alternatives (system will provide them)
+- Only say "התור נקבע" AFTER system confirms booking success
+- NEVER promise a slot before system confirms!"""
     else:
-        scheduling_discovery = "- Note any timing preference but DO NOT offer to schedule"
-        scheduling_closing = "- Do not schedule appointments. If customer asks, promise a prompt callback from a human rep"
+        scheduling_section = """
+NO SCHEDULING: Do NOT offer appointments. If customer asks, promise a callback from human rep."""
     
-    # 🔥 BUILD 335: COMPACT RULES - Reduced from 1500 to ~900 chars
-    return f"""AI Rep "{business_name}" | {direction_context} | {weekday_name} {today_date}
+    # 🔥 BUILD 335: COMPACT + CLEAR SYSTEM RULES (English instructions, Hebrew output)
+    return f"""AI Rep for "{business_name}" | {direction_context} call | {weekday_name} {today_date}
 
-STT=TRUTH: Trust transcription 100%. NEVER change/substitute words. If unclear, ask to repeat.
+LANGUAGE: All instructions are in English. SPEAK HEBREW to customer.
 
-FLOW:
-1-GREET: {greeting_line} Ask ONE open question.
-2-COLLECT: One question at a time. Mirror exact words. {scheduling_discovery}
-3-CONFIRM ONCE: Only after ALL details → ONE summary using EXACT transcript words → ask "נכון?"
-4-CLOSE: {scheduling_closing} Say thanks + stop. After goodbye → stay quiet!
+STT IS TRUTH: Trust transcription 100%. NEVER change, substitute, or "correct" any word. If unclear, ask to repeat.
 
-RULES: Hebrew only. No loops. No double questions. No mid-call confirmations.
+CALL FLOW:
+1. GREET: {greeting_line} Ask ONE open question about their need.
+2. COLLECT: One question at a time. Mirror their EXACT words. Wait for full answer.
+3. CONFIRM (ONCE!): After ALL details gathered → ONE summary using EXACT transcript words → "נכון?"
+4. CLOSE: Thank customer, describe next step, say goodbye. After goodbye → STOP talking.
+{scheduling_section}
+
+STRICT RULES:
+- Hebrew speech only (switch only if customer can't follow)
+- No loops, no repeating questions unless answer was unclear
+- No mid-call confirmations - only ONE summary at the end
+- After customer says goodbye → one farewell and stay quiet
 """

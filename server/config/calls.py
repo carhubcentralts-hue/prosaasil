@@ -13,11 +13,11 @@ COST_EFFICIENT_MODE = True   # Enabled but no actual dropping at 50 FPS
 COST_MIN_RMS_THRESHOLD = 0   # No RMS gating - all audio passes through
 COST_MAX_FPS = 50            # 50 FPS = 100% of audio (perfect STT quality)
 
-# 🔥 BUILD 335: INCREASED LIMITS - 90 sec was too short for appointment booking!
-# User hit the limit while booking, causing disconnection mid-call.
-# These are ABSOLUTE limits that cannot be bypassed - protects from bugs burning money
-MAX_REALTIME_SECONDS_PER_CALL = 180  # Max 3 minutes per call (was 90s - too short!)
-MAX_AUDIO_FRAMES_PER_CALL = 9000     # 50 fps × 180s = 9000 frames maximum
+# 🔥 BUILD 335: EXTENDED LIMITS - Allow up to 10 minutes for complex bookings!
+# Only disconnect if customer asks or truly needs to hang up.
+# These are ABSOLUTE safety limits to prevent infinite runaway costs.
+MAX_REALTIME_SECONDS_PER_CALL = 600  # Max 10 minutes per call
+MAX_AUDIO_FRAMES_PER_CALL = 30000    # 50 fps × 600s = 30000 frames maximum
 
 # AUDIO GUARD: DISABLED - was blocking real speech!
 # Analysis showed rms=8 frames being blocked while user was speaking.
