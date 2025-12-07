@@ -180,20 +180,24 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         core_instructions = ""
         
         if call_direction == "outbound":
-            # 🔥 OUTBOUND CALLS: Use ONLY the outbound prompt, nothing else!
+            # 🔥 OUTBOUND CALLS: Use the outbound prompt + mandatory SPEAK HEBREW directive
             if settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
                 core_instructions = settings.outbound_ai_prompt.strip()
-                logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ONLY for business {business_id} ({len(core_instructions)} chars)")
+                logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt for business {business_id} ({len(core_instructions)} chars)")
             else:
                 # 🔥 BUILD 324: English fallback - no outbound_ai_prompt
-                core_instructions = f"""You are a professional sales rep for "{business_name}". SPEAK HEBREW to customer. Be brief and persuasive."""
+                core_instructions = f"""You are a professional sales rep for "{business_name}". Be brief and persuasive."""
                 logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using English fallback")
             
             # Replace placeholders
             core_instructions = core_instructions.replace("{{business_name}}", business_name)
             core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
             
-            # 🔥 OUTBOUND: Return the prompt as-is, NO call control settings added!
+            # 🔥 BUILD 324: ALWAYS append SPEAK HEBREW directive to outbound prompts
+            core_instructions = f"""CRITICAL: SPEAK HEBREW to customer at all times.
+
+{core_instructions}"""
+            
             logger.info(f"✅ [OUTBOUND] Final prompt length: {len(core_instructions)} chars")
             return core_instructions
         
