@@ -5095,8 +5095,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self.barge_in_voice_frames = 0
                                 continue
                             
-                            # 🔥 BUILD 164B: RMS > 200 for speech detection (typical speech is 180-500)
-                            speech_threshold = MIN_SPEECH_RMS  # 200
+                            # 🔥 BUILD 325: Use MIN_SPEECH_RMS (60) for barge-in detection
+                            speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
                             
                             # 🔥 BUILD 169: Require 700ms continuous speech (35 frames @ 20ms)
                             # Per architect: Increased from 220ms to prevent AI cutoff on background noise
@@ -5118,17 +5118,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     # 🔥 BUILD 165: Calibration already done above (before audio routing)
                     # No duplicate calibration needed here
                     
-                    # 🔥 BUILD 165: Voice detection with balanced threshold
+                    # 🔥 BUILD 325: Voice detection with balanced threshold
                     if self.is_calibrated:
                         is_strong_voice = rms > self.vad_threshold
                     else:
-                        # Before calibration - use 180 RMS baseline (Hebrew speech)
-                        is_strong_voice = rms > 180.0
+                        # Before calibration - use MIN_SPEECH_RMS (60) - trust OpenAI VAD
+                        is_strong_voice = rms > MIN_SPEECH_RMS
                     
                     # ✅ FIXED: Update last_voice_ts only with VERY strong voice
                     current_time = time.time()
-                    # ✅ EXTRA CHECK: Only if RMS is significantly above threshold
-                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', 200) * 1.2):
+                    # ✅ EXTRA CHECK: Only if RMS is significantly above threshold (use calibrated or MIN_SPEECH_RMS)
+                    if is_strong_voice and rms > (getattr(self, 'vad_threshold', MIN_SPEECH_RMS) * 1.2):
                         self.last_voice_ts = current_time
                         # 🔧 Reduced logging spam - max once per 3 seconds
                         if not hasattr(self, 'last_debug_ts') or (current_time - self.last_debug_ts) > 3.0:
