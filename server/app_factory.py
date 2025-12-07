@@ -431,11 +431,7 @@ def create_app():
         # Health endpoints - MUST be registered
         from server.health_endpoints import health_bp
         app.register_blueprint(health_bp)
-        
-        # 🔥 BUILD 332: Production health check - required for Cloud Run deployment!
-        from server.health_check_production import health_production_bp
-        app.register_blueprint(health_production_bp)
-        app.logger.info("Health endpoints registered (including /api/health)")
+        app.logger.info("Health endpoints registered")
         
         # data_api removed - כפילות
         
