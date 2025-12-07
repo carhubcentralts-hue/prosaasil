@@ -66,9 +66,9 @@ try:
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = True
+    COST_EFFICIENT_MODE = False  # BUILD 330: DISABLED - was dropping audio!
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 40
+    COST_MAX_FPS = 60  # BUILD 330: Raised above 50 FPS phone requirement
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
@@ -99,6 +99,7 @@ if _env_model:
     OPENAI_REALTIME_MODEL = _env_model
 
 print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
+print(f"🔊 [BUILD 330] FPS throttling: {'ENABLED (max={})'.format(COST_MAX_FPS) if COST_EFFICIENT_MODE else 'DISABLED'} - all audio passes through for best transcription")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
