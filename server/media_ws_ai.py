@@ -57,15 +57,23 @@ def emit_turn_metrics(first_partial, final_ms, tts_ready, total, barge_in=False,
 # 🔥 BUILD 186: DISABLED Google Streaming STT - Use OpenAI Realtime API only!
 USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 
-# 🔥 BUILD 309: SIMPLE_MODE - Simplified call flow without aggressive filters
-# 🔥 BUILD 318: COST OPTIMIZATION - Even in SIMPLE_MODE, filter silence
+# 🔥 BUILD 325: Import all call configuration from centralized config
 try:
-    from server.config.calls import SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS
+    from server.config.calls import (
+        SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
+        VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
+        ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES
+    )
 except ImportError:
-    SIMPLE_MODE = True  # Default to SIMPLE_MODE if config not found
-    COST_EFFICIENT_MODE = True  # Default to cost-efficient mode
-    COST_MIN_RMS_THRESHOLD = 100  # Minimum RMS to send audio
-    COST_MAX_FPS = 40  # Maximum 40 FPS to OpenAI
+    SIMPLE_MODE = True
+    COST_EFFICIENT_MODE = True
+    COST_MIN_RMS_THRESHOLD = 0
+    COST_MAX_FPS = 40
+    VAD_BASELINE_TIMEOUT = 80.0
+    VAD_ADAPTIVE_CAP = 120.0
+    VAD_ADAPTIVE_OFFSET = 60.0
+    ECHO_GATE_MIN_RMS = 300.0
+    ECHO_GATE_MIN_FRAMES = 5
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -774,32 +782,42 @@ class ConnectionClosed(Exception):
 from server.stream_state import stream_registry
 
 SR = 8000
-# ⚡ BUILD 301: TRUST OPENAI VAD - Lower local thresholds to let more audio through
-# OpenAI's Realtime API has excellent VAD - we should trust it, not block audio locally
-MIN_UTT_SEC = float(os.getenv("MIN_UTT_SEC", "0.35"))       # 🔥 BUILD 301: 0.35s (was 0.6s) - allow short words like "כן"
-MAX_UTT_SEC = float(os.getenv("MAX_UTT_SEC", "12.0"))       # ✅ 12.0s - enough time for detailed descriptions
-VAD_RMS = int(os.getenv("VAD_RMS", "80"))                   # 🔥 BUILD 301: 80 (was 180) - trust OpenAI VAD, lower local threshold
-# 🔥 BUILD 301: RELAXED THRESHOLDS - Trust OpenAI's superior VAD
-RMS_SILENCE_THRESHOLD = int(os.getenv("RMS_SILENCE_THRESHOLD", "40"))       # 🔥 BUILD 301: 40 (was 120) - only true silence
-MIN_SPEECH_RMS = int(os.getenv("MIN_SPEECH_RMS", "60"))                     # 🔥 BUILD 301: 60 (was 180) - allow quiet speech through
-MIN_SPEECH_DURATION_MS = int(os.getenv("MIN_SPEECH_DURATION_MS", "350"))    # 🔥 BUILD 301: 350ms (was 900ms) - per Watchdog doc
-# 🔥 BUILD 301: MINIMAL CONSECUTIVE FRAMES - OpenAI handles VAD better than us
-MIN_CONSECUTIVE_VOICE_FRAMES = int(os.getenv("MIN_CONSECUTIVE_VOICE_FRAMES", "3"))  # 🔥 BUILD 301: 3 frames (was 7) = 60ms - let more through
-# 🔥 BUILD 171: POST-AI COOLDOWN - Reject transcripts arriving too fast after AI speaks
-POST_AI_COOLDOWN_MS = int(os.getenv("POST_AI_COOLDOWN_MS", "800"))           # 🔥 BUILD 301: 800ms (was 1200ms) - reduced for faster response
-NOISE_HOLD_MS = int(os.getenv("NOISE_HOLD_MS", "150"))                       # 🔥 BUILD 301: 150ms (was 250ms) - shorter grace
-VAD_HANGOVER_MS = int(os.getenv("VAD_HANGOVER_MS", "150"))  # 🔥 BUILD 301: 150ms (was 250ms) - shorter hangover
-RESP_MIN_DELAY_MS = int(os.getenv("RESP_MIN_DELAY_MS", "50")) # ⚡ SPEED: 50ms במקום 80ms - תגובה מהירה
-RESP_MAX_DELAY_MS = int(os.getenv("RESP_MAX_DELAY_MS", "120")) # ⚡ SPEED: 120ms במקום 200ms - פחות המתנה
-REPLY_REFRACTORY_MS = int(os.getenv("REPLY_REFRACTORY_MS", "1100")) # ⚡ BUILD 107: 1100ms - קירור מהיר יותר
-BARGE_IN_VOICE_FRAMES = int(os.getenv("BARGE_IN_VOICE_FRAMES","25"))  # 🔥 BUILD 301: 25 frames (was 45) = ≈500ms - more responsive barge-in
 
-# 🔥 BUILD 169: STT SEGMENT MERGING - Debounce/merge window for user messages
-STT_MERGE_WINDOW_MS = int(os.getenv("STT_MERGE_WINDOW_MS", "600"))  # 🔥 BUILD 186: Reduced from 800ms to 600ms to reduce noise merge
-THINKING_HINT_MS = int(os.getenv("THINKING_HINT_MS", "0"))       # בלי "בודקת" - ישירות לעבודה!
-THINKING_TEXT_HE = os.getenv("THINKING_TEXT_HE", "")   # אין הודעת חשיבה
-DEDUP_WINDOW_SEC = int(os.getenv("DEDUP_WINDOW_SEC", "8"))        # חלון קצר יותר
-LLM_NATURAL_STYLE = True  # תגובות טבעיות לפי השיחה
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 BUILD 325: OPTIMAL HEBREW THRESHOLDS - Hardcoded for best performance
+# Trust OpenAI's Realtime API VAD - minimal local filtering
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# SPEECH DETECTION - Optimized for Hebrew phone calls
+MIN_UTT_SEC = 0.35              # Minimum utterance: 350ms - allows short Hebrew words like "כן", "לא"
+MAX_UTT_SEC = 12.0              # Maximum utterance: 12s - enough for detailed Hebrew descriptions
+VAD_RMS = 80                    # VAD RMS threshold: 80 - trust OpenAI VAD, lower local threshold
+RMS_SILENCE_THRESHOLD = 40     # Pure silence threshold: 40 - only absolute silence is filtered
+MIN_SPEECH_RMS = 60            # Minimum speech RMS: 60 - allows quiet Hebrew speakers through
+MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
+
+# CONSECUTIVE FRAMES - Let OpenAI handle VAD
+MIN_CONSECUTIVE_VOICE_FRAMES = 3   # 3 frames = 60ms - minimal local gating
+
+# TIMING - Fast Hebrew response
+POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
+NOISE_HOLD_MS = 150            # Noise hold: 150ms - short grace period
+VAD_HANGOVER_MS = 150          # VAD hangover: 150ms - quick transition
+RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
+RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
+REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
+
+# BARGE-IN - Responsive interruption detection
+BARGE_IN_VOICE_FRAMES = 25     # 25 frames = 500ms continuous speech to trigger barge-in
+
+# STT MERGING - Hebrew segment handling
+STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
+THINKING_HINT_MS = 0           # No "thinking" message - immediate response
+THINKING_TEXT_HE = ""          # No thinking text
+DEDUP_WINDOW_SEC = 8           # Deduplication window: 8 seconds
+LLM_NATURAL_STYLE = True       # Natural Hebrew responses
+
+# ═══════════════════════════════════════════════════════════════════════════════
 
 # מכונת מצבים
 STATE_LISTEN = "LISTENING"
@@ -4875,16 +4893,15 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # Complete calibration after 40 quiet frames OR 4 seconds timeout
                         if self.calibration_frames >= 40 or total_frames >= 200:
                             if self.calibration_frames < 10:
-                                # 🔥 BUILD 325: Lowered from 180 to 80 - trust OpenAI VAD more
-                                self.vad_threshold = 80.0  # Hebrew speech baseline (was 180)
-                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold=80 (BUILD 325)")
-                                print(f"🎛️ VAD TIMEOUT - using baseline threshold=80 (BUILD 325)")
+                                # 🔥 BUILD 325: Use config constants for VAD thresholds
+                                self.vad_threshold = VAD_BASELINE_TIMEOUT  # 80.0 from config
+                                logger.warning(f"🎛️ [VAD] TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
+                                print(f"🎛️ VAD TIMEOUT - using baseline threshold={VAD_BASELINE_TIMEOUT}")
                             else:
-                                # 🔥 BUILD 325: Adaptive: noise + 60, capped at 120 for quiet speakers
-                                # Lowered from noise+100/cap 200 to noise+60/cap 120
-                                self.vad_threshold = min(120.0, self.noise_floor + 60.0)
-                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f} (BUILD 325)")
-                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}) (BUILD 325)")
+                                # 🔥 BUILD 325: Adaptive: noise + offset, capped for quiet speakers
+                                self.vad_threshold = min(VAD_ADAPTIVE_CAP, self.noise_floor + VAD_ADAPTIVE_OFFSET)
+                                logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
+                                print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
                             self.is_calibrated = True
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
@@ -4914,9 +4931,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # Use calibrated noise floor for RMS-based speech detection
                         # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
                         noise_floor_rms = getattr(self, 'noise_floor', 100.0)
-                        # 🔥 BUILD 325: Keep high threshold (3x, min 300) to avoid AI echo triggering barge-in
-                        # AI's TTS can return at >200 RMS - lower thresholds cause self-triggering loops
-                        rms_speech_threshold = max(noise_floor_rms * 3.0, 300.0)
+                        # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
+                        rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
                         is_above_speech = rms > rms_speech_threshold
                         
                         # Count consecutive frames above RMS speech threshold
@@ -4926,9 +4942,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # Reset quickly when audio drops - echo is intermittent
                             self._echo_gate_consec_frames = 0
                         
-                        # STRICT barge-in detection: 5+ consecutive frames (100ms) = real speech
+                        # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
                         # Echo spikes are typically 1-3 frames, real speech is sustained
-                        ECHO_GATE_MIN_FRAMES = 5
+                        # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
                         is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
                         
                         if self.is_ai_speaking_event.is_set():

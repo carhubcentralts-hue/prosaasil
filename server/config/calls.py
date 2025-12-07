@@ -1,46 +1,35 @@
-# 🔥 BUILD 309: SIMPLE_MODE Configuration
-# Purpose: Enable simplified, stable call flow without aggressive filters
-# - Disables: majority vote, autocorrect, infinite silence warnings, loop guards
-# - Enables: greeting + barge-in + dynamic field management per call_profile
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 BUILD 325: CALL CONFIGURATION - Optimal settings for Hebrew phone calls
+# ═══════════════════════════════════════════════════════════════════════════════
 
-SIMPLE_MODE = True  # Set to False only if you need aggressive filtering (not recommended)
+# SIMPLE_MODE: Trust Twilio + OpenAI VAD completely
+SIMPLE_MODE = True  # All audio passes through - OpenAI handles speech detection
 
-# SIMPLE_MODE Behavior:
-# 1. Audio/Noise Gate: Disabled - trust Twilio + OpenAI
-# 2. Gibberish/Hebrew/Length filters: Disabled - all text passes through
-# 3. Majority vote for city: Disabled - direct field assignment
-# 4. Silence handler: Single 25-30s timeout instead of multiple warnings
-# 5. Smart hangup: Immediate after fields filled + confirmation received
+# COST OPTIMIZATION
+COST_EFFICIENT_MODE = True   # Enable FPS limiting (saves money)
+COST_MIN_RMS_THRESHOLD = 0   # No RMS gating - all audio passes through
+COST_MAX_FPS = 40            # Max 40 frames/second to OpenAI
 
-# 🔥 BUILD 318: COST OPTIMIZATION Settings
-# Even in SIMPLE_MODE, apply minimal RMS threshold to avoid sending pure silence
-COST_EFFICIENT_MODE = True  # Enable cost-saving filters (recommended!)
+# AUDIO GUARD: DISABLED - was blocking real speech!
+# Analysis showed rms=8 frames being blocked while user was speaking.
+AUDIO_GUARD_ENABLED = False  # OFF - trust OpenAI VAD
 
-# Minimum RMS to send audio to OpenAI (pure silence = ~0-50 RMS)
-# 🔥 BUILD 319: DISABLED - Twilio audio comes with RMS ~12, threshold 100 blocked ALL speech!
-# Set to 0 to let all audio through. Re-enable with lower threshold (e.g., 5) after testing.
-COST_MIN_RMS_THRESHOLD = 0  # DISABLED - was blocking all user audio!
+# VAD CALIBRATION THRESHOLDS (used in media_ws_ai.py)
+VAD_BASELINE_TIMEOUT = 80.0     # Baseline when calibration times out
+VAD_ADAPTIVE_CAP = 120.0        # Maximum adaptive threshold
+VAD_ADAPTIVE_OFFSET = 60.0      # noise_floor + this = threshold
 
-# Maximum audio frames per second to OpenAI (prevents runaway costs)
-# 50 FPS is typical for real-time audio. Lower = cheaper but may affect quality.
-COST_MAX_FPS = 40  # Maximum 40 frames/second to OpenAI
+# ECHO GATE (protects against AI echo triggering barge-in)
+ECHO_GATE_MIN_RMS = 300.0       # Minimum RMS to trigger barge-in during AI speech
+ECHO_GATE_MIN_FRAMES = 5        # Consecutive frames needed (100ms)
 
-# 🔥 BUILD 320: AUDIO_GUARD for noisy PSTN calls (Twilio → OpenAI)
-# Lightweight audio filtering to handle background music, TV, conversations
-# - Dynamic noise floor adaptation
-# - Speech detection using RMS + ZCR (zero-crossing rate)
-# - Music mode detection (filters continuous background music)
-# Changed only in code - no .env needed
-# 🔥 BUILD 325: DISABLED - Audio guard was blocking real speech!
-# Analysis showed rms=8 frames being blocked continuously while user was speaking.
-# Trust OpenAI's VAD instead of our custom filtering.
-AUDIO_GUARD_ENABLED = False  # OFF - trust Twilio + OpenAI VAD
-
-# Audio guard tuning parameters
-AUDIO_GUARD_INITIAL_NOISE_FLOOR = 20.0  # Initial noise floor estimate
-AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR = 4.0  # Speech = noise_floor * this factor
-AUDIO_GUARD_MIN_ZCR_FOR_SPEECH = 0.02  # Minimum zero-crossing rate for speech
-AUDIO_GUARD_MIN_RMS_DELTA = 5.0  # Minimum RMS change between frames for speech
-AUDIO_GUARD_MUSIC_ZCR_THRESHOLD = 0.03  # ZCR threshold for music detection
-AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER = 15  # ~300ms at 20ms/frame to enter music mode
-AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES = 100  # ~2s cooldown before exiting music mode
+# ═══════════════════════════════════════════════════════════════════════════════
+# Legacy Audio Guard parameters (not used when AUDIO_GUARD_ENABLED = False)
+# ═══════════════════════════════════════════════════════════════════════════════
+AUDIO_GUARD_INITIAL_NOISE_FLOOR = 20.0
+AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR = 4.0
+AUDIO_GUARD_MIN_ZCR_FOR_SPEECH = 0.02
+AUDIO_GUARD_MIN_RMS_DELTA = 5.0
+AUDIO_GUARD_MUSIC_ZCR_THRESHOLD = 0.03
+AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER = 15
+AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES = 100
