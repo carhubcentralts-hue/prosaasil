@@ -1264,12 +1264,21 @@ class MediaStreamHandler:
         # 🔥 BUILD 313: SIMPLIFIED - Only track last AI mentioned city for confirmation
         self._last_ai_mentioned_city = None  # Track city from AI confirmation for user "נכון" locking
         
-        # 🔥 BUILD 326: CITY LOCK MECHANISM - Prevent AI from hallucinating cities
-        # When user says a city, we LOCK it and use it for confirmation template
-        # AI can NEVER change the locked city - only user correction can unlock
+        # 🔥 BUILD 336: STT TRUTH STORE - Prevent AI from hallucinating ANY values
+        # When user says a value, we LOCK it and use it for confirmation template
+        # AI can NEVER change locked values - only user correction can unlock
         self._city_locked = False           # True = city is locked from user utterance
         self._city_raw_from_stt = None      # Raw city text from STT (source of truth)
         self._city_source = None            # 'user_utterance' or 'ai_extraction'
+        
+        # 🔥 BUILD 336: SERVICE TYPE LOCK - Same logic for service
+        self._service_locked = False        # True = service is locked from user utterance
+        self._service_raw_from_stt = None   # Raw service text from STT (source of truth)
+        
+        # 🔥 BUILD 336: Expected confirmation for validation
+        self._expected_confirmation = None  # The confirmation we told AI to say
+        self._confirmation_validated = False  # True if AI said correct confirmation
+        self._speak_exact_resend_count = 0  # Track resend attempts to prevent infinite loops
         
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
@@ -2820,6 +2829,117 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
                         
+                        # 🔥 BUILD 336: CONFIRMATION VALIDATION - Check if AI said what we asked
+                        if self._expected_confirmation and not self._confirmation_validated:
+                            expected = self._expected_confirmation
+                            
+                            # 🔥 BUILD 336 FIX: Normalized comparison for Hebrew
+                            def _normalize_hebrew(text):
+                                """Normalize Hebrew text for comparison (strip punctuation, diacritics, NFKC)"""
+                                import unicodedata
+                                import re
+                                # NFKC normalization
+                                text = unicodedata.normalize('NFKC', text)
+                                # Strip Hebrew diacritics (nikud)
+                                text = re.sub(r'[\u0591-\u05C7]', '', text)
+                                # Strip punctuation
+                                text = re.sub(r'[\.,:;!\?"\'\(\)\-–—]', '', text)
+                                # Collapse whitespace
+                                text = ' '.join(text.split())
+                                return text.strip()
+                            
+                            normalized_transcript = _normalize_hebrew(transcript)
+                            normalized_expected = _normalize_hebrew(expected)
+                            
+                            # 🔥 BUILD 336 FIX: TOKEN-BASED STRICT VALIDATION
+                            # AI must say the expected confirmation with NO extra substantive content
+                            # Strategy: Tokenize both and ensure no unexpected tokens added
+                            
+                            # Get expected tokens (what we told AI to say)
+                            expected_tokens = set(normalized_expected.split())
+                            
+                            # Get AI's actual tokens
+                            actual_tokens = set(normalized_transcript.split())
+                            
+                            # Find tokens AI added that weren't in expected
+                            extra_tokens = actual_tokens - expected_tokens
+                            
+                            # Allowed filler tokens (greetings, acknowledgements)
+                            allowed_filler = {"כן", "בסדר", "אוקיי", "טוב", "יופי", "אמ", "אה", "אז", "נו"}
+                            
+                            # Remove allowed filler from extra tokens
+                            substantive_extras = extra_tokens - allowed_filler
+                            
+                            # 🔥 BUILD 336 FIX: VERIFY locked values ARE PRESENT in transcript
+                            # Default to True only if no lock exists for that field
+                            # If lock exists, MUST verify the value is in transcript
+                            
+                            city_ok = True
+                            service_ok = True
+                            
+                            # CITY: If locked, MUST be in transcript
+                            if self._city_locked:
+                                if self._city_raw_from_stt:
+                                    normalized_city = _normalize_hebrew(self._city_raw_from_stt)
+                                    city_ok = normalized_city in normalized_transcript
+                                    if not city_ok:
+                                        print(f"⚠️ [BUILD 336] City MISSING! Expected '{self._city_raw_from_stt}' in transcript")
+                                else:
+                                    # Lock set but no value - inconsistent state, fail
+                                    city_ok = False
+                                    print(f"⚠️ [BUILD 336] City locked but no raw STT value!")
+                            
+                            # SERVICE: If locked, MUST be in transcript
+                            if self._service_locked:
+                                if self._service_raw_from_stt:
+                                    normalized_service = _normalize_hebrew(self._service_raw_from_stt)
+                                    service_ok = normalized_service in normalized_transcript
+                                    if not service_ok:
+                                        print(f"⚠️ [BUILD 336] Service MISSING! Expected '{self._service_raw_from_stt}' in transcript")
+                                else:
+                                    # Lock set but no value - inconsistent state, fail
+                                    service_ok = False
+                                    print(f"⚠️ [BUILD 336] Service locked but no raw STT value!")
+                            
+                            # STRICT: No extra substantive tokens allowed
+                            no_extra_content = len(substantive_extras) == 0
+                            
+                            exact_match = normalized_expected == normalized_transcript
+                            
+                            # Detailed logging
+                            if substantive_extras:
+                                print(f"⚠️ [BUILD 336] Extra tokens detected: {substantive_extras}")
+                            
+                            # 🔥 BUILD 336 STRICT VALIDATION:
+                            # ONLY TWO ACCEPTABLE OUTCOMES:
+                            # 1. Exact match - perfect
+                            # 2. Locked values present + ZERO substantive extras
+                            # Otherwise - FAIL (no tier-3 allowance!)
+                            
+                            if exact_match:
+                                self._confirmation_validated = True
+                                print(f"✅ [BUILD 336] EXACT MATCH! AI said exactly what we asked")
+                            elif city_ok and service_ok and no_extra_content:
+                                self._confirmation_validated = True
+                                print(f"✅ [BUILD 336] Confirmation valid - locked values present, zero extra content")
+                            else:
+                                # 🚨 ANY extra substantive tokens = HALLUCINATION = FAIL
+                                print(f"🚨 [BUILD 336] VALIDATION FAILED! Extras: {substantive_extras}, city_ok={city_ok}, service_ok={service_ok}")
+                                # AI deviated - resend instruction (limit to 2 retries to prevent infinite loop)
+                                if self._speak_exact_resend_count < 2:
+                                    self._speak_exact_resend_count += 1
+                                    print(f"🔁 [BUILD 336] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
+                                    # 🔥 FIX: Clear stale state before resend
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        f"[SPEAK_EXACT] עצור! אמרת פרטים שגויים. אמור בדיוק: \"{expected}\""
+                                    ))
+                                else:
+                                    print(f"❌ [BUILD 336] Max resends reached - AI keeps deviating")
+                                    # 🔥 FIX: Reset state to allow retry with fresh data
+                                    self._expected_confirmation = None
+                                    self._speak_exact_resend_count = 0
+                                    self._verification_prompt_sent = False
+                        
                         # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
                         # Added: length floor to avoid false positives on short confirmations
                         MIN_LENGTH_FOR_SIMILARITY = 15  # Don't compare short confirmations
@@ -3604,6 +3724,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             self._unlock_city()
                             self._last_ai_mentioned_city = None
                             
+                            # 🔥 BUILD 336: Also unlock service on rejection
+                            self._unlock_service()
+                            
                             # 🔥 BUILD 308: POST-REJECTION COOL-OFF
                             self._awaiting_user_correction = True
                             self._rejection_timestamp = time.time()
@@ -3696,10 +3819,47 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     if not getattr(self, '_verification_prompt_sent', False):
                                         self._verification_prompt_sent = True
                                         print(f"⏳ [BUILD 172] Lead fields collected - waiting for customer confirmation")
-                                        # AI should verify the details - don't close yet!
-                                        asyncio.create_task(self._send_server_event_to_ai(
-                                            "[SYSTEM] פרטים נאספו אבל הלקוח עדיין לא אישר! חזור על הפרטים ושאל 'האם הפרטים נכונים?' - המתן לאישור לפני סיום."
-                                        ))
+                                        
+                                        # 🔥 BUILD 336: SERVER-SIDE TEMPLATED CONFIRMATION
+                                        # Build EXACT confirmation using STT values - AI cannot hallucinate!
+                                        templated_confirmation = self._build_confirmation_from_state()
+                                        
+                                        # 🔥 BUILD 336 FIX: Only send confirmation if we have LOCKED values
+                                        has_locked_data = self._city_locked or self._service_locked
+                                        
+                                        if templated_confirmation and has_locked_data:
+                                            # 🔥 CRITICAL: Tell AI to say THIS EXACT TEXT, not generate its own!
+                                            print(f"🎯 [BUILD 336] Injecting LOCKED templated confirmation: '{templated_confirmation}'")
+                                            print(f"🔒 [BUILD 336] city_locked={self._city_locked}, service_locked={self._service_locked}")
+                                            
+                                            # 🔥 BUILD 336 FIX: Clear ALL stale state before setting new confirmation
+                                            self._expected_confirmation = templated_confirmation
+                                            self._confirmation_validated = False
+                                            self._speak_exact_resend_count = 0  # Reset resend counter
+                                            
+                                            asyncio.create_task(self._send_server_event_to_ai(
+                                                f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח (ללא שינויים!): \"{templated_confirmation}\""
+                                            ))
+                                        elif templated_confirmation:
+                                            # Have template but nothing locked - still use it but log warning
+                                            print(f"⚠️ [BUILD 336] Sending confirmation without locks: '{templated_confirmation}'")
+                                            
+                                            # 🔥 BUILD 336 FIX: Clear stale state
+                                            self._expected_confirmation = templated_confirmation
+                                            self._confirmation_validated = False
+                                            self._speak_exact_resend_count = 0
+                                            
+                                            asyncio.create_task(self._send_server_event_to_ai(
+                                                f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח: \"{templated_confirmation}\""
+                                            ))
+                                        else:
+                                            # No data at all - DON'T let AI freeform, wait for more data
+                                            print(f"❌ [BUILD 336] No STT data to confirm - waiting for more info")
+                                            self._verification_prompt_sent = False  # Allow retry
+                                            # 🔥 BUILD 336 FIX: Reset ALL confirmation state on retry
+                                            self._expected_confirmation = None
+                                            self._confirmation_validated = False
+                                            self._speak_exact_resend_count = 0
                     
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
@@ -7621,42 +7781,41 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _build_confirmation_from_state(self) -> str:
         """
-        🔥 BUILD 326: Build confirmation message using LOCKED values from state
+        🔥 BUILD 336: SERVER-SIDE TEMPLATED CONFIRMATION
         
-        This ensures AI says the EXACT city user said, not a hallucinated one.
-        Uses lead_capture_state as the source of truth.
+        This ensures AI says the EXACT values from STT, not hallucinated ones.
+        Uses lead_capture_state as the SINGLE SOURCE OF TRUTH (from STT).
         
         Returns confirmation template like:
-        "אז בוא נוודא שאני מבין נכון: אתה צריך שירות בעפולה. נכון?"
+        "רק מוודא — אתה צריך החלפת צילינדר במצפה רמון, נכון?"
         """
         state = self.lead_capture_state
         
-        parts = []
+        # 🔥 BUILD 336: Log what we're building from
+        print(f"📋 [BUILD 336] Building confirmation from STT state: {state}")
         
-        # Add service type if captured
+        # Get service and city - these are the EXACT values from STT
         service = state.get('service_type', '')
-        if service:
-            parts.append(f"אתה צריך {service}")
-        
-        # Add city - MUST use locked value!
         city = state.get('city', '')
-        if city:
-            if parts:
-                parts.append(f"ב{city}")
-            else:
-                parts.append(f"אתה נמצא ב{city}")
-        
-        # Add name if captured
         name = state.get('name', '')
-        if name:
-            parts.append(f"השם שלך {name}")
         
-        if not parts:
+        # Build natural Hebrew confirmation
+        if service and city:
+            confirmation = f"רק מוודא — אתה צריך {service} ב{city}, נכון?"
+        elif service:
+            confirmation = f"רק מוודא — אתה צריך {service}, נכון?"
+        elif city:
+            confirmation = f"רק מוודא — אתה נמצא ב{city}, נכון?"
+        else:
+            # No data captured yet
             return ""
         
-        # Build full confirmation
-        confirmation = "אז בוא נוודא שאני מבין נכון: " + ", ".join(parts) + ". נכון?"
-        print(f"📋 [BUILD 326] Built confirmation from state: '{confirmation}'")
+        # Add name if captured
+        if name:
+            confirmation = confirmation.replace("נכון?", f"והשם שלך {name}, נכון?")
+        
+        print(f"🎯 [BUILD 336] SERVER CONFIRMATION: '{confirmation}'")
+        print(f"🔒 [BUILD 336] Values from STT: service='{service}', city='{city}', name='{name}'")
         return confirmation
     
     def _get_city_for_ai_response(self) -> str:
@@ -7721,13 +7880,112 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     print(f"💰 [BUILD 313] Budget extracted: {budget}")
                     break
         
-        # 🔥 BUILD 313: All other fields (city, name, service_type) handled by OpenAI Tool!
-        # No more word lists, no fuzzy matching, no city normalizer
-        # OpenAI understands context and calls save_lead_info with correct values
+        # 🔥 BUILD 336: STT TRUTH STORE - Lock ALL values from user utterances
+        # OpenAI Tool still extracts, but STT values take precedence for confirmation
+        
+        # 🔥 BUILD 336: SERVICE LOCK - Detect and lock service from user utterance (FIRST question!)
+        if is_user_speech and 'service_type' in required_fields:
+            self._try_lock_service_from_utterance(text)
         
         # 🔥 BUILD 326: CITY LOCK - Detect and lock city from user utterance
         if is_user_speech and 'city' in required_fields:
             self._try_lock_city_from_utterance(text)
+    
+    def _try_lock_service_from_utterance(self, text: str):
+        """
+        🔥 BUILD 336: SERVICE LOCK MECHANISM
+        
+        Locks service from ANY user utterance during discovery phase.
+        Triggers on: response to greeting, first few messages, or when AI asked for service.
+        
+        Takes what user said literally - no dictionaries or normalization.
+        """
+        import re
+        
+        # Only lock if service is needed and not already locked
+        if self._service_locked and 'service_type' in self.lead_capture_state:
+            print(f"🔒 [BUILD 336] Service already locked: '{self.lead_capture_state.get('service_type')}'")
+            return
+        
+        # 🔥 BUILD 336 FIX: TRY to lock service on EVERY user transcript!
+        # Service can be mentioned at any time, not just in discovery
+        
+        # Check if last AI message asked for service or is greeting
+        last_ai_msg = None
+        for msg in reversed(self.conversation_history):
+            if msg.get("speaker") == "ai":
+                last_ai_msg = msg.get("text", "").lower()
+                break
+        
+        ai_asked_for_service = last_ai_msg and any(
+            phrase in last_ai_msg for phrase in [
+                "שירות", "צריך", "לעזור", "במה", "מה אפשר", "איזה סוג"
+            ]
+        )
+        
+        # 🔥 BUILD 336 FIX: ALWAYS try to lock if in first 5 messages OR AI asked
+        # This ensures we capture service even if mentioned casually
+        user_msg_count = len([m for m in self.conversation_history if m.get("speaker") == "user"])
+        is_early_conversation = user_msg_count <= 5
+        
+        # Clean the utterance
+        cleaned = text.strip()
+        cleaned = re.sub(r'[\.!\?:,;]', '', cleaned)
+        
+        # 🔥 BUILD 336 FIX: Strip ALL trailing punctuation before processing
+        cleaned = re.sub(r'[\.!\?:,;"\'\(\)]+$', '', cleaned)
+        cleaned = cleaned.strip()
+        
+        # Skip very short or non-Hebrew
+        hebrew_chars = sum(1 for c in cleaned if '\u0590' <= c <= '\u05FF')
+        if hebrew_chars < 3:
+            return
+        
+        # Skip confirmation/rejection words - these are NOT service requests
+        skip_words = ["כן", "לא", "נכון", "בדיוק", "ממש לא", "תודה", "שלום", "היי", "הי"]
+        if cleaned in skip_words:
+            return
+        
+        # 🔥 BUILD 336 FIX: CHECK FOR ACTION VERBS FIRST!
+        # If text contains service-related verbs, it's DEFINITELY a service request
+        action_verbs = [
+            "החלפ", "התקנ", "תיקון", "בדיק", "שירות", "הזמנ", 
+            "תיקונ", "החלפת", "התקנת", "בדיקת", "שיפוץ", "נקי", "חידוש"
+        ]
+        has_action_verb = any(verb in cleaned for verb in action_verbs)
+        
+        if has_action_verb:
+            # Has action verb - this IS a service request, regardless of length
+            print(f"🔧 [BUILD 336] Detected action verb in: '{cleaned}' - treating as service")
+        else:
+            # No action verb - check if it's too short to be a service
+            words = cleaned.split()
+            if len(words) <= 2:
+                # Short phrase without action verb - might be a city, let city lock handle it
+                print(f"⏭️ [BUILD 336] Skipping short phrase without verb: '{cleaned}'")
+                return
+        
+        # Clean common prefixes
+        service_prefixes = [
+            r'^אני צריך\s+', r'^אני רוצה\s+', r'^צריך\s+', r'^רוצה\s+',
+            r'^אצטרך\s+', r'^אני אצטרך\s+', r'^בבקשה\s+'
+        ]
+        
+        service_name = cleaned
+        for prefix_pattern in service_prefixes:
+            service_name = re.sub(prefix_pattern, '', service_name, flags=re.IGNORECASE)
+        
+        service_name = service_name.strip()
+        
+        # Must have at least 3 Hebrew characters for service
+        if len(service_name) < 3:
+            return
+        
+        # LOCK THE SERVICE!
+        self._service_raw_from_stt = service_name
+        self._service_locked = True
+        self._update_lead_capture_state('service_type', service_name)
+        print(f"🔒 [BUILD 336] SERVICE LOCKED from STT: '{service_name}' (raw: '{text}')")
     
     def _try_lock_city_from_utterance(self, text: str):
         """
@@ -7821,6 +8079,35 @@ SPEAK HEBREW to customer. Be brief and helpful.
             if 'city' in self.lead_capture_state:
                 del self.lead_capture_state['city']
             print(f"🔓 [BUILD 326] CITY UNLOCKED (was: '{old_city}') - waiting for new city")
+            
+            # 🔥 BUILD 336 FIX: Reset confirmation state on unlock
+            self._reset_confirmation_state()
+    
+    def _unlock_service(self):
+        """
+        🔥 BUILD 336: Unlock service when user explicitly corrects
+        """
+        if self._service_locked:
+            old_service = self.lead_capture_state.get('service_type', '')
+            self._service_locked = False
+            self._service_raw_from_stt = None
+            if 'service_type' in self.lead_capture_state:
+                del self.lead_capture_state['service_type']
+            print(f"🔓 [BUILD 336] SERVICE UNLOCKED (was: '{old_service}') - waiting for new service")
+            
+            # 🔥 BUILD 336 FIX: Reset confirmation state on unlock
+            self._reset_confirmation_state()
+    
+    def _reset_confirmation_state(self):
+        """
+        🔥 BUILD 336: Reset all confirmation-related state
+        Called when: user rejects, flow restarts, or new discovery begins
+        """
+        self._expected_confirmation = None
+        self._confirmation_validated = False
+        self._speak_exact_resend_count = 0
+        self._verification_prompt_sent = False
+        print(f"🔄 [BUILD 336] Confirmation state reset - ready for new flow")
     
     def _update_lead_capture_state(self, field: str, value: str, source: str = 'unknown'):
         """
@@ -7841,14 +8128,33 @@ SPEAK HEBREW to customer. Be brief and helpful.
         
         value = str(value).strip()
         
-        # 🔥 BUILD 326: CITY LOCK - Block AI from changing locked city!
+        # 🔥 BUILD 336: STT TRUTH LOCK - Block non-STT sources from changing locked values!
+        
+        is_stt_source = source in ('user_utterance', 'stt', 'dtmf', 'user')
+        
+        # CITY LOCK - Only STT sources can change locked city
         if field == 'city' and self._city_locked:
             existing_city = self.lead_capture_state.get('city', '')
             if existing_city and value != existing_city:
-                # AI is trying to change locked city - BLOCK IT!
-                print(f"🛡️ [BUILD 326] BLOCKED: AI tried to change locked city '{existing_city}' → '{value}'")
-                print(f"🛡️ [BUILD 326] City remains: '{existing_city}' (locked from user utterance)")
-                return
+                if not is_stt_source:
+                    print(f"🛡️ [BUILD 336] BLOCKED: Non-STT source '{source}' tried to change locked city '{existing_city}' → '{value}'")
+                    print(f"🛡️ [BUILD 336] City remains: '{existing_city}' (locked from STT)")
+                    return
+                else:
+                    # STT source wants to update - this means user corrected themselves
+                    print(f"🔓 [BUILD 336] STT source updating locked city '{existing_city}' → '{value}'")
+        
+        # SERVICE LOCK - Only STT sources can change locked service
+        if field == 'service_type' and self._service_locked:
+            existing_service = self.lead_capture_state.get('service_type', '')
+            if existing_service and value != existing_service:
+                if not is_stt_source:
+                    print(f"🛡️ [BUILD 336] BLOCKED: Non-STT source '{source}' tried to change locked service '{existing_service}' → '{value}'")
+                    print(f"🛡️ [BUILD 336] Service remains: '{existing_service}' (locked from STT)")
+                    return
+                else:
+                    # STT source wants to update - this means user corrected themselves
+                    print(f"🔓 [BUILD 336] STT source updating locked service '{existing_service}' → '{value}'")
         
         self.lead_capture_state[field] = value
         print(f"✅ [LEAD STATE] Updated: {field}={value}")
