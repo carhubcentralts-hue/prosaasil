@@ -34,13 +34,14 @@ def select_template(template_name: str, **params) -> Dict[str, Any] | None:
 
 logger = logging.getLogger(__name__)
 
-# ✅ Template definitions - עכשיו עם תמיכה בשם עסק דינמי!
+# 🔥 BUILD 200: GENERIC Template definitions - works for ANY business type!
+# No industry-specific text (no real estate, no medical, etc.)
 APPROVED_TEMPLATES = {
     "welcome_first": {
         "name": "welcome_first_time",
         "category": "MARKETING",
         "language": "he",
-        "text": "שלום {{1}}! ראיתי שפניתם אלינו - איך אוכל לעזור לכם למצוא את הנכס המושלם? 🏠",  # ✅ הסרתי שם עסק hardcoded
+        "text": "שלום {{1}}! תודה שפנית אלינו - איך אפשר לעזור?",  # 🔥 Generic - works for any business
         "components": [
             {
                 "type": "BODY",
@@ -48,34 +49,17 @@ APPROVED_TEMPLATES = {
             }
         ]
     },
-    "property_match": {
-        "name": "property_match_found", 
-        "category": "UTILITY",
-        "language": "he", 
-        "text": "מצאתי {{1}} נכסים מתאימים באזור {{2}} בתקציב {{3}}! האם תרצו לקבל פרטים? תוכלו לענות כן/לא",
-        "components": [
-            {
-                "type": "BODY",
-                "parameters": [
-                    {"type": "TEXT", "text": "{{num_properties}}"},
-                    {"type": "TEXT", "text": "{{area}}"},
-                    {"type": "TEXT", "text": "{{budget}}"}
-                ]
-            }
-        ]
-    },
     "appointment_reminder": {
         "name": "appointment_reminder",
         "category": "UTILITY", 
         "language": "he",
-        "text": "היי {{1}}! תזכורת לפגישה שלנו מחר ב{{2}} באזור {{3}}. האם הזמן עדיין מתאים לכם?",
+        "text": "היי {{1}}! תזכורת לפגישה שלנו מחר ב{{2}}. האם הזמן עדיין מתאים לכם?",  # 🔥 Generic
         "components": [
             {
                 "type": "BODY", 
                 "parameters": [
                     {"type": "TEXT", "text": "{{customer_name}}"},
-                    {"type": "TEXT", "text": "{{time}}"},
-                    {"type": "TEXT", "text": "{{area}}"}
+                    {"type": "TEXT", "text": "{{time}}"}
                 ]
             }
         ]
@@ -84,18 +68,19 @@ APPROVED_TEMPLATES = {
         "name": "follow_up_after_silence",
         "category": "MARKETING",
         "language": "he",
-        "text": "שלום {{1}}, עבר זמן מאז שדיברנו על חיפוש הנכס שלכם באזור {{2}}. יש לנו הצעות חדשות! האם עדיין מתאים לכם שנעדכן?",
+        "text": "שלום {{1}}, עבר זמן מאז שדיברנו. האם עדיין מעוניינים לקבל עדכונים?",  # 🔥 Generic
         "components": [
             {
                 "type": "BODY",
                 "parameters": [
-                    {"type": "TEXT", "text": "{{customer_name}}"},
-                    {"type": "TEXT", "text": "{{area}}"}
+                    {"type": "TEXT", "text": "{{customer_name}}"}
                 ]
             }
         ]
     }
 }
+# 🔥 BUILD 200: REMOVED "property_match" template - it was real estate-specific
+# Business-specific templates should come from business settings
 
 class WhatsAppWindowManager:
     """Manages 24-hour messaging window rules and template requirements"""

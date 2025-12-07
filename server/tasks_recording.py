@@ -202,19 +202,6 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 log.info(f"⚡ Next action: {conversation_summary.get('next_action', 'N/A')}")
             
             log.info("Call saved to PostgreSQL with AI processing: %s", call_sid)
-            
-            # 🔥 BUILD 163: Send to Monday.com if enabled (after all DB operations complete)
-            try:
-                from server.services.monday_webhook_service import send_call_transcript_to_monday
-                business = Business.query.filter_by(id=call_log.business_id).first()
-                if business and transcription:
-                    send_call_transcript_to_monday(
-                        business=business,
-                        call=call_log,
-                        transcript=transcription
-                    )
-            except Exception as monday_err:
-                log.warning(f"[MONDAY] Monday webhook failed (non-blocking): {monday_err}")
         
     except Exception as e:
         log.error("DB save + AI processing failed: %s", e)

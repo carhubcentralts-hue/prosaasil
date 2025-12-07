@@ -9,7 +9,7 @@ class Business(db.Model):
     __tablename__ = "business"
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
-    business_type = db.Column(db.String(255), nullable=False, default="real_estate")
+    business_type = db.Column(db.String(255), nullable=False, default="general")  # 🔥 BUILD 200: Generic default - works for any business type
     phone_e164 = db.Column('phone_number', db.String(255))  # ✅ Map to DB column phone_number
     whatsapp_number = db.Column(db.String(255))
     greeting_message = db.Column(db.Text)
@@ -79,6 +79,8 @@ class CallLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"))
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
+    outbound_template_id = db.Column(db.Integer, db.ForeignKey("outbound_call_templates.id"), nullable=True)  # BUILD 174: Template used for outbound call
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
     from_number = db.Column(db.String(64), index=True)
     to_number = db.Column(db.String(64))  # ✅ BUILD 88: Added to_number field
@@ -91,6 +93,10 @@ class CallLog(db.Model):
     status = db.Column(db.String(32), default="received")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # BUILD 174: Relationships for outbound calls
+    lead = db.relationship("Lead", backref=db.backref("call_logs", lazy="dynamic"), foreign_keys="[CallLog.lead_id]")
+    outbound_template = db.relationship("OutboundCallTemplate", backref=db.backref("calls", lazy="dynamic"), foreign_keys="[CallLog.outbound_template_id]")
 
 class ConversationTurn(db.Model):
     """תורות שיחה - כל הודעה בשיחה טלפונית או WhatsApp"""
@@ -109,7 +115,8 @@ class ConversationTurn(db.Model):
 class BusinessSettings(db.Model):
     __tablename__ = "business_settings"
     tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
-    ai_prompt = db.Column(db.Text)
+    ai_prompt = db.Column(db.Text)  # AI prompt for inbound calls
+    outbound_ai_prompt = db.Column(db.Text)  # 🔥 BUILD 174: AI prompt for outbound calls (separate from inbound)
     model = db.Column(db.String(50), default="gpt-4o-mini")  # AI model for prompts
     max_tokens = db.Column(db.Integer, default=120)  # ⚡ BUILD 105: Optimized for faster responses (was 150)
     temperature = db.Column(db.Float, default=0.7)   # AI temperature setting (0-2)
@@ -126,11 +133,13 @@ class BusinessSettings(db.Model):
     opening_hours_json = db.Column(db.JSON, nullable=True)  # {"sun":[["10:00","20:00"]], "mon":[...], ...}
     booking_window_days = db.Column(db.Integer, default=30)  # How many days ahead can customers book
     min_notice_min = db.Column(db.Integer, default=0)  # Minimum notice time in minutes before appointment
-    require_phone_before_booking = db.Column(db.Boolean, default=True)  # 🔥 Require phone number before booking
+    require_phone_before_booking = db.Column(db.Boolean, default=False)  # 🔥 BUILD 182/183: Use Caller ID by default, ask verbally if enabled (NO DTMF)
     
-    # 🔥 BUILD 163: Monday.com integration
-    monday_webhook_url = db.Column(db.String(512), nullable=True)  # Monday webhook URL
-    send_call_transcripts_to_monday = db.Column(db.Boolean, default=False)  # Auto-send transcripts to Monday
+    # 🔥 BUILD 177: Generic Webhook for external integrations (n8n, Zapier, etc.)
+    generic_webhook_url = db.Column(db.String(512), nullable=True)  # Generic webhook URL for call transcripts (fallback)
+    # 🔥 BUILD 183: Separate webhooks for inbound/outbound calls
+    inbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for inbound calls only
+    outbound_webhook_url = db.Column(db.String(512), nullable=True)  # Webhook for outbound calls only (if not set, outbound calls don't send webhooks)
     
     # 🔥 BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected
@@ -139,14 +148,68 @@ class BusinessSettings(db.Model):
     # 🔥 BUILD 163: Bot speaks first setting
     bot_speaks_first = db.Column(db.Boolean, default=False)  # Bot plays greeting before listening
     
+    # 🔥 BUILD 186: Calendar scheduling toggle - when enabled, AI will try to schedule appointments
+    enable_calendar_scheduling = db.Column(db.Boolean, default=True)  # AI schedules appointments during inbound calls
+    
     # 🔥 BUILD 164: Smart Call Control Settings (Step 2 Spec)
     silence_timeout_sec = db.Column(db.Integer, default=15)  # Seconds of silence before asking "are you there?"
     silence_max_warnings = db.Column(db.Integer, default=2)  # Max warnings before polite hangup
     smart_hangup_enabled = db.Column(db.Boolean, default=True)  # AI decides hangup based on context, not keywords
     required_lead_fields = db.Column(db.JSON, nullable=True)  # ["name", "phone", "service_type", "preferred_time"]
     
+    # 🔥 BUILD 309: SIMPLE_MODE Call Profile - Dynamic call goal and confirmation settings
+    call_goal = db.Column(db.String(50), default="lead_only")  # "lead_only" or "appointment" - determines flow
+    confirm_before_hangup = db.Column(db.Boolean, default=True)  # Always confirm with user before hanging up
+    
+    # 🔥 BUILD 204: Dynamic STT Vocabulary - per-business terminology for better transcription
+    # Format: {"services": ["תספורת", "צביעה"], "staff": ["דנה", "יוסי"], "products": ["מוס", "לק"], "locations": ["תל אביב"]}
+    stt_vocabulary_json = db.Column(db.JSON, nullable=True)  # Business-specific vocabulary for STT hints
+    business_context = db.Column(db.String(500), nullable=True)  # Short context: "מספרת יוקרה לגברים ונשים"
+    
     updated_by = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class OutboundCallTemplate(db.Model):
+    """
+    BUILD 174: Outbound call templates for AI-initiated calls
+    תבניות לשיחות יוצאות - מאפשר להגדיר מטרות שונות לשיחות יוצאות
+    """
+    __tablename__ = "outbound_call_templates"
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)  # e.g., "תיאום פגישה", "בירור חוב", "חידוש שירות"
+    description = db.Column(db.String(500))  # Short description for UI
+    prompt_text = db.Column(db.Text, nullable=False)  # Hebrew AI behavior instructions
+    greeting_template = db.Column(db.Text)  # Optional custom greeting: "שלום {{lead_name}}, כאן..."
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    business = db.relationship("Business", backref="outbound_templates")
+    
+    __table_args__ = (
+        db.Index('idx_business_template_active', 'business_id', 'is_active'),
+    )
+
+
+class OutboundLeadList(db.Model):
+    """
+    BUILD 182: Bulk-imported lead lists for outbound calls
+    רשימת לידים מיובאת לשיחות יוצאות - עד 5000 לידים לעסק
+    """
+    __tablename__ = "outbound_lead_lists"
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False)  # e.g. "ייבוא 03/12/2025"
+    file_name = db.Column(db.String(255), nullable=True)  # Original uploaded file name
+    total_leads = db.Column(db.Integer, default=0)  # Number of leads imported
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship to business
+    business = db.relationship("Business", backref="outbound_lead_lists")
+    
+    # Relationship to leads - defined via backref in Lead model
+
 
 class FAQ(db.Model):
     """Business-specific FAQs for fast-path responses"""
@@ -275,10 +338,14 @@ class Lead(db.Model):
     email = db.Column(db.String(255), index=True)
     
     # Lead tracking
-    source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual
+    source = db.Column(db.String(32), default="form", index=True)  # call|whatsapp|form|manual|imported_outbound
     external_id = db.Column(db.String(128), index=True)  # call_sid|wa_msg_id
     status = db.Column(db.String(32), default="new", index=True)  # Canonical lowercase: new|attempting|contacted|qualified|won|lost|unqualified
     order_index = db.Column(db.Integer, default=0, index=True)  # For Kanban board ordering within status
+    
+    # BUILD 182: Outbound import list tracking
+    outbound_list_id = db.Column(db.Integer, db.ForeignKey("outbound_lead_lists.id"), nullable=True, index=True)
+    outbound_list = db.relationship("OutboundLeadList", backref=db.backref("leads", lazy="dynamic"))
     
     # Assignment
     owner_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
@@ -641,7 +708,7 @@ class CallSession(db.Model):
     """✨ Call session state - for appointment deduplication and tracking"""
     __tablename__ = "call_session"
     id = db.Column(db.Integer, primary_key=True)
-    call_sid = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    call_sid = db.Column(db.String(64), unique=True, nullable=True, index=True)  # Nullable for outbound calls
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)
     

@@ -404,9 +404,17 @@ def get_conversation(phone_number):
         # Format messages for frontend
         formatted_messages = []
         for m in msgs:
+            # 🔥 BUILD 180: Normalize direction to 'in' or 'out'
+            # Backend sometimes saves 'inbound'/'outbound', normalize for frontend
+            direction = m.direction or 'in'
+            if direction in ['outbound', 'out']:
+                direction = 'out'
+            else:
+                direction = 'in'
+            
             formatted_messages.append({
                 "id": str(m.id),
-                "direction": m.direction,  # 'in' or 'out'
+                "direction": direction,  # 'in' or 'out'
                 "content_text": m.body or "",
                 "sent_at": m.created_at.isoformat() if m.created_at else None,
                 "status": m.status or "sent",
@@ -471,18 +479,31 @@ def save_whatsapp_prompt(business_id):
     if not business:
         return {"ok": False, "error": "business_not_found"}, 404
     
-    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-    if not settings:
-        settings = BusinessSettings()
-        settings.tenant_id = business_id
-        db.session.add(settings)
+    # 🔥 BUILD 186 FIX: Handle missing columns gracefully - continue with new settings
+    settings = None
+    try:
+        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+    except Exception as db_err:
+        import logging
+        logging.warning(f"⚠️ Could not load settings for {business_id} (DB schema issue): {db_err}")
+        # Continue - will create new settings row below
     
-    # העדכון כאן - אם יש שגיאה, api_handler יטפל
-    settings.ai_prompt = data.get('whatsapp_prompt', '')
-    db.session.commit()  # api_handler יעשה rollback אם נכשל
+    # 🔥 BUILD 186 FIX: Wrap entire save in try-except for schema mismatch resilience
+    import logging
+    try:
+        if not settings:
+            settings = BusinessSettings()
+            settings.tenant_id = business_id
+            db.session.add(settings)
+        
+        settings.ai_prompt = data.get('whatsapp_prompt', '')
+        db.session.commit()
+    except Exception as commit_err:
+        db.session.rollback()
+        logging.error(f"❌ Failed to save WhatsApp prompt for {business_id} (likely DB schema issue): {commit_err}")
+        return {"ok": False, "error": "save_failed", "message": "Database schema mismatch - please run migrations"}, 500
     
     # ✅ CRITICAL: Invalidate AI service cache after prompt update
-    import logging
     try:
         from server.services.ai_service import invalidate_business_cache
         invalidate_business_cache(business_id)
@@ -564,10 +585,11 @@ def baileys_webhook():
                 
                 # 🔥 CRITICAL FIX: Check if this is our OWN message echoing back!
                 # Sometimes Baileys sends bot's outbound messages back as "incoming"
-                recent_outbound = WhatsAppMessage.query.filter_by(
-                    business_id=business_id,
-                    to_number=from_number,
-                    direction='outbound'
+                # 🔥 BUILD 180: Check both 'out' and 'outbound' for backwards compatibility
+                recent_outbound = WhatsAppMessage.query.filter(
+                    WhatsAppMessage.business_id == business_id,
+                    WhatsAppMessage.to_number == from_number,
+                    WhatsAppMessage.direction.in_(['out', 'outbound'])
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
                 if recent_outbound:
@@ -600,11 +622,12 @@ def baileys_webhook():
                 log.info(f"✅ {action} customer/lead for {from_number}")
                 
                 # ✅ Check if message already exists (prevent duplicates from webhook retries)
-                existing_msg = WhatsAppMessage.query.filter_by(
-                    business_id=business_id,
-                    to_number=from_number,
-                    body=message_text,
-                    direction='inbound'
+                # 🔥 BUILD 180: Check both 'in' and 'inbound' for backwards compatibility
+                existing_msg = WhatsAppMessage.query.filter(
+                    WhatsAppMessage.business_id == business_id,
+                    WhatsAppMessage.to_number == from_number,
+                    WhatsAppMessage.body == message_text,
+                    WhatsAppMessage.direction.in_(['in', 'inbound'])
                 ).order_by(WhatsAppMessage.created_at.desc()).first()
                 
                 # Skip if same message was received in last 10 seconds (webhook retry)
@@ -620,7 +643,7 @@ def baileys_webhook():
                 wa_msg.to_number = from_number
                 wa_msg.body = message_text
                 wa_msg.message_type = 'text'
-                wa_msg.direction = 'inbound'
+                wa_msg.direction = 'in'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = 'baileys'
                 wa_msg.status = 'received'
                 db.session.add(wa_msg)
@@ -684,8 +707,9 @@ def baileys_webhook():
                     ).order_by(WhatsAppMessage.created_at.desc()).limit(10).all()
                     
                     # Format as conversation (reversed to chronological order)
+                    # 🔥 BUILD 180: Handle both 'in'/'inbound' and 'out'/'outbound' for backwards compatibility
                     for msg_hist in reversed(recent_msgs):
-                        if msg_hist.direction == 'inbound':
+                        if msg_hist.direction in ['in', 'inbound']:
                             previous_messages.append(f"לקוח: {msg_hist.body}")
                         else:
                             previous_messages.append(f"עוזר: {msg_hist.body}")  # ✅ כללי - לא hardcoded!
@@ -756,14 +780,22 @@ def baileys_webhook():
                         print(f"✅ Fallback AI response: {str(response_text)[:50]}...", flush=True)
                     except Exception as e2:
                         print(f"⚠️ Regular AI also failed: {e2}", flush=True)
-                        # ✅ Last resort - but still try to use business name!
+                        # ✅ Last resort - use business whatsapp_greeting or greeting_message
                         try:
                             from server.models_sql import Business
                             business = Business.query.get(business_id)
-                            biz_name = business.name if business else "אנחנו"
-                            response_text = f"שלום! תודה שפנית ל{biz_name}. נחזור אליך בהקדם."
+                            if business:
+                                # Use whatsapp_greeting first, then greeting_message, then name
+                                response_text = business.whatsapp_greeting or business.greeting_message or f"{business.name}" if business.name else ""
+                            else:
+                                response_text = None  # Don't send if no business
                         except:
-                            response_text = "שלום! קיבלתי את ההודעה שלך. נחזור אליך בהקדם."
+                            response_text = None  # Don't send on error
+                        
+                        # 🔥 Guard: Don't send empty messages
+                        if not response_text or not response_text.strip():
+                            log.warning(f"⚠️ No fallback response available - skipping send")
+                            return jsonify({"status": "ok", "skipped": True}), 200
                 
                 # Send response via Baileys
                 send_start = time.time()
@@ -785,7 +817,7 @@ def baileys_webhook():
                     out_msg.to_number = from_number
                     out_msg.body = response_text
                     out_msg.message_type = 'text'
-                    out_msg.direction = 'outbound'
+                    out_msg.direction = 'out'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                     out_msg.provider = 'baileys'
                     out_msg.status = 'sent'
                     db.session.add(out_msg)
@@ -873,19 +905,28 @@ def send_manual_message():
         if not send_result:
             return {"ok": False, "error": "empty_response_from_provider"}, 500
         
-        if send_result.get('status') == 'sent':
+        # 🔥 FIX BUILD 181: Accept multiple success states from Twilio/Baileys
+        # Providers return: 'sent', 'queued', 'accepted', or just a message_id/sid
+        provider_status = send_result.get('status', '')
+        success_statuses = {'sent', 'queued', 'accepted', 'delivered'}
+        has_message_id = send_result.get('sid') or send_result.get('message_id')
+        is_success = provider_status in success_statuses or has_message_id
+        
+        if is_success:
             # שמירת ההודעה בבסיס הנתונים
             clean_number = to_number.replace('@s.whatsapp.net', '')
+            # Normalize status for DB storage
+            db_status = provider_status if provider_status in success_statuses else 'sent'
             try:
                 wa_msg = WhatsAppMessage()
                 wa_msg.business_id = business_id
                 wa_msg.to_number = clean_number
                 wa_msg.body = message
                 wa_msg.message_type = 'text'
-                wa_msg.direction = 'outbound'
+                wa_msg.direction = 'out'  # 🔥 BUILD 180: Consistent 'in'/'out' values
                 wa_msg.provider = send_result.get('provider', 'unknown')
-                wa_msg.provider_message_id = send_result.get('sid')
-                wa_msg.status = 'sent'
+                wa_msg.provider_message_id = send_result.get('sid') or send_result.get('message_id')
+                wa_msg.status = db_status
                 
                 db.session.add(wa_msg)
                 db.session.commit()
@@ -909,17 +950,19 @@ def send_manual_message():
                     "ok": True, 
                     "message_id": None,
                     "provider": send_result.get('provider'),
+                    "status": db_status,
                     "warning": "message_sent_but_db_save_failed"
                 }
             
             return {
                 "ok": True, 
                 "message_id": wa_msg.id,
-                "provider": send_result.get('provider')
+                "provider": send_result.get('provider'),
+                "status": db_status
             }
         else:
             error_msg = send_result.get('error', 'send_failed')
-            log.error(f"[WA-SEND] Provider returned error: {error_msg}")
+            log.error(f"[WA-SEND] Provider returned error status '{provider_status}': {error_msg}")
             return {
                 "ok": False, 
                 "error": error_msg

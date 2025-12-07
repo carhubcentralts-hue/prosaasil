@@ -11,7 +11,7 @@ import { Select, SelectOption } from '../../shared/components/ui/Select';
 import LeadCreateModal from './components/LeadCreateModal';
 import StatusManagementModal from './components/StatusManagementModal';
 import { useLeads } from './hooks/useLeads';
-import { Lead, LeadStatus } from './types';
+import { Lead, LeadStatus, LeadSource } from './types';
 import { useStatuses } from '../../features/statuses/hooks';
 import { http } from '../../services/http';
 import { getStatusColor, getStatusLabel, getStatusDotColor } from '../../shared/utils/status';
@@ -27,6 +27,7 @@ export default function LeadsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
+  const [selectedSource, setSelectedSource] = useState<LeadSource | 'all'>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -58,17 +59,18 @@ export default function LeadsPage() {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, selectedStatus, dateFrom, dateTo]);
+  }, [debouncedSearch, selectedStatus, selectedSource, dateFrom, dateTo]);
 
   // Memoize filters using debounced search to prevent excessive API calls
   const filters = useMemo(() => ({
     search: debouncedSearch,
     status: selectedStatus === 'all' ? undefined : selectedStatus,
+    source: selectedSource === 'all' ? undefined : selectedSource,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     page: currentPage,
     pageSize: PAGE_SIZE,
-  }), [debouncedSearch, selectedStatus, dateFrom, dateTo, currentPage]);
+  }), [debouncedSearch, selectedStatus, selectedSource, dateFrom, dateTo, currentPage]);
 
   const {
     leads,
@@ -377,6 +379,17 @@ export default function LeadsPage() {
               ))}
             </Select>
             
+            <Select
+              value={selectedSource}
+              onChange={(e) => setSelectedSource(e.target.value as LeadSource | 'all')}
+              data-testid="select-source-filter"
+              className="w-full sm:w-auto min-w-[120px]"
+            >
+              <SelectOption value="all">כל המקורות</SelectOption>
+              <SelectOption value="phone">טלפון</SelectOption>
+              <SelectOption value="whatsapp">ווצאפ</SelectOption>
+            </Select>
+            
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-gray-400" />
               <input
@@ -618,11 +631,12 @@ export default function LeadsPage() {
                   </TableCell>
                   
                   <TableCell data-testid={`text-source-${lead.id}`} className="min-w-[90px]">
-                    <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200 text-xs px-2 py-1">
-                      {safe(lead.source) === 'call' || safe(lead.source) === 'phone' ? 'טלפון' : 
-                       safe(lead.source) === 'whatsapp' ? 'ווצאפ' :
-                       safe(lead.source) === 'form' || safe(lead.source) === 'website' ? 'טופס' :
-                       safe(lead.source) === 'manual' ? 'ידני' : safe(lead.source, 'לא ידוע')}
+                    <Badge className={`text-xs px-2 py-1 ${
+                      safe(lead.source) === 'whatsapp' 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                        : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                    }`}>
+                      {safe(lead.source) === 'whatsapp' ? 'ווצאפ' : 'טלפון'}
                     </Badge>
                   </TableCell>
                   
@@ -965,11 +979,10 @@ export default function LeadsPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span data-testid={`text-source-mobile-${lead.id}`}>
-                      {safe(lead.source) === 'call' || safe(lead.source) === 'phone' ? 'טלפון' : 
-                       safe(lead.source) === 'whatsapp' ? 'ווצאפ' :
-                       safe(lead.source) === 'form' || safe(lead.source) === 'website' ? 'טופס' :
-                       safe(lead.source) === 'manual' ? 'ידני' : safe(lead.source, '—')}
+                    <span data-testid={`text-source-mobile-${lead.id}`} className={
+                      safe(lead.source) === 'whatsapp' ? 'text-green-600' : 'text-blue-600'
+                    }>
+                      {safe(lead.source) === 'whatsapp' ? 'ווצאפ' : 'טלפון'}
                     </span>
                     <span data-testid={`text-created-mobile-${lead.id}`}>
                       {new Date(lead.created_at).toLocaleDateString('he-IL')}

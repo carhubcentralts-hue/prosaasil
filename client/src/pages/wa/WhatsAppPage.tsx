@@ -454,7 +454,7 @@ export function WhatsAppPage() {
     
     try {
       setSendingMessage(true);
-      const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.id}/message`, {
+      const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, {
         text: messageText.trim(),
         provider: selectedProvider
       });

@@ -110,32 +110,41 @@ def parse_hebrew_time(text: str) -> Optional[Tuple[datetime, datetime]]:
             hour, minute = extractor(match)
             break
     
+    # 🔥 BUILD 200: Get default hours from business policy if available
+    # Otherwise use safe defaults (these are fallbacks when no business context)
+    default_morning = 10
+    default_noon = 12
+    default_afternoon = 14
+    default_evening = 18
+    min_hour = 8   # Reasonable fallback minimum
+    max_hour = 21  # Reasonable fallback maximum
+    
     # אם לא נמצאה שעה ספציפית, השתמש בביטויים כלליים
     if hour is None:
         if any(word in text_lower for word in ['בוקר', 'בבוקר', 'ב10', 'ב9', 'ב8']):
-            hour = 10  # ברירת מחדל לבוקר
+            hour = default_morning  # Default for morning
         elif any(word in text_lower for word in ['צהריים', 'בצהריים', '12', 'ב12']):
-            hour = 12
+            hour = default_noon
         elif any(word in text_lower for word in ['אחר הצהריים', 'אחה"צ', '14', '15', 'ב2', 'ב3']):
-            hour = 14
+            hour = default_afternoon
         elif any(word in text_lower for word in ['ערב', 'בערב', '18', '19', 'ב6', 'ב7']):
-            hour = 18
+            hour = default_evening
         else:
             # Default: אם לא צוין, תלוי בשעה עכשיו
             if now.hour < 12:
-                hour = 10  # בוקר
+                hour = default_morning  # בוקר
             elif now.hour < 17:
-                hour = 14  # אחה"צ
+                hour = default_afternoon  # אחה"צ
             else:
-                hour = 10  # מחר בבוקר
+                hour = default_morning  # מחר בבוקר
                 days_ahead += 1
                 target_date = now + timedelta(days=days_ahead)
     
-    # ✅ וודא שעה חוקית (9-20)
-    if hour < 9:
-        hour = 9
-    elif hour > 20:
-        hour = 20
+    # 🔥 BUILD 200: Use fallback min/max (business hours validation happens in tools_calendar)
+    if hour < min_hour:
+        hour = min_hour
+    elif hour > max_hour:
+        hour = max_hour
     
     # ✅ בנה את הזמן הסופי
     meeting_time = target_date.replace(hour=hour, minute=minute, second=0, microsecond=0)

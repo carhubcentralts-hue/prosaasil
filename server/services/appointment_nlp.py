@@ -1,186 +1,131 @@
 """
-Appointment NLP Parser using GPT-4o-mini
-Extracts appointment details from Hebrew conversation
+Appointment NLP Parser - Compact & Dynamic
+BUILD 182: Optimized for speed with minimal prompt + phone extraction
 """
 import os
+import json
 import logging
+import re
 from typing import Optional, Dict
+from datetime import datetime, timedelta
+import pytz
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def _extract_phone_from_text(text: str) -> Optional[str]:
+    """
+    Extract Israeli phone number from text using regex
+    Fast path - no LLM call needed for phone extraction
+    """
+    if not text:
+        return None
+    
+    # Israeli phone patterns
+    patterns = [
+        r'05[0-9]-?[0-9]{3}-?[0-9]{4}',  # 05X-XXX-XXXX or 05XXXXXXXX
+        r'\+972-?5[0-9]-?[0-9]{3}-?[0-9]{4}',  # +972-5X-XXX-XXXX
+        r'972-?5[0-9]-?[0-9]{3}-?[0-9]{4}',  # 972-5X-XXX-XXXX
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text.replace(' ', ''))
+        if match:
+            phone = match.group().replace('-', '').replace(' ', '')
+            # Normalize to E.164
+            if phone.startswith('05'):
+                phone = '+972' + phone[1:]
+            elif phone.startswith('972'):
+                phone = '+' + phone
+            logger.info(f"📞 [NLP] Extracted phone from text: {phone}")
+            return phone
+    
+    return None
+
+
+def _build_compact_prompt(today_str: str, weekday_hebrew: str, tomorrow_str: str) -> str:
+    """Build minimal system prompt - no business-specific data leaked"""
+    return f"""מנתח שיחות עברית לקביעת תורים. היום: {today_str} ({weekday_hebrew})
+
+החזר JSON:
+{{"action":"hours_info|ask|confirm|none","date":"YYYY-MM-DD|null","time":"HH:MM|null","name":"שם|null","phone":"05X...|null","confidence":0.0-1.0}}
+
+actions:
+- hours_info: שאלה על שעות פעילות (לא תור!)
+- ask: בקשת זמינות לתאריך/שעה
+- confirm: לקוח אישר (כן/בסדר/מושלם) + יש שם + יש תאריך+שעה
+- none: אין בקשה
+
+כללים:
+1. חפש תאריך/שעה/שם/טלפון בכל השיחה
+2. "מחר"={tomorrow_str}, שעות: "בשש"=18:00, "בשבע וחצי"=19:30
+3. שם כללי (לקוח/אדון/גברת)=null
+4. confirm רק אחרי אישור מפורש (כן/בסדר/מושלם/אוקיי/מתאים)
+5. טלפון: חפש 05X או +972 בשיחה"""
 
 
 async def extract_appointment_request(conversation_history: list, business_id: int) -> Optional[Dict]:
     """
-    Extract appointment details from conversation using GPT-4o-mini
+    Extract appointment details from Hebrew conversation using GPT-4o-mini
     
-    Args:
-        conversation_history: List of {"speaker": "ai"|"user", "text": str}
-        business_id: Business ID for context
-    
-    Returns:
-        {
-            "action": "hours_info" | "ask" | "confirm" | "none",
-            "date": ISO string or null,
-            "time": "HH:MM" or null,
-            "name": str or null,
-            "confidence": 0.0-1.0
-        }
-        
-    Action types:
-        - "hours_info": User asking for business hours/general info (NOT appointment)
-        - "ask": User asking for specific date/time availability
-        - "confirm": User confirming an appointment
-        - "none": No appointment-related action
+    Returns: {"action", "date", "time", "name", "phone", "confidence"}
     """
-    print(f"🔍 [NLP ENTRY] extract_appointment_request called")
-    print(f"🔍 [NLP ENTRY] business_id={business_id}, history_length={len(conversation_history)}")
     try:
-        # Build conversation text - support both old and new formats
-        formatted_messages = []
-        for msg in conversation_history[-10:]:  # Last 10 messages
-            # Handle new format: {"speaker": "user/ai", "text": "..."}
+        # Format last 8 messages (optimized from 10)
+        formatted = []
+        full_text = ""  # For regex phone extraction
+        for msg in conversation_history[-8:]:
             if 'speaker' in msg and 'text' in msg:
-                speaker_label = "לקוח" if msg['speaker'] == 'user' else "נציג"
-                formatted_messages.append(f"{speaker_label}: {msg['text']}")
-            # Handle old format: {"user": "...", "bot": "..."}
-            elif 'user' in msg and 'bot' in msg:
-                formatted_messages.append(f"לקוח: {msg['user']}\nנציג: {msg['bot']}")
-            # Handle partial old format (just user or just bot)
+                label = "לקוח" if msg['speaker'] == 'user' else "נציג"
+                formatted.append(f"{label}: {msg['text']}")
+                if msg['speaker'] == 'user':
+                    full_text += " " + msg['text']
             elif 'user' in msg:
-                formatted_messages.append(f"לקוח: {msg['user']}")
-            elif 'bot' in msg:
-                formatted_messages.append(f"נציג: {msg['bot']}")
+                formatted.append(f"לקוח: {msg['user']}")
+                full_text += " " + msg['user']
+                if msg.get('bot'):
+                    formatted.append(f"נציג: {msg['bot']}")
         
-        conversation_text = "\n".join(formatted_messages)
-        print(f"🔍 [NLP] Formatted {len(formatted_messages)} messages for GPT-4o-mini")
-        print(f"🔍 [NLP] Conversation text: {conversation_text[:200]}...")
+        conversation_text = "\n".join(formatted)
         
-        # Get current date for context
-        from datetime import datetime, timedelta
-        import pytz
+        # 🔥 BUILD 182: Fast regex phone extraction (no LLM needed for this)
+        regex_phone = _extract_phone_from_text(full_text)
+        
+        # Date context
         tz = pytz.timezone('Asia/Jerusalem')
         today = datetime.now(tz)
-        today_str = today.strftime("%Y-%m-%d")  # e.g., "2025-11-17"
-        # Python weekday: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
-        # Hebrew: ראשון=Sun, שני=Mon, שלישי=Tue, רביעי=Wed, חמישי=Thu, שישי=Fri, שבת=Sat
-        weekday_hebrew = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"][today.weekday()]
+        today_str = today.strftime("%Y-%m-%d")
+        weekday_names = ["שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון"]
+        weekday_hebrew = weekday_names[today.weekday()]
         tomorrow_str = (today + timedelta(days=1)).strftime("%Y-%m-%d")
         
-        # Calculate next Sunday for examples
-        days_until_sunday = (6 - today.weekday()) % 7  # Days until next Sunday
-        if days_until_sunday == 0:
-            days_until_sunday = 7  # If today is Sunday, get next Sunday
-        next_sunday = (today + timedelta(days=days_until_sunday)).strftime("%Y-%m-%d")
+        # Compact prompt
+        system_prompt = _build_compact_prompt(today_str, weekday_hebrew, tomorrow_str)
         
-        # Call GPT-4o-mini for extraction
-        print(f"🔍 [NLP] Calling GPT-4o-mini with model=gpt-4o-mini, temperature=0.1")
-        logger.info(f"🔍 [NLP VERIFICATION] Using model=gpt-4o-mini, temperature=0.1 for appointment parsing")
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": f"""אתה מנתח שיחות בעברית ומחלץ בקשות לקביעת פגישה.
-התאריך היום: {today_str} (יום {weekday_hebrew})
-
-🔥 זרימת קביעת תור (שלב אחר שלב):
-1. לקוח מבקש תאריך/שעה → action="ask"
-2. נציג מאשר "פנוי!" → לקוח ממשיך
-3. נציג שואל "על איזה שם?" → לקוח עונה שם
-4. נציג שואל "אפשר מספר טלפון?" → לקוח מקליד DTMF
-5. רק אחרי שיש שם AND טלפון → action="confirm"
-
-⚠️ CRITICAL: action="confirm" רק אם:
-- יש תאריך/שעה בשיחה (חפש בכל ההיסטוריה - לא רק בהודעה האחרונה!)
-- יש שם לקוח (לא כללי!)
-- נציג ביקש טלפון / ראית DTMF במשפט
-
-🔥 IMPORTANT: חפש תאריך ושעה בכל השיחה, לא רק בהודעה האחרונה!
-אם הלקוח אמר "מחר בשש" בהודעה קודמת ועכשיו מאשר - עדיין החזר את התאריך והשעה!
-
-החזר JSON בלבד עם השדות:
-- action: 
-  * "hours_info" - לקוח שואל על שעות פעילות/מידע כללי (לא רוצה לקבוע תור!)
-  * "ask" - לקוח שואל על זמינות לתאריך/שעה ספציפיים
-  * "confirm" - לקוח אישר + יש שם + יש טלפון/DTMF (שלב אחרון!)
-  * "none" - אין בקשה
-- date: תאריך בפורמט ISO (YYYY-MM-DD) או null. חשב לפי התאריך הנוכחי ({today_str}).
-  דוגמאות: "מחר" = {tomorrow_str}, "יום חמישי הקרוב" = חשב מ-{today_str}.
-- time: שעה בפורמט HH:MM (24 שעות) או null. "בשש" = 18:00, "בשבע וחצי" = 19:30, "ב-4" = 16:00.
-- name: שם הלקוח או null. אם השם הוא "לקוח", "אדון", "גברת" או כללי - החזר null!
-- confidence: רמת ודאות (0.0-1.0)
-
-🔥 CRITICAL: הבחן בין שאלות מידע לבקשות תור:
-- "מה השעות שלכם?" / "מתי אתם פתוחים?" / "תעבדו מחר?" → "hours_info" (לא רוצה תור!)
-- "יש פנוי ביום ראשון בשש?" / "אפשר לקבוע?" → "ask" (רוצה לבדוק זמינות)
-
-🔥 חישוב תאריכים (היום: {today_str}, {weekday_hebrew}):
-- "מחר" = {tomorrow_str}
-- "יום ראשון" / "ביום ראשון" = {next_sunday} (ראשון הקרוב!)
-- "השבוע" = תאריך השבוע הנוכחי
-- "שבוע הבא" = תאריך שבוע הבא
-
-דוגמאות:
-לקוח: "מה השעות פעילות שלכם?"
-→ {{"action":"hours_info","date":null,"time":null,"name":null,"confidence":1.0}}
-
-לקוח: "אפשר ליום ראשון בשבע?"
-→ {{"action":"ask","date":"{next_sunday}","time":"19:00","name":null,"confidence":0.9}}
-
-נציג: "על איזה שם?"
-לקוח: "שמי דוד"
-→ {{"action":"none","date":"{next_sunday}","time":"19:00","name":"דוד","confidence":1.0}}
-
-נציג: "אפשר מספר טלפון?"
-לקוח: "[DTMF keys pressed: +972501234567]"
-→ {{"action":"confirm","date":"{next_sunday}","time":"19:00","name":"דוד","confidence":0.95}}
-
-שיחה מלאה:
-לקוח: "רוצה לקבוע תור למחר בשש"
-נציג: "מעולה! הזמן פנוי. על איזה שם?"
-לקוח: "על שם שרה"
-נציג: "תודה! אפשר מספר טלפון?"
-לקוח: "[DTMF keys pressed: +972504294724]"
-→ {{"action":"confirm","date":"{tomorrow_str}","time":"18:00","name":"שרה","confidence":1.0}}"""
-                },
-                {
-                    "role": "user",
-                    "content": f"שיחה:\n{conversation_text}\n\nמה הבקשה האחרונה של הלקוח?"
-                }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"שיחה:\n{conversation_text}"}
             ],
             response_format={"type": "json_object"},
-            temperature=0.1,  # Agent 3 spec: 0.1-0.2 for deterministic extraction
-            max_tokens=200
+            temperature=0.1,
+            max_tokens=150  # Reduced from 200
         )
         
-        # Parse response
-        result_text = response.choices[0].message.content
-        print(f"")
-        print(f"=" * 60)
-        print(f"🔍 [NLP RESULT] GPT-4o-mini extraction complete")
-        print(f"=" * 60)
-        print(f"📄 [NLP RESULT] Raw response: {result_text}")
-        import json
-        result = json.loads(result_text or "{}")
+        result = json.loads(response.choices[0].message.content or "{}")
         
-        print(f"📊 [NLP RESULT] Parsed values:")
-        print(f"📊 [NLP RESULT]   - action: {result.get('action', 'N/A')}")
-        print(f"📊 [NLP RESULT]   - date: {result.get('date', 'N/A')}")
-        print(f"📊 [NLP RESULT]   - time: {result.get('time', 'N/A')}")
-        print(f"📊 [NLP RESULT]   - name: {result.get('name', 'N/A')}")
-        print(f"📊 [NLP RESULT]   - confidence: {result.get('confidence', 'N/A')}")
-        print(f"=" * 60)
-        print(f"")
-        logger.info(f"📝 [NLP] Extracted: {result}")
+        # 🔥 BUILD 182: Use regex phone if LLM didn't find one
+        if not result.get('phone') and regex_phone:
+            result['phone'] = regex_phone
+            logger.info(f"📞 [NLP] Using regex-extracted phone: {regex_phone}")
+        
+        logger.info(f"[NLP] ✅ action={result.get('action')} date={result.get('date')} time={result.get('time')} name={result.get('name')} phone={result.get('phone')}")
         return result
         
     except Exception as e:
-        print(f"❌ [NLP] Extraction failed: {e}")
-        logger.error(f"❌ [NLP] Extraction failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return {"action": "none", "date": None, "time": None, "name": None, "confidence": 0.0}
+        logger.error(f"[NLP] Error: {e}")
+        return {"action": "none", "date": None, "time": None, "name": None, "phone": None, "confidence": 0.0}

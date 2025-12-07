@@ -1,0 +1,90 @@
+Call Details
+Details
+Insights Summary
+Metrics
+Properties
+Call SID
+CA37435b9b3695af22722c2847ac95c073
+Date
+21:40:09 IST 2025-12-03
+Start Time
+21:40:18 IST 2025-12-03
+End Time
+21:40:21 IST 2025-12-03
+Duration
+3 sec
+Cost
+$0.00
+From
+
++97233763805
+To
++972549750505
+Direction
+Outgoing API
+Type
+Phone
+Status
+Completed
+Stir/Shaken Status 
+—
+Media
+Recording SID
+RE02c901af7b557723b814bee2e0cf26ff
+Downloads
+WAV
+MP3
+Listen
+Errors and Warnings
+Debug Event SID
+NO75009512d91dec35025d215177f3c622
+Error
+11200
+Message
+Got HTTP 403 response to https://prosaas.pro/webhook/outbound_call?call_id=458&lead_id=85&lead_name=WhatsApp%200505&business_id=1&business_name=%D7%A4%D7%A8%D7%95%20%D7%A1%D7%90%D7%A1
+Request Inspector
++ Expand All
+POST
+https://api.twilio.com/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls.json
+2025-12-03 19:40:09 UTC60ms201
+Request
+Response
+Headers
+BodyShow Raw
+{
+    "sid": "CA37435b9b3695af22722c2847ac95c073",
+    "accountSid": "ACcd09431f076a309088b18ed1f286f32e",
+    "to": "+972549750505",
+    "toFormatted": "+972549750505",
+    "from": "+97233763805",
+    "fromFormatted": "+97233763805",
+    "phoneNumberSid": "PN3872b1683be1a425b1e055b9dbe32212",
+    "status": "queued",
+    "priceUnit": "USD",
+    "direction": "outbound-api",
+    "apiVersion": "2010-04-01",
+    "uri": "/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CA37435b9b3695af22722c2847ac95c073.json",
+    "subResourceUris": {
+        "notifications": "/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CA37435b9b3695af22722c2847ac95c073/Notifications.json",
+        "recordings": "/2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Calls/CA37435b9b3695af22722c2847ac95c073/Recordings.json"
+    },
+    "callerId": "",
+    "queueTime": 0
+}
+POST
+https://prosaas.pro/webhook/call_status
+2025-12-03 19:40:10 UTC1244ms204
+POST
+https://prosaas.pro/webhook/call_status
+2025-12-03 19:40:11 UTC492ms204
+POST
+https://prosaas.pro/webhook/call_status
+2025-12-03 19:40:18 UTC141ms204
+POST
+https://prosaas.pro/webhook/outbound_call
+2025-12-03 19:40:18 UTC181ms403
+POST
+https://prosaas.pro/webhook/call_status
+2025-12-03 19:40:21 UTC232ms204
+
+Delete this call log

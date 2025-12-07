@@ -127,14 +127,29 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
             print(f"📋 PROMPT LOADING: business_id={business_id}, channel={channel}, custom_instructions provided={bool(custom_instructions)}", flush=True)
             if not custom_instructions or not isinstance(custom_instructions, str) or not custom_instructions.strip():
                 try:
-                    from server.models_sql import BusinessSettings, Business
-                    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                    from server.models_sql import Business
+                    from sqlalchemy import text
+                    from server.db import db
+                    
+                    # 🔥 BUILD 309: Use raw SQL to avoid ORM column mapping issues
+                    # This prevents errors when new columns are added to model but not yet in DB
+                    settings_row = None
+                    try:
+                        result = db.session.execute(text(
+                            "SELECT ai_prompt FROM business_settings WHERE tenant_id = :bid LIMIT 1"
+                        ), {"bid": business_id})
+                        row = result.fetchone()
+                        if row:
+                            settings_row = {"ai_prompt": row[0]}
+                    except Exception as sql_err:
+                        print(f"⚠️ [BUILD 309] Raw SQL fallback for prompt: {sql_err}", flush=True)
+                    
                     business = Business.query.filter_by(id=business_id).first()
                     print(f"📋 LOADING PROMPT: business_id={business_id}, business_name={business.name if business else 'N/A'}", flush=True)
-                    if settings and settings.ai_prompt:
+                    if settings_row and settings_row.get("ai_prompt"):
                         import json
                         try:
-                            prompt_data = json.loads(settings.ai_prompt)
+                            prompt_data = json.loads(settings_row["ai_prompt"])
                             if isinstance(prompt_data, dict):
                                 # Extract channel-specific prompt
                                 if channel == "whatsapp":
@@ -145,14 +160,14 @@ def get_or_create_agent(business_id: int, channel: str, business_name: str = "ה
                                 print(f"📝 PROMPT PREVIEW: {custom_instructions[:100] if custom_instructions else 'EMPTY'}...", flush=True)
                             else:
                                 # Legacy single prompt
-                                custom_instructions = settings.ai_prompt
+                                custom_instructions = settings_row["ai_prompt"]
                                 print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
                         except json.JSONDecodeError:
                             # Legacy single prompt
-                            custom_instructions = settings.ai_prompt
+                            custom_instructions = settings_row["ai_prompt"]
                             print(f"✅ Loaded legacy prompt from DB for business={business_id} ({len(custom_instructions)} chars)", flush=True)
                     else:
-                        print(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings={settings is not None}", flush=True)
+                        print(f"⚠️ NO SETTINGS or NO AI_PROMPT for business={business_id}! settings_row={settings_row is not None}", flush=True)
                 except Exception as e:
                     print(f"⚠️ Could not load DB prompt for business={business_id}: {e}", flush=True)
                     logger.warning(f"⚠️ Could not load DB prompt for business={business_id}: {e}")

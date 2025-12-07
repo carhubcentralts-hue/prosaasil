@@ -766,7 +766,7 @@ def view_contract(contract_id):
             f"תאריך יצירה: {contract.created_at.strftime('%d/%m/%Y %H:%M') if contract.created_at else 'לא צוין'}",
             "",
             f"לקוח: {customer.name if customer else 'לא צוין'}",
-            f"נכס: {deal.title if deal else 'לא צוין'}",
+            f"עסקה: {deal.title if deal else 'לא צוין'}",  # 🔥 BUILD 200: Generic term
             f"סכום: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "סכום: לא צוין",
             "",
             f"נחתם על ידי: {contract.signed_name if contract.signed_name else 'טרם נחתם'}",
@@ -901,7 +901,7 @@ def download_contract(contract_id):
             f"תאריך יצירה: {contract.created_at.strftime('%d/%m/%Y %H:%M') if contract.created_at else 'לא צוין'}",
             "",
             f"לקוח: {customer.name if customer else 'לא צוין'}",
-            f"נכס: {deal.title if deal else 'לא צוין'}",
+            f"עסקה: {deal.title if deal else 'לא צוין'}",  # 🔥 BUILD 200: Generic term
             f"סכום: ₪{deal.amount / 100:,.2f}" if deal and deal.amount else "סכום: לא צוין",
             "",
             f"נחתם על ידי: {contract.signed_name if contract.signed_name else 'טרם נחתם'}",

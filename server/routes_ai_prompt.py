@@ -49,69 +49,82 @@ def save_prompt(tenant):
     
     return {"ok": True, "id": settings.tenant_id}
 
-@ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['GET'])
-@csrf.exempt  # GET requests don't need CSRF
-@require_api_auth(['admin', 'manager'])
-def get_business_prompt(business_id):
-    """Get AI prompts for business - Admin (שיחות ווואטסאפ נפרד)"""
+def _get_business_prompt_internal(business_id):
+    """
+    Internal function to get AI prompts for business.
+    No authentication - caller must verify access.
+    """
     try:
         business = Business.query.filter_by(id=business_id).first()
         if not business:
             return jsonify({"error": "עסק לא נמצא"}), 404
         
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        # 🔥 BUILD 186 FIX: Handle missing database columns gracefully
+        settings = None
+        try:
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+        except Exception as settings_err:
+            logger.warning(f"Could not load settings for business {business_id} (DB schema issue): {settings_err}")
+            # Continue with settings=None - will use defaults
         
         if settings:
-            # Get latest version number
             latest_revision = PromptRevisions.query.filter_by(
                 tenant_id=business_id
             ).order_by(PromptRevisions.version.desc()).first()
             
             version = latest_revision.version if latest_revision else 1
             
-            # הפרד לשיחות ווואטסאפ - לפי ההנחיות המדויקות
-            # ✅ תיקון: העדפה לפרומפט מטבלת businesses אם קיים
-            prompt_data = settings.ai_prompt or business.system_prompt or f"אתה נציג שירות מקצועי של {{{{business_name}}}}. עזור ללקוחות בצורה אדיבה ומקצועית."  # ✅ כללי - לא מניח סוג עסק!
+            # 🔥 BUILD 186 FIX: Use getattr with fallbacks to prevent 500 errors
+            prompt_data = getattr(settings, 'ai_prompt', None) or business.system_prompt or f"אתה נציג שירות מקצועי של {{{{business_name}}}}. עזור ללקוחות בצורה אדיבה ומקצועית."
             try:
                 import json
-                if prompt_data.startswith('{'):
+                if prompt_data and prompt_data.startswith('{'):
                     parsed_prompt = json.loads(prompt_data)
                     calls_prompt = parsed_prompt.get('calls', prompt_data)
                     whatsapp_prompt = parsed_prompt.get('whatsapp', prompt_data)
                 else:
-                    # fallback - אותו פרומפט לשניהם
                     calls_prompt = prompt_data
                     whatsapp_prompt = prompt_data
             except:
-                # fallback - אותו פרומפט לשניהם
                 calls_prompt = prompt_data
                 whatsapp_prompt = prompt_data
             
             return jsonify({
                 "calls_prompt": calls_prompt,
+                "outbound_calls_prompt": getattr(settings, 'outbound_ai_prompt', "") or "",
                 "whatsapp_prompt": whatsapp_prompt,
                 "greeting_message": business.greeting_message or "",
                 "whatsapp_greeting": business.whatsapp_greeting or "",
                 "version": version,
-                "updated_at": settings.updated_at.isoformat() if settings.updated_at else None,
-                "updated_by": settings.updated_by
+                "updated_at": getattr(settings, 'updated_at', None).isoformat() if getattr(settings, 'updated_at', None) else None,
+                "updated_by": getattr(settings, 'updated_by', None),
+                "last_updated": getattr(settings, 'updated_at', None).isoformat() if getattr(settings, 'updated_at', None) else None
             })
         else:
-            # Return default prompts - ✅ תיקון: השתמש בפרומפט מטבלת businesses אם זמין
-            default_prompt = business.system_prompt or "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."  # ✅ כללי - לא מניח סוג עסק!
+            default_prompt = business.system_prompt or "אתה נציג שירות מקצועי ואדיב. עזור ללקוחות במה שהם צריכים."
             return jsonify({
                 "calls_prompt": default_prompt,
+                "outbound_calls_prompt": "",
                 "whatsapp_prompt": default_prompt,
                 "greeting_message": business.greeting_message or "",
                 "whatsapp_greeting": business.whatsapp_greeting or "",
                 "version": 1,
                 "updated_at": None,
-                "updated_by": None
+                "updated_by": None,
+                "last_updated": None
             })
     
     except Exception as e:
         logger.error(f"Error getting prompt for business {business_id}: {e}")
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
+
+
+@ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['admin', 'manager'])
+def get_business_prompt(business_id):
+    """Get AI prompts for business - Admin endpoint"""
+    return _get_business_prompt_internal(business_id)
 
 @ai_prompt_bp.route('/api/admin/businesses/<int:business_id>/prompt', methods=['PUT', 'OPTIONS'])
 @require_api_auth(['admin', 'manager'])
@@ -127,8 +140,9 @@ def update_business_prompt(business_id):
         if not data:
             return jsonify({"error": "חסרים נתונים"}), 400
         
-        # שדות אופציונליים: calls_prompt, whatsapp_prompt, greeting_message, whatsapp_greeting
+        # שדות אופציונליים: calls_prompt, outbound_calls_prompt, whatsapp_prompt, greeting_message, whatsapp_greeting
         calls_prompt = data.get('calls_prompt')
+        outbound_calls_prompt = data.get('outbound_calls_prompt')  # 🔥 BUILD 174
         whatsapp_prompt = data.get('whatsapp_prompt')
         greeting_message = data.get('greeting_message')
         whatsapp_greeting = data.get('whatsapp_greeting')
@@ -138,12 +152,15 @@ def update_business_prompt(business_id):
             calls_prompt = data.get('prompt')
             whatsapp_prompt = data.get('prompt')
         
-        if not calls_prompt and not whatsapp_prompt:
-            return jsonify({"error": "חסר תוכן פרומפט (לפחות שיחות או וואטסאפ)"}), 400
+        # 🔥 BUILD 174: Allow saving only outbound_calls_prompt
+        if not calls_prompt and not whatsapp_prompt and not outbound_calls_prompt:
+            return jsonify({"error": "חסר תוכן פרומפט (לפחות שיחות, שיחות יוצאות, או וואטסאפ)"}), 400
         
         # ולידציות שרת - לפי ההנחיות
         if calls_prompt and len(calls_prompt) > 10000:
             return jsonify({"error": "פרומפט שיחות ארוך מדי (מקסימום 10,000 תווים)"}), 400
+        if outbound_calls_prompt and len(outbound_calls_prompt) > 10000:
+            return jsonify({"error": "פרומפט שיחות יוצאות ארוך מדי (מקסימום 10,000 תווים)"}), 400
         if whatsapp_prompt and len(whatsapp_prompt) > 10000:
             return jsonify({"error": "פרומפט וואטסאפ ארוך מדי (מקסימום 10,000 תווים)"}), 400
         
@@ -203,6 +220,10 @@ def update_business_prompt(business_id):
             settings.updated_by = user_id
             settings.updated_at = datetime.utcnow()
         
+        # 🔥 BUILD 174: Save outbound calls prompt separately
+        if outbound_calls_prompt is not None:
+            settings.outbound_ai_prompt = outbound_calls_prompt
+        
         # Get next version number
         latest_revision = PromptRevisions.query.filter_by(
             tenant_id=business_id
@@ -237,6 +258,7 @@ def update_business_prompt(business_id):
         return jsonify({
             "success": True,  # ✅ תיקון: הוספת success field שהfrontend מצפה לו
             "calls_prompt": current_prompts.get('calls', ''),
+            "outbound_calls_prompt": settings.outbound_ai_prompt or "",  # 🔥 BUILD 174
             "whatsapp_prompt": current_prompts.get('whatsapp', ''),
             "greeting_message": business.greeting_message or "",
             "whatsapp_greeting": business.whatsapp_greeting or "",
@@ -251,31 +273,55 @@ def update_business_prompt(business_id):
         return jsonify({"error": "שגיאה בעדכון הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['GET'])
-@csrf.exempt  # GET requests don't need CSRF
-@require_api_auth(['system_admin', 'owner', 'admin'])  # BUILD 138: owner can access AI settings
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def get_current_business_prompt():
-    """Get AI prompt for current business - Business (Impersonated)"""
+    """Get AI prompt for current business"""
     try:
-        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
+        from flask import g
+        
+        # BUILD 177: Enhanced debugging for external server issues
+        logger.info(f"[PROMPT GET] g.tenant={g.get('tenant')}, session keys={list(session.keys())}")
+        
+        # 🔥 BUILD 186 FIX: Safely handle None values from session
+        user_session = session.get('user') or {}
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or (user_session.get('business_id') if isinstance(user_session, dict) else None)
         if not tenant_id:
+            user = session.get('al_user') or {}
+            tenant_id = user.get('business_id') if isinstance(user, dict) else None
+            logger.info(f"[PROMPT GET] Fallback to al_user.business_id={tenant_id}")
+        
+        if not tenant_id:
+            logger.warning(f"No tenant_id found. g.tenant={g.get('tenant')}, session.user={session.get('user')}, session.al_user={session.get('al_user')}")
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
-            
-        return get_business_prompt(tenant_id)
+        
+        logger.info(f"Loading prompts for business {tenant_id}")
+        return _get_business_prompt_internal(tenant_id)
         
     except Exception as e:
         logger.error(f"Error getting current business prompt: {e}")
         return jsonify({"error": "שגיאה בטעינת הפרומפט"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt', methods=['PUT'])
-@require_api_auth(['system_admin', 'owner', 'admin'])  # BUILD 138: owner can update AI settings
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def update_current_business_prompt():
-    """Update AI prompt for current business - Business (Impersonated, דורש CSRF)"""
+    """Update AI prompt for current business"""
     try:
-        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
+        from flask import g
+        
+        # 🔥 BUILD 186 FIX: Safely handle None values from session
+        user_session = session.get('user') or {}
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or (user_session.get('business_id') if isinstance(user_session, dict) else None)
         if not tenant_id:
+            user = session.get('al_user') or {}
+            tenant_id = user.get('business_id') if isinstance(user, dict) else None
+        
+        if not tenant_id:
+            logger.warning("No tenant_id found in update_current_business_prompt")
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
         
-        # Call the internal handler directly - returns Flask Response
+        logger.info(f"Updating prompts for business {tenant_id}")
         return update_business_prompt(tenant_id)
         
     except Exception as e:
@@ -310,12 +356,20 @@ def get_prompt_history(business_id):
         return jsonify({"error": "שגיאה בטעינת ההיסטוריה"}), 500
 
 @ai_prompt_bp.route('/api/business/current/prompt/history', methods=['GET'])
-@csrf.exempt  # GET requests don't need CSRF
-@require_api_auth(['business'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
 def get_current_prompt_history():
-    """Get prompt history for current business - Business (Impersonated)"""
+    """Get prompt history for current business"""
     try:
-        tenant_id = session.get('impersonated_tenant_id') or session.get('user', {}).get('business_id')  # Fixed key per guidelines
+        from flask import g
+        
+        # 🔥 BUILD 186 FIX: Safely handle None values from session
+        user_session = session.get('user') or {}
+        tenant_id = g.get('tenant') or session.get('impersonated_tenant_id') or (user_session.get('business_id') if isinstance(user_session, dict) else None)
+        if not tenant_id:
+            user = session.get('al_user') or {}
+            tenant_id = user.get('business_id') if isinstance(user, dict) else None
+        
         if not tenant_id:
             return jsonify({"error": "לא נמצא מזהה עסק"}), 400
             

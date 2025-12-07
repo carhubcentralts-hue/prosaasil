@@ -19,6 +19,7 @@ def summarize_conversation(
     """
     סיכום דינמי לחלוטין של שיחה - מזהה אוטומטית את סוג השיחה והעסק!
     BUILD 144 - Universal Dynamic Summaries
+    BUILD 183 - CRITICAL FIX: Don't hallucinate summaries when no user spoke!
     
     GPT מזהה בעצמו:
     - סוג העסק (נדל"ן, רפואי, דינוזאורים, כל דבר!)
@@ -34,11 +35,38 @@ def summarize_conversation(
         
     Returns:
         סיכום מקצועי דינמי בעברית (80-150 מילים)
+        Returns EMPTY STRING if no actual user speech occurred!
     """
+    # 🔥 BUILD 183: Early exit if no transcription
     if not transcription or len(transcription.strip()) < 10:
-        return "שיחה קצרה ללא תוכן"
+        log.info(f"📊 [SUMMARY] Skipping - no/short transcription for call {call_sid}")
+        return ""  # Return empty, NOT fake text!
     
-    log.info(f"📊 Generating universal dynamic summary for call {call_sid}")
+    # 🔥 BUILD 183 CRITICAL: Check if USER actually spoke in the conversation
+    # If only AI spoke (greeting) but user hung up immediately, don't generate summary!
+    user_spoke = False
+    user_content_length = 0
+    
+    for line in transcription.split('\n'):
+        line = line.strip()
+        # Check for user speech markers
+        if line.startswith('לקוח:') or line.startswith('user:') or line.startswith('User:') or line.startswith('Customer:'):
+            # Extract content after the prefix
+            content = line.split(':', 1)[1].strip() if ':' in line else ""
+            # Filter out noise/silence markers
+            noise_patterns = ['...', '(שקט)', '(silence)', '(noise)', '(רעש)', '(לא שמע)', '(inaudible)']
+            if content and len(content) > 2:
+                is_noise = any(noise in content.lower() for noise in noise_patterns)
+                if not is_noise:
+                    user_spoke = True
+                    user_content_length += len(content)
+    
+    # 🔥 BUILD 183: If no meaningful user speech, return empty (no hallucination!)
+    if not user_spoke or user_content_length < 5:
+        log.info(f"📊 [SUMMARY] Skipping - NO USER SPEECH detected for call {call_sid} (user_spoke={user_spoke}, content_len={user_content_length})")
+        return ""  # CRITICAL: Return empty, don't hallucinate!
+    
+    log.info(f"📊 Generating universal dynamic summary for call {call_sid} (user_content: {user_content_length} chars)")
     
     try:
         from openai import OpenAI

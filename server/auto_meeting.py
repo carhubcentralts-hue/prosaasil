@@ -77,41 +77,38 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
                 db.session.add(customer)
                 db.session.flush()  # כדי לקבל ID
                 
-        # ✅ UNIFIED: Use shared parser (no duplication!)
-        from server.services.appointment_parser import parse_appointment_info
+        # 🔥 BUILD 200: Use dynamic parser - only area extraction
+        from server.services.appointment_parser import parse_appointment_info_dynamic
         
         # איסוף מידע מהשיחה
         collected = lead_info.get('collected', {})
         
-        # Parse all info at once
-        parsed_info = parse_appointment_info(full_conversation)
+        # Parse area only - other fields come from AI prompt/collected
+        parsed_info = parse_appointment_info_dynamic(full_conversation)
         
         # ✅ FIX: Merge with collected data (don't lose existing info!)
         area = parsed_info.get('area') or collected.get('area', '')
-        property_type = parsed_info.get('property_type') or collected.get('property_type', '')
-        budget_info = parsed_info.get('budget') or collected.get('budget', '')
+        service_type = collected.get('service_type', '')  # 🔥 BUILD 200: Generic service_type, not property_type
         
-        # יצירת כותרת מפורטת לפגישה
+        # יצירת כותרת מפורטת לפגישה - GENERIC for any business
         title_parts = []
         if customer_name:
             title_parts.append(customer_name)
-        if property_type:
-            title_parts.append(property_type)
+        if service_type:
+            title_parts.append(service_type)
         if area:
             title_parts.append(f"ב{area}")
         
-        appointment_title = " - ".join(title_parts) if title_parts else "פגישה ליעוץ נדל\"ן"
+        appointment_title = " - ".join(title_parts) if title_parts else "פגישה"  # 🔥 BUILD 200: Generic!
         
-        # יצירת תיאור מפורט
+        # יצירת תיאור מפורט - GENERIC for any business
         description_parts = []
         if collected.get('area'):
-            description_parts.append(f"אזור מועדף: {area}")
-        if collected.get('property_type'):
-            description_parts.append(f"סוג נכס: {property_type}")
-        if collected.get('budget'):
-            description_parts.append(f"תקציב: {budget_info}")
-        if collected.get('timing'):
-            description_parts.append("התזמון: דחיפות נמוכה-בינונית")
+            description_parts.append(f"אזור: {area}")
+        if collected.get('service_type'):
+            description_parts.append(f"שירות: {service_type}")
+        if collected.get('notes'):
+            description_parts.append(f"הערות: {collected.get('notes', '')}")
         
         description = "פגישה שנוצרה אוטומטית מתוך שיחת טלפון.\n\n" + "\n".join(description_parts)
         

@@ -1,0 +1,288 @@
+מעולה, עכשיו אני איתך בול.
+נעשה SIMPLE MODE אבל דינמי לפי העסק והגדרות שליטת שיחה, לא “מנעולן” בלבד ולא עסק אחד.
+
+אני נותן לך עכשיו הנחיית-על למפתח – אפשר להדביק כמו שהיא לסוכן / דב וליישם.
+
+⸻
+
+🎯 מטרה
+	1.	להגדיר SIMPLE_MODE = True בקוד (בלי ENV).
+	2.	לגרום לזרימת השיחה להיות:
+	•	פשוטה, יציבה, בלי שכבות אגרסיביות
+	•	אבל דינמית לפי:
+	•	איזה פרטים צריך לקחת (call_control / call_settings)
+	•	האם המטרה היא ליד בלבד או תיאום פגישה
+	3.	להכין את הכל כך שכאשר נעבור ל-SIP –
+נרוויח רק איכות סאונד, מבלי להילחם בלוגיקה.
+
+⸻
+
+1. דגל SIMPLE_MODE – בלי ENV
+
+בקובץ קונפיג מרכזי (config/settings):
+
+# config/calls.py (לדוגמה)
+SIMPLE_MODE = True  # לכבות רק בקוד אם תרצה בעתיד
+
+לייבא SIMPLE_MODE בכל המקומות הבאים:
+	•	call_session / CallManager
+	•	lead_state / ConversationState
+	•	gibberish / noise filters
+	•	SMART_HANGUP / SILENCE_HANDLER
+	•	ConsistencyFilter (עיר/שדות)
+	•	NLP / appointment analyzer
+
+⸻
+
+2. שימוש דינמי ב”הגדרות שליטת שיחה”
+
+נניח שיש לך משהו כזה ב־DB (לא משנה השם בפועל, העיקרון):
+
+call_profile = {
+    "goal": "appointment" or "lead_only",
+    "required_fields": ["service_type", "city", "name", "phone", "datetime"],
+    "confirm_before_hangup": True,
+}
+
+הנחיה למפתח:
+	1.	בכל התחלת שיחה:
+	•	לטעון את ה־call_profile של העסק:
+
+call_profile = load_call_profile(business_id)
+session.call_profile = call_profile
+
+
+	2.	לשמור ב־session:
+
+session.required_fields = call_profile["required_fields"]
+session.goal = call_profile["goal"]  # "appointment" / "lead_only"
+session.confirm_before_hangup = call_profile.get("confirm_before_hangup", True)
+
+
+	3.	לא לקודד קשיח “עיר + שירות” – אלא לעבוד תמיד לפי:
+
+session.required_fields
+
+
+
+⸻
+
+3. התנהגות SIMPLE_MODE בגדול
+
+כש־SIMPLE_MODE = True:
+	1.	לא:
+	•	majority vote מוזר
+	•	city_autocorrected אגרסיבי
+	•	silence warnings אינסופיים
+	•	loop guard שמונע תשובות
+	2.	כן:
+	•	greeting מחומם לפי העסק
+	•	הקשר מהמשפט הראשון אחרי הברכה
+	•	barge-in קשוח (עוצר AI מייד)
+	•	מילוי שדות לפי required_fields
+	•	לוגיקה פשוטה וברורה של אישור + פרידה + ניתוק
+
+⸻
+
+4. פילטרים – מה מכבים ב־SIMPLE_MODE
+
+4.1 AUDIO / NOISE GATE פנימי
+
+איפה שיש:
+	•	[AUDIO GATE] Blocked ...
+	•	insufficient_consec_frames
+	•	בדיקות rms ידניות
+
+לעטוף:
+
+if SIMPLE_MODE:
+    return False  # אל תחסום – תן לאודיו לעבור
+
+הרעיון: ב-SIMPLE_MODE לא חוסמים פריימים בצד שלנו,
+רק סומכים על Twilio + OpenAI.
+
+⸻
+
+4.2 פילטרי “ג׳יבריש / עברית / אורך טקסט”
+
+איפה שיש:
+	•	[NOISE FILTER]
+	•	בדיקת עברית/אנגלית
+	•	“קצר מדי → reject”
+
+להכניס:
+
+def is_valid_user_text(text: str) -> bool:
+    if SIMPLE_MODE:
+        return True
+    ...
+
+כלומר: כל טקסט שהגיע מ־OpenAI Realtime
+עובר לניתוח (NLP / slot filling), בלי לסנן מילים כמו “כן”, “לא”, “לוד”, “עדי”.
+
+⸻
+
+4.3 ConsistencyFilter / majority / נעילה
+
+במיוחד:
+	•	[CITY] Majority locked
+	•	city_needs_retry
+	•	city_autocorrected
+
+להפוך את זה ל־generic field handler:
+
+def update_field_from_text(field_name: str, text: str, session):
+    if SIMPLE_MODE:
+        cleaned = text.strip()
+        # תשובה שלילית בשדה כלשהו → סימון כצריך תיקון
+        if cleaned.startswith("לא"):
+            session.lead_state[f"{field_name}_needs_retry"] = True
+            return
+
+        session.lead_state[field_name] = cleaned
+        session.lead_state[f"{field_name}_raw"] = cleaned
+        session.lead_state[f"{field_name}_confidence"] = 1.0
+        session.lead_state[f"{field_name}_needs_retry"] = False
+        session.lead_state[f"{field_name}_needs_confirmation"] = False
+        return
+
+    # === לוגיקה קיימת / majority / auto-correct ===
+
+	•	אם field_name == "city" – זה עדיין עובד, אבל בלי majority הזוי.
+	•	אם field_name == "service_type" – אותו עיקרון.
+
+⸻
+
+5. השתלבות עם “הגדרות שליטת שיחה”
+
+ה-loop המרכזי ב־SIMPLE_MODE צריך לעבוד ככה:
+
+def get_next_missing_field(session):
+    for f in session.required_fields:
+        if not session.lead_state.get(f):
+            return f
+    return None
+
+בכל פעם שהמשתמש מדבר:
+	1.	ה־NLP/Parser (גם אם פשוט) מקבל:
+	•	הטקסט האחרון
+	•	רשימת required_fields
+	2.	מחלץ מהמשפט כל שדה שהוא מצליח (לא רק עיר+שירות).
+	3.	מעדכן:
+
+for field_name, value in extracted_fields.items():
+    update_field_from_text(field_name, value, session)
+
+	4.	אחרי העדכון:
+
+missing = get_next_missing_field(session)
+
+
+
+	•	אם יש missing → שואלים עליו שאלה פשוטה.
+	•	אם אין → עוברים לשלב אישור + סיום.
+
+⸻
+
+6. Appointment vs Lead – דינמי
+
+6.1 אם goal == “lead_only”
+
+flow:
+	1.	ממלאים את כל required_fields.
+	2.	אם confirm_before_hangup = True:
+	•	נותן משפט סיכום:
+“אז אני מסכם: <שדות ברשימה>. זה נכון?”
+	•	אם המשתמש אומר “כן / נכון / מעולה”:
+	•	“מושלם, מעבירים את זה לנציג. יום טוב 🙂” → ניתוק.
+	•	אם “לא”:
+	•	“סבבה, תגיד לי שוב מה צריך לתקן ונעדכן.”
+	3.	אם confirm_before_hangup = False:
+	•	לא צריך לשאול “זה נכון?” – ישר לפרידה:
+	•	“תודה, קיבלתי את כל הפרטים. נציג יחזור אליך. יום טוב 🙂” → ניתוק.
+
+6.2 אם goal == “appointment”
+
+ה-call_profile אומר שהמטרה היא תיאום פגישה.
+ב־SIMPLE_MODE:
+	1.	קודם ממלאים את כל השדות הבסיס (לפי required_fields):
+	•	שם
+	•	טלפון
+	•	שירות
+	•	עיר
+	2.	אם datetime קיים ב־required_fields:
+	•	שואל:
+“מתי נוח לך לקבוע? תוכל לומר יום ושעה, למשל ‘יום ראשון בשעה 18:00’.”
+	•	ה־NLP/Parser מחלץ מזה:
+	•	תאריך
+	•	שעה
+	•	אם לא ברור – שואל שוב פשוט, לא לולאות אינסופיות.
+	3.	אחרי שיש הכל → משפט סיכום קצר:
+	•	“אז קבענו לך <שירות> ב<עיר> ליום <תאריך> בשעה <שעה>. זה נכון?”
+	•	אם “כן”:
+	•	יוצרים את ה־appointment במערכת
+	•	“מעולה, קבעתי את הפגישה. תקבלו אישור / נציג יחזור אליך. יום טוב 🙂” → ניתוק.
+	•	אם “לא”:
+	•	“סבבה, תגיד לי מה צריך לתקן – הזמן, היום או המקום?”
+
+⸻
+
+7. ניתוק, שלום, ושקט – פשוט
+
+ב־SIMPLE_MODE:
+	1.	לא:
+	•	SILENCE_HANDLER עם 1/2 warnings
+	•	loop guard שמתנגש עם תשובות
+	2.	כן:
+	•	טיימאאוט אחד פשוט:
+	•	אם עברו נניח 25–30 שניות בלי שהמשתמש אמר כלום:
+	•	“לא שמעתי ממך, אני אנתק עכשיו. יום טוב 🙂”
+	•	hangup.
+	3.	Smart Hangup:
+
+במקום מערכת ענקית של מצבים – אחרי שכל required_fields מלאים + אם צריך confirmation התקבל:
+
+if SIMPLE_MODE and all_fields_filled_and_confirmed:
+    say_goodbye()
+    hangup()
+
+
+⸻
+
+8. Greeting + barge-in – דינמי אבל פשוט
+
+8.1 ברכה דינמית לפי העסק
+
+הברכה נשארת “מחוממת מראש”, אבל כשה־AI ממשיך אחרי הברכה –
+הוא צריך להבין מה הוגדר ב־call_profile.
+
+למשל:
+	•	אם goal = "appointment" ויש required_fields = ["service_type", "city", "name", "phone", "datetime"]:
+	•	המשפט הראשון אחרי שהלקוח מדבר יכול להיות משהו כמו:
+“כדי לקבוע לך פגישה כמו שצריך, אני רק צריך לדעת מה השירות שאתה צריך, איפה (עיר), ושם וטלפון ליצירת קשר. נתחיל ממה אתה צריך?”
+	•	אם goal = "lead_only":
+	•	“כדי להעביר את זה לנציג, אני רק צריך כמה פרטים קצרים – מה אתה צריך, איפה, ושם וטלפון. נתחיל במה אתה צריך?”
+
+8.2 barge-in גם על הברכה
+
+מה שכבר יישמתם ב-BUILD 303:
+	•	אם הלקוח מדבר באמצע הברכה →
+לעצור מייד את האודיו → להקשיב לו → לקחת הקשר.
+
+ב־SIMPLE_MODE זה נשאר, רק בלי עוד שכבות חוסמות מסביב.
+
+⸻
+
+9. סיכום הנחיית-על למפתח (ב־2 שורות):
+	1.	SIMPLE_MODE = True בקוד
+→ לכבות majority/filters/loops מורכבים
+→ להישאר עם: greeting + barge-in + ניהול שדות לפי call_profile.
+	2.	הכל דינמי לפי הגדרות שליטת שיחה
+→ required_fields + goal (appointment/lead)
+→ ה־parser ממלא שדות, שואל רק על מה שחסר, מסכם, מאשר, נפרד, מנתק.
+
+⸻
+
+אם תרצה, בהודעה הבאה אוכל לכתוב לך בדיוק
+איך לנסח משפטים לבוט (לא system prompt, אלא הטקסטים שהוא אומר בפועל)
+גם ל־lead בלבד וגם לפגישה – לפי השדות שיש ב־call_profile.

@@ -1,0 +1,118 @@
+ דהן, אני מתקשר מפרו סאס. איך אתה?
+prosaas-backend  | נציג: יופי, שמח לשמוע. אני רוצה בקצרה להסביר איך אנחנו עוזרים לעסקים לענות לכל השיחות וההודעות בצורה אוטומטית. אפשר לקחת כמה שניות?
+prosaas-backend  | נציג: אז ככה, פרו סא...
+prosaas-backend  | 🔍 [NLP] Calling GPT-4o-mini with model=gpt-4o-mini, temperature=0.1
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=True, user_has_spoken=True, waiting_for_dtmf=False, rms=9, voice_frames=0
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 1700 frames (rms=8, reason=noise)
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 5868 bytes
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=True, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: בדיוק. ככה אתה לא מפספס אף שיחה, והלקוחות שלך מקבלים מענה מיידי. המערכת גם מרכזת את כל התקשורת – שיחות, וואטסאפ וטפסים – במקום אחד.
+prosaas-backend  | 💰 [COST] AI utterance: 2.57s (132 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'בדיוק. ככה אתה לא מפספס אף שיח...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=incomplete, output_count=1, details={'type': 'incomplete', 'reason': 'max_output_tokens'}
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 
+prosaas-backend  | ============================================================
+prosaas-backend  | 🔍 [NLP RESULT] GPT-4o-mini extraction complete
+prosaas-backend  | ============================================================
+prosaas-backend  | 📄 [NLP RESULT] Raw response: {"action":"none","date":null,"time":null,"name":null,"confidence":1.0}
+prosaas-backend  | 📊 [NLP RESULT] Parsed values:
+prosaas-backend  | 📊 [NLP RESULT]   - action: none
+prosaas-backend  | 📊 [NLP RESULT]   - date: None
+prosaas-backend  | 📊 [NLP RESULT]   - time: None
+prosaas-backend  | 📊 [NLP RESULT]   - name: None
+prosaas-backend  | 📊 [NLP RESULT]   - confidence: 1.0
+prosaas-backend  | ============================================================
+prosaas-backend  | 
+prosaas-backend  | 🔍 [NLP] ◀️ NLP result: {'action': 'none', 'date': None, 'time': None, 'name': None, 'confidence': 1.0}
+prosaas-backend  | 📭 [NLP] No appointment action detected (action=none)
+prosaas-backend  | [TX] fps=51 q=424/800
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 1800 frames (rms=8, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | INFO:     127.0.0.1:45196 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 1900 frames (rms=8, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 2000 frames (rms=8, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🎤 END OF UTTERANCE: 3.0s audio, conversation #2
+prosaas-backend  | 🧠 STATE -> PROCESSING | len=47680 | silence_ms=10877
+prosaas-backend  | ⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+prosaas-backend  | ✅ Processing complete for conversation #2
+prosaas-backend  | 💓 WS_KEEPALIVE #3 (prevents 5min timeout)
+prosaas-backend  | 🎙️ REAL_VOICE: rms=184.0 > threshold=131.8
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 2100 frames (rms=74, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=13, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 2200 frames (rms=65, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 2300 frames (rms=12, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=15, voice_frames=0
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=9, role=owner, business_id=1, computed_tenant=1, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=1, g.tenant=1
+prosaas-backend  | 🔔 Querying reminders for tenant_id=1, is_system_admin=False
+prosaas-backend  | WS_STOP sid=MZ85ac950af3ead6b44e91a02ae4c318d9 rx=2801 tx=1842
+prosaas-backend  | 📞 [SES-a9fe4e06] CALL ENDED - duration=55.8s, business_id=1, rx=2801, tx=1842
+prosaas-backend  | 📤 [REALTIME] Audio sender ended
+prosaas-backend  | 📝 [REALTIME] Text sender ended
+prosaas-backend  | 🧹 Waiting for 5 background threads...

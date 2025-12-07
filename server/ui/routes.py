@@ -1232,10 +1232,10 @@ def ui_biz_contracts():
     business_id = effective_business_id()
     
     try:
-        # Mock contracts for now
+        # 🔥 BUILD 200: GENERIC mock contracts - no hardcoded business types!
         contracts = [
-            {'id': 1, 'title': 'חוזה דירה תל אביב', 'client': 'יוסי כהן', 'status': 'signed', 'amount': 1200000},
-            {'id': 2, 'title': 'חוזה משרד רמת גן', 'client': 'חברת ABC', 'status': 'pending', 'amount': 800000},
+            {'id': 1, 'title': 'חוזה שירותים - לקוח 001', 'client': 'יוסי כהן', 'status': 'signed', 'amount': 5000},
+            {'id': 2, 'title': 'חוזה שירותים - לקוח 002', 'client': 'חברת ABC', 'status': 'pending', 'amount': 8000},
         ]
         
         # Return JSON for SPA instead of template  

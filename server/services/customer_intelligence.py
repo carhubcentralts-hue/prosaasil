@@ -335,25 +335,24 @@ class CustomerIntelligence:
                 info['name'] = match.group(1).strip()
                 break
         
-        # אזור
-        areas = ['תל אביב', 'רמת גן', 'רמלה', 'לוד', 'בית שמש', 'מודיעין', 
-                'פתח תקווה', 'רחובות', 'הרצליה', 'ירושלים', 'חיפה', 'באר שבע']
-        for area in areas:
-            if area in text:
-                info['area'] = area
-                break
+        # אזור - 🔥 BUILD 186: Use dynamic lexicon instead of hardcoded list
+        try:
+            from server.services.hebrew_stt_validator import load_hebrew_lexicon
+            cities_set, _, _ = load_hebrew_lexicon()
+            for area in cities_set:
+                if len(area) > 2 and area in text:
+                    info['area'] = area
+                    break
+        except Exception:
+            pass  # If lexicon not available, skip area detection
         
-        # סוג נכס
-        property_types = ['דירה', 'חדרים', '2 חדרים', '3 חדרים', '4 חדרים', 'משרד', 'דופלקס', 'פנטהאוס']
-        for prop_type in property_types:
-            if prop_type in text:
-                info['property_type'] = prop_type
-                break
+        # 🔥 BUILD 200: REMOVED hardcoded property_type detection
+        # Property types are business-specific (real estate, medical, etc.)
+        # This is now handled dynamically by AI prompts per business
         
-        # תקציב - חפש מספרים עם שקל/אלף/מיליון
-        budget_match = re.search(r'(\d+(?:,\d+)*)\s*(שקל|אלף|מיליון|₪)', text)
-        if budget_match:
-            info['budget'] = budget_match.group(0)
+        # 🔥 BUILD 200: REMOVED hardcoded budget detection
+        # Budget is a business-specific field, not all businesses need it
+        # This is now handled dynamically by AI prompts per business
         
         return info
     
@@ -623,9 +622,11 @@ class CustomerIntelligence:
         return lead
     
     def _generate_text_summary(self, text: str) -> str:
-        """BUILD 147: סיכום טקסט דינמי באמצעות GPT-4o-mini"""
+        """BUILD 147: סיכום טקסט דינמי באמצעות GPT-4o-mini
+        BUILD 183: Returns empty string if no user speech (don't hallucinate!)
+        """
         if not text or len(text) < 20:
-            return "שיחה קצרה"
+            return ""  # 🔥 BUILD 183: Return empty, not fake text!
         
         try:
             # Use the dynamic summary service for AI-powered summaries
@@ -644,23 +645,16 @@ class CustomerIntelligence:
                 business_name=business_name
             )
             
+            # 🔥 BUILD 183: summarize_conversation returns "" if no user speech
+            # Respect that and return empty - don't hallucinate!
             if summary and len(summary) > 10:
                 return summary
+            else:
+                return ""  # No summary generated = return empty
                 
         except Exception as e:
-            log.warning(f"⚠️ Dynamic summary failed, using fallback: {e}")
-        
-        # Fallback: Basic keyword-based summary (only if GPT fails)
-        if "פגישה" in text:
-            return "בקשה לתיאום פגישה"
-        elif "לא מעוניין" in text:
-            return "הביע חוסר עניין"
-        elif "תקציב" in text and "אזור" in text:
-            return "דיון על תקציב ומיקום"
-        elif "דירה" in text or "חדרים" in text:
-            return "עניין בנכסי מגורים"
-        else:
-            return f"שיחה כללית ({len(text)} תווים)"
+            log.warning(f"⚠️ Dynamic summary failed: {e}")
+            return ""  # 🔥 BUILD 183: On error, return empty, not fake text
     
     def _classify_intent(self, text: str) -> str:
         """סווג כוונה מהטקסט"""

@@ -1,0 +1,1322 @@
+e definitions                                 0.0s
+ => => reading from stdin 1.32kB                                           0.0s
+ => [frontend internal] load build definition from Dockerfile.frontend     0.1s
+ => => transferring dockerfile: 900B                                       0.0s
+ => [backend internal] load build definition from Dockerfile.backend       0.1s
+ => => transferring dockerfile: 959B                                       0.0s
+ => [baileys internal] load build definition from Dockerfile.baileys       0.1s
+ => => transferring dockerfile: 1.05kB                                     0.0s
+ => [baileys internal] load metadata for docker.io/library/node:20-slim    0.7s
+ => [frontend internal] load metadata for docker.io/library/nginx:alpine   0.9s
+ => [backend internal] load metadata for docker.io/library/python:3.11-sl  1.4s
+ => [backend internal] load .dockerignore                                  0.0s
+ => => transferring context: 792B                                          0.0s
+ => [frontend 1/7] FROM docker.io/library/node:20-slim@sha256:fbb357f69d0  0.1s
+ => => resolve docker.io/library/node:20-slim@sha256:fbb357f69d05c9733385  0.0s
+ => [baileys internal] load build context                                  0.1s
+ => => transferring context: 92.53kB                                       0.1s 
+ => [frontend 2/7] WORKDIR /app                                            0.1s 
+ => [frontend internal] load build context                                 0.1s 
+ => => transferring context: 1.31MB                                        0.1s 
+ => [frontend stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:b3c  0.1s 
+ => => resolve docker.io/library/nginx:alpine@sha256:b3c656d55d7ad751196f  0.0s 
+ => [baileys 3/7] RUN apt-get update && apt-get install -y --no-install-r  4.6s
+ => [frontend builder 3/6] COPY client/package*.json ./                    0.0s
+ => [frontend builder 4/6] RUN npm install                                10.7s
+ => [frontend stage-1 2/3] COPY docker/nginx.conf /etc/nginx/conf.d/defau  0.0s
+ => [backend 1/9] FROM docker.io/library/python:3.11-slim@sha256:193fdd0b  0.1s
+ => => resolve docker.io/library/python:3.11-slim@sha256:193fdd0bbcb3d2ae  0.0s
+ => [backend internal] load build context                                  0.1s
+ => => transferring context: 2.58MB                                        0.1s
+ => [backend 2/9] WORKDIR /app                                             0.0s
+ => [backend 3/9] RUN apt-get update && apt-get install -y --no-install-  19.8s
+ => [baileys 4/7] COPY services/whatsapp/package*.json ./                  0.0s
+ => [baileys 5/7] RUN npm install --omit=dev                               6.0s
+ => [baileys 6/7] COPY services/whatsapp/baileys_service.js ./             0.2s
+ => [frontend builder 5/6] COPY client/ ./                                 0.2s
+ => [baileys 7/7] RUN mkdir -p auth_info_baileys                           0.2s
+ => [frontend builder 6/6] RUN npm run build                               7.5s
+ => [baileys] exporting to image                                           4.3s
+ => => exporting layers                                                    2.9s
+ => => exporting manifest sha256:867c0f7e01b747e721704edde35f5d45927ae4a9  0.0s
+ => => exporting config sha256:b709e2e771efbaa350a505a7368ade413a88bceefa  0.0s
+ => => exporting attestation manifest sha256:f0bf21cb00f70cef9acd4124d286  0.0s
+ => => exporting manifest list sha256:148ddf576887dfa2c3d8337c43a314d0981  0.0s
+ => => naming to docker.io/library/prosaasil-baileys:latest                0.0s
+ => => unpacking to docker.io/library/prosaasil-baileys:latest             1.3s
+ => [baileys] resolving provenance for metadata file                       0.0s
+ => [frontend stage-1 3/3] COPY --from=builder /app/dist /usr/share/nginx  0.1s
+ => [frontend] exporting to image                                          0.4s
+ => => exporting layers                                                    0.2s
+ => => exporting manifest sha256:71a460d3483a3e687c1c1f921ea23b2e3647ed4d  0.0s
+ => => exporting config sha256:c4ae98cca916770152d0ae234616dad08449b9e4d6  0.0s
+ => => exporting attestation manifest sha256:5aa2b60939f08496e801f1f50509  0.0s
+ => => exporting manifest list sha256:b9bd5aaf8c5fb34a77b5995dbceb0fe5b02  0.0s
+ => => naming to docker.io/library/prosaasil-frontend:latest               0.0s
+ => => unpacking to docker.io/library/prosaasil-frontend:latest            0.1s
+ => [frontend] resolving provenance for metadata file                      0.0s
+ => [backend 4/9] COPY pyproject.toml ./                                   0.1s
+ => [backend 5/9] COPY server/ ./server/                                   0.0s
+ => [backend 6/9] COPY asgi.py wsgi.py run_server.py ./                    0.0s
+ => [backend 7/9] RUN pip install --no-cache-dir --upgrade pip &&     pi  38.8s
+ => [backend 8/9] RUN mkdir -p server/public                               0.3s
+ => [backend 9/9] RUN mkdir -p storage/recordings storage/whatsapp logs    0.3s
+ => [backend] exporting to image                                          24.4s
+ => => exporting layers                                                   17.7s
+ => => exporting manifest sha256:209ee2486bd692e934d103bc9a07388e75142ee8  0.0s
+ => => exporting config sha256:9a541a9d614b5871f208559b269c6d0eb020bf912d  0.0s
+ => => exporting attestation manifest sha256:6e7d3b7139ebe3dd50266ebbe788  0.0s
+ => => exporting manifest list sha256:7dca30d0e6f47ad2aa200040eb8865ca9c0  0.0s
+ => => naming to docker.io/library/prosaasil-backend:latest                0.0s
+ => => unpacking to docker.io/library/prosaasil-backend:latest             6.6s
+ => [backend] resolving provenance for metadata file                       0.0s
+[+] Running 9/9
+ ✔ prosaasil-backend           Built                                       0.0s 
+ ✔ prosaasil-frontend          Built                                       0.0s 
+ ✔ prosaasil-baileys           Built                                       0.0s 
+ ✔ Network prosaasil_default   Created                                     0.0s 
+ ✔ Container prosaas-db        Started                                     1.6s 
+ ✔ Container prosaas-n8n       Started                                     0.5s 
+ ✔ Container prosaas-backend   Started                                     0.5s 
+ ✔ Container prosaas-frontend  Started                                     0.7s 
+ ✔ Container prosaas-baileys   Started                                     0.6s 
+root@vmi2930819:/opt/prosaasil# cd /opt/prosaasil
+docker compose logs -f backend
+WARN[0000] The "TWILIO_PHONE_NUMBER" variable is not set. Defaulting to a blank string. 
+prosaas-backend  | INFO:     Started server process [1]
+prosaas-backend  | INFO:     Waiting for application startup.
+prosaas-backend  | INFO:     Application startup complete.
+prosaas-backend  | INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+prosaas-backend  | 🔥🔥🔥 WARMUP STARTING - Preloading all services...
+prosaas-backend  |   🔥 Warming OpenAI client...
+prosaas-backend  |     ✅ OpenAI client ready
+prosaas-backend  |   🔥 Warming Google TTS client...
+prosaas-backend  |     ❌ TTS client failed
+prosaas-backend  |   🔥 Warming Google STT client...
+prosaas-backend  |     ❌ STT client failed
+prosaas-backend  | 🔥🔥🔥 WARMUP STARTING - Preloading all services...
+prosaas-backend  |   🔥 Warming OpenAI client...
+prosaas-backend  |     ✅ OpenAI client ready
+prosaas-backend  |   🔥 Warming Google TTS client...
+prosaas-backend  |     ❌ TTS client failed
+prosaas-backend  |   🔥 Warming Google STT client...
+prosaas-backend  |     ❌ STT client failed
+prosaas-backend  | 🔥🔥🔥 WARMUP STARTING - Preloading all services...
+prosaas-backend  |   🔥 Warming OpenAI client...
+prosaas-backend  |     ✅ OpenAI client ready
+prosaas-backend  |   🔥 Warming Google TTS client...
+prosaas-backend  |     ❌ TTS client failed
+prosaas-backend  |   🔥 Warming Google STT client...
+prosaas-backend  |     ❌ STT client failed
+prosaas-backend  | 🔒 LAYER 1 (BEFORE): 0 FAQs in database
+prosaas-backend  | 🔒 LAYER 1 (BEFORE): 0 FAQs in database
+prosaas-backend  | 🔒 LAYER 1 (BEFORE): 19 leads in database
+prosaas-backend  | 🔒 LAYER 1 (BEFORE): 19 leads in database
+prosaas-backend  | 🔒 LAYER 1 (BEFORE): 0 FAQs in database
+prosaas-backend  | 🔒 LAYER 1 (BEFORE): 19 leads in database
+prosaas-backend  | 
+prosaas-backend  | 🔥 WARMUP: Pre-creating agents for active businesses...
+prosaas-backend  | 
+prosaas-backend  | 🔥 WARMUP: Pre-creating agents for active businesses...
+prosaas-backend  | 
+prosaas-backend  | 🔥 WARMUP: Pre-creating agents for active businesses...
+prosaas-backend  | [WA-SESSION] 📱 Background processor thread started - checking every 5 minutes
+prosaas-backend  | INFO:     172.18.0.6:49860 - "POST /api/auth/logout HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     127.0.0.1:54654 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.6:49868 - "POST /api/auth/logout HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.6:42756 - "POST /api/auth/logout HTTP/1.1" 200 OK
+prosaas-backend  | 📊 Found 2 businesses to warm up
+prosaas-backend  | 📋 PROMPT LOADING: business_id=10, channel=calls, custom_instructions provided=False
+prosaas-backend  | ⚠️ Could not load DB prompt for business=10: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | 🔨 CALLING create_booking_agent(business_id=10, channel=calls)
+prosaas-backend  | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+prosaas-backend  | 
+prosaas-backend  | ⚠️  NO DB prompt - using minimal fallback for קליבר
+prosaas-backend  | 
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📜 AGENT INSTRUCTIONS (first 500 chars):
+prosaas-backend  | ================================================================================
+prosaas-backend  | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+prosaas-backend  | TODAY: 2025-12-04 19:51 (Israel)
+prosaas-backend  | TOMORROW: 2025-12-05
+prosaas-backend  | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+prosaas-backend  | 
+prosaas-backend  | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+prosaas-backend  | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+prosaas-backend  | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+prosaas-backend  | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+prosaas-backend  | 4. 🔥 BUILD 112: 
+prosaas-backend  | ...
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📅 Today calculated as: 2025-12-04 (Thursday)
+prosaas-backend  | 📅 Tomorrow calculated as: 2025-12-05
+prosaas-backend  | ================================================================================
+prosaas-backend  | 
+prosaas-backend  | ✅ create_booking_agent RETURNED: True
+prosaas-backend  | ⏱️  AGENT_CREATION_TIME: 240ms
+prosaas-backend  | ✅ Warmed: קליבר (calls)
+prosaas-backend  | 📋 PROMPT LOADING: business_id=10, channel=whatsapp, custom_instructions provided=False
+prosaas-backend  | 📊 Found 2 businesses to warm up
+prosaas-backend  | ⚠️ Could not load DB prompt for business=10: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | 🔨 CALLING create_booking_agent(business_id=10, channel=whatsapp)
+prosaas-backend  | 
+prosaas-backend  | ⚠️  NO DB prompt - using minimal fallback for קליבר
+prosaas-backend  | 
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📜 AGENT INSTRUCTIONS (first 500 chars):
+prosaas-backend  | ================================================================================
+prosaas-backend  | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+prosaas-backend  | TODAY: 2025-12-04 19:51 (Israel)
+prosaas-backend  | TOMORROW: 2025-12-05
+prosaas-backend  | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+prosaas-backend  | 
+prosaas-backend  | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+prosaas-backend  | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+prosaas-backend  | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+prosaas-backend  | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+prosaas-backend  | 4. 🔥 BUILD 112: 
+prosaas-backend  | ...
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📅 Today calculated as: 2025-12-04 (Thursday)
+prosaas-backend  | 📅 Tomorrow calculated as: 2025-12-05
+prosaas-backend  | ================================================================================
+prosaas-backend  | 
+prosaas-backend  | ✅ create_booking_agent RETURNED: True
+prosaas-backend  | ⏱️  AGENT_CREATION_TIME: 118ms
+prosaas-backend  | ✅ Warmed: קליבר (whatsapp)
+prosaas-backend  | ✅ Warmed: קליבר (calls)
+prosaas-backend  | 📋 PROMPT LOADING: business_id=1, channel=calls, custom_instructions provided=False
+prosaas-backend  | ✅ DATA PROTECTION: 19 leads preserved (no deletions)
+prosaas-backend  | ⚠️ Could not load DB prompt for business=1: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | 🔨 CALLING create_booking_agent(business_id=1, channel=calls)
+prosaas-backend  |   🔥 Warming 2 active businesses (Agent Cache)...
+prosaas-backend  | 📊 Found 2 businesses to warm up
+prosaas-backend  | 
+prosaas-backend  | ⚠️  NO DB prompt - using minimal fallback for פרו סאס
+prosaas-backend  | 
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📜 AGENT INSTRUCTIONS (first 500 chars):
+prosaas-backend  | ================================================================================
+prosaas-backend  | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+prosaas-backend  | TODAY: 2025-12-04 19:51 (Israel)
+prosaas-backend  | TOMORROW: 2025-12-05
+prosaas-backend  | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+prosaas-backend  | 
+prosaas-backend  | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+prosaas-backend  | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+prosaas-backend  | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+prosaas-backend  | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+prosaas-backend  | 4. 🔥 BUILD 112: 
+prosaas-backend  | ...
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📅 Today calculated as: 2025-12-04 (Thursday)
+prosaas-backend  | 📅 Tomorrow calculated as: 2025-12-05
+prosaas-backend  | ================================================================================
+prosaas-backend  | 
+prosaas-backend  | ✅ create_booking_agent RETURNED: True
+prosaas-backend  | ⏱️  AGENT_CREATION_TIME: 231ms
+prosaas-backend  | ✅ Warmed: פרו סאס (calls)
+prosaas-backend  | ✅ Warmed: קליבר (whatsapp)
+prosaas-backend  | ✅ Warmed: קליבר (calls)
+prosaas-backend  | 📋 PROMPT LOADING: business_id=1, channel=whatsapp, custom_instructions provided=False
+prosaas-backend  |   🔥 Warming 2 active businesses (Agent Cache)...
+prosaas-backend  |   🔥 Warming 2 active businesses (Agent Cache)...
+prosaas-backend  | 🔄 Starting admin roles migration...
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.UndefinedColumn: column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | ⚠️ Could not load DB prompt for business=1: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | 🔨 CALLING create_booking_agent(business_id=1, channel=whatsapp)
+prosaas-backend  | 
+prosaas-backend  | ⚠️  NO DB prompt - using minimal fallback for פרו סאס
+prosaas-backend  | 
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📜 AGENT INSTRUCTIONS (first 500 chars):
+prosaas-backend  | ================================================================================
+prosaas-backend  | 🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
+prosaas-backend  | TODAY: 2025-12-04 19:51 (Israel)
+prosaas-backend  | TOMORROW: 2025-12-05
+prosaas-backend  | APPOINTMENT INTERVALS: תורים בעסק הזה ניתנים לקביעה כל שעה (60 דקות)
+prosaas-backend  | 
+prosaas-backend  | ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
+prosaas-backend  | 1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
+prosaas-backend  | 2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+prosaas-backend  | 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
+prosaas-backend  | 4. 🔥 BUILD 112: 
+prosaas-backend  | ...
+prosaas-backend  | ================================================================================
+prosaas-backend  | 📅 Today calculated as: 2025-12-04 (Thursday)
+prosaas-backend  | 📅 Tomorrow calculated as: 2025-12-05
+prosaas-backend  | ================================================================================
+prosaas-backend  | 
+prosaas-backend  | ✅ create_booking_agent RETURNED: True
+prosaas-backend  | ⏱️  AGENT_CREATION_TIME: 115ms
+prosaas-backend  | ✅ Warmed: פרו סאס (whatsapp)
+prosaas-backend  | 
+prosaas-backend  | 🎉 WARMUP COMPLETE: 4 agents ready in 1637ms
+prosaas-backend  | ✅ Warmed: פרו סאס (calls)
+prosaas-backend  | ✅ Warmed: קליבר (whatsapp)
+prosaas-backend  | ✅ Warmed: פרו סאס (whatsapp)
+prosaas-backend  | 
+prosaas-backend  | 🎉 WARMUP COMPLETE: 4 agents ready in 1296ms
+prosaas-backend  | ✅ Warmed: פרו סאס (calls)
+prosaas-backend  | ✅ Warmed: פרו סאס (whatsapp)
+prosaas-backend  | 
+prosaas-backend  | 🎉 WARMUP COMPLETE: 4 agents ready in 1023ms
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.UndefinedColumn: column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.UndefinedColumn: column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | 📊 Found 1 users with legacy roles
+prosaas-backend  | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | 
+prosaas-backend  | ✅ Successfully migrated 1 users to new role structure!
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  | 
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  | 🔥🔥🔥 WARMUP COMPLETE: 0/4 agents ready in 437ms
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  | 🚀 System preheated - First AI response will be FAST!
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  | 
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  | 
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  | 🔥🔥🔥 WARMUP COMPLETE: 0/4 agents ready in 462ms
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  | 🚀 System preheated - First AI response will be FAST!
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  | 
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | ✅ Service warmup thread completed
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.InFailedSqlTransaction: current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/services/lazy_services.py", line 194, in _warmup
+prosaas-backend  |     settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+prosaas-backend  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.InternalError: (psycopg2.errors.InFailedSqlTransaction) current transaction is aborted, commands ignored until end of transaction block
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | 🔥🔥🔥 WARMUP COMPLETE: 0/4 agents ready in 468ms
+prosaas-backend  | 🚀 System preheated - First AI response will be FAST!
+prosaas-backend  | 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 10, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/2j85)
+prosaas-backend  | ✅ Service warmup thread completed
+prosaas-backend  | ✅ Service warmup thread completed
+prosaas-backend  | INFO:     172.18.0.6:55214 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.6:55220 - "GET /api/auth/me HTTP/1.1" 401 Unauthorized
+prosaas-backend  | 👤 Admin exists (ID=8), resetting password to 'admin123'
+prosaas-backend  | ✅ Admin password reset: admin@admin.com / admin123
+prosaas-backend  | 🔧 Starting database initialization...
+prosaas-backend  | ✅ Business exists: פרו סאס (ID: 1)
+prosaas-backend  | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+prosaas-backend  | 
+prosaas-backend  | 📊 Total users in database: 6
+prosaas-backend  |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+prosaas-backend  |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+prosaas-backend  |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+prosaas-backend  |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+prosaas-backend  |   - User 10: calliber@gmail.com | role=owner | business_id=10
+prosaas-backend  |   - User 8: admin@admin.com | role=system_admin | business_id=None
+prosaas-backend  | ✅ Lead statuses exist: 4 statuses found
+prosaas-backend  | ✅ FAQs table exists: 0 FAQs found across all businesses
+prosaas-backend  | ❌ Database initialization failed: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.UndefinedColumn: column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/init_database.py", line 172, in initialize_production_database
+prosaas-backend  |     existing_settings = BusinessSettings.query.filter_by(tenant_id=business.id).first()
+prosaas-backend  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | 
+prosaas-backend  | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+prosaas-backend  | ✅ DATA PROTECTION: 19 leads preserved (no deletions)
+prosaas-backend  | 🔄 Starting admin roles migration...
+prosaas-backend  | 📊 Found 1 users with legacy roles
+prosaas-backend  | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+prosaas-backend  | 
+prosaas-backend  | ✅ Successfully migrated 1 users to new role structure!
+prosaas-backend  | 🔐 LOGIN ATTEMPT: email=calliber@gmail.com
+prosaas-backend  | ✓ Found user: id=10, email=calliber@gmail.com, role=owner
+prosaas-backend  | ✓ Password hash: scrypt:32768:8:1$NwJjYhcFJjcNjejm$9cc6e19d7dbac0ba...
+prosaas-backend  | ✓ Password verification result: True
+prosaas-backend  | 👤 Admin exists (ID=8), resetting password to 'admin123'
+prosaas-backend  | ✅ Admin password reset: admin@admin.com / admin123
+prosaas-backend  | 🔧 Starting database initialization...
+prosaas-backend  | 🔍 LOGIN SUCCESS: user_id=10, email=calliber@gmail.com, role=owner, business_id=10
+prosaas-backend  | INFO:     172.18.0.6:55230 - "POST /api/auth/login HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.6:55246 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | ✅ Business exists: פרו סאס (ID: 1)
+prosaas-backend  | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+prosaas-backend  | 
+prosaas-backend  | 📊 Total users in database: 6
+prosaas-backend  |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+prosaas-backend  |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+prosaas-backend  |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+prosaas-backend  |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+prosaas-backend  |   - User 10: calliber@gmail.com | role=owner | business_id=10
+prosaas-backend  |   - User 8: admin@admin.com | role=system_admin | business_id=None
+prosaas-backend  | ✅ Lead statuses exist: 4 statuses found
+prosaas-backend  | ✅ FAQs table exists: 0 FAQs found across all businesses
+prosaas-backend  | ✅ DATA PROTECTION: 0 FAQs preserved (no deletions)
+prosaas-backend  | ❌ Database initialization failed: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.UndefinedColumn: column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/init_database.py", line 172, in initialize_production_database
+prosaas-backend  |     existing_settings = BusinessSettings.query.filter_by(tenant_id=business.id).first()
+prosaas-backend  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | 
+prosaas-backend  | ✅ DATA PROTECTION: 19 leads preserved (no deletions)
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.6:55250 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.6:43222 - "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 403 Forbidden
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔄 Starting admin roles migration...
+prosaas-backend  | 📊 Found 1 users with legacy roles
+prosaas-backend  | 📝 Business admin: 'admin@shai-realestate.co.il' (ID=7): admin -> admin (business_id=1)
+prosaas-backend  | 
+prosaas-backend  | ✅ Successfully migrated 1 users to new role structure!
+prosaas-backend  | INFO:     172.18.0.6:43230 - "GET /api/dashboard/stats?time_filter=today HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 👤 Admin exists (ID=8), resetting password to 'admin123'
+prosaas-backend  | ✅ Admin password reset: admin@admin.com / admin123
+prosaas-backend  | 🔧 Starting database initialization...
+prosaas-backend  | INFO:     172.18.0.6:43236 - "GET /api/dashboard/activity?time_filter=today HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     172.18.0.6:43252 - "GET /api/auth/csrf HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | ✅ Business exists: פרו סאס (ID: 1)
+prosaas-backend  | ✅ System admin user exists: admin@admin.com (ID: 8, role: system_admin, business_id: None)
+prosaas-backend  | 
+prosaas-backend  | 📊 Total users in database: 6
+prosaas-backend  |   - User 8: admin@admin.com | role=system_admin | business_id=None
+prosaas-backend  |   - User 3: manager@shai-realestate.co.il | role=agent | business_id=1
+prosaas-backend  |   - User 2: business@shai-offices.co.il | role=owner | business_id=1
+prosaas-backend  |   - User 7: admin@shai-realestate.co.il | role=admin | business_id=1
+prosaas-backend  |   - User 9: freezeb123@gmail.com | role=owner | business_id=1
+prosaas-backend  |   - User 10: calliber@gmail.com | role=owner | business_id=10
+prosaas-backend  | ✅ Lead statuses exist: 4 statuses found
+prosaas-backend  | ✅ FAQs table exists: 0 FAQs found across all businesses
+prosaas-backend  | ❌ Database initialization failed: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | psycopg2.errors.UndefinedColumn: column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | 
+prosaas-backend  | The above exception was the direct cause of the following exception:
+prosaas-backend  | 
+prosaas-backend  | Traceback (most recent call last):
+prosaas-backend  |   File "/app/server/init_database.py", line 172, in initialize_production_database
+prosaas-backend  |     existing_settings = BusinessSettings.query.filter_by(tenant_id=business.id).first()
+prosaas-backend  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2759, in first
+prosaas-backend  |     return self.limit(1)._iter().first()  # type: ignore
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+prosaas-backend  |     result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+prosaas-backend  |                                                   ^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2351, in execute
+prosaas-backend  |     return self._execute_internal(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/session.py", line 2249, in _execute_internal
+prosaas-backend  |     result: Result[Any] = compile_state_cls.orm_execute_statement(
+prosaas-backend  |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+prosaas-backend  |     result = conn.execute(
+prosaas-backend  |              ^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+prosaas-backend  |     return meth(
+prosaas-backend  |            ^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+prosaas-backend  |     return connection._execute_clauseelement(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+prosaas-backend  |     ret = self._execute_context(
+prosaas-backend  |           ^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+prosaas-backend  |     return self._exec_single_context(
+prosaas-backend  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+prosaas-backend  |     self._handle_dbapi_exception(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+prosaas-backend  |     raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+prosaas-backend  |     self.dialect.do_execute(
+prosaas-backend  |   File "/usr/local/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+prosaas-backend  |     cursor.execute(statement, parameters)
+prosaas-backend  | sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column business_settings.inbound_webhook_url does not exist
+prosaas-backend  | LINE 1: ...ook_url AS business_settings_generic_webhook_url, business_s...
+prosaas-backend  |                                                              ^
+prosaas-backend  | 
+prosaas-backend  | [SQL: SELECT business_settings.tenant_id AS business_settings_tenant_id, business_settings.ai_prompt AS business_settings_ai_prompt, business_settings.outbound_ai_prompt AS business_settings_outbound_ai_prompt, business_settings.model AS business_settings_model, business_settings.max_tokens AS business_settings_max_tokens, business_settings.temperature AS business_settings_temperature, business_settings.phone_number AS business_settings_phone_number, business_settings.email AS business_settings_email, business_settings.address AS business_settings_address, business_settings.working_hours AS business_settings_working_hours, business_settings.timezone AS business_settings_timezone, business_settings.slot_size_min AS business_settings_slot_size_min, business_settings.allow_24_7 AS business_settings_allow_24_7, business_settings.opening_hours_json AS business_settings_opening_hours_json, business_settings.booking_window_days AS business_settings_booking_window_days, business_settings.min_notice_min AS business_settings_min_notice_min, business_settings.require_phone_before_booking AS business_settings_require_phone_before_booking, business_settings.generic_webhook_url AS business_settings_generic_webhook_url, business_settings.inbound_webhook_url AS business_settings_inbound_webhook_url, business_settings.outbound_webhook_url AS business_settings_outbound_webhook_url, business_settings.auto_end_after_lead_capture AS business_settings_auto_end_after_lead_capture, business_settings.auto_end_on_goodbye AS business_settings_auto_end_on_goodbye, business_settings.bot_speaks_first AS business_settings_bot_speaks_first, business_settings.silence_timeout_sec AS business_settings_silence_timeout_sec, business_settings.silence_max_warnings AS business_settings_silence_max_warnings, business_settings.smart_hangup_enabled AS business_settings_smart_hangup_enabled, business_settings.required_lead_fields AS business_settings_required_lead_fields, business_settings.updated_by AS business_settings_updated_by, business_settings.updated_at AS business_settings_updated_at 
+prosaas-backend  | FROM business_settings 
+prosaas-backend  | WHERE business_settings.tenant_id = %(tenant_id_1)s 
+prosaas-backend  |  LIMIT %(param_1)s]
+prosaas-backend  | [parameters: {'tenant_id_1': 1, 'param_1': 1}]
+prosaas-backend  | (Background on this error at: https://sqlalche.me/e/20/f405)
+prosaas-backend  | 
+prosaas-backend  | INFO:     172.18.0.6:43258 - "GET /api/business/current HTTP/1.1" 500 Internal Server Error
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.6:43268 - "GET /api/admin/businesses?pageSize=1 HTTP/1.1" 403 Forbidden
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.6:43272 - "GET /api/business/current HTTP/1.1" 500 Internal Server Error
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.6:43276 - "GET /api/business/current HTTP/1.1" 500 Internal Server Error
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.6:43292 - "GET /api/business/current/prompt HTTP/1.1" 500 Internal Server Error
+prosaas-backend  | INFO:     127.0.0.1:52852 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.6:52162 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     127.0.0.1:47796 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | [WA-SESSION] 📱 Check #1: Found 0 stale sessions to process
+p

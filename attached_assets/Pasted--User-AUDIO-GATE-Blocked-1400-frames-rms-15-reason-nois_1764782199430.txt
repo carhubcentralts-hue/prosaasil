@@ -1,0 +1,80 @@
+
+User
+🔇 [AUDIO GATE] Blocked 1400 frames (rms=15, reason=noise)
+2025-12-03 19:14:13.62
+0c6e688a
+User
+Rejected text: 'Bye. Bye...' (likely hallucination)
+2025-12-03 19:14:13.62
+0c6e688a
+User
+🔥 [BUILD 171 COOLDOWN] ❌ REJECTED: Transcript arrived 552ms after AI finished (min: 800ms)
+2025-12-03 19:14:15.33
+0c6e688a
+User
+🔇 [AUDIO GATE] Blocked 1500 frames (rms=18, reason=noise)
+2025-12-03 19:14:16.21
+0c6e688a
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=20, voice_frames=0
+2025-12-03 19:14:17.21
+0c6e688a
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=22, voice_frames=0
+2025-12-03 19:14:17.33
+0c6e688a
+User
+🔇 [AUDIO GATE] Blocked 1600 frames (rms=20, reason=noise)
+2025-12-03 19:14:18.21
+0c6e688a
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=16, voice_frames=0
+2025-12-03 19:14:19.02
+0c6e688a
+User
+WS_STOP sid=MZ5c7a17e09054febbe34016d50f1b7f71 rx=2125 tx=991
+2025-12-03 19:14:19.03
+0c6e688a
+User
+📞 [SES-37d5213a] CALL ENDED - duration=42.5s, business_id=1, rx=2125, tx=991
+
+2025-12-03 19:14:19.03
+0c6e688a
+User
+📤 [REALTIME] Audio sender ended
+2025-12-03 19:14:19.03
+0c6e688a
+User
+📝 [REALTIME] Text sender ended
+2025-12-03 19:14:19.07
+0c6e688a
+User
+STREAM_ENDED call=CAb64108e869f112ce0c9c3209bd359724 stream=N/A status=N/A
+2025-12-03 19:14:19.07
+0c6e688a
+User
+INFO: 34.75.40.8:0 - "POST /webhook/stream_ended HTTP/1.1" 204 No Content
+2025-12-03 19:14:19.07
+0c6e688a
+User
+🧹 Waiting for 5 background threads...
+2025-12-03 19:14:19.22
+0c6e688a
+User
+INFO: 35.196.159.84:0 - "POST /webhook/call_status HTTP/1.1" 204 No Content
+2025-12-03 19:14:19.24
+0c6e688a
+User
+✅ Found existing recording for CAb64108e869f112ce0c9c3209bd359724: /2010-04-01/Accounts/ACcd09431f076a309088b18ed1f286f32e/Recordings/REf2febf4425399d563f8a2a2cbca83448.json
+2025-12-03 19:14:19.33
+0c6e688a
+User
+✅ Recording queued for processing: CAb64108e869f112ce0c9c3209bd359724
+2025-12-03 19:14:20.02
+0c6e688a
+User
+INFO: connection closed
+2025-12-03 19:14:23.32
+0c6e688a
+User
+⚠️ Background thread 0 still running aft

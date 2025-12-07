@@ -1,0 +1,47 @@
+DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 2300 frames (rms=8, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 🔇 [AUDIO GATE] Blocked 2400 frames (rms=8, reason=noise)
+prosaas-backend  | 🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=8, voice_frames=0
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=21, tx_q=0) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still playing (ai_speaking=False, openai_q=0, tx_q=1) - retry in 500ms
+prosaas-backend  | 📞 [STATE] Transitioning to CLOSING (reason: silence_timeout)
+prosaas-backend  | 🛡️ [PROTECTION] Audio still p

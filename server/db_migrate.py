@@ -666,6 +666,82 @@ def apply_migrations():
             migrations_applied.append("add_bot_speaks_first")
             log.info("✅ Applied migration 28e: add_bot_speaks_first")
     
+    # Migration 29: BUILD 182 - Outbound lead lists for bulk import
+    if not check_table_exists('outbound_lead_lists'):
+        from sqlalchemy import text
+        db.session.execute(text("""
+            CREATE TABLE outbound_lead_lists (
+                id SERIAL PRIMARY KEY,
+                tenant_id INTEGER NOT NULL REFERENCES business(id),
+                name VARCHAR(255) NOT NULL,
+                file_name VARCHAR(255),
+                total_leads INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_outbound_lead_lists_tenant_id ON outbound_lead_lists(tenant_id)"))
+        migrations_applied.append("create_outbound_lead_lists_table")
+        log.info("✅ Applied migration 29a: create_outbound_lead_lists_table - Bulk import for outbound calls")
+    
+    # Migration 29b: Add outbound_list_id to leads table
+    if check_table_exists('leads') and not check_column_exists('leads', 'outbound_list_id'):
+        from sqlalchemy import text
+        db.session.execute(text("ALTER TABLE leads ADD COLUMN outbound_list_id INTEGER REFERENCES outbound_lead_lists(id)"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_leads_outbound_list_id ON leads(outbound_list_id)"))
+        migrations_applied.append("add_leads_outbound_list_id")
+        log.info("✅ Applied migration 29b: add_leads_outbound_list_id - Link leads to import lists")
+    
+    # Migration 30: BUILD 183 - Separate inbound/outbound webhook URLs
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'inbound_webhook_url'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN inbound_webhook_url VARCHAR(512)"))
+            migrations_applied.append("add_inbound_webhook_url")
+            log.info("✅ Applied migration 30a: add_inbound_webhook_url - Separate webhook for inbound calls")
+        
+        if not check_column_exists('business_settings', 'outbound_webhook_url'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN outbound_webhook_url VARCHAR(512)"))
+            migrations_applied.append("add_outbound_webhook_url")
+            log.info("✅ Applied migration 30b: add_outbound_webhook_url - Separate webhook for outbound calls")
+    
+    # Migration 31: BUILD 186 - Calendar scheduling toggle for inbound calls
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'enable_calendar_scheduling'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN enable_calendar_scheduling BOOLEAN DEFAULT TRUE"))
+            migrations_applied.append("add_enable_calendar_scheduling")
+            log.info("✅ Applied migration 31: add_enable_calendar_scheduling - Toggle for AI appointment scheduling")
+    
+    # Migration 32: BUILD 204 - Dynamic STT Vocabulary for per-business transcription quality
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'stt_vocabulary_json'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN stt_vocabulary_json JSON"))
+            migrations_applied.append("add_stt_vocabulary_json")
+            log.info("✅ Applied migration 32a: add_stt_vocabulary_json - Per-business STT vocabulary")
+        
+        if not check_column_exists('business_settings', 'business_context'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN business_context VARCHAR(500)"))
+            migrations_applied.append("add_business_context")
+            log.info("✅ Applied migration 32b: add_business_context - Business context for STT prompts")
+    
+    # Migration 33: BUILD 309 - SIMPLE_MODE settings for call flow control
+    if check_table_exists('business_settings'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('business_settings', 'call_goal'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN call_goal VARCHAR(50) DEFAULT 'lead_only'"))
+            migrations_applied.append("add_call_goal")
+            log.info("✅ Applied migration 33a: add_call_goal - Controls call objective (lead_only vs appointment)")
+        
+        if not check_column_exists('business_settings', 'confirm_before_hangup'):
+            db.session.execute(text("ALTER TABLE business_settings ADD COLUMN confirm_before_hangup BOOLEAN DEFAULT TRUE"))
+            migrations_applied.append("add_confirm_before_hangup")
+            log.info("✅ Applied migration 33b: add_confirm_before_hangup - Requires confirmation before disconnecting")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")

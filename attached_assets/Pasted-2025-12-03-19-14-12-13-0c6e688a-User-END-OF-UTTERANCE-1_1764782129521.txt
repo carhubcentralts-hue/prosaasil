@@ -1,0 +1,116 @@
+2025-12-03 19:14:12.13
+0c6e688a
+User
+🎤 END OF UTTERANCE: 1.2s audio, conversation #2
+2025-12-03 19:14:12.13
+0c6e688a
+User
+⏭️ [REALTIME] Skipping Google STT/TTS - using Realtime API only
+2025-12-03 19:14:12.21
+0c6e688a
+User
+🔍 [BARGE-IN DEBUG] is_ai_speaking=False, user_has_spoken=True, waiting_for_dtmf=False, rms=20, voice_frames=0
+2025-12-03 19:14:12.44
+0c6e688a
+User
+[REALTIME] event: input_audio_buffer.speech_stopped
+2025-12-03 19:14:12.44
+0c6e688a
+User
+🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED
+2025-12-03 19:14:12.45
+0c6e688a
+User
+🔊 [REALTIME] response.created: id=resp_Cikiaaj77r3VK3J...
+2025-12-03 19:14:12.45
+0c6e688a
+User
+[REALTIME] event: input_audio_buffer.committed
+2025-12-03 19:14:12.45
+0c6e688a
+User
+🎯 [RESPONSE.CREATED] id=resp_Cikiaaj77r3VK3J... status=in_progress modalities=['audio', 'text'] output_format=g711_ulaw
+2025-12-03 19:14:12.45
+0c6e688a
+User
+[REALTIME] event: conversation.item.created
+2025-12-03 19:14:12.75
+0c6e688a
+User
+🔊 [REALTIME] response.output_item.added
+2025-12-03 19:14:12.75
+0c6e688a
+User
+[REALTIME] event: conversation.item.created
+2025-12-03 19:14:12.76
+0c6e688a
+User
+🔊 [REALTIME] response.content_part.added
+2025-12-03 19:14:12.76
+0c6e688a
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 19:14:12.77
+0c6e688a
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 19:14:12.78
+0c6e688a
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 19:14:12.78
+0c6e688a
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 19:14:12.79
+0c6e688a
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 19:14:12.80
+0c6e688a
+User
+🔊 [REALTIME] response.audio_transcript.delta
+2025-12-03 19:14:12.87
+0c6e688a
+User
+🔊 [REALTIME] AI started speaking (audio.delta)
+2025-12-03 19:14:12.87
+0c6e688a
+User
+⚠️ [AUDIO GAP] 11386ms gap between chunks #59 and #60 - OpenAI delay!
+2025-12-03 19:14:12.87
+0c6e688a
+User
+🔊 [REALTIME] response.audio.delta: 1068 bytes
+2025-12-03 19:14:12.93
+0c6e688a
+User
+🔊 [REALTIME] response.audio.delta: 1600 bytes
+2025-12-03 19:14:12.98
+0c6e688a
+User
+🔊 [REALTIME] response.audio.delta: 2668 bytes
+2025-12-03 19:14:13.01
+0c6e688a
+User
+🔊 [REALTIME] response.audio.delta: 2668 bytes
+2025-12-03 19:14:13.06
+0c6e688a
+User
+🔊 [REALTIME] response.audio.delta: 4268 bytes
+2025-12-03 19:14:13.06
+0c6e688a
+User
+🔊 [REALTIME] response.audio_transcript.done
+2025-12-03 19:14:13.06
+0c6e688a
+User
+🔊 [REALTIME] response.audio.done
+2025-12-03 19:14:13.06
+0c6e688a
+User
+🛑 [LOOP GUARD] BLOCKING further responses until user speaks!
+2025-12-03 19:14:13.06
+0c6e688a
+User
+🔇 [REALTIME] A

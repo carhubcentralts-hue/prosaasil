@@ -1,0 +1,192 @@
+        if any(keyword.lower() in text_lower for keyword in keywords):
+                    return area_name
+        except Exception as e:
+            print(f"⚠️ [AREA] Error loading dynamic patterns: {e}")
+            
+        return ""
+    
+    def _analyze_lead_completeness(self) -> dict:
+        """BUILD 186: ניתוח השלמת מידע ליד לתיאום פגישה - 100% DYNAMIC!"""
+        collected_info = {
+            'area': False,
+            'property_type': False, 
+            'budget': False,
+            'timing': False,
+            'contact': False
+        }
+        
+        meeting_ready = False
+        
+        # בדוק היסטוריה לאיסוף מידע
+        if hasattr(self, 'conversation_history') and self.conversation_history:
+            full_conversation = ' '.join([turn['user'] + ' ' + turn['bot'] for turn in self.conversation_history])
+            
+            # 🔥 BUILD 186: זיהוי אזור DYNAMIC from JSON!
+            try:
+                from server.services.appointment_parser import _load_dynamic_area_patterns
+                area_patterns = _load_dynamic_area_patterns()
+                if any(area.lower() in full_conversation.lower() for area in area_patterns.keys()):
+                    collected_info['area'] = True
+            except:
+                pass
+            
+            # זיהוי סוג נכס
+            if any(prop_type in full_conversation for prop_type in ['דירה', 'חדרים', '2 חדרים', '3 חדרים', '4 חדרים', 'משרד', 'דופלקס']):
+                collected_info['property_type'] = True
+            
+            # זיהוי תקציב
+            if any(budget_word in full_conversation for budget_word in ['שקל', 'אלף', 'תקציב', '₪', 'אלפים', 'מיליון']):
+                collected_info['budget'] = True
+            
+            # זיהוי זמן כניסה
+            if any(timing in full_conversation for timing in ['מיידי', 'דחוף', 'חודש', 'שבועיים', 'בקרוב', 'עכשיו']):
+                collected_info['timing'] = True
+            
+            # זיהוי פרטי קשר
+            if any(contact in full_conversation for contact in ['טלפון', 'וואטסאפ', 'נייד', 'מספר', 'פרטים']):
+                collected_info['contact'] = True
+        
+        # ספירת מידע שנאסף
+        completed_fields = sum(collected_info.values())
+        
+        # ✅ FIX: תיאום פגישה אם יש לפחות 3 שדות (אזור + סוג נכס + טלפון)
+        # לא צריך תקציב ו-timing בהכרח!
+        meeting_ready = completed_fields >= 3
+        
+        # יצירת סיכום
+        summary_parts = []
+        if collected_info['area']: summary_parts.append('אזור')
+        if collected_info['property_type']: summary_parts.append('סוג נכס')
+        if collected_info['budget']: summary_parts.append('תקציב')
+        if collected_info['timing']: summary_parts.append('זמן')
+        if collected_info['contact']: summary_parts.append('קשר')
+        
+        summary = f"{len(summary_parts)}/5 שדות: {', '.join(summary_parts) if summary_parts else 'אין'}"
+        
+        # הודעה לתיאום פגישה או הצגת אופציות
+        meeting_prompt = ""
+        if meeting_ready:
+            meeting_prompt = f"""
+זמן לתיאום פגישה! יש מספיק מידע ({completed_fields}/5 שדות).
+
+**חשוב**: כשהלקוח מסכים לזמן ספציפי (לדוגמה "מחר ב-10" או "יום רביעי בערב"):
+1. חזור על הזמן המדויק שסוכם: "מצוין! נקבע פגישה ל[יום] בשעה [שעה מדויקת]"
+2. תן סיכום קצר: "נפגש ב[מיקום/נכס] ונראה [פרטי הנכס]"
+3. אשר: "אראה אותך ב[תאריך ושעה מדויקים]!"
+
+הצע 2-3 אפשרויות זמן ספציפיות, שמע מה הלקוח בוחר, וחזור על הזמן המדויק שהוסכם."""
+        elif completed_fields == 3:
+            meeting_prompt = """
+יש מידע בסיסי טוב! עכשיו תן דוגמה אחת ספציפית מתאימה ושאל שאלה ממוקדת לפני קביעת פגישה."""
+        else:
+            missing = 4 - completed_fields
+            meeting_prompt = f"צריך עוד {missing} שדות מידע לפני הצגת אופציות. המשך שיחה טבעית ותן פרטים נוספים על השוק והאזור."
+        
+        return {
+            'collected': collected_info,
+            'completed_count': completed_fields,
+            'meeting_ready': meeting_ready,
+            'summary': summary,
+            'meeting_prompt': meeting_prompt
+        }
+    
+    def _finalize_call_on_stop(self):
+        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות
+        🔥 BUILD 183: Only generate summary if USER actually spoke!
+        """
+        try:
+            from server.models_sql import CallLog
+            from server.services.customer_intelligence import CustomerIntelligence
+            from server.app_factory import create_app
+            from server.db import db
+            import threading
+            
+            def finalize_in_background():
+                try:
+                    app = _get_flask_app()  # ✅ Use singleton
+                    with app.app_context():
+                        # מצא call_log
+                        call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                        if not call_log:
+                            print(f"⚠️ No call_log found for final summary: {self.call_sid}")
+                            return
+                        
+                        # 🔥 BUILD 183: Check if user actually spoke before building summary
+                        user_spoke = False
+                        user_content_length = 0
+                        
+                        if hasattr(self, 'conversation_history') and self.conversation_history:
+                            for turn in self.conversation_history:
+                                speaker = turn.get('speaker', '')
+                                text = turn.get('text', '') or turn.get('user', '')
+                                if speaker == 'user' or 'user' in turn:
+                                    content = text.strip() if text else ""
+                                    # Filter out noise
+                                    noise_patterns = ['...', '(שקט)', '(silence)', '(noise)']
+                                    if content and len(content) > 2:
+                                        is_noise = any(n in content.lower() for n in noise_patterns)
+                                        if not is_noise:
+                                            user_spoke = True
+                                            user_content_length += len(content)
+                        
+                        # 🔥 BUILD 183: If no user speech, mark as completed but DON'T generate summary
+                        if not user_spoke or user_content_length < 5:
+                            print(f"📊 [FINALIZE] NO USER SPEECH - skipping summary generation for {self.call_sid}")
+                            call_log.status = "completed"
+                            call_log.transcription = ""  # Empty transcription
+                            call_log.summary = ""  # Empty summary - DO NOT HALLUCINATE!
+                            call_log.ai_summary = ""
+                            db.session.commit()
+                            print(f"✅ CALL FINALIZED (no conversation): {self.call_sid}")
+                            return  # Exit early - no webhook, no lead update
+                        
+                        # בנה סיכום מלא - only if user spoke
+                        full_conversation = ""
+                        if hasattr(self, 'conversation_history') and self.conversation_history:
+                            # ✅ Support both formats: old {'user': X, 'bot': Y} and new {'speaker': X, 'text': Y}
+                            conv_lines = []
+                            for turn in self.conversation_history:
+                                if 'speaker' in turn and 'text' in turn:
+                                    # New Realtime API format
+                                    speaker_label = "לקוח" if turn['speaker'] == 'user' else "עוזר"
+                                    conv_lines.append(f"{speaker_label}: {turn['text']}")
+                                elif 'user' in turn and 'bot' in turn:
+                                    # Old Google STT/TTS format
+                                    conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
+                            full_conversation = "\n".join(conv_lines)
+                        
+                        # צור סיכום AI - only if we have actual conversation
+                        business_id = getattr(self, 'business_id', None)
+                        if not business_id:
+                            print(f"❌ No business_id set for call summary - skipping")
+                            return
+                        ci = CustomerIntelligence(business_id)
+                        summary_data = ci.generate_conversation_summary(
+                            full_conversation,
+                            {'conversation_history': self.conversation_history}
+                        )
+                        
+                        # עדכן call_log
+                        call_log.status = "completed"
+                        call_log.transcription = full_conversation  # ✅ FIX: transcription not transcript!
+                        call_log.summary = summary_data.get('summary', '')
+                        call_log.ai_summary = summary_data.get('detailed_summary', '')
+                        
+                        db.session.commit()
+                        
+                        print(f"✅ CALL FINALIZED: {self.call_sid}")
+                        print(f"📝 Summary: {summary_data.get('summary', 'N/A')}")
+                        print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
+                        if DEBUG: print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
+                        
+                        # 📋 CRM: Update lead with call summary (Realtime mode only)
+                        if USE_REALTIME_API and hasattr(self, 'crm_context') and self.crm_context and self.crm_context.lead_id:
+                            update_lead_on_call(
+                                lead_id=self.crm_context.lead_id,
+                                summary=summary_data.get('summary', ''),
+                                notes=f"Call {self.call_sid}: {summary_data.get('intent', 'general_inquiry')}"
+                            )
+                            print(f"✅ [CRM] Lead #{self.crm_context.lead_id} updated with call summary")
+                        
+                        # 📅 UPDATE APPOINTMENT with call summary (if appointment was created during call)
+                        if 

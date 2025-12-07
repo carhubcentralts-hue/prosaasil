@@ -1,0 +1,80 @@
+2025-12-03 17:09:00.04
+4efbd614
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 288, in _set_entities
+2025-12-03 17:09:00.04
+4efbd614
+User
+self._set_entities(entities)
+2025-12-03 17:09:00.04
+4efbd614
+User
+insp._post_inspect
+2025-12-03 17:09:00.04
+4efbd614
+User
+sqlalchemy.exc.InvalidRequestError: One or more mappers failed to initialize - can't proceed with initialization of other mappers. Triggering mapper: 'Mapper[CallLog(call_log)]'. Original exception was: Could not determine join condition between parent/child tables on relationship CallLog.lead - there are no foreign keys linking these tables. Ensure that referencing columns are associated with a ForeignKey or ForeignKeyConstraint, or specify a 'primaryjoin' expression.
+2025-12-03 17:09:00.04
+4efbd614
+User
+_do_configure_registries(registries, cascade)
+2025-12-03 17:09:00.04
+4efbd614
+User
+_configure_registries({self.registry}, cascade=True)
+2025-12-03 17:09:00.04
+4efbd614
+User
+return cls.query_class(
+2025-12-03 17:09:00.04
+4efbd614
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 289, in
+2025-12-03 17:09:00.04
+4efbd614
+User
+^
+2025-12-03 17:09:00.04
+4efbd614
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_sqlalchemy/model.py", line 22, in __get__
+2025-12-03 17:09:00.04
+4efbd614
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/query.py", line 276, in __init__
+2025-12-03 17:09:00.04
+4efbd614
+User
+File "/home/runner/workspace/server/services/whatsapp_session_service.py", line 322, in get_stale_sessions
+2025-12-03 17:09:00.04
+4efbd614
+User
+stale = WhatsAppConversation.query.filter(
+2025-12-03 17:09:00.04
+4efbd614
+User
+File "/home/runner/workspace/server/services/whatsapp_session_service.py", line 510, in _session_processor_loop
+2025-12-03 17:09:00.04
+4efbd614
+User
+^^^^^^^^^^^^^^
+2025-12-03 17:09:36.85
+da5b911c
+System
+starting up user application
+
+2025-12-03 17:09:36.85
+da5b911c
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2025-12-03 17:09:36.86
+da5b911c
+System
+forwarding local port 5000 to external port 80 (mapped as 1104)
+2025-12-03 17:09:37.06
+da5b911c
+User
+🔍 Checking frontend build...
+2025-12-03 17:09:37.06
+da5b911c
+User

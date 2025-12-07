@@ -145,115 +145,111 @@ def _calendar_find_slots_impl(input: FindSlotsInput, context: Optional[Dict[str,
         
         logger.info(f"📊 Found {len(existing)} existing appointments on {input.date_iso}")
         
-        # Build list of available slots
+        # 🔥 BUILD 182: OPTIMIZED slot generation - search outward from preferred_time
+        # Instead of generating ALL slots then sorting, start from preferred time and expand
         slots = []
+        now = datetime.now(business_tz)
         
-        if policy.allow_24_7:
-            # 24/7 mode - generate slots for entire day
-            logger.info("🌐 24/7 mode - generating all-day slots")
-            total_minutes = 24 * 60
-            for minute_offset in range(0, total_minutes, policy.slot_size_min):
-                hour = minute_offset // 60
-                minute = minute_offset % 60
+        # Parse preferred time to start point (default: current time + min_notice)
+        start_search_min = (now.hour * 60 + now.minute) + policy.min_notice_min
+        if input.preferred_time:
+            try:
+                pref_hour, pref_min = map(int, input.preferred_time.split(':'))
+                start_search_min = pref_hour * 60 + pref_min
+            except:
+                pass
+        
+        def check_slot(minute_offset: int) -> Slot:
+            """Check if a slot at given minute offset is available"""
+            hour = minute_offset // 60
+            minute = minute_offset % 60
+            if hour >= 24:
+                return None
                 
-                slot_start = date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                slot_end = slot_start + timedelta(minutes=input.duration_min)
-                
-                # Check minimum notice
-                now = datetime.now(business_tz)
-                if (slot_start - now).total_seconds() < policy.min_notice_min * 60:
-                    continue
-                
-                # Check conflicts
-                has_conflict = any(
-                    (business_tz.localize(apt.start_time) if apt.start_time.tzinfo is None else apt.start_time) < slot_end and
-                    (business_tz.localize(apt.end_time) if apt.end_time.tzinfo is None else apt.end_time) > slot_start
-                    for apt in existing
-                )
-                
-                if not has_conflict:
-                    slots.append(Slot(
-                        start_iso=slot_start.isoformat(),
-                        end_iso=slot_end.isoformat(),
-                        start_display=slot_start.strftime("%H:%M")
-                    ))
-        else:
-            # Use opening hours from policy
-            opening_windows = policy.opening_hours.get(weekday_key, [])
-            logger.info(f"📆 Day: {weekday_key}, Windows: {opening_windows}")
+            slot_start = date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            slot_end = slot_start + timedelta(minutes=input.duration_min)
             
-            for window in opening_windows:
-                if not window or len(window) < 2:
-                    continue
+            # Check minimum notice
+            if (slot_start - now).total_seconds() < policy.min_notice_min * 60:
+                return None
+            
+            # Check business hours (if not 24/7)
+            if not policy.allow_24_7:
+                opening_windows = policy.opening_hours.get(weekday_key, [])
+                slot_start_min = hour * 60 + minute
+                slot_end_min = slot_end.hour * 60 + slot_end.minute
                 
-                start_time_str, end_time_str = window[0], window[1]
-                start_hour, start_min = map(int, start_time_str.split(':'))
-                end_hour, end_min = map(int, end_time_str.split(':'))
-                
-                # Calculate total minutes in window
-                window_start_min = start_hour * 60 + start_min
-                window_end_min = end_hour * 60 + end_min
-                
-                # Generate slots for this window
-                for minute_offset in range(window_start_min, window_end_min, policy.slot_size_min):
-                    hour = minute_offset // 60
-                    minute = minute_offset % 60
-                    
-                    slot_start = date.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                    slot_end = slot_start + timedelta(minutes=input.duration_min)
-                    
-                    # Skip if slot ends outside window
-                    slot_end_min = slot_end.hour * 60 + slot_end.minute
-                    if slot_end_min > window_end_min:
+                in_window = False
+                for window in opening_windows:
+                    if not window or len(window) < 2:
                         continue
+                    w_start_h, w_start_m = map(int, window[0].split(':'))
+                    w_end_h, w_end_m = map(int, window[1].split(':'))
+                    w_start_min = w_start_h * 60 + w_start_m
+                    w_end_min = w_end_h * 60 + w_end_m
                     
-                    # Check minimum notice
-                    now = datetime.now(business_tz)
-                    if (slot_start - now).total_seconds() < policy.min_notice_min * 60:
-                        continue
-                    
-                    # Check conflicts
-                    has_conflict = any(
-                        (business_tz.localize(apt.start_time) if apt.start_time.tzinfo is None else apt.start_time) < slot_end and
-                        (business_tz.localize(apt.end_time) if apt.end_time.tzinfo is None else apt.end_time) > slot_start
-                        for apt in existing
-                    )
-                    
-                    if not has_conflict:
-                        slots.append(Slot(
-                            start_iso=slot_start.isoformat(),
-                            end_iso=slot_end.isoformat(),
-                            start_display=slot_start.strftime("%H:%M")
-                        ))
+                    if slot_start_min >= w_start_min and slot_end_min <= w_end_min:
+                        in_window = True
+                        break
+                
+                if not in_window:
+                    return None
+            
+            # Check conflicts
+            has_conflict = any(
+                (business_tz.localize(apt.start_time) if apt.start_time.tzinfo is None else apt.start_time) < slot_end and
+                (business_tz.localize(apt.end_time) if apt.end_time.tzinfo is None else apt.end_time) > slot_start
+                for apt in existing
+            )
+            
+            if has_conflict:
+                return None
+                
+            return Slot(
+                start_iso=slot_start.isoformat(),
+                end_iso=slot_end.isoformat(),
+                start_display=slot_start.strftime("%H:%M")
+            )
         
-        # 🎯 BUILD 117: Smart slot selection based on preferred_time
+        # 🔥 Search outward from preferred time - find 2 slots quickly!
+        max_search_distance = 12 * 60  # Max 12 hours in each direction
+        slot_size = policy.slot_size_min
+        
+        # Align to slot grid
+        start_search_min = (start_search_min // slot_size) * slot_size
+        
+        for delta in range(0, max_search_distance, slot_size):
+            if len(slots) >= 2:
+                break  # 🔥 EARLY EXIT - found 2 slots!
+            
+            # Check slot at preferred_time + delta
+            slot = check_slot(start_search_min + delta)
+            if slot and slot not in [s.start_display for s in slots]:
+                slots.append(slot)
+            
+            # Check slot at preferred_time - delta (only if delta > 0)
+            if delta > 0 and len(slots) < 2:
+                slot = check_slot(start_search_min - delta)
+                if slot and slot.start_display not in [s.start_display for s in slots]:
+                    slots.insert(0, slot)  # Insert earlier times first
+        
+        # Sort by proximity to preferred time
         if input.preferred_time and slots:
             try:
-                # Parse preferred_time "HH:MM" to minutes
                 pref_hour, pref_min = map(int, input.preferred_time.split(':'))
                 preferred_minutes = pref_hour * 60 + pref_min
                 
-                # Calculate distance from preferred time for each slot
                 def slot_distance(slot: Slot) -> tuple:
-                    # Parse slot time "HH:MM"
                     slot_hour, slot_min = map(int, slot.start_display.split(':'))
                     slot_minutes = slot_hour * 60 + slot_min
-                    
-                    # Distance in minutes (absolute value)
                     delta = slot_minutes - preferred_minutes
-                    
-                    # Sort by: (abs(delta), delta)
-                    # This picks closest slots, preferring earlier times on tie
                     return (abs(delta), delta)
                 
-                # Sort slots by distance from preferred time
                 slots.sort(key=slot_distance)
-                logger.info(f"🎯 Sorted {len(slots)} slots by proximity to {input.preferred_time}")
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to parse preferred_time '{input.preferred_time}': {e}")
+            except:
+                pass
         
-        # 🔥 BUILD 114: Hard limit to 2 slots (performance!)
-        slots = slots[:2]
+        logger.info(f"🎯 [OPTIMIZED] Found {len(slots)} slots near {input.preferred_time or 'current time'}")
         
         # Build business_hours string from policy
         if policy.allow_24_7:
@@ -373,9 +369,9 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             logger.warning("⚠️ Creating appointment without phone number")
             phone = None
         
-        # ⚡ Validate treatment type
+        # 🔥 BUILD 200: Validate service type - GENERIC for any business
         if not input.treatment_type or input.treatment_type.strip() == "":
-            raise ValueError("חובה לציין סוג טיפול/שירות")
+            raise ValueError("חובה לציין סוג שירות")
         
         # 🔥 POLICY already loaded above - import additional validation helpers
         from server.policy.business_policy import validate_slot_time, get_nearby_slots
@@ -482,7 +478,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             contact_phone=phone,  # Can be None! Phone is in call log
             auto_generated=True,
             source=input.source or "phone_call",  # 🔥 FIX: Set source properly!
-            notes=f"נקבע ע״י AI Agent\nסוג טיפול: {input.treatment_type}"
+            notes=f"נקבע ע״י AI Agent\nשירות: {input.treatment_type}"
         )
         
         print(f"   Appointment object created: {appointment}")
