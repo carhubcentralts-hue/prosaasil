@@ -183,6 +183,8 @@ def send_call_completed_webhook(
     city_raw_attempts: Optional[List[str]] = None,
     city_autocorrected: bool = False,
     name_raw_attempts: Optional[List[str]] = None,
+    preferred_time: Optional[str] = None,
+    customer_name: Optional[str] = None,
     metadata: Optional[Dict] = None
 ) -> bool:
     """
@@ -207,6 +209,7 @@ def send_call_completed_webhook(
         "call_id": str(call_id) if call_id else "",
         "lead_id": str(lead_id) if lead_id else "",
         "phone": phone or "",
+        "customer_name": customer_name or "",
         "city": city or "",
         "raw_city": raw_city or "",
         "city_confidence": city_confidence if city_confidence is not None else "",
@@ -214,6 +217,7 @@ def send_call_completed_webhook(
         "city_autocorrected": city_autocorrected,
         "name_raw_attempts": name_raw_attempts or [],
         "service_category": service_category or "",
+        "preferred_time": preferred_time or "",
         "started_at": started_at.isoformat() if started_at else "",
         "ended_at": ended_at.isoformat() if ended_at else datetime.utcnow().isoformat(),
         "duration_sec": duration_sec,

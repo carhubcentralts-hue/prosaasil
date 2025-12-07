@@ -377,15 +377,18 @@ def _build_critical_rules_compact(business_name: str, today_date: str, weekday_n
     else:
         greeting_line = "- Greet warmly and introduce yourself as the business rep"
     
-    # 🔥 BUILD 335: CLEAR SCHEDULING RULES
+    # 🔥 BUILD 340: CLEAR SCHEDULING RULES with STRICT FIELD ORDER
     if enable_calendar_scheduling:
         scheduling_section = """
-APPOINTMENT BOOKING:
-- When customer wants to book: ask for preferred date and time
-- Wait for system to check availability before confirming
-- If slot taken: offer alternatives (system will provide them)
+APPOINTMENT BOOKING (STRICT ORDER!):
+1. FIRST ask for NAME: "מה השם שלך?" - get name before anything else
+2. THEN ask for DATE/TIME: "לאיזה יום ושעה?" - get preferred date and time
+3. WAIT for system to check availability (don't promise!)
+4. ONLY AFTER slot is confirmed → ask for PHONE: "מה הטלפון שלך לאישור?"
+- Phone is collected LAST, only after appointment time is locked!
 - Only say "התור נקבע" AFTER system confirms booking success
-- NEVER promise a slot before system confirms!"""
+- If slot taken: offer alternatives (system will provide)
+- NEVER ask for phone before confirming date/time availability!"""
     else:
         scheduling_section = """
 NO SCHEDULING: Do NOT offer appointments. If customer asks, promise a callback from human rep."""
@@ -406,9 +409,11 @@ CALL FLOW:
 
 STRICT RULES:
 - Hebrew speech only
+- BE PATIENT: Wait for customer to respond. Don't rush or repeat questions too quickly.
 - No loops, no repeating questions unless answer was unclear
 - No mid-call confirmations - only ONE summary at the end
 - After customer says goodbye → one farewell and stay quiet
+- Don't ask for multiple pieces of information at once - ONE question at a time!
 
 [SPEAK_EXACT] INSTRUCTION:
 When you receive a message starting with "[SPEAK_EXACT]", you MUST say the exact Hebrew text quoted inside - NO changes, NO paraphrasing, NO "improvements". The server provides the CORRECT values from the customer's actual words. Just say it exactly!

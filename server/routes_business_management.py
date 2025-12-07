@@ -746,7 +746,8 @@ def get_current_business():
             "silence_timeout_sec": getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             "silence_max_warnings": getattr(settings, 'silence_max_warnings', 2) if settings else 2,
             "smart_hangup_enabled": getattr(settings, 'smart_hangup_enabled', True) if settings else True,
-            "required_lead_fields": getattr(settings, 'required_lead_fields', ["name", "phone"]) if settings else ["name", "phone"],
+            # 🔥 BUILD 340: Default to name + preferred_time (phone collected at end, not required)
+            "required_lead_fields": getattr(settings, 'required_lead_fields', ["name", "preferred_time"]) if settings else ["name", "preferred_time"],
             # 🔥 BUILD 204: Dynamic STT Vocabulary
             "stt_vocabulary_json": getattr(settings, 'stt_vocabulary_json', None) if settings else None,
             "business_context": getattr(settings, 'business_context', None) if settings else None,

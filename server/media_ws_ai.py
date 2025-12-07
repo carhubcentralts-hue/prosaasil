@@ -168,7 +168,9 @@ class CallConfig:
     
     def __post_init__(self):
         if self.required_lead_fields is None:
-            self.required_lead_fields = ['name', 'phone']
+            # 🔥 BUILD 340: Don't include phone by default - phone is collected LAST
+            # after appointment slot is confirmed. See APPOINTMENT BOOKING flow in prompt.
+            self.required_lead_fields = ['name', 'preferred_time']
 
 
 def load_call_config(business_id: int) -> CallConfig:
@@ -207,6 +209,21 @@ def load_call_config(business_id: int) -> CallConfig:
         except Exception as db_err:
             logger.warning(f"⚠️ [CALL CONFIG] Could not load settings for {business_id} (DB schema issue): {db_err}")
         
+        # 🔥 BUILD 340: Sanitize required_lead_fields - remove 'phone' (collected at end, not required)
+        # This handles legacy data where businesses had ['name', 'phone'] stored in DB
+        raw_required_fields = getattr(settings, 'required_lead_fields', ['name', 'preferred_time']) if settings else ['name', 'preferred_time']
+        if raw_required_fields and isinstance(raw_required_fields, list):
+            # Remove 'phone' - it's collected at end of call, not a required field
+            sanitized_fields = [f for f in raw_required_fields if f != 'phone']
+            # Ensure we have preferred_time for appointment scheduling
+            if 'preferred_time' not in sanitized_fields and 'name' in sanitized_fields:
+                sanitized_fields.append('preferred_time')
+            required_lead_fields = sanitized_fields if sanitized_fields else ['name', 'preferred_time']
+        else:
+            required_lead_fields = ['name', 'preferred_time']
+        
+        logger.info(f"🔧 [BUILD 340] Sanitized required_lead_fields: {raw_required_fields} → {required_lead_fields}")
+        
         config = CallConfig(
             business_id=business_id,
             business_name=business.name or "",
@@ -221,7 +238,7 @@ def load_call_config(business_id: int) -> CallConfig:
             confirm_before_hangup=confirm_before_hangup,
             silence_timeout_sec=getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
             silence_max_warnings=getattr(settings, 'silence_max_warnings', 2) if settings else 2,
-            required_lead_fields=getattr(settings, 'required_lead_fields', ['name', 'phone']) if settings else ['name', 'phone'],
+            required_lead_fields=required_lead_fields,
             closing_sentence=getattr(settings, 'closing_sentence', None) or business.greeting_message or ""
         )
         
@@ -1256,7 +1273,9 @@ class MediaStreamHandler:
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
         self.silence_max_warnings = 2  # Default - overwritten by CallConfig
         self.smart_hangup_enabled = True  # Default - overwritten by CallConfig
-        self.required_lead_fields = ['name', 'phone']  # Default - overwritten by CallConfig
+        # 🔥 BUILD 340: Default to name + preferred_time for appointment scheduling
+        # Phone is collected LAST after slot is confirmed, not in required_lead_fields
+        self.required_lead_fields = ['name', 'preferred_time']
         # 🔥 BUILD 309: SIMPLE_MODE settings
         self.call_goal = 'lead_only'  # Default - "lead_only" or "appointment"
         self.confirm_before_hangup = True  # Default - Always confirm before disconnecting
@@ -4209,6 +4228,30 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 if time_str:
                     crm_context.pending_slot['time'] = time_str
                     print(f"💾 [NLP] Saved time to pending_slot: {time_str}")
+            
+            # 🔥 BUILD 340: Save preferred_time to lead_capture_state for webhook/smart hangup
+            # Handle partial data - save whatever we have
+            if date_iso or time_str:
+                # First check if we have existing partial data in pending_slot
+                existing_date = date_iso
+                existing_time = time_str
+                if crm_context and hasattr(crm_context, 'pending_slot') and crm_context.pending_slot:
+                    existing_date = existing_date or crm_context.pending_slot.get('date')
+                    existing_time = existing_time or crm_context.pending_slot.get('time')
+                
+                # Build preferred_time from available components
+                if existing_date and existing_time:
+                    preferred_time = f"{existing_date} {existing_time}"
+                elif existing_date:
+                    preferred_time = existing_date
+                elif existing_time:
+                    preferred_time = existing_time
+                else:
+                    preferred_time = None
+                
+                if preferred_time:
+                    self._update_lead_capture_state('preferred_time', preferred_time, source='nlp')
+                    print(f"💾 [BUILD 340] Saved preferred_time to lead state: {preferred_time}")
         
         # 🔥 NEW: Handle "hours_info" action (user asking about business hours, NOT appointment!)
         if action == "hours_info":
@@ -4325,6 +4368,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             "time": time_str,
                             "available": True
                         }
+                    
+                    # 🔥 BUILD 340: Save confirmed slot to lead_capture_state for webhook
+                    preferred_time = f"{date_iso} {time_str}"
+                    self._update_lead_capture_state('preferred_time', preferred_time, source='availability_check')
+                    print(f"💾 [BUILD 340] Saved CONFIRMED preferred_time to lead state: {preferred_time}")
+                    
                     await self._send_server_event_to_ai(f"✅ פנוי! {date_iso} {time_str}")
                 else:
                     # ❌ SLOT TAKEN - Find alternatives and inform AI
@@ -7449,7 +7498,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
         print(f"📞 [SMART HANGUP] Lead captured: {self.lead_captured}")
         print(f"📞 [SMART HANGUP] Goodbye detected: {self.goodbye_detected}")
         print(f"📞 [SMART HANGUP] Lead state: {getattr(self, 'lead_capture_state', {})}")
-        print(f"📞 [SMART HANGUP] Required fields: {getattr(self, 'required_lead_fields', ['name', 'phone'])}")
+        print(f"📞 [SMART HANGUP] Required fields: {getattr(self, 'required_lead_fields', ['name', 'preferred_time'])}")
         crm = getattr(self, 'crm_context', None)
         if crm:
             print(f"📞 [SMART HANGUP] CRM: name={crm.customer_name}, phone={crm.customer_phone}")
@@ -7499,13 +7548,22 @@ SPEAK HEBREW to customer. Be brief and helpful.
         Background loop that checks for silence and triggers warnings/hangup.
         🔥 BUILD 312: Only start silence counting AFTER user has spoken!
         🔥 BUILD 339: Comprehensive state checks to prevent action after goodbye
+        🔥 BUILD 340: Guard BEFORE sleep to prevent action during sleep window
         """
         try:
             while True:
+                # 🔥 BUILD 340 CRITICAL: Check state BEFORE sleeping to exit immediately
+                # This prevents AI from speaking during the sleep window after goodbye
+                if self.call_state != CallState.ACTIVE:
+                    print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - call state is {self.call_state.value}")
+                    return
+                if self.hangup_triggered or getattr(self, 'pending_hangup', False):
+                    print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - hangup pending/triggered")
+                    return
+                
                 await asyncio.sleep(2.0)  # Check every 2 seconds
                 
-                # 🔥 BUILD 339 CRITICAL: Check EVERY iteration if call should continue
-                # This is the MASTER guard - checked at the TOP of every loop iteration
+                # 🔥 BUILD 339 CRITICAL: Check AGAIN after sleep (state may have changed during sleep)
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
                     return  # Use return, not break, to completely exit
@@ -9295,6 +9353,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # 🔥 BUILD 313: SIMPLIFIED - City and service already captured by OpenAI Tool
                             # No more fuzzy matching or city normalizer - trust what AI captured!
                             
+                            # 🔥 BUILD 340: Get customer_name and preferred_time from lead_state
+                            customer_name = lead_state.get('name') or (self.crm_context.customer_name if hasattr(self, 'crm_context') and self.crm_context else None)
+                            preferred_time = lead_state.get('preferred_time')
+                            
                             send_call_completed_webhook(
                                 business_id=business_id,
                                 call_id=self.call_sid,
@@ -9308,9 +9370,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 agent_name=getattr(self, 'bot_name', 'Assistant'),
                                 direction=getattr(self, 'call_direction', 'inbound'),
                                 city=city,
-                                service_category=service_category
+                                service_category=service_category,
+                                customer_name=customer_name,
+                                preferred_time=preferred_time
                             )
-                            print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
+                            print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}, name={customer_name or 'N/A'}, preferred_time={preferred_time or 'N/A'}")
                         except Exception as webhook_err:
                             print(f"⚠️ [WEBHOOK] Webhook error (non-blocking): {webhook_err}")
                         
