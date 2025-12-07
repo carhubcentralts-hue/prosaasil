@@ -3,7 +3,7 @@ WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
-import builtin
+import builtins
 from dataclasses import dataclass
 from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
@@ -67,9 +67,9 @@ try:
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = False  # BUILD 330: DISABLED - was dropping audio!
+    COST_EFFICIENT_MODE = True   # BUILD 332: RE-ENABLED with higher FPS limit
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 60  # BUILD 330: Raised above 50 FPS phone requirement
+    COST_MAX_FPS = 48  # BUILD 332: 48 FPS = 96% audio (balanced: quality + cost)
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
