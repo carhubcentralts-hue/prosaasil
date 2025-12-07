@@ -4914,9 +4914,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # Use calibrated noise floor for RMS-based speech detection
                         # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
                         noise_floor_rms = getattr(self, 'noise_floor', 100.0)
-                        # 🔥 BUILD 325: Lowered speech threshold from 3x/min 300 to 2x/min 100
-                        # Allows quieter speech to trigger barge-in
-                        rms_speech_threshold = max(noise_floor_rms * 2.0, 100.0)
+                        # 🔥 BUILD 325: Keep high threshold (3x, min 300) to avoid AI echo triggering barge-in
+                        # AI's TTS can return at >200 RMS - lower thresholds cause self-triggering loops
+                        rms_speech_threshold = max(noise_floor_rms * 3.0, 300.0)
                         is_above_speech = rms > rms_speech_threshold
                         
                         # Count consecutive frames above RMS speech threshold
