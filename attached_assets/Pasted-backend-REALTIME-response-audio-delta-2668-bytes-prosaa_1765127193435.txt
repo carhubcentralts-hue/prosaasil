@@ -1,0 +1,1336 @@
+backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, זה יעזור לי לעזור לך. תודה רבה.
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=87% with: 'האם אתה עדיין איתנו? אם תוכל לשתף אותי באיזו עיר א...'
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.05s (3028 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אם תוכל לשתף אותי ...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | INFO:     127.0.0.1:41432 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.1s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCREejwnw3pq1k...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCREejwnw3pq1k... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7b 7a 7b 7d fd
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | ⚠️ [AUDIO GAP] 511ms gap between chunks #30 and #31 - OpenAI delay!
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה עדיין איתנו? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, זה יעזור לי לעזור לך. תודה רבה.
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=100% with: 'האם אתה עדיין איתנו? אם תוכל לשתף אותי באיזו עיר א...'
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.46s (3059 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה עדיין איתנו? אם תוכל ל...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | INFO:     127.0.0.1:47352 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 15.7s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCRWQRoLhxT56r...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCRWQRoLhxT56r... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=ff ff fe fb f9
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, אשמח לעזור. תודה.
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=100% with: 'האם אתה שם? אם תוכל לשתף אותי באיזו עיר אתה צריך א...'
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 0.95s (3089 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אם תוכל לשתף אותי ...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.3s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCRoHDxzgndLsL...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCRoHDxzgndLsL... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7b 7a 7b 7d fd
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | INFO:     172.18.0.5:41820 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה עדיין כאן? אני רוצה לוודא שאתה מקבל את השירות שאתה צריך. באיזו עיר אתה צריך את שירות החלפת הצילינדר?
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 0.97s (3120 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה עדיין כאן? אני רוצה לו...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:41828 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     127.0.0.1:33934 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.2s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCS6JBULBhs5g9...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCS6JBULBhs5g9... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=ff ff fe fb f9
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, זה יעזור לי לדעת איך לעזור לך. תודה.
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=79% with: 'האם אתה שם? אם תוכל לשתף אותי באיזו עיר אתה צריך א...'
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.06s (3150 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אם תוכל לשתף אותי ...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCSOIybOUkA3at...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCSOIybOUkA3at... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7b 7a 7b 7d fd
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | INFO:     127.0.0.1:49978 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה עדיין איתנו? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, זה יעזור לי לעזור לך. תודה רבה.
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=100% with: 'האם אתה עדיין איתנו? אם תוכל לשתף אותי באיזו עיר א...'
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.36s (3181 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה עדיין איתנו? אם תוכל ל...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | [WA-SESSION] 📱 Check #9: Found 0 stale sessions to process
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.9s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCSi5muMMhr6KZ...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCSi5muMMhr6KZ... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7e ff fe fb f9
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אני כאן אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר. תודה רבה.
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 0.94s (3211 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אני כאן אם תוכל לש...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:60506 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:60518 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | INFO:     127.0.0.1:41782 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.2s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCT0FPO0T804MN...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCT0FPO0T804MN... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 42 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7e ff fe fb f9
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אני רוצה לוודא שאתה מקבל את המידע שאתה צריך. באיזו עיר אתה צריך את שירות החלפת הצילינדר?
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=75% with: 'האם אתה עדיין כאן? אני רוצה לוודא שאתה מקבל את השי...'
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.05s (3241 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אני רוצה לוודא שאת...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCTIeHjdGSholg...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCTIeHjdGSholg... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=7c 76 fa fa 6f
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=f0 3c 43 3b 35
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7b 79 7b 7d fe
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה עדיין איתנו? אשמח לדעת באיזו עיר אתה צריך את שירות החלפת הצילינדר. תודה.
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.20s (3272 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה עדיין איתנו? אשמח לדעת...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | INFO:     127.0.0.1:47742 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 15.8s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCTa0nm6jW4oox...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCTa0nm6jW4oox... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=ff ff fe fb f9
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, זה יעזור לי לספק את המידע הנדרש. תודה.
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.49s (3302 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אם תוכל לשתף אותי ...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:59874 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:59888 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 15.4s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCTsICyPqXTW9v...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCTsICyPqXTW9v... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | INFO:     127.0.0.1:60500 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7b 7a 7b 7d fd
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה עדיין כאן? אני רוצה לוודא שאתה מקבל את המידע שאתה צריך. באיזו עיר אתה צריך את שירות החלפת הצילינדר?
+prosaas-backend  | ⚠️ [LOOP DETECT] AI repeating! Similarity=84% with: 'האם אתה שם? אני רוצה לוודא שאתה מקבל את המידע שאתה...'
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.00s (3333 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה עדיין כאן? אני רוצה לו...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.1s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCUAd2gRQMuKT8...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCUAd2gRQMuKT8... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7d 7c 7e fd fb
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, זה יעזור לי לעזור לך. תודה רבה.
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.01s (3363 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אם תוכל לשתף אותי ...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | INFO:     127.0.0.1:43570 - "GET /health HTTP/1.1" 200 OK
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCUSW3X6qj841J...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCUSW3X6qj841J... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=ff 79 fc f9 76
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=68 3c 41 3b 36
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7b 7a 7b 7d fd
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה עדיין כאן? אם תוכל לשתף אותי באיזו עיר אתה צריך את שירות החלפת הצילינדר, אני כאן לעזור. תודה.
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 1.01s (3394 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה עדיין כאן? אם תוכל לשת...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:47552 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:47558 - "GET /api/whatsapp/status HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:47568 - "GET /api/crm/threads HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:47570 - "GET /api/whatsapp/active-chats HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:47576 - "GET /api/whatsapp/summaries HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:47582 - "GET /api/business/current/prompt HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | INFO:     172.18.0.5:47594 - "GET /api/whatsapp/provider-info HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔇 [SILENCE] Warning 1/2 after 16.0s silence
+prosaas-backend  | 🔍 [DEBUG] _check_lead_captured: required_fields from self = ['city', 'service_type']
+prosaas-backend  | ⏳ [SMART HANGUP] Still missing fields: ['service_type'] | Collected: ['city=צפה רמון']
+prosaas-backend  | 🎯 [BUILD 200] response.create triggered (SILENCE_HANDLER:[SYSTEM] הלקוח שותק. המשך את ה)
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.created: id=resp_CkCUlU79lR4NEGq...
+prosaas-backend  | 🎯 [RESPONSE.CREATED] id=resp_CkCUlU79lR4NEGq... status=in_progress modalities=['text', 'audio'] output_format=g711_ulaw
+prosaas-backend  | 🔊 [REALTIME] response.output_item.added
+prosaas-backend  | [REALTIME] event: conversation.item.created
+prosaas-backend  | 🔊 [REALTIME] response.content_part.added
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1068 bytes
+prosaas-backend  | 🔊 [REALTIME] AI started speaking (audio.delta)
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#1, bytes=800, first5=f8 fe fa ef fa
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 1600 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#2, bytes=1200, first5=4f 3c 4a 39 6d
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | [REALTIME] got audio chunk from OpenAI: chunk#3, bytes=2000, first5=7d 7d 7e fd fa
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | INFO:     172.18.0.5:47610 - "GET /api/calls?search=&status=all&direction=all&limit=25&offset=0 HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.delta
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 2668 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.delta: 7468 bytes
+prosaas-backend  | 🔊 [REALTIME] response.audio.done
+prosaas-backend  | 🔇 [REALTIME] AI stopped speaking (response.audio.done)
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.audio_transcript.done
+prosaas-backend  | 🤖 [REALTIME] AI said: האם אתה שם? אשמח לדעת באיזו עיר אתה צריך את שירות החלפת הצילינדר. תודה.
+prosaas-backend  | 📢 [BUILD 311] SILENCE_HANDLER response - NOT counting towards consecutive
+prosaas-backend  | 💰 [COST] AI utterance: 0.90s (3424 chunks)
+prosaas-backend  | [GOODBYE CHECK] No goodbye phrase: 'האם אתה שם? אשמח לדעת באיזו עי...'
+prosaas-backend  | 🔊 [REALTIME] response.content_part.done
+prosaas-backend  | 🔊 [REALTIME] response.output_item.done
+prosaas-backend  | 🔥 [BUILD 171] AI finished speaking - cooldown started (800ms)
+prosaas-backend  | ⏳ [AUDIO] 1000 frames still in queue - letting them play (NO TRUNCATION)
+prosaas-backend  | 🔊 [REALTIME] response.done: status=completed, output_count=1, details=None
+prosaas-backend  |    output[0]: type=message, content_types=['audio']
+prosaas-backend  | [REALTIME] event: rate_limits.updated
+prosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:44810 - "GET /api/notifications HTTP/1.1" 200 OK
+prosaas-backend  | 🔍 AUTH DEBUG: user_id=10, role=owner, business_id=10, computed_tenant=10, impersonating=False
+prosaas-backend  | 🔔 /api/notifications - tenant_id=10, g.tenant=10
+prosaas-backend  | 🔔 Querying reminders for tenant_id=10, is_system_admin=False
+prosaas-backend  | INFO:     127.0.0.1:46702 - "GET /health HTTP/1.1" 200 OK
+^[[B^[[B^[[Bprosaas-backend  | 🔔 Found 0 reminders
+prosaas-backend  | INFO:     172.18.0.5:44826 - "GET /api/notifications HTTP/1.1" 200 OK
+p

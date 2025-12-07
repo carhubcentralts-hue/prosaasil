@@ -3021,9 +3021,30 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # 🔥 BUILD 182: Check if appointment was recently created/scheduled
                         crm_ctx = getattr(self, 'crm_context', None)
                         has_appointment = crm_ctx and getattr(crm_ctx, 'has_appointment_created', False)
-                        # Also check if AI is discussing appointment (keywords in recent response)
-                        appointment_keywords = ['תור', 'פגישה', 'לקבוע', 'זמינות', 'אשר', 'מאשר']
-                        is_scheduling = any(kw in transcript for kw in appointment_keywords) if transcript else False
+                        
+                        # 🔥 BUILD 337 FIX: Check scheduling mode flag OR keywords in transcript
+                        # The flag persists across responses, keywords are transient
+                        is_scheduling_flag = getattr(self, '_is_scheduling_mode', False)
+                        
+                        # 🔥 BUILD 337 FIX: Extended keyword list + check both original and lowercase
+                        appointment_keywords = [
+                            'תור', 'פגישה', 'לקבוע', 'זמינות', 'אשר', 'מאשר', 'תאריך', 'שעה',
+                            'קביעת', 'לתאם', 'לזמן', 'להזמין', 'פנוי', 'תפוס', 'מתי', 'יום'
+                        ]
+                        transcript_lower = transcript.lower() if transcript else ""
+                        has_keywords = any(kw in transcript or kw in transcript_lower for kw in appointment_keywords) if transcript else False
+                        
+                        # Set scheduling mode flag if keywords detected
+                        if has_keywords and not is_scheduling_flag:
+                            self._is_scheduling_mode = True
+                            print(f"📋 [BUILD 337] Scheduling mode ACTIVATED (keywords detected)")
+                        
+                        # Clear scheduling mode if appointment created
+                        if has_appointment and is_scheduling_flag:
+                            self._is_scheduling_mode = False
+                            print(f"✅ [BUILD 337] Scheduling mode DEACTIVATED (appointment created)")
+                        
+                        is_scheduling = is_scheduling_flag or has_keywords
                         
                         if in_post_greeting_grace:
                             # 🔥 BUILD 311: NEVER engage loop guard during grace period - give customer time to respond!
@@ -4073,6 +4094,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # 🎯 DYNAMIC LEAD STATE: Update lead capture state for smart hangup
             self._update_lead_capture_state('name', customer_name)
             
+            # 🔥 BUILD 337 FIX: Reset name reminder flag now that we have the name!
+            if getattr(self, '_name_reminder_sent', False):
+                self._name_reminder_sent = False
+                print(f"✅ [BUILD 337] Name captured - reset _name_reminder_sent flag")
+            
             crm_context = getattr(self, 'crm_context', None)
             if crm_context:
                 # Context exists - save there
@@ -4174,7 +4200,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 await self._send_server_event_to_ai("⚠️ קביעת תורים מושבתת כרגע. הסבר ללקוח שנציג יחזור אליו בהקדם.")
                 return
             
-            # 🔥 BUILD 337: CHECK IF NAME IS REQUIRED BUT MISSING - remind AI to ask!
+            # 🔥 BUILD 337: CHECK IF NAME IS REQUIRED BUT MISSING - BLOCK scheduling!
             # This prevents scheduling from proceeding without collecting the name first
             crm_context = getattr(self, 'crm_context', None)
             has_name = (crm_context and crm_context.customer_name) or (hasattr(self, 'pending_customer_name') and self.pending_customer_name) or customer_name
@@ -4183,10 +4209,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
             required_fields = getattr(self, 'required_lead_fields', ['city', 'service_type'])
             name_required = 'name' in required_fields
             
+            # 🔥 BUILD 337 FIX: ALWAYS BLOCK if name required but missing
+            # Only send reminder ONCE (track with flag), but ALWAYS block progression
             if name_required and not has_name:
-                print(f"⚠️ [BUILD 337] Name required but missing! Reminding AI to ask for name FIRST")
-                await self._send_server_event_to_ai("need_name_first - לפני שנקבע תור, שאל את הלקוח: מה השם שלך?")
-                # Still continue to check availability so we can offer a slot
+                name_reminder_sent = getattr(self, '_name_reminder_sent', False)
+                if not name_reminder_sent:
+                    print(f"⚠️ [BUILD 337] Name required but missing! Reminding AI to ask for name FIRST")
+                    await self._send_server_event_to_ai("need_name_first - לפני שנקבע תור, שאל את הלקוח: מה השם שלך?")
+                    self._name_reminder_sent = True  # Don't send reminder again
+                else:
+                    print(f"📋 [BUILD 337] Name still missing (reminder already sent) - blocking scheduling")
+                # 🔥 CRITICAL: RETURN to block scheduling - don't just continue!
+                return
             
             if not date_iso or not time_str:
                 # User wants appointment but didn't specify date/time
