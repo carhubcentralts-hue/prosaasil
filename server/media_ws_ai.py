@@ -1569,19 +1569,18 @@ class MediaStreamHandler:
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
-            # 🔥 BUILD 316: COMPACT prompt for FAST greeting!
-            # Full prompt is too large (3000+ chars) causing 6-7 second greeting delay
-            # Compact prompt has essential context (business type, required fields) for understanding
-            compact_prompt = None
+            # 🔥 BUILD 329: FULL prompt from start - user requested ALL database prompt be sent!
+            # Compact prompt was only 600 chars - not enough for AI to understand business fully
+            full_prompt = None
             try:
-                from server.services.realtime_prompt_builder import build_compact_greeting_prompt
+                from server.services.realtime_prompt_builder import build_realtime_system_prompt
                 app = _get_flask_app()
                 with app.app_context():
-                    compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                    print(f"✅ [BUILD 316] COMPACT prompt built: {len(compact_prompt)} chars (target: <800)")
+                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                    print(f"✅ [BUILD 329] FULL prompt built: {len(full_prompt)} chars")
             except Exception as prompt_err:
-                print(f"⚠️ [BUILD 316] Failed to build compact prompt: {prompt_err}")
-                compact_prompt = None
+                print(f"⚠️ [BUILD 329] Failed to build full prompt: {prompt_err}")
+                full_prompt = None
             
             # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
             # AI just speaks the exact greeting text, ensuring consistency
@@ -1623,10 +1622,10 @@ Then WAIT for response."""
 Greet briefly. Then WAIT for customer to speak."""
                     print(f"📞 [BUILD 324] No DB greeting - using English fallback for {biz_name}")
             
-            # 🔥 BUILD 317: Combine COMPACT prompt FIRST + greeting instruction LAST
-            # AI reads context first, then knows what to do
-            if compact_prompt:
-                greeting_prompt = f"""{compact_prompt}
+            # 🔥 BUILD 329: Combine FULL prompt FIRST + greeting instruction LAST
+            # AI gets complete business context from database
+            if full_prompt:
+                greeting_prompt = f"""{full_prompt}
 
 ---
 
@@ -1662,15 +1661,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
             else:
                 greeting_length = len(greeting_text) if (has_custom_greeting and greeting_text) else 0
             
-            # 🔥 BUILD 328: COST OPTIMIZATION - Reduce max_tokens!
-            # 4096 tokens was causing AI to generate very long (slow + expensive) responses
-            # For greetings: 150-200 tokens is enough (5-10 seconds of speech)
-            # For regular responses: 300-400 tokens max
-            if greeting_length > 200:
-                greeting_max_tokens = 400  # Longer greetings need more tokens
-            else:
-                greeting_max_tokens = 250  # Short greetings - keep responses brief
-            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction}) 🔥 BUILD 328 OPTIMIZED")
+            # 🔥 BUILD 329: REVERTED - Let OpenAI handle token limits naturally
+            # User reported reduced max_tokens causes AI silence!
+            # OpenAI knows how to manage tokens efficiently
+            greeting_max_tokens = 4096
+            print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
             # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
             # Vocabulary prompts were causing hallucinations like "קליבר" 
@@ -1733,24 +1728,23 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 
                 asyncio.create_task(warmup_to_active())
             
-            # 🔥 BUILD 328: PHASE 2 SIMPLIFIED - Only add tool, NOT full prompt
-            # Full prompt was costing extra tokens (3000+ chars = expensive!)
-            # Compact prompt already has business context - no need to resend
+            # 🔥 BUILD 329: PHASE 2 - Only add tool ONCE after greeting
+            # CRITICAL: Full prompt already sent in Phase 1 - DO NOT RESEND!
+            # The previous loop was sending session.update repeatedly = 1.7M tokens/day!
             async def _load_lead_tool_only():
                 try:
-                    # Wait for greeting to finish - FASTER check interval
+                    # Wait for greeting to finish
                     wait_start = time.time()
                     max_wait_seconds = 15
                     
                     while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
-                        await asyncio.sleep(0.05)  # 🔥 BUILD 328: 50ms check (was 200ms)
+                        await asyncio.sleep(0.1)  # Check every 100ms
                     
-                    # 🔥 BUILD 328: Only add lead capture tool - NO full prompt resend!
-                    # This saves significant OpenAI costs (no redundant 3000+ char prompt)
+                    # 🔥 BUILD 329: Send tool ONCE - no prompt in this update!
                     lead_tool = self._build_lead_capture_tool()
                     
                     if lead_tool:
-                        # Only update tools, not instructions (saves tokens!)
+                        # Only update tools, NOT instructions (prevents token waste)
                         await client.send_event({
                             "type": "session.update",
                             "session": {
@@ -1758,12 +1752,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 "tool_choice": "auto"
                             }
                         })
-                        print(f"✅ [BUILD 328] Tool added (NO prompt resend = cost savings!)")
+                        print(f"✅ [BUILD 329] Tool added ONCE (no prompt resend)")
                     else:
-                        print(f"ℹ️ [BUILD 328] No tool needed - skipping Phase 2 entirely")
+                        print(f"ℹ️ [BUILD 329] No tool needed")
                         
                 except Exception as e:
-                    print(f"⚠️ [BUILD 328] Phase 2 error: {e}")
+                    print(f"⚠️ [BUILD 329] Phase 2 error: {e}")
             
             # Start Phase 2 in background (non-blocking)
             asyncio.create_task(_load_lead_tool_only())
