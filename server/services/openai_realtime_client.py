@@ -367,7 +367,12 @@ class OpenAIRealtimeClient:
         self._last_voice = voice
         self._session_update_count += 1
         
-        logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
+        # 🔥 BUILD 332: COST ALERT - Warn if session.update exceeds expected baseline
+        if self._session_update_count > 2:
+            logger.warning(f"⚠️ [COST ALERT] Session update #{self._session_update_count} exceeds expected baseline of 2! Check for prompt regeneration loop!")
+            print(f"⚠️ [BUILD 332] COST ALERT: session.update called {self._session_update_count} times (expected ≤2)")
+        else:
+            logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
         await self.send_event({
             "type": "session.update",
             "session": session_config
