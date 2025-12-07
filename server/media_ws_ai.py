@@ -1574,39 +1574,29 @@ class MediaStreamHandler:
                         pass
                 
                 if outbound_greeting:
-                    greeting_instruction = f"""
-🎯 משימה ראשונה: אמור בדיוק את הברכה הבאה (מילה במילה):
+                    greeting_instruction = f"""FIRST: Say this EXACT greeting (word-for-word, in Hebrew):
 "{outbound_greeting}"
-"""
+Then WAIT for customer response. This greeting IS your first question."""
                 else:
-                    # Fallback for outbound without template
-                    greeting_instruction = f"""
-🎯 משימה ראשונה: התקשר ללקוח בשם {outbound_lead_name}
-הזדהה בקצרה והסבר למה התקשרת.
-"""
+                    greeting_instruction = f"""FIRST: Greet {outbound_lead_name} briefly in Hebrew.
+Introduce yourself as rep from {biz_name}, explain why you're calling.
+Then WAIT for response."""
                 print(f"📤 [OUTBOUND] Greeting for: {outbound_lead_name}")
             else:
-                # 🔥 BUILD 321: INBOUND - Use EXACT greeting from DB!
-                # greeting_text is loaded from business.greeting_message in DB
+                # 🔥 BUILD 324: INBOUND - ENGLISH instructions, Hebrew speech
                 if greeting_text and greeting_text.strip():
-                    # 🔥 BUILD 323: GREETING WITH CONTEXT - AI knows what question was asked!
-                    greeting_instruction = f"""🔒 משימה קריטית - ברכה:
-1. אמור בדיוק את המשפט הבא, מילה במילה, בלי לשנות אותו בשום צורה:
-
+                    greeting_instruction = f"""CRITICAL - GREETING:
+1. Say this EXACT sentence in Hebrew (word-for-word, no changes):
 "{greeting_text.strip()}"
 
-2. 📌 הברכה הזו היא גם השאלה הראשונה שלך! כשהלקוח עונה - התייחס לתשובתו כתגובה לברכה.
-3. אחרי הברכה - המתן! תן ללקוח לדבר. אל תשאל שאלות נוספות מיד.
-4. אל תקפוץ לשאלה הבאה לפני שהבנת את התשובה.
-"""
-                    print(f"📞 [BUILD 323] Using EXACT greeting with context: '{greeting_text[:50]}...'")
+2. This greeting IS your first question. Customer's response answers it.
+3. After greeting: WAIT. Let customer speak. Don't ask more questions yet.
+4. Don't jump to next question until you understand the answer."""
+                    print(f"📞 [BUILD 324] ENGLISH instruction, Hebrew greeting: '{greeting_text[:50]}...'")
                 else:
-                    # Fallback if no greeting in DB
-                    greeting_instruction = f"""
-🎯 משימה ראשונה: הזדהה כנציג של {biz_name} וברך את הלקוח בקצרה.
-אחרי הברכה - המתן! תן ללקוח לדבר.
-"""
-                    print(f"📞 [BUILD 321] No DB greeting - using fallback for {biz_name}")
+                    greeting_instruction = f"""FIRST: Introduce yourself as rep from {biz_name} in Hebrew.
+Greet briefly. Then WAIT for customer to speak."""
+                    print(f"📞 [BUILD 324] No DB greeting - using English fallback for {biz_name}")
             
             # 🔥 BUILD 317: Combine COMPACT prompt FIRST + greeting instruction LAST
             # AI reads context first, then knows what to do
@@ -1618,8 +1608,9 @@ class MediaStreamHandler:
 {greeting_instruction}"""
                 has_custom_greeting = True
             else:
-                # 🔥 BUILD 322: Consistent Hebrew fallback - minimal context
-                greeting_prompt = f"""אתה נציג שירות מקצועי של {biz_name}. דבר בעברית, היה קצר ומועיל.
+                # 🔥 BUILD 324: English fallback - minimal context
+                greeting_prompt = f"""You are a professional service rep for {biz_name}.
+SPEAK HEBREW to customer. Be brief and helpful.
 
 ---
 

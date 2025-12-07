@@ -64,10 +64,10 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
         if not business:
-            logger.warning(f"⚠️ [BUILD 317] Business {business_id} not found")
-            return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
+            logger.warning(f"⚠️ [BUILD 324] Business {business_id} not found")
+            return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
         
-        business_name = business.name or "העסק"
+        business_name = business.name or "Business"
         
         # 🔥 BUILD 317: Extract context from ACTUAL business ai_prompt!
         ai_prompt_text = ""
@@ -111,28 +111,28 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             
             logger.info(f"✅ [BUILD 317] Extracted {len(compact_context)} chars from business ai_prompt")
         else:
-            # 🔥 BUILD 322: Consistent Hebrew fallback - no ai_prompt
-            compact_context = f"אתה נציג שירות מקצועי של {business_name}. דבר בעברית, היה קצר ומועיל."
-            logger.warning(f"⚠️ [BUILD 317] No ai_prompt for business {business_id} - using minimal")
+            # 🔥 BUILD 324: English fallback - no ai_prompt
+            compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
+            logger.warning(f"⚠️ [BUILD 324] No ai_prompt for business {business_id} - using English fallback")
         
-        # 🔥 BUILD 321: Add essential rules (very short) + patience
-        direction = "שיחה נכנסת" if call_direction == "inbound" else "שיחה יוצאת"
+        # 🔥 BUILD 324: English rules + patience
+        direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
         
         final_prompt = f"""{compact_context}
 
 ---
-{direction} | אם לא שמעת ברור - בקש לחזור. אל תמציא.
-⚠️ סבלנות: שאל שאלה אחת בלבד, חכה לתשובה מלאה, רק אז המשך."""
+{direction} | If unclear: ask to repeat. Never invent info.
+PATIENCE: Ask ONE question, wait for FULL answer, then continue. SPEAK HEBREW."""
 
-        logger.info(f"📦 [BUILD 317] Final compact prompt: {len(final_prompt)} chars")
+        logger.info(f"📦 [BUILD 324] Final compact prompt: {len(final_prompt)} chars")
         return final_prompt
         
     except Exception as e:
-        logger.error(f"❌ [BUILD 317] Compact prompt error: {e}")
+        logger.error(f"❌ [BUILD 324] Compact prompt error: {e}")
         import traceback
         traceback.print_exc()
-        # 🔥 BUILD 322: Consistent Hebrew fallback
-        return "אתה נציג שירות מקצועי. דבר בעברית, היה קצר ומועיל."
+        # 🔥 BUILD 324: English fallback
+        return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
