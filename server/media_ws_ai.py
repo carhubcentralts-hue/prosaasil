@@ -66,9 +66,9 @@ try:
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = False  # BUILD 330: DISABLED - was dropping audio!
+    COST_EFFICIENT_MODE = True
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 60  # BUILD 330: Raised above 50 FPS phone requirement
+    COST_MAX_FPS = 40
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
@@ -99,7 +99,6 @@ if _env_model:
     OPENAI_REALTIME_MODEL = _env_model
 
 print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
-print(f"🔊 [BUILD 330] FPS throttling: {'ENABLED (max={})'.format(COST_MAX_FPS) if COST_EFFICIENT_MODE else 'DISABLED'} - all audio passes through for best transcription")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -1110,14 +1109,6 @@ class MediaStreamHandler:
         self.realtime_thread = None  # Thread running asyncio loop
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
-        # 🔥 BUILD 331: Usage guard tracking fields
-        self._limit_exceeded = False
-        self._limit_frames = 0
-        self._limit_seconds = 0.0
-        self._usage_guard_frames = 0
-        self._usage_guard_seconds = 0.0
-        self._usage_guard_limit_hit = False
-        
         # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
         self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
         self.has_pending_ai_response = False  # Is AI response pending?
@@ -1260,13 +1251,6 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 313: SIMPLIFIED - Only track last AI mentioned city for confirmation
         self._last_ai_mentioned_city = None  # Track city from AI confirmation for user "נכון" locking
-        
-        # 🔥 BUILD 326: CITY LOCK MECHANISM - Prevent AI from hallucinating cities
-        # When user says a city, we LOCK it and use it for confirmation template
-        # AI can NEVER change the locked city - only user correction can unlock
-        self._city_locked = False           # True = city is locked from user utterance
-        self._city_raw_from_stt = None      # Raw city text from STT (source of truth)
-        self._city_source = None            # 'user_utterance' or 'ai_extraction'
         
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
@@ -1578,18 +1562,19 @@ class MediaStreamHandler:
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
-            # 🔥 BUILD 329: FULL prompt from start - user requested ALL database prompt be sent!
-            # Compact prompt was only 600 chars - not enough for AI to understand business fully
-            full_prompt = None
+            # 🔥 BUILD 316: COMPACT prompt for FAST greeting!
+            # Full prompt is too large (3000+ chars) causing 6-7 second greeting delay
+            # Compact prompt has essential context (business type, required fields) for understanding
+            compact_prompt = None
             try:
-                from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                from server.services.realtime_prompt_builder import build_compact_greeting_prompt
                 app = _get_flask_app()
                 with app.app_context():
-                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                    print(f"✅ [BUILD 329] FULL prompt built: {len(full_prompt)} chars")
+                    compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
+                    print(f"✅ [BUILD 316] COMPACT prompt built: {len(compact_prompt)} chars (target: <800)")
             except Exception as prompt_err:
-                print(f"⚠️ [BUILD 329] Failed to build full prompt: {prompt_err}")
-                full_prompt = None
+                print(f"⚠️ [BUILD 316] Failed to build compact prompt: {prompt_err}")
+                compact_prompt = None
             
             # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
             # AI just speaks the exact greeting text, ensuring consistency
@@ -1631,10 +1616,10 @@ Then WAIT for response."""
 Greet briefly. Then WAIT for customer to speak."""
                     print(f"📞 [BUILD 324] No DB greeting - using English fallback for {biz_name}")
             
-            # 🔥 BUILD 329: Combine FULL prompt FIRST + greeting instruction LAST
-            # AI gets complete business context from database
-            if full_prompt:
-                greeting_prompt = f"""{full_prompt}
+            # 🔥 BUILD 317: Combine COMPACT prompt FIRST + greeting instruction LAST
+            # AI reads context first, then knows what to do
+            if compact_prompt:
+                greeting_prompt = f"""{compact_prompt}
 
 ---
 
@@ -1670,9 +1655,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
             else:
                 greeting_length = len(greeting_text) if (has_custom_greeting and greeting_text) else 0
             
-            # 🔥 BUILD 329: REVERTED - Let OpenAI handle token limits naturally
-            # User reported reduced max_tokens causes AI silence!
-            # OpenAI knows how to manage tokens efficiently
+            # 🔥 BUILD 316: ULTRA SIMPLE - No vocabulary, no STT prompts
+            # Just pure OpenAI + Twilio with language="he"
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
@@ -1737,39 +1721,58 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 
                 asyncio.create_task(warmup_to_active())
             
-            # 🔥 BUILD 329: PHASE 2 - Only add tool ONCE after greeting
-            # CRITICAL: Full prompt already sent in Phase 1 - DO NOT RESEND!
-            # The previous loop was sending session.update repeatedly = 1.7M tokens/day!
-            async def _load_lead_tool_only():
+            # 🔥 BUILD 316: PHASE 2 - Load FULL prompt + tool after greeting
+            # Compact prompt used for fast greeting, full prompt adds complete context
+            async def _load_full_prompt_and_tool():
                 try:
                     # Wait for greeting to finish
                     wait_start = time.time()
                     max_wait_seconds = 15
                     
                     while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
-                        await asyncio.sleep(0.1)  # Check every 100ms
+                        await asyncio.sleep(0.2)
                     
-                    # 🔥 BUILD 329: Send tool ONCE - no prompt in this update!
+                    await asyncio.sleep(0.3)  # Small buffer
+                    
+                    # Build full prompt in background
+                    full_prompt = None
+                    try:
+                        from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                        app = _get_flask_app()
+                        with app.app_context():
+                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                            print(f"✅ [BUILD 316] Full prompt loaded: {len(full_prompt)} chars")
+                    except Exception as e:
+                        print(f"⚠️ [BUILD 316] Failed to load full prompt: {e}")
+                    
+                    # Build lead capture tool
                     lead_tool = self._build_lead_capture_tool()
                     
+                    # Update session with full prompt and tool
+                    voice_to_use = getattr(self, '_call_voice', 'ash')
+                    session_config = {
+                        "voice": voice_to_use
+                    }
+                    
+                    if full_prompt:
+                        session_config["instructions"] = full_prompt
+                    
                     if lead_tool:
-                        # Only update tools, NOT instructions (prevents token waste)
-                        await client.send_event({
-                            "type": "session.update",
-                            "session": {
-                                "tools": [lead_tool],
-                                "tool_choice": "auto"
-                            }
-                        })
-                        print(f"✅ [BUILD 329] Tool added ONCE (no prompt resend)")
-                    else:
-                        print(f"ℹ️ [BUILD 329] No tool needed")
+                        session_config["tools"] = [lead_tool]
+                        session_config["tool_choice"] = "auto"
+                        print(f"🔧 [BUILD 316] Adding lead capture tool for: {getattr(self, 'required_lead_fields', [])}")
+                    
+                    await client.send_event({
+                        "type": "session.update",
+                        "session": session_config
+                    })
+                    print(f"✅ [BUILD 316] Phase 2 complete: full prompt + tool loaded")
                         
                 except Exception as e:
-                    print(f"⚠️ [BUILD 329] Phase 2 error: {e}")
+                    print(f"⚠️ [BUILD 316] Phase 2 error: {e}")
             
             # Start Phase 2 in background (non-blocking)
-            asyncio.create_task(_load_lead_tool_only())
+            asyncio.create_task(_load_full_prompt_and_tool())
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
@@ -1824,9 +1827,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             self._calculate_and_log_cost()
             
             if client:
-                # 🔥 BUILD 331: Pass reason for disconnect logging
-                disconnect_reason = "limit_exceeded" if getattr(self, 'realtime_stop_flag', False) else "normal_end"
-                await client.disconnect(reason=disconnect_reason)
+                await client.disconnect()
                 print(f"🔌 [REALTIME] Disconnected")
                 logger.info(f"[CALL DEBUG] OpenAI Realtime disconnected")
     
@@ -1861,12 +1862,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
         _fps_frame_count = 0
         _fps_window_start = time.time()
         _fps_throttle_logged = False
-        
-        # 🔥 BUILD 331: HARD SAFETY LIMITS - Prevent runaway token consumption
-        _call_start_time = time.time()
-        _total_frames_sent = 0
-        _limit_exceeded = False
-        _limit_logged = False
         
         while not self.realtime_stop_flag:
             try:
@@ -1922,67 +1917,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     continue
                 
                 _fps_frame_count += 1
-                
-                # 🔥 BUILD 331: HARD SAFETY LIMITS - Check before sending any audio!
-                call_elapsed = time.time() - _call_start_time
-                _total_frames_sent += 1
-                
-                # Check if we've exceeded hard limits
-                if not _limit_exceeded:
-                    if call_elapsed > MAX_REALTIME_SECONDS_PER_CALL:
-                        _limit_exceeded = True
-                        print(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! call_duration={call_elapsed:.1f}s > max={MAX_REALTIME_SECONDS_PER_CALL}s")
-                    elif _total_frames_sent > MAX_AUDIO_FRAMES_PER_CALL:
-                        _limit_exceeded = True
-                        print(f"🛑 [BUILD 331] HARD LIMIT EXCEEDED! frames={_total_frames_sent} > max={MAX_AUDIO_FRAMES_PER_CALL}")
-                
-                # If limit exceeded, stop sending audio and trigger IMMEDIATE call termination
-                if _limit_exceeded:
-                    if not _limit_logged:
-                        _limit_logged = True
-                        print(f"🛑 [BUILD 331] OPENAI_USAGE_GUARD: frames_sent={_total_frames_sent}, estimated_seconds={call_elapsed:.1f}")
-                        print(f"🛑 [BUILD 332] HARD LIMIT HIT - Triggering immediate call termination!")
-                        
-                        # 🔥 BUILD 332: Set flags to trigger FULL call shutdown
-                        self.realtime_stop_flag = True
-                        self._limit_exceeded = True  # Store for logging in finally block
-                        self._limit_frames = _total_frames_sent
-                        self._limit_seconds = call_elapsed
-                        
-                        # 🔥 BUILD 332: FORCE SOCKET SHUTDOWN - Unblocks Eventlet's wait() immediately!
-                        # ws.close() doesn't break Eventlet's wait() loop, but socket.shutdown() does
-                        if hasattr(self, 'ws') and self.ws:
-                            try:
-                                import socket
-                                # Get the underlying socket and force shutdown
-                                if hasattr(self.ws, 'socket'):
-                                    self.ws.socket.shutdown(socket.SHUT_RDWR)
-                                    print(f"✅ [BUILD 332] Socket shutdown triggered - main loop will exit!")
-                                elif hasattr(self.ws, '_socket'):
-                                    self.ws._socket.shutdown(socket.SHUT_RDWR)
-                                    print(f"✅ [BUILD 332] Socket shutdown triggered via _socket!")
-                                else:
-                                    # Fallback: try to close normally
-                                    self.ws.close()
-                                    print(f"⚠️ [BUILD 332] Used ws.close() fallback (no direct socket access)")
-                            except Exception as e:
-                                print(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
-                        
-                        # 🔥 BUILD 332: ALSO CALL TWILIO API as additional guarantee
-                        if hasattr(self, 'call_sid') and self.call_sid:
-                            try:
-                                import os
-                                from twilio.rest import Client as TwilioClient
-                                account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-                                auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-                                if account_sid and auth_token:
-                                    twilio_client = TwilioClient(account_sid, auth_token)
-                                    twilio_client.calls(self.call_sid).update(status='completed')
-                                    print(f"✅ [BUILD 332] Twilio call {self.call_sid} terminated via API!")
-                            except Exception as e:
-                                print(f"⚠️ [BUILD 332] Could not terminate call via Twilio API: {e}")
-                    
-                    break  # Exit the audio sender loop immediately
                 
                 # 💰 COST TRACKING: Count user audio chunks being sent to OpenAI
                 # Start timer on first chunk
@@ -2050,11 +1984,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 print(f"❌ [REALTIME] Audio sender error: {e}")
                 break
         
-        # 🔥 BUILD 331: Store values for final logging in main finally block
-        self._usage_guard_frames = _total_frames_sent
-        self._usage_guard_seconds = time.time() - _call_start_time
-        self._usage_guard_limit_hit = _limit_exceeded
-        print(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
+        print(f"📤 [REALTIME] Audio sender ended")
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 302: FLUSH TX QUEUE - Stop old audio from playing on barge-in
@@ -3596,10 +3526,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self.call_state = CallState.ACTIVE
                                 print(f"📞 [BUILD 203] CLOSING → ACTIVE (user rejected confirmation)")
                             
-                            # 🔥 BUILD 326: UNLOCK city - user is correcting
-                            # This allows user to provide new city
-                            self._unlock_city()
-                            self._last_ai_mentioned_city = None
+                            # 🔥 BUILD 313: SIMPLIFIED - Just clear city from lead_capture_state
+                            # OpenAI Tool will capture the new city when user provides it
+                            if 'city' in self.lead_capture_state:
+                                old_city = self.lead_capture_state.get('city')
+                                del self.lead_capture_state['city']
+                                self._last_ai_mentioned_city = None
+                                print(f"🗑️ [BUILD 313] CLEARED city: was '{old_city}'")
                             
                             # 🔥 BUILD 308: POST-REJECTION COOL-OFF
                             self._awaiting_user_correction = True
@@ -4652,11 +4585,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
         
         try:
             while True:
-                # 🔥 BUILD 331: Check if hard limit was exceeded - exit immediately
-                if self._limit_exceeded:
-                    print(f"🛑 [BUILD 331] LIMIT_EXCEEDED flag detected in main loop - exiting immediately")
-                    break
-                
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None
                 try:
@@ -4688,11 +4616,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     if raw is None or raw == '':
                         print("📞 WebSocket connection closed normally", flush=True)
                         break
-                    
-                    # 🔥 BUILD 331: Check limit flag after receiving - exit if limit exceeded
-                    if self._limit_exceeded:
-                        print(f"🛑 [BUILD 331] LIMIT_EXCEEDED after receive - exiting main loop")
-                        break
                         
                     # Handle both string and bytes
                     if isinstance(raw, bytes):
@@ -4705,10 +4628,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     print(f"⚠️ Invalid JSON received: {str(raw)[:100] if raw else 'None'}... Error: {e}", flush=True)
                     continue
                 except Exception as e:
-                    # 🔥 BUILD 331: Check limit flag on exception - exit if limit exceeded
-                    if self._limit_exceeded:
-                        print(f"🛑 [BUILD 331] LIMIT_EXCEEDED during exception - exiting main loop")
-                        break
                     print(f"⚠️ WebSocket receive error: {e}", flush=True)
                     import traceback
                     traceback.print_exc()
@@ -5625,13 +5544,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # 💰 CALCULATE AND LOG CALL COST
             if USE_REALTIME_API:
                 self._calculate_and_log_cost()
-            
-            # 🔥 BUILD 331: OPENAI_USAGE_GUARD - Final logging regardless of exit path
-            frames_sent = getattr(self, '_usage_guard_frames', 0)
-            seconds_used = getattr(self, '_usage_guard_seconds', 0.0)
-            limit_hit = getattr(self, '_usage_guard_limit_hit', False)
-            limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
-            print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
             try: 
                 self.ws.close()
@@ -7615,57 +7527,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 return match.group(1).strip()
         
         return ""
-    
-    def _build_confirmation_from_state(self) -> str:
-        """
-        🔥 BUILD 326: Build confirmation message using LOCKED values from state
-        
-        This ensures AI says the EXACT city user said, not a hallucinated one.
-        Uses lead_capture_state as the source of truth.
-        
-        Returns confirmation template like:
-        "אז בוא נוודא שאני מבין נכון: אתה צריך שירות בעפולה. נכון?"
-        """
-        state = self.lead_capture_state
-        
-        parts = []
-        
-        # Add service type if captured
-        service = state.get('service_type', '')
-        if service:
-            parts.append(f"אתה צריך {service}")
-        
-        # Add city - MUST use locked value!
-        city = state.get('city', '')
-        if city:
-            if parts:
-                parts.append(f"ב{city}")
-            else:
-                parts.append(f"אתה נמצא ב{city}")
-        
-        # Add name if captured
-        name = state.get('name', '')
-        if name:
-            parts.append(f"השם שלך {name}")
-        
-        if not parts:
-            return ""
-        
-        # Build full confirmation
-        confirmation = "אז בוא נוודא שאני מבין נכון: " + ", ".join(parts) + ". נכון?"
-        print(f"📋 [BUILD 326] Built confirmation from state: '{confirmation}'")
-        return confirmation
-    
-    def _get_city_for_ai_response(self) -> str:
-        """
-        🔥 BUILD 326: Get city value for AI to use in responses
-        
-        If city is locked, ALWAYS returns the locked value.
-        AI must use this instead of inventing its own city.
-        """
-        if self._city_locked and self._city_raw_from_stt:
-            return self._city_raw_from_stt
-        return self.lead_capture_state.get('city', '')
 
     def _extract_lead_fields_from_ai(self, ai_transcript: str, is_user_speech: bool = False):
         """
@@ -7721,105 +7582,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # 🔥 BUILD 313: All other fields (city, name, service_type) handled by OpenAI Tool!
         # No more word lists, no fuzzy matching, no city normalizer
         # OpenAI understands context and calls save_lead_info with correct values
-        
-        # 🔥 BUILD 326: CITY LOCK - Detect and lock city from user utterance
-        if is_user_speech and 'city' in required_fields:
-            self._try_lock_city_from_utterance(text)
     
-    def _try_lock_city_from_utterance(self, text: str):
-        """
-        🔥 BUILD 326: CITY LOCK MECHANISM
-        
-        When user says a city (short Hebrew, 1-4 words after AI asked for city),
-        lock it as the SOURCE OF TRUTH. AI can NEVER change it.
-        
-        No city dictionaries - just takes what user said literally.
-        """
-        import re
-        
-        # Only lock if city is needed and not already locked
-        if self._city_locked and 'city' in self.lead_capture_state:
-            print(f"🔒 [BUILD 326] City already locked: '{self.lead_capture_state.get('city')}'")
-            return
-        
-        # Check if last AI message asked for city
-        last_ai_msg = None
-        for msg in reversed(self.conversation_history):
-            if msg.get("speaker") == "ai":
-                last_ai_msg = msg.get("text", "").lower()
-                break
-        
-        ai_asked_for_city = last_ai_msg and any(
-            phrase in last_ai_msg for phrase in [
-                "עיר", "איפה", "מאיפה", "באיזו עיר", "באיזה אזור", "מאיזה"
-            ]
-        )
-        
-        if not ai_asked_for_city:
-            return
-        
-        # Clean the utterance
-        cleaned = text.strip()
-        
-        # Remove punctuation
-        cleaned = re.sub(r'[\.!\?:,;]', '', cleaned)
-        
-        # Skip if too long (more than 4 words = probably not just a city)
-        words = cleaned.split()
-        if len(words) > 4:
-            return
-        
-        # Skip non-Hebrew or nonsense responses
-        hebrew_chars = sum(1 for c in cleaned if '\u0590' <= c <= '\u05FF')
-        if hebrew_chars < 2:
-            return
-        
-        # Skip confirmation/rejection words (not cities)
-        skip_words = ["כן", "לא", "נכון", "בדיוק", "ממש לא", "תודה", "שלום", "עדיין", "רגע"]
-        if cleaned in skip_words or any(cleaned.startswith(sw) for sw in ["לא ", "כן ", "עדיין"]):
-            return
-        
-        # Clean common prefixes (בעיר, באזור, אני ב, אני מ, etc.)
-        city_prefixes = [
-            r'^בעיר\s+', r'^באזור\s+', r'^עיר\s+', r'^מעיר\s+',
-            r'^אני ב', r'^אני מ', r'^אנחנו ב', r'^אנחנו מ',
-            r'^ב', r'^מ'
-        ]
-        
-        city_name = cleaned
-        for prefix_pattern in city_prefixes:
-            city_name = re.sub(prefix_pattern, '', city_name, flags=re.IGNORECASE)
-            if city_name != cleaned:
-                break
-        
-        city_name = city_name.strip()
-        
-        # Must have at least 2 Hebrew characters
-        if len(city_name) < 2:
-            return
-        
-        # LOCK THE CITY!
-        self._city_raw_from_stt = city_name
-        self._city_locked = True
-        self._city_source = 'user_utterance'
-        self._update_lead_capture_state('city', city_name)
-        print(f"🔒 [BUILD 326] CITY LOCKED from STT: '{city_name}' (raw: '{text}')")
-    
-    def _unlock_city(self):
-        """
-        🔥 BUILD 326: Unlock city when user explicitly corrects
-        Called when user says "לא", "לא נכון", etc.
-        """
-        if self._city_locked:
-            old_city = self.lead_capture_state.get('city', '')
-            self._city_locked = False
-            self._city_raw_from_stt = None
-            self._city_source = None
-            if 'city' in self.lead_capture_state:
-                del self.lead_capture_state['city']
-            print(f"🔓 [BUILD 326] CITY UNLOCKED (was: '{old_city}') - waiting for new city")
-    
-    def _update_lead_capture_state(self, field: str, value: str, source: str = 'unknown'):
+    def _update_lead_capture_state(self, field: str, value: str):
         """
         🎯 DYNAMIC LEAD CAPTURE: Update lead capture state with a new field value
         
@@ -7831,22 +7595,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
         Args:
             field: Field identifier (e.g., 'name', 'phone', 'city', 'service_type')
             value: The captured value
-            source: Where this update came from ('user_utterance', 'ai_extraction', 'dtmf', etc.)
         """
         if not value or not str(value).strip():
             return
         
         value = str(value).strip()
-        
-        # 🔥 BUILD 326: CITY LOCK - Block AI from changing locked city!
-        if field == 'city' and self._city_locked:
-            existing_city = self.lead_capture_state.get('city', '')
-            if existing_city and value != existing_city:
-                # AI is trying to change locked city - BLOCK IT!
-                print(f"🛡️ [BUILD 326] BLOCKED: AI tried to change locked city '{existing_city}' → '{value}'")
-                print(f"🛡️ [BUILD 326] City remains: '{existing_city}' (locked from user utterance)")
-                return
-        
         self.lead_capture_state[field] = value
         print(f"✅ [LEAD STATE] Updated: {field}={value}")
         print(f"📋 [LEAD STATE] Current state: {self.lead_capture_state}")

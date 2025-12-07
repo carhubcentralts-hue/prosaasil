@@ -115,26 +115,16 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
             logger.warning(f"⚠️ [BUILD 324] No ai_prompt for business {business_id} - using English fallback")
         
-        # 🔥 BUILD 328: Add minimal scheduling info if calendar is enabled
-        # This allows AI to handle appointments without needing full prompt resend
-        scheduling_note = ""
-        if settings and hasattr(settings, 'enable_calendar_scheduling') and settings.enable_calendar_scheduling:
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(business_id, prompt_text=None)
-            if policy:
-                scheduling_note = f"\nAPPOINTMENTS: {policy.slot_size_min}min slots. Check availability first!"
-                logger.info(f"📅 [BUILD 328] Added scheduling info: {policy.slot_size_min}min slots")
-        
-        # 🔥 BUILD 327: STT AS SOURCE OF TRUTH + patience
+        # 🔥 BUILD 324: English rules + patience
         direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
         
         final_prompt = f"""{compact_context}
 
 ---
-{direction} | CRITICAL: Use EXACT words customer says. NEVER invent or guess!
-If unclear - ask to repeat. SPEAK HEBREW.{scheduling_note}"""
+{direction} | If unclear: ask to repeat. Never invent info.
+PATIENCE: Ask ONE question, wait for FULL answer, then continue. SPEAK HEBREW."""
 
-        logger.info(f"📦 [BUILD 328] Final compact prompt: {len(final_prompt)} chars")
+        logger.info(f"📦 [BUILD 324] Final compact prompt: {len(final_prompt)} chars")
         return final_prompt
         
     except Exception as e:
@@ -251,7 +241,11 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         if not greeting_text:
             greeting_text = ""
         
-        # 🔥 BUILD 327: Removed required_lead_fields - AI follows prompt instructions
+        # 🔥 BUILD 168: Load required_lead_fields for dynamic verification prompt
+        required_lead_fields = ['name', 'phone']  # Default
+        if settings and hasattr(settings, 'required_lead_fields') and settings.required_lead_fields:
+            required_lead_fields = settings.required_lead_fields
+            logger.info(f"✅ Using custom required_lead_fields: {required_lead_fields}")
         
         # 🔥 BUILD 186: Check calendar scheduling setting
         enable_calendar_scheduling = True  # Default to enabled
@@ -260,10 +254,9 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         logger.info(f"📅 [INBOUND] Calendar scheduling: {'ENABLED' if enable_calendar_scheduling else 'DISABLED'}")
         
         # 🎯 BUILD 324: COMPACT English system prompt with call control settings
-        # 🔥 BUILD 327: Simplified call without required_lead_fields
         critical_rules = _build_critical_rules_compact(
             business_name, today_date, weekday_name, greeting_text, 
-            call_direction, enable_calendar_scheduling
+            required_lead_fields, call_direction, enable_calendar_scheduling
         )
         
         # Combine: Rules + Custom prompt + Policy
@@ -300,7 +293,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         return _get_fallback_prompt(business_id)
 
 
-def _get_fallback_prompt(business_id: Optional[int] = None) -> str:
+def _get_fallback_prompt(business_id: int = None) -> str:
     """Minimal fallback prompt - tries to use business settings first"""
     try:
         if business_id:
@@ -355,9 +348,8 @@ def _build_slot_description(slot_size_min: int) -> str:
     return f"Every {slot_size_min}min"
 
 
-def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
+def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", required_fields: Optional[list] = None, call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
-    🔥 BUILD 327: Simplified - removed required_fields parameter (AI follows prompt instructions)
     🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
     direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
@@ -372,24 +364,15 @@ def _build_critical_rules_compact(business_name: str, today_date: str, weekday_n
 7. If customer asks for appointment: say a rep will call back soon"""
     
     # 🔥 BUILD 324: English rules - AI speaks Hebrew to customer
-    # 🔥 BUILD 327: STT AS SOURCE OF TRUTH - respond only to what customer actually said
     return f"""AI Rep for "{business_name}" | {direction_context} call
 Date: {weekday_name}, {today_date}
 
-CRITICAL - TRANSCRIPTION IS TRUTH:
-- Respond ONLY to what customer ACTUALLY SAID
-- NEVER invent, guess, or change what you heard
-- If customer said "עפולה" - respond about "עפולה", not another city
-- If customer said a name - use THAT EXACT name
-- If unclear what customer said - ASK to repeat, don't guess!
-- NEVER imagine or hallucinate values the customer didn't say
-
 RULES:
 1. SPEAK HEBREW naturally. If customer speaks another language - switch to it
-2. Use EXACT words customer said. Never "correct" or change them
-3. Confirm details: "Just to verify - you said X, correct?" (use their EXACT words)
+2. Never invent info - only what was said or system confirmed
+3. Confirm details: "Just to verify - you said X, correct?"
 4. Be brief and clear, no repetition
-5. If unclear: ask to repeat politely - "סליחה, לא שמעתי טוב, אפשר לחזור?"
+5. If unclear: ask to repeat politely
 {scheduling_rules}
 
 PATIENCE (CRITICAL):

@@ -20,7 +20,6 @@ packages = ["c-ares", "cargo", "ffmpeg", "ffmpeg-full", "freetype", "glibcLocale
 [[ports]]
 localPort = 3300
 externalPort = 4200
-exposeLocalhost = true
 
 [[ports]]
 localPort = 5000

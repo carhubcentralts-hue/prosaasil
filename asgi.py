@@ -257,10 +257,8 @@ class LazyASGIWrapper:
 # Order matters: Health checks FIRST, then WS, then Flask mount
 app = Starlette(routes=[
     # 🚀 CRITICAL: Immediate health check for Cloud Run (no Flask required!)
-    # All these routes return "ok" immediately without touching Flask
     Route("/healthz", healthz_immediate, methods=["GET"]),
     Route("/health", healthz_immediate, methods=["GET"]),
-    Route("/api/health", healthz_immediate, methods=["GET"]),
     # Block non-WebSocket GET requests (return 426 instead of HTML)
     Route("/ws/twilio-media", ws_http_probe, methods=["GET"]),
     Route("/ws/twilio-media/", ws_http_probe, methods=["GET"]),
