@@ -1668,12 +1668,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
-            # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
-            # Vocabulary prompts were causing hallucinations like "קליבר" 
-            # Pure approach: language="he" + no prompt = best accuracy
-            print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
+            # 🔥 BUILD 330: RESTORED STT vocabulary prompt - empty prompt caused bad transcription!
+            # BUILD 316 disabled vocab prompt to prevent hallucinations, but it caused gibberish
+            # transcription (e.g., "פריצת דלתות" → "פריצת לטון"). Vocab prompt is CRITICAL!
+            try:
+                from server.services.dynamic_stt_service import build_dynamic_stt_prompt
+                stt_prompt = build_dynamic_stt_prompt(self.business_id)
+                print(f"🎤 [BUILD 330] STT vocabulary prompt restored: '{stt_prompt}' ({len(stt_prompt)} chars)")
+            except Exception as e:
+                stt_prompt = "תמלל עברית בשיחה טלפונית. רק תמלל, לא להוסיף."
+                print(f"⚠️ [BUILD 330] Using fallback STT prompt: {e}")
             
-            # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
+            # 🔥 BUILD 330: Configure with vocabulary prompt for better transcription
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -1683,7 +1689,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 silence_duration_ms=450,
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                transcription_prompt=""  # 🔥 BUILD 316: EMPTY - no vocabulary hints!
+                transcription_prompt=stt_prompt  # 🔥 BUILD 330: RESTORED vocabulary hints!
             )
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
