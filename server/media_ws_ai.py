@@ -2833,9 +2833,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         if self._expected_confirmation and not self._confirmation_validated:
                             expected = self._expected_confirmation
                             
-                            # 🔥 BUILD 336 FIX: Normalized comparison for Hebrew
+                            # 🔥 BUILD 338 FIX: Enhanced Hebrew normalization for validation
                             def _normalize_hebrew(text):
-                                """Normalize Hebrew text for comparison (strip punctuation, diacritics, NFKC)"""
+                                """Normalize Hebrew text for comparison (strip punctuation, diacritics, prefixes, plural)"""
                                 import unicodedata
                                 import re
                                 # NFKC normalization
@@ -2848,12 +2848,42 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 text = ' '.join(text.split())
                                 return text.strip()
                             
+                            def _normalize_hebrew_token(word):
+                                """Normalize a single Hebrew word - remove prefixes and plural suffixes"""
+                                import re
+                                # Remove common Hebrew prefixes: ב/ל/ה/מ/ו/ש/כ
+                                # Must be at least 3 chars after stripping to avoid over-stripping
+                                prefixes = ['וב', 'ול', 'וה', 'ומ', 'ב', 'ל', 'ה', 'מ', 'ו', 'ש', 'כ']
+                                stripped = word
+                                for prefix in prefixes:
+                                    if word.startswith(prefix) and len(word) > len(prefix) + 2:
+                                        stripped = word[len(prefix):]
+                                        break
+                                
+                                # Handle plural suffixes: ים/ות
+                                # צילינדרים → צילינדר, דלתות → דלת
+                                if stripped.endswith('ים') and len(stripped) > 4:
+                                    stripped = stripped[:-2]
+                                elif stripped.endswith('ות') and len(stripped) > 4:
+                                    stripped = stripped[:-2]
+                                
+                                return stripped
+                            
+                            def _tokens_match_flexibly(expected_tokens, actual_tokens):
+                                """Check if tokens match with Hebrew prefix/plural flexibility"""
+                                # Normalize all tokens
+                                normalized_expected = {_normalize_hebrew_token(t) for t in expected_tokens}
+                                normalized_actual = {_normalize_hebrew_token(t) for t in actual_tokens}
+                                
+                                # Find truly extra tokens (after normalization)
+                                return normalized_actual - normalized_expected
+                            
                             normalized_transcript = _normalize_hebrew(transcript)
                             normalized_expected = _normalize_hebrew(expected)
                             
-                            # 🔥 BUILD 336 FIX: TOKEN-BASED STRICT VALIDATION
+                            # 🔥 BUILD 338 FIX: TOKEN-BASED VALIDATION WITH HEBREW PREFIX/PLURAL FLEXIBILITY
                             # AI must say the expected confirmation with NO extra substantive content
-                            # Strategy: Tokenize both and ensure no unexpected tokens added
+                            # Strategy: Tokenize both, normalize with Hebrew rules, ensure no unexpected tokens
                             
                             # Get expected tokens (what we told AI to say)
                             expected_tokens = set(normalized_expected.split())
@@ -2861,45 +2891,72 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # Get AI's actual tokens
                             actual_tokens = set(normalized_transcript.split())
                             
-                            # Find tokens AI added that weren't in expected
-                            extra_tokens = actual_tokens - expected_tokens
+                            # 🔥 BUILD 338: Use flexible Hebrew matching for extra token detection
+                            # This handles: "בעפולה" ↔ "עפולה", "צילינדרים" ↔ "צילינדר"
+                            extra_tokens_flexible = _tokens_match_flexibly(expected_tokens, actual_tokens)
                             
                             # Allowed filler tokens (greetings, acknowledgements)
-                            allowed_filler = {"כן", "בסדר", "אוקיי", "טוב", "יופי", "אמ", "אה", "אז", "נו"}
+                            # 🔥 BUILD 338: Also normalize the filler for comparison
+                            allowed_filler = {"כן", "בסדר", "אוקיי", "טוב", "יופי", "אמ", "אה", "אז", "נו", "בבקשה", "תודה", "נכון", "מצוין"}
+                            allowed_filler_normalized = {_normalize_hebrew_token(t) for t in allowed_filler}
                             
                             # Remove allowed filler from extra tokens
-                            substantive_extras = extra_tokens - allowed_filler
+                            substantive_extras = extra_tokens_flexible - allowed_filler_normalized
                             
-                            # 🔥 BUILD 336 FIX: VERIFY locked values ARE PRESENT in transcript
+                            # 🔥 BUILD 338 DEBUG: Log the comparison details
+                            if extra_tokens_flexible:
+                                print(f"🔍 [BUILD 338] Extra tokens (after prefix/plural normalization): {extra_tokens_flexible}")
+                                print(f"🔍 [BUILD 338] After removing filler: {substantive_extras}")
+                            
+                            # 🔥 BUILD 338 FIX: VERIFY locked values ARE PRESENT in transcript (with prefix/plural flexibility)
                             # Default to True only if no lock exists for that field
                             # If lock exists, MUST verify the value is in transcript
+                            
+                            def _value_present_flexibly(value, text):
+                                """Check if a value is present in text with Hebrew prefix/plural flexibility"""
+                                # Simple check first
+                                if value in text:
+                                    return True
+                                # Normalize both and check again
+                                norm_value = _normalize_hebrew_token(value)
+                                words = text.split()
+                                for word in words:
+                                    norm_word = _normalize_hebrew_token(word)
+                                    # Check if normalized forms match (handles prefix/plural variations)
+                                    if norm_value == norm_word:
+                                        return True
+                                    # Also check if one contains the other (partial match)
+                                    if len(norm_value) >= 3 and len(norm_word) >= 3:
+                                        if norm_value in norm_word or norm_word in norm_value:
+                                            return True
+                                return False
                             
                             city_ok = True
                             service_ok = True
                             
-                            # CITY: If locked, MUST be in transcript
+                            # CITY: If locked, MUST be in transcript (with flexible matching)
                             if self._city_locked:
                                 if self._city_raw_from_stt:
                                     normalized_city = _normalize_hebrew(self._city_raw_from_stt)
-                                    city_ok = normalized_city in normalized_transcript
+                                    city_ok = _value_present_flexibly(normalized_city, normalized_transcript)
                                     if not city_ok:
-                                        print(f"⚠️ [BUILD 336] City MISSING! Expected '{self._city_raw_from_stt}' in transcript")
+                                        print(f"⚠️ [BUILD 338] City MISSING! Expected '{self._city_raw_from_stt}' (normalized: '{normalized_city}') in transcript")
                                 else:
                                     # Lock set but no value - inconsistent state, fail
                                     city_ok = False
-                                    print(f"⚠️ [BUILD 336] City locked but no raw STT value!")
+                                    print(f"⚠️ [BUILD 338] City locked but no raw STT value!")
                             
-                            # SERVICE: If locked, MUST be in transcript
+                            # SERVICE: If locked, MUST be in transcript (with flexible matching)
                             if self._service_locked:
                                 if self._service_raw_from_stt:
                                     normalized_service = _normalize_hebrew(self._service_raw_from_stt)
-                                    service_ok = normalized_service in normalized_transcript
+                                    service_ok = _value_present_flexibly(normalized_service, normalized_transcript)
                                     if not service_ok:
-                                        print(f"⚠️ [BUILD 336] Service MISSING! Expected '{self._service_raw_from_stt}' in transcript")
+                                        print(f"⚠️ [BUILD 338] Service MISSING! Expected '{self._service_raw_from_stt}' (normalized: '{normalized_service}') in transcript")
                                 else:
                                     # Lock set but no value - inconsistent state, fail
                                     service_ok = False
-                                    print(f"⚠️ [BUILD 336] Service locked but no raw STT value!")
+                                    print(f"⚠️ [BUILD 338] Service locked but no raw STT value!")
                             
                             # STRICT: No extra substantive tokens allowed
                             no_extra_content = len(substantive_extras) == 0
@@ -3586,7 +3643,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     self._last_user_speech_ts = time.time()  # 🔥 BUILD 170.3: Track for time-based guard
                     
                     # 🔥 BUILD 172: Update speech time for silence detection
-                    self._update_speech_time()
+                    # 🔥 BUILD 338: Mark as user speech to reset warning count
+                    self._update_speech_time(is_user_speech=True)
                     # 🛑 DISENGAGE LOOP GUARD - user spoke, allow AI to respond again
                     if self._loop_guard_engaged:
                         print(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
@@ -7530,10 +7588,20 @@ SPEAK HEBREW to customer. Be brief and helpful.
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
     
-    def _update_speech_time(self):
-        """Call this whenever user or AI speaks to reset silence timer."""
+    def _update_speech_time(self, is_user_speech: bool = False):
+        """Call this whenever user or AI speaks to reset silence timer.
+        
+        🔥 BUILD 338 FIX: Only reset warning count on USER speech, not AI speech!
+        Otherwise AI responding resets the count and silence loop never ends.
+        
+        Args:
+            is_user_speech: True if this is user speech, False if AI speech
+        """
         self._last_speech_time = time.time()
-        self._silence_warning_count = 0  # Reset warnings on any speech
+        # 🔥 BUILD 338: Only reset warnings when USER speaks, not when AI speaks!
+        # This prevents infinite silence loop: AI speaks → count reset → warning 1/2 again
+        if is_user_speech:
+            self._silence_warning_count = 0
         
         # 🔥 BUILD 172 SAFETY: Ensure we're in ACTIVE state if speech occurs
         # This guards against edge cases where greeting fails but conversation continues
