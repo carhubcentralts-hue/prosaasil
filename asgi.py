@@ -232,6 +232,7 @@ async def ws_twilio_media(websocket: WebSocket):
         
         # Start loops and handler together
         async def run_all():
+            nonlocal handler_thread
             print("[REALTIME] run_all: STARTING async loops and handler thread...", flush=True)
             twilio_log.info("[REALTIME] run_all: STARTING async loops and handler thread...")
             # Start async loops
