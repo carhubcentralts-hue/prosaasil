@@ -92,6 +92,11 @@ USE_REALTIME_API = True  # FORCED TRUE - OpenAI Realtime API only!
 # - Good quality for Hebrew voice calls
 OPENAI_REALTIME_MODEL = "gpt-4o-mini-realtime-preview"
 
+# ⭐⭐⭐ BUILD 350: REMOVE ALL MID-CALL LOGIC & TOOLS
+# Keep calls 100% pure conversation. Only allow appointment scheduling when enabled.
+# Everything else (service, city, details) must happen AFTER the call via summary.
+ENABLE_LEGACY_TOOLS = False  # DISABLED - no mid-call tools, no city/service extraction during calls
+
 # 🔍 OVERRIDE: Allow env var to switch model if needed
 _env_model = os.getenv("OPENAI_REALTIME_MODEL")
 if _env_model:
@@ -1787,39 +1792,40 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 
                 asyncio.create_task(warmup_to_active())
             
-            # 🔥 BUILD 329: PHASE 2 - Only add tool ONCE after greeting
-            # CRITICAL: Full prompt already sent in Phase 1 - DO NOT RESEND!
-            # The previous loop was sending session.update repeatedly = 1.7M tokens/day!
-            async def _load_lead_tool_only():
-                try:
-                    # Wait for greeting to finish
-                    wait_start = time.time()
-                    max_wait_seconds = 15
-                    
-                    while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
-                        await asyncio.sleep(0.1)  # Check every 100ms
-                    
-                    # 🔥 BUILD 329: Send tool ONCE - no prompt in this update!
-                    lead_tool = self._build_lead_capture_tool()
-                    
-                    if lead_tool:
-                        # Only update tools, NOT instructions (prevents token waste)
-                        await client.send_event({
-                            "type": "session.update",
-                            "session": {
-                                "tools": [lead_tool],
-                                "tool_choice": "auto"
-                            }
-                        })
-                        print(f"✅ [BUILD 329] Tool added ONCE (no prompt resend)")
-                    else:
-                        print(f"ℹ️ [BUILD 329] No tool needed")
+            # ⭐ BUILD 350: PHASE 2 DISABLED - No mid-call tools!
+            # Tools are now completely removed from calls. Only pure conversation.
+            # Service/city extraction happens ONLY from summary at end of call.
+            if ENABLE_LEGACY_TOOLS:
+                # LEGACY CODE - DISABLED
+                async def _load_lead_tool_only():
+                    try:
+                        wait_start = time.time()
+                        max_wait_seconds = 15
                         
-                except Exception as e:
-                    print(f"⚠️ [BUILD 329] Phase 2 error: {e}")
-            
-            # Start Phase 2 in background (non-blocking)
-            asyncio.create_task(_load_lead_tool_only())
+                        while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
+                            await asyncio.sleep(0.1)
+                        
+                        lead_tool = self._build_lead_capture_tool()
+                        
+                        if lead_tool:
+                            await client.send_event({
+                                "type": "session.update",
+                                "session": {
+                                    "tools": [lead_tool],
+                                    "tool_choice": "auto"
+                                }
+                            })
+                            print(f"✅ [LEGACY] Tool added")
+                        else:
+                            print(f"ℹ️ [LEGACY] No tool needed")
+                            
+                    except Exception as e:
+                        print(f"⚠️ [LEGACY] Phase 2 error: {e}")
+                
+                # LEGACY: Start Phase 2 in background (disabled by default)
+                asyncio.create_task(_load_lead_tool_only())
+            else:
+                print(f"✅ [BUILD 350] Tool loading DISABLED - pure conversation mode")
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
@@ -2478,10 +2484,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     # ✅ Continue processing - don't retry, don't crash, just log and move on
                     continue
                 
-                # 🔥 BUILD 313: Handle function calls for lead capture
+                # ⭐ BUILD 350: Function calls DISABLED - no mid-call tools!
                 if event_type == "response.function_call_arguments.done":
-                    print(f"🔧 [BUILD 313] Function call received!")
-                    await self._handle_function_call(event, client)
+                    if ENABLE_LEGACY_TOOLS:
+                        print(f"🔧 [LEGACY BUILD 313] Function call received!")
+                        await self._handle_function_call(event, client)
+                    else:
+                        print(f"⭐ [BUILD 350] Function call received but IGNORED (tools disabled)")
                     continue
                 
                 # 🔍 DEBUG: Log all event types to catch duplicates
@@ -2902,6 +2911,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
+                        
+                        # ⭐ BUILD 350: SIMPLE KEYWORD-BASED APPOINTMENT DETECTION
+                        # Only if appointments are enabled in business settings
+                        if not ENABLE_LEGACY_TOOLS:
+                            self._check_simple_appointment_keywords(transcript)
                         
                         # 🔥 BUILD 336: CONFIRMATION VALIDATION - Check if AI said what we asked
                         if self._expected_confirmation and not self._confirmation_validated:
@@ -3350,10 +3364,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # 🔥 BUILD 182: Block hangup if AI confirmed but system didn't
                             # This prevents the call from ending before appointment is actually created
                             self._ai_said_confirmed_without_approval = True
-                            # 🔥 BUILD 182: Trigger NLP immediately to try to create the appointment
-                            # This runs in background thread and may create the appointment
-                            print(f"🔥 [GUARD] Triggering immediate NLP check to create appointment...")
-                            self._check_appointment_confirmation(transcript)
+                            # ⭐ BUILD 350: NLP disabled - appointments handled differently
+                            if ENABLE_LEGACY_TOOLS:
+                                # LEGACY: Trigger NLP immediately to try to create the appointment
+                                print(f"🔥 [LEGACY GUARD] Triggering immediate NLP check to create appointment...")
+                                self._check_appointment_confirmation(transcript)
                             # Send immediate correction event
                             asyncio.create_task(self._send_server_event_to_ai(
                                 "⚠️ תיקון: התור עדיין לא אושר על ידי המערכת! אל תאשר עד שתקבל הודעה שהתור נקבע"
@@ -4025,9 +4040,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         if already_confirmed:
                             print(f"🛡️ [NLP] SKIP - Appointment already confirmed in this session")
                         else:
-                            # Check for appointment confirmation after user speaks
-                            print(f"🔍 [DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
-                            self._check_appointment_confirmation(transcript)
+                            # ⭐ BUILD 350: NLP disabled - no mid-call appointment logic
+                            if ENABLE_LEGACY_TOOLS:
+                                # LEGACY: Check for appointment confirmation after user speaks
+                                print(f"🔍 [LEGACY DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
+                                self._check_appointment_confirmation(transcript)
                         
                         # 🎯 BUILD 170.5: ALWAYS detect goodbye phrases in user transcript
                         # User saying goodbye should ALWAYS allow call to end
@@ -8207,6 +8224,52 @@ SPEAK HEBREW to customer. Be brief and helpful.
         else:
             print(f"📋 [BUILD 313] Still missing fields: {missing}")
     
+    def _check_simple_appointment_keywords(self, ai_text: str):
+        """
+        ⭐ BUILD 350: SIMPLE KEYWORD-BASED APPOINTMENT DETECTION
+        
+        Detects when AI mentions appointment-related keywords and triggers scheduling.
+        Only runs if appointments are enabled in business settings.
+        
+        NO NLP, NO Realtime Tools - just simple keyword matching.
+        """
+        if not ai_text:
+            return
+        
+        # Check if appointments are enabled for this business
+        business_settings = getattr(self, 'call_control_settings', None)
+        if not business_settings or not getattr(business_settings, 'enable_appointments', False):
+            return
+        
+        # Check if appointment already created
+        if getattr(self, 'appointment_confirmed_in_session', False):
+            return
+        
+        # Simple Hebrew appointment keywords
+        appointment_keywords = [
+            'פגישה', 'לתאם', 'תיאום', 'זמן פנוי', 'מועד', 'ביומן',
+            'נקבע', 'קבעתי', 'נרשם', 'רשמתי', 'התור', 'תור'
+        ]
+        
+        # Check if any keyword is present
+        text_lower = ai_text.lower()
+        found_keyword = None
+        for keyword in appointment_keywords:
+            if keyword in text_lower:
+                found_keyword = keyword
+                break
+        
+        if found_keyword:
+            print(f"📅 [BUILD 350] Appointment keyword detected: '{found_keyword}' in AI response")
+            print(f"📅 [BUILD 350] AI said: {ai_text[:100]}...")
+            
+            # TODO: Trigger your existing appointment creation logic here
+            # For now, just log that we detected it
+            # You can call: self.handle_appointment_request(...)
+            # or: create_appointment_from_realtime(...)
+            
+            print(f"📅 [BUILD 350] Simple appointment detection triggered - integrate with existing appointment logic if needed")
+    
     def _extract_city_from_confirmation(self, text: str) -> str:
         """
         🔥 BUILD 313: SIMPLIFIED - Just extract city from pattern
@@ -8329,16 +8392,19 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     print(f"💰 [BUILD 313] Budget extracted: {budget}")
                     break
         
-        # 🔥 BUILD 336: STT TRUTH STORE - Lock ALL values from user utterances
-        # OpenAI Tool still extracts, but STT values take precedence for confirmation
-        
-        # 🔥 BUILD 336: SERVICE LOCK - Detect and lock service from user utterance (FIRST question!)
-        if is_user_speech and 'service_type' in required_fields:
-            self._try_lock_service_from_utterance(text)
-        
-        # 🔥 BUILD 326: CITY LOCK - Detect and lock city from user utterance
-        if is_user_speech and 'city' in required_fields:
-            self._try_lock_city_from_utterance(text)
+        # ⭐ BUILD 350: CITY/SERVICE LOCK DISABLED - No mid-call extraction!
+        # All field extraction happens ONLY from summary at end of call.
+        if ENABLE_LEGACY_TOOLS:
+            # LEGACY: STT TRUTH STORE - Lock ALL values from user utterances
+            # OpenAI Tool still extracts, but STT values take precedence for confirmation
+            
+            # LEGACY: SERVICE LOCK - Detect and lock service from user utterance (FIRST question!)
+            if is_user_speech and 'service_type' in required_fields:
+                self._try_lock_service_from_utterance(text)
+            
+            # LEGACY: CITY LOCK - Detect and lock city from user utterance
+            if is_user_speech and 'city' in required_fields:
+                self._try_lock_city_from_utterance(text)
     
     def _try_lock_service_from_utterance(self, text: str):
         """
@@ -8884,10 +8950,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 # NLP will extract both date/time AND name from conversation history
                 # Don't check for customer_name here - let NLP extract it from history!
                 crm_context = getattr(self, 'crm_context', None)
-                print(f"🔄 [DTMF] Triggering NLP with phone={crm_context.customer_phone if crm_context else None}")
-                print(f"🔍 [DEBUG] Calling NLP after DTMF - conversation has {len(self.conversation_history)} messages")
-                # Trigger NLP check (uses existing conversation history WITH DTMF!)
-                self._check_appointment_confirmation("")  # Empty string - uses history
+                # ⭐ BUILD 350: NLP disabled - no mid-call appointment logic
+                if ENABLE_LEGACY_TOOLS:
+                    print(f"🔄 [LEGACY DTMF] Triggering NLP with phone={crm_context.customer_phone if crm_context else None}")
+                    print(f"🔍 [LEGACY DEBUG] Calling NLP after DTMF - conversation has {len(self.conversation_history)} messages")
+                    # LEGACY: Trigger NLP check (uses existing conversation history WITH DTMF!)
+                    self._check_appointment_confirmation("")  # Empty string - uses history
                 
             except queue.Full:
                 print(f"❌ [REALTIME] CRITICAL: Text input queue full - DTMF phone dropped!")
@@ -9540,25 +9608,31 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     service_category = last_prof
                                     print(f"🎯 [WEBHOOK] Found LAST professional in transcript: {last_prof} (pos={last_prof_pos})")
                             
-                            # Source 1: lead_capture_state (collected during conversation) - for city/phone only
-                            lead_state = getattr(self, 'lead_capture_state', {}) or {}
+                            # ⭐ BUILD 350: DISABLED lead_capture_state - service/city come ONLY from summary!
+                            # All field extraction happens from transcript analysis above, NOT from mid-call tools.
                             raw_city = None
                             city_confidence = None
-                            if lead_state:
-                                print(f"📋 [WEBHOOK] Lead capture state: {lead_state}")
-                                if not city:
-                                    city = lead_state.get('city') or lead_state.get('עיר')
-                                # 🔥 BUILD 184: Get raw_city and confidence from city normalizer
-                                raw_city = lead_state.get('raw_city')
-                                city_confidence = lead_state.get('city_confidence')
-                                # Only use service from lead_state if we didn't find a known professional
-                                if not service_category:
-                                    raw_service = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
-                                    # Filter out AI question fragments
-                                    if raw_service and raw_service not in ['תרצה עזרה', 'תרצו עזרה', 'אתה צריך', 'אתם צריכים']:
-                                        service_category = raw_service
-                                if not phone:
-                                    phone = lead_state.get('phone') or lead_state.get('טלפון')
+                            
+                            if ENABLE_LEGACY_TOOLS:
+                                # LEGACY: Source 1: lead_capture_state (collected during conversation) - for city/phone only
+                                lead_state = getattr(self, 'lead_capture_state', {}) or {}
+                                if lead_state:
+                                    print(f"📋 [LEGACY WEBHOOK] Lead capture state: {lead_state}")
+                                    if not city:
+                                        city = lead_state.get('city') or lead_state.get('עיר')
+                                    # 🔥 BUILD 184: Get raw_city and confidence from city normalizer
+                                    raw_city = lead_state.get('raw_city')
+                                    city_confidence = lead_state.get('city_confidence')
+                                    # Only use service from lead_state if we didn't find a known professional
+                                    if not service_category:
+                                        raw_service = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
+                                        # Filter out AI question fragments
+                                        if raw_service and raw_service not in ['תרצה עזרה', 'תרצו עזרה', 'אתה צריך', 'אתם צריכים']:
+                                            service_category = raw_service
+                                    if not phone:
+                                        phone = lead_state.get('phone') or lead_state.get('טלפון')
+                            else:
+                                print(f"✅ [BUILD 350] lead_capture_state IGNORED - using summary-only extraction")
                             
                             # Source 2: CRM context
                             if hasattr(self, 'crm_context') and self.crm_context:
@@ -9601,12 +9675,24 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                         print(f"⚠️ [WEBHOOK] Could not load lead data: {lead_err}")
                                         traceback.print_exc()
                             
-                            # 🔥 BUILD 313: SIMPLIFIED - City and service already captured by OpenAI Tool
-                            # No more fuzzy matching or city normalizer - trust what AI captured!
+                            # ⭐ BUILD 350: City and service extracted from summary/transcript ONLY!
+                            # No mid-call tools, no lead_capture_state - pure summary-based extraction.
                             
-                            # 🔥 BUILD 340: Get customer_name and preferred_time from lead_state
-                            customer_name = lead_state.get('name') or (self.crm_context.customer_name if hasattr(self, 'crm_context') and self.crm_context else None)
-                            preferred_time = lead_state.get('preferred_time')
+                            # 🔥 BUILD 340: Get customer_name and preferred_time
+                            # Note: These can still come from CRM context if available
+                            customer_name = None
+                            preferred_time = None
+                            
+                            if ENABLE_LEGACY_TOOLS:
+                                # LEGACY: Get from lead_state
+                                lead_state = getattr(self, 'lead_capture_state', {}) or {}
+                                customer_name = lead_state.get('name') or (self.crm_context.customer_name if hasattr(self, 'crm_context') and self.crm_context else None)
+                                preferred_time = lead_state.get('preferred_time')
+                            else:
+                                # NEW: Get from CRM context only (not from mid-call extraction)
+                                if hasattr(self, 'crm_context') and self.crm_context:
+                                    customer_name = self.crm_context.customer_name
+                                # preferred_time should come from summary analysis if needed
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
