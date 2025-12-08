@@ -1372,46 +1372,51 @@ class MediaStreamHandler:
                 logger.info("[TOOLS][REALTIME] No business_id - no tools enabled")
                 return tools
             
-            # Load business settings to check if appointments are enabled
-            from server.models_sql import BusinessSettings
-            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-            
-            if settings and getattr(settings, 'enable_calendar_scheduling', False):
-                # Appointment tool schema
-                appointment_tool = {
-                    "type": "function",
-                    "name": "schedule_appointment",
-                    "description": "Schedule an appointment when customer confirms time and provides required details",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "customer_name": {
-                                "type": "string",
-                                "description": "Customer's full name"
+            # 🔥 FIX: Database queries need Flask app context!
+            app = _get_flask_app()
+            with app.app_context():
+                # Load business settings to check if appointments are enabled
+                from server.models_sql import BusinessSettings
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                
+                if settings and getattr(settings, 'enable_calendar_scheduling', False):
+                    # Appointment tool schema
+                    appointment_tool = {
+                        "type": "function",
+                        "name": "schedule_appointment",
+                        "description": "Schedule an appointment when customer confirms time and provides required details",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "customer_name": {
+                                    "type": "string",
+                                    "description": "Customer's full name"
+                                },
+                                "appointment_date": {
+                                    "type": "string",
+                                    "description": "Appointment date in YYYY-MM-DD format"
+                                },
+                                "appointment_time": {
+                                    "type": "string",
+                                    "description": "Appointment time in HH:MM format (24-hour)"
+                                },
+                                "service_type": {
+                                    "type": "string",
+                                    "description": "Type of service requested"
+                                }
                             },
-                            "appointment_date": {
-                                "type": "string",
-                                "description": "Appointment date in YYYY-MM-DD format"
-                            },
-                            "appointment_time": {
-                                "type": "string",
-                                "description": "Appointment time in HH:MM format (24-hour)"
-                            },
-                            "service_type": {
-                                "type": "string",
-                                "description": "Type of service requested"
-                            }
-                        },
-                        "required": ["customer_name", "appointment_date", "appointment_time"]
+                            "required": ["customer_name", "appointment_date", "appointment_time"]
+                        }
                     }
-                }
-                tools.append(appointment_tool)
-                logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED for business {business_id}")
-            else:
-                logger.info(f"[TOOLS][REALTIME] Appointments DISABLED - no tools for business {business_id}")
+                    tools.append(appointment_tool)
+                    logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED for business {business_id}")
+                else:
+                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED - no tools for business {business_id}")
                 
         except Exception as e:
             logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
+            import traceback
+            traceback.print_exc()
             # Safe fallback - no tools
         
         return tools
@@ -1613,18 +1618,22 @@ class MediaStreamHandler:
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
         _orig_print(f"🚀 [REALTIME] Thread started for call {call_id} (FRESH SESSION)", flush=True)
-        logger.info(f"[CALL DEBUG] Realtime thread started for call {call_id}")
+        logger.info(f"[REALTIME] Thread started for call {call_id}")
+        logger.info(f"[REALTIME] About to run asyncio.run(_run_realtime_mode_async)...")
         
         try:
             asyncio.run(self._run_realtime_mode_async())
+            logger.info(f"[REALTIME] asyncio.run completed normally for call {call_id}")
         except Exception as e:
             print(f"❌ [REALTIME] Thread error: {e}")
-            logger.error(f"[CALL DEBUG] Realtime thread error: {e}")
+            logger.error(f"[REALTIME] Thread error for call {call_id}: {e}")
             import traceback
+            tb_str = traceback.format_exc()
             traceback.print_exc()
+            logger.error(f"[REALTIME] Full traceback:\n{tb_str}")
         finally:
             print(f"🔚 [REALTIME] Thread ended for call {call_id}")
-            logger.info(f"[CALL DEBUG] Realtime thread ended for call {call_id}")
+            logger.info(f"[REALTIME] Thread ended for call {call_id}")
     
     async def _run_realtime_mode_async(self):
         """
@@ -1640,6 +1649,7 @@ class MediaStreamHandler:
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
+        logger.info(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         client = None
         call_start_time = time.time()
@@ -1829,12 +1839,15 @@ SPEAK HEBREW to customer. Be brief and helpful.
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
             # 🚀 Start audio/text bridges FIRST (before CRM)
+            logger.info(f"[REALTIME] Starting audio/text bridge tasks...")
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+            logger.info(f"[REALTIME] Audio/text tasks created successfully")
             
             # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
             # No waiting for CRM, no 0.2s delay - just speak!
+            logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}")
             if self.bot_speaks_first:
                 greeting_start_ts = time.time()
                 print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
@@ -1868,7 +1881,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
-            realtime_tools = self._build_realtime_tools_for_call()
+            # 🔥 FIX: Wrap in try/except to prevent crashes - realtime should continue even if tools fail
+            realtime_tools = []
+            try:
+                logger.info(f"[REALTIME] Building tools for call...")
+                realtime_tools = self._build_realtime_tools_for_call()
+                logger.info(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
+            except Exception as tools_error:
+                logger.error(f"[REALTIME] Failed to build tools - continuing with empty tools: {tools_error}")
+                import traceback
+                traceback.print_exc()
+                realtime_tools = []  # Safe fallback - no tools
             
             if realtime_tools:
                 # Appointment tool is enabled - send session update
@@ -1944,7 +1967,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 print(f"⚠️ [CRM] No customer phone or lead_id - skipping lead creation")
                 self.crm_context = None
             
+            logger.info(f"[REALTIME] Entering main audio/text loop (gather tasks)...")
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
+            logger.info(f"[REALTIME] Main audio/text loop completed")
             
         except Exception as e:
             print(f"❌ [REALTIME] Async error: {e}")
