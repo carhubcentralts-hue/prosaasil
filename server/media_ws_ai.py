@@ -1158,6 +1158,15 @@ class MediaStreamHandler:
         self.current_user_voice_start_ts = None  # When current user voice started
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
+        self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
+        
+        # 🧘 BUILD 345: Post-greeting breathing window state
+        self._post_greeting_breath_window_sec = 3.5
+        self._post_greeting_window_active = False
+        self._post_greeting_window_started_at = None
+        self._post_greeting_window_finished = False
+        self._post_greeting_heard_user = False
+        self._post_greeting_speech_cycle_complete = False
         
         # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
         self._consecutive_ai_responses = 0
@@ -1292,6 +1301,10 @@ class MediaStreamHandler:
         self._city_locked = False           # True = city is locked from user utterance
         self._city_raw_from_stt = None      # Raw city text from STT (source of truth)
         self._city_source = None            # 'user_utterance' or 'ai_extraction'
+        self._known_city_names_set = None
+        self._current_stt_confidence = None
+        self._current_transcript_token_count = 0
+        self._current_transcript_is_first_answer = False
         
         # 🔥 BUILD 336: SERVICE TYPE LOCK - Same logic for service
         self._service_locked = False        # True = service is locked from user utterance
@@ -1307,6 +1320,9 @@ class MediaStreamHandler:
         self.verification_confirmed = False  # Must be True before AI-triggered hangup is allowed
         self._verification_prompt_sent = False  # Tracks if we already asked for verification
         self._silence_final_chance_given = False  # Tracks if we gave extra chance before silence hangup
+        self._awaiting_confirmation_reply = False  # Prevent duplicate confirmation prompts
+        self._lead_confirmation_received = False  # True once user explicitly confirmed details
+        self._lead_closing_dispatched = False  # Prevent duplicate closing prompts
         # 🔥 BUILD 203: REJECTION GATE - Blocks hangup when user rejects confirmation
         self.user_rejected_confirmation = False  # Set when user says "לא", "ממש לא" etc.
         
@@ -2260,8 +2276,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # 🛡️ GUARD 0: BUILD 303 - Wait for first user utterance after greeting
         # Don't let AI auto-respond before user answers the greeting question
         if self.awaiting_greeting_answer and not is_greeting:
-            print(f"⏸️ [RESPONSE GUARD] Waiting for first user utterance after greeting - skipping ({reason})")
-            return False
+            if self._post_greeting_window_open():
+                print(f"⏸️ [RESPONSE GUARD] Breathing window active - waiting before prompting ({reason})")
+                return False
+            # Window elapsed - allow AI to gently follow-up, but still treat first utterance specially
+            print(f"⏳ [RESPONSE GUARD] Greeting window elapsed - allowing prompt ({reason})")
         
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
         # Don't let AI start new conversation loops after call should end
@@ -2372,6 +2391,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
         try:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
+                response_id = event.get("response_id")
+                if not response_id and "response" in event:
+                    response_id = event.get("response", {}).get("id")
+                
+                if response_id and response_id in self._cancelled_response_ids:
+                    if event_type in ("response.done", "response.cancelled"):
+                        self._cancelled_response_ids.discard(response_id)
+                        print(f"🪓 [BARGE-IN] Ignoring final event for cancelled response {response_id[:20]}... (type={event_type})")
+                    else:
+                        print(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
+                        continue
                 
                 # 🔥 DEBUG BUILD 168.5: Log ALL events to diagnose missing audio
                 if event_type.startswith("response."):
@@ -2472,6 +2502,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # 🔥 BUILD 303: User is answering the greeting question
                         self.awaiting_greeting_answer = True
                         self.greeting_completed_at = time.time()  # Mark greeting as done
+                        self._post_greeting_window_active = False
+                        self._post_greeting_window_finished = True
                         
                         # Flush TX queue to stop greeting audio
                         try:
@@ -2481,11 +2513,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # Cancel any pending response
                         try:
-                            if self.realtime_client and self.active_response_id:
+                            cancelled_id = self.active_response_id
+                            if self.realtime_client and cancelled_id:
                                 await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(),
+                                    self.realtime_client.cancel_response(cancelled_id),
                                     timeout=0.5
                                 )
+                                self._mark_response_cancelled_locally(cancelled_id, "greeting_barge")
                         except Exception:
                             pass
                         
@@ -2509,6 +2543,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     
                     print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
                     self.user_has_spoken = True
+                    if self._post_greeting_window_active:
+                        self._post_greeting_heard_user = True
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
                     # This prevents loop guard from triggering when user IS speaking
                     if self._consecutive_ai_responses > 0:
@@ -2537,12 +2573,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # 1) Cancel response on OpenAI side (with timeout protection)
                         try:
-                            if self.realtime_client:
+                            cancelled_id = self.active_response_id
+                            if self.realtime_client and cancelled_id:
                                 # Use asyncio.wait_for with 0.5s timeout to avoid blocking
                                 await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(),
+                                    self.realtime_client.cancel_response(cancelled_id),
                                     timeout=0.5
                                 )
+                                self._mark_response_cancelled_locally(cancelled_id, "speech_started")
                                 print(f"   ✅ Sent response.cancel to OpenAI")
                         except asyncio.TimeoutError:
                             print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
@@ -2573,6 +2611,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    if self._post_greeting_window_active and self._post_greeting_heard_user and not self._post_greeting_speech_cycle_complete:
+                        self._post_greeting_speech_cycle_complete = True
+                        self._maybe_release_post_greeting_window("user_cycle")
                     
                     # 🔥 BUILD 302: Clear barge-in flag when user finishes speaking
                     if self.barge_in_active:
@@ -2681,6 +2723,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                         "type": "response.cancel",
                                         "response_id": response_id,
                                     })
+                                    self._mark_response_cancelled_locally(response_id, "pre_user_guard")
                                 except Exception:
                                     print("[GUARD] Failed to send response.cancel for pre-user-response")
                             continue  # do NOT enqueue audio for TTS
@@ -2773,6 +2816,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self.awaiting_greeting_answer = True
                         self.first_post_greeting_utterance_handled = False
                         print(f"⏳ [BUILD 303] Waiting for user's first response to greeting...")
+                        self._post_greeting_window_active = True
+                        self._post_greeting_window_started_at = time.time()
+                        self._post_greeting_window_finished = False
+                        self._post_greeting_heard_user = False
+                        self._post_greeting_speech_cycle_complete = False
+                        print(f"🧘 [GREETING] Breathing window started ({self._post_greeting_breath_window_sec:.1f}s)")
                         
                         # 🔥 BUILD 172: Transition to ACTIVE state and start silence monitor
                         if self.call_state == CallState.WARMUP:
@@ -3182,8 +3231,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # Only cancel if there's actually an active response
                             if self.active_response_id and self.realtime_client and self.is_ai_speaking_event.is_set():
                                 try:
-                                    await client.send_event({"type": "response.cancel"})
-                                    print(f"🛑 [LOOP GUARD] Cancelled active AI response (id={self.active_response_id})")
+                                    cancelled_id = self.active_response_id
+                                    await client.send_event({
+                                        "type": "response.cancel",
+                                        "response_id": cancelled_id
+                                    })
+                                    self._mark_response_cancelled_locally(cancelled_id, "loop_guard")
+                                    print(f"🛑 [LOOP GUARD] Cancelled active AI response (id={cancelled_id})")
                                 except:
                                     pass
                             else:
@@ -3683,6 +3737,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     
                     if transcript:
                         print(f"👤 [REALTIME] User said: {transcript}")
+                        if self._awaiting_confirmation_reply:
+                            print(f"✅ [CONFIRMATION] Received user response - clearing pending confirmation flag")
+                        self._awaiting_confirmation_reply = False
+                        
+                        # Track metadata for downstream extraction logic
+                        self._current_stt_confidence = event.get("confidence")
+                        self._current_transcript_token_count = len(transcript.split())
+                        self._current_transcript_is_first_answer = self.awaiting_greeting_answer and not self.first_post_greeting_utterance_handled
                         
                         # ═══════════════════════════════════════════════════════════════════════════
                         # 🔥 BUILD 303: FIRST POST-GREETING UTTERANCE HANDLING
@@ -3782,6 +3844,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         if any(word in transcript_lower for word in confirmation_words):
                             print(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
                             self.verification_confirmed = True
+                            self._lead_confirmation_received = True
+                            self._awaiting_confirmation_reply = False
                             # 🔥 BUILD 203: Clear rejection flag when user confirms
                             self.user_rejected_confirmation = False
                         
@@ -3825,6 +3889,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         if should_reset_verification:
                             print(f"🔄 [BUILD 310] User CORRECTION detected: strong={is_strong_rejection}, weak={is_weak_rejection}, ai_verify={ai_asked_verification}")
                             self.verification_confirmed = False
+                            self._lead_confirmation_received = False
+                            self._awaiting_confirmation_reply = False
                             # 🔥 FIX: Also reset the prompt flag so we can send a new verification request
                             self._verification_prompt_sent = False
                             # 🔥 BUILD 203: Cancel any pending hangup - user rejected!
@@ -3856,6 +3922,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
                         self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
+                        self._current_stt_confidence = None
+                        self._current_transcript_token_count = 0
+                        self._current_transcript_is_first_answer = False
                         
                         # 🔥 BUILD 313: Handle user confirmation with "נכון" - save city from AI's previous statement
                         confirmation_words = ["כן", "נכון", "בדיוק", "כן כן", "יופי", "מסכים"]
@@ -3910,71 +3979,60 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         # 🔥 BUILD 172 FIX: Only close after customer CONFIRMS the details!
-                        if self.auto_end_after_lead_capture and not self.pending_hangup and not self.lead_captured:
-                            if self._check_lead_captured():
-                                # 🔥 CRITICAL: Check if customer already confirmed the details
-                                if self.verification_confirmed:
-                                    # ✅ Customer confirmed - NOW we can close
-                                    print(f"✅ [BUILD 163] Lead captured AND confirmed - closing call")
-                                    self.lead_captured = True
+                        if self.auto_end_after_lead_capture and not self.pending_hangup:
+                            fields_ready = self._check_lead_captured()
+                            if fields_ready and not self.lead_captured:
+                                self.lead_captured = True
+                            readiness_confirmed = (self.lead_captured or self._lead_confirmation_received) and self.verification_confirmed
+                            
+                            if readiness_confirmed and not self._lead_closing_dispatched:
+                                print(f"✅ [BUILD 163] Lead confirmed - closing call")
+                                self._lead_closing_dispatched = True
+                                
+                                if self.call_state == CallState.ACTIVE:
+                                    self.call_state = CallState.CLOSING
+                                    print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead confirmed)")
+                                
+                                asyncio.create_task(self._send_server_event_to_ai(
+                                    "[SERVER] ✅ הלקוח אישר את הפרטים! סיים בצורה מנומסת - הודה ללקוח ואמור להתראות."
+                                ))
+                                asyncio.create_task(self._fallback_hangup_after_timeout(10, "lead_captured_confirmed"))
+                            elif fields_ready and not self.verification_confirmed and not getattr(self, '_verification_prompt_sent', False) and not self._awaiting_confirmation_reply:
+                                self._verification_prompt_sent = True
+                                print(f"⏳ [BUILD 172] Lead fields collected - waiting for customer confirmation")
+                                
+                                templated_confirmation = self._build_confirmation_from_state()
+                                has_locked_data = self._city_locked or self._service_locked
+                                
+                                if templated_confirmation and has_locked_data:
+                                    print(f"🎯 [BUILD 336] Injecting LOCKED templated confirmation: '{templated_confirmation}'")
+                                    print(f"🔒 [BUILD 336] city_locked={self._city_locked}, service_locked={self._service_locked}")
                                     
-                                    # 🔥 BUILD 172: Transition to CLOSING state
-                                    if self.call_state == CallState.ACTIVE:
-                                        self.call_state = CallState.CLOSING
-                                        print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (lead_captured + confirmed)")
+                                    self._expected_confirmation = templated_confirmation
+                                    self._confirmation_validated = False
+                                    self._speak_exact_resend_count = 0
+                                    self._awaiting_confirmation_reply = True
                                     
-                                    # Send polite closing instruction
                                     asyncio.create_task(self._send_server_event_to_ai(
-                                        "[SERVER] ✅ הלקוח אישר את הפרטים! סיים בצורה מנומסת - הודה ללקוח ואמור להתראות."
+                                        f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח (ללא שינויים!): \"{templated_confirmation}\""
                                     ))
-                                    asyncio.create_task(self._fallback_hangup_after_timeout(10, "lead_captured_confirmed"))
+                                elif templated_confirmation:
+                                    print(f"⚠️ [BUILD 336] Sending confirmation without locks: '{templated_confirmation}'")
+                                    
+                                    self._expected_confirmation = templated_confirmation
+                                    self._confirmation_validated = False
+                                    self._speak_exact_resend_count = 0
+                                    self._awaiting_confirmation_reply = True
+                                    
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח: \"{templated_confirmation}\""
+                                    ))
                                 else:
-                                    # ⏳ Fields collected but NOT confirmed yet - ask for verification
-                                    # Only ask once (track with a flag)
-                                    if not getattr(self, '_verification_prompt_sent', False):
-                                        self._verification_prompt_sent = True
-                                        print(f"⏳ [BUILD 172] Lead fields collected - waiting for customer confirmation")
-                                        
-                                        # 🔥 BUILD 336: SERVER-SIDE TEMPLATED CONFIRMATION
-                                        # Build EXACT confirmation using STT values - AI cannot hallucinate!
-                                        templated_confirmation = self._build_confirmation_from_state()
-                                        
-                                        # 🔥 BUILD 336 FIX: Only send confirmation if we have LOCKED values
-                                        has_locked_data = self._city_locked or self._service_locked
-                                        
-                                        if templated_confirmation and has_locked_data:
-                                            # 🔥 CRITICAL: Tell AI to say THIS EXACT TEXT, not generate its own!
-                                            print(f"🎯 [BUILD 336] Injecting LOCKED templated confirmation: '{templated_confirmation}'")
-                                            print(f"🔒 [BUILD 336] city_locked={self._city_locked}, service_locked={self._service_locked}")
-                                            
-                                            # 🔥 BUILD 336 FIX: Clear ALL stale state before setting new confirmation
-                                            self._expected_confirmation = templated_confirmation
-                                            self._confirmation_validated = False
-                                            self._speak_exact_resend_count = 0  # Reset resend counter
-                                            
-                                            asyncio.create_task(self._send_server_event_to_ai(
-                                                f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח (ללא שינויים!): \"{templated_confirmation}\""
-                                            ))
-                                        elif templated_confirmation:
-                                            # Have template but nothing locked - still use it but log warning
-                                            print(f"⚠️ [BUILD 336] Sending confirmation without locks: '{templated_confirmation}'")
-                                            
-                                            # 🔥 BUILD 336 FIX: Clear stale state
-                                            self._expected_confirmation = templated_confirmation
-                                            self._confirmation_validated = False
-                                            self._speak_exact_resend_count = 0
-                                            
-                                            asyncio.create_task(self._send_server_event_to_ai(
-                                                f"[SPEAK_EXACT] אמור בדיוק את המשפט הבא ללקוח: \"{templated_confirmation}\""
-                                            ))
-                                        else:
-                                            # No data at all - DON'T let AI freeform, wait for more data
-                                            print(f"❌ [BUILD 336] No STT data to confirm - waiting for more info")
-                                            self._verification_prompt_sent = False  # Allow retry
-                                            # 🔥 BUILD 336 FIX: Reset ALL confirmation state on retry
-                                            self._expected_confirmation = None
-                                            self._confirmation_validated = False
-                                            self._speak_exact_resend_count = 0
+                                    print(f"❌ [BUILD 336] No STT data to confirm - waiting for more info")
+                                    self._verification_prompt_sent = False
+                                    self._expected_confirmation = None
+                                    self._confirmation_validated = False
+                                    self._speak_exact_resend_count = 0
                     
                     # ✅ COST SAFETY: Transcription completed successfully
                     print(f"[SAFETY] Transcription successful (total failures: {self.transcription_failed_count})")
@@ -4097,13 +4155,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     asyncio.set_event_loop(loop)
                 
                 # Send response.cancel event
+                cancelled_id = self.active_response_id
                 cancel_event = {"type": "response.cancel"}
+                if cancelled_id:
+                    cancel_event["response_id"] = cancelled_id
                 future = asyncio.run_coroutine_threadsafe(
                     self.realtime_client.send_event(cancel_event),
                     loop
                 )
                 future.result(timeout=0.5)  # Wait max 0.5s
                 print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id}")
+                if cancelled_id:
+                    self._mark_response_cancelled_locally(cancelled_id, "threaded_barge")
                 self.active_response_id = None
             except Exception as e:
                 print(f"⚠️ [BARGE-IN] Failed to cancel response: {e}")
@@ -4527,11 +4590,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
             require_phone_verification = getattr(policy, 'require_phone_before_booking', False)
             print(f"📝 [FLOW STEP 5.5] Business setting require_phone_before_booking: {require_phone_verification}")
             
-            # 🔥 BUILD 182: If we have caller ID and phone verification is NOT required, use it!
-            if not customer_phone and hasattr(self, 'phone_number') and self.phone_number and not require_phone_verification:
-                customer_phone = self.phone_number
-                print(f"📝 [FLOW STEP 5.5] Using Caller ID (no phone verification required): {customer_phone}")
-            
             # 🔥 Check if all required data is complete
             print(f"📝 [FLOW STEP 6] Checking if all data is complete...")
             
@@ -4540,6 +4598,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 print(f"❌ [FLOW STEP 6] BLOCKED - Need name first! Sending need_name event")
                 await self._send_server_event_to_ai("need_name - שאל את הלקוח: על איזה שם לרשום את התור?")
                 return
+            else:
+                self._update_lead_capture_state('name', customer_name, source='appointment_flow')
             
             # Priority 2: Phone - ONLY ask if require_phone_before_booking is True AND no phone available
             # 🔥 BUILD 186: Ask for DTMF (keypad) only when require_phone_before_booking=True
@@ -4558,6 +4618,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         print(f"⚠️ [FLOW STEP 6] No phone available but require_phone_before_booking=False")
                         print(f"⚠️ [FLOW STEP 6] Proceeding without phone (will use empty string)")
                         customer_phone = ""
+            
+            if customer_phone:
+                self._update_lead_capture_state('phone', customer_phone, source='appointment_flow')
             
             print(f"")
             print(f"✅ [FLOW STEP 6] ALL DATA COMPLETE!")
@@ -5341,67 +5404,71 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self._greeting_enqueue_block_logged = True
                             continue  # Don't enqueue audio during greeting
                         
-                        # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
-                        # This prevents OpenAI from transcribing its own voice output as user speech!
-                        # The AI's TTS audio echoes back through the phone line and causes hallucinations
-                        # 
-                        # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
-                        # So we can't just use RMS threshold - we must block ALL audio during AI speech
-                        # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
-                        
-                        # Track consecutive high-RMS frames for barge-in detection
-                        if not hasattr(self, '_echo_gate_consec_frames'):
-                            self._echo_gate_consec_frames = 0
-                        
-                        # Use calibrated noise floor for RMS-based speech detection
-                        # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
-                        noise_floor_rms = getattr(self, 'noise_floor', 100.0)
-                        # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
-                        rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
-                        is_above_speech = rms > rms_speech_threshold
-                        
-                        # Count consecutive frames above RMS speech threshold
-                        if is_above_speech:
-                            self._echo_gate_consec_frames += 1
-                        else:
-                            # Reset quickly when audio drops - echo is intermittent
-                            self._echo_gate_consec_frames = 0
-                        
-                        # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
-                        # Echo spikes are typically 1-3 frames, real speech is sustained
-                        # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
-                        is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
-                        
-                        if self.is_ai_speaking_event.is_set():
-                            # AI is actively speaking - block ALL audio UNLESS proven barge-in
-                            if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
-                                # Block - this is echo or noise
-                                if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
-                                    print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
-                                    self._echo_gate_logged = True
-                                continue
-                            elif is_likely_real_speech:
-                                # 5+ frames = real barge-in, let it through
-                                if not hasattr(self, '_echo_barge_logged'):
-                                    print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
-                                    self._echo_barge_logged = True
-                        
-                        # Check echo decay period (800ms after AI stops speaking)
-                        if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
-                            echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
-                            if echo_decay_ms < POST_AI_COOLDOWN_MS:
-                                # Still in echo decay period - block unless proven real speech
-                                if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
-                                    if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
-                                        print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
-                                        self._echo_decay_logged = True
-                                    continue
-                            else:
-                                # Echo decay complete - reset log flags for next AI response
-                                self._echo_gate_logged = False
-                                self._echo_decay_logged = False
-                                self._echo_barge_logged = False
+                        if not self.barge_in_enabled_after_greeting:
+                            # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
+                            # This prevents OpenAI from transcribing its own voice output as user speech!
+                            # The AI's TTS audio echoes back through the phone line and causes hallucinations
+                            # 
+                            # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
+                            # So we can't just use RMS threshold - we must block ALL audio during AI speech
+                            # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
+                            
+                            # Track consecutive high-RMS frames for barge-in detection
+                            if not hasattr(self, '_echo_gate_consec_frames'):
                                 self._echo_gate_consec_frames = 0
+                            
+                            # Use calibrated noise floor for RMS-based speech detection
+                            # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
+                            noise_floor_rms = getattr(self, 'noise_floor', 100.0)
+                            # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
+                            rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
+                            is_above_speech = rms > rms_speech_threshold
+                            
+                            # Count consecutive frames above RMS speech threshold
+                            if is_above_speech:
+                                self._echo_gate_consec_frames += 1
+                            else:
+                                # Reset quickly when audio drops - echo is intermittent
+                                self._echo_gate_consec_frames = 0
+                            
+                            # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
+                            # Echo spikes are typically 1-3 frames, real speech is sustained
+                            # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
+                            is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
+                            
+                            if self.is_ai_speaking_event.is_set():
+                                # AI is actively speaking - block ALL audio UNLESS proven barge-in
+                                if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
+                                    # Block - this is echo or noise
+                                    if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
+                                        print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
+                                        self._echo_gate_logged = True
+                                    continue
+                                elif is_likely_real_speech:
+                                    # 5+ frames = real barge-in, let it through
+                                    if not hasattr(self, '_echo_barge_logged'):
+                                        print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
+                                        self._echo_barge_logged = True
+                            
+                            # Check echo decay period (800ms after AI stops speaking)
+                            if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
+                                echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
+                                if echo_decay_ms < POST_AI_COOLDOWN_MS:
+                                    # Still in echo decay period - block unless proven real speech
+                                    if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
+                                        if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
+                                            print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
+                                            self._echo_decay_logged = True
+                                        continue
+                                else:
+                                    # Echo decay complete - reset log flags for next AI response
+                                    self._echo_gate_logged = False
+                                    self._echo_decay_logged = False
+                                    self._echo_barge_logged = False
+                                    self._echo_gate_consec_frames = 0
+                        else:
+                            # Greeting finished - don't block user speech at all, let OpenAI detect barge-in
+                            self._echo_gate_consec_frames = 0
                         
                         # 🔥 BUILD 171: CONSECUTIVE FRAME REQUIREMENT
                         # Track consecutive voice frames before considering it real speech
@@ -7551,6 +7618,25 @@ SPEAK HEBREW to customer. Be brief and helpful.
         🔥 BUILD 340: Guard BEFORE sleep to prevent action during sleep window
         """
         try:
+            # 🧘 BUILD 345: Wait for post-greeting breathing window before monitoring
+            if self._post_greeting_window_open():
+                print(f"🧘 [SILENCE] Waiting {self._post_greeting_breath_window_sec:.1f}s breathing window before monitoring")
+            while self._post_greeting_window_open():
+                # If user already completed one speech cycle, end window immediately
+                if self._post_greeting_speech_cycle_complete:
+                    self._maybe_release_post_greeting_window("user_spoke")
+                    break
+                # Timer-based release
+                if self._post_greeting_window_started_at:
+                    elapsed = time.time() - self._post_greeting_window_started_at
+                    if elapsed >= self._post_greeting_breath_window_sec:
+                        self._maybe_release_post_greeting_window("timer_elapsed")
+                        break
+                await asyncio.sleep(0.2)
+            # Ensure window marked finished if it expired without explicit release
+            if self._post_greeting_window_active and not self._post_greeting_window_finished:
+                self._maybe_release_post_greeting_window("monitor_start")
+            
             while True:
                 # 🔥 BUILD 340 CRITICAL: Check state BEFORE sleeping to exit immediately
                 # This prevents AI from speaking during the sleep window after goodbye
@@ -7689,6 +7775,15 @@ SPEAK HEBREW to customer. Be brief and helpful.
         🔥 BUILD 339: Added critical state checks to prevent loop after goodbye
         """
         try:
+            if self._post_greeting_window_open():
+                print(f"🔇 [SILENCE] Breathing window active - skipping prompt")
+                return
+            if getattr(self, '_awaiting_confirmation_reply', False):
+                print(f"🔇 [SILENCE] Awaiting confirmation reply - not sending additional prompt")
+                return
+            if self._loop_guard_engaged:
+                print(f"🔇 [SILENCE] Loop guard engaged - suppressing silence prompt")
+                return
             # 🔥 BUILD 339 CRITICAL: Don't send any warnings if call is ending!
             # This prevents the AI from asking questions AFTER saying goodbye
             if self.call_state == CallState.CLOSING or self.call_state == CallState.ENDED:
@@ -7749,6 +7844,28 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 except RuntimeError:
                     # No running loop - we're in sync context
                     print(f"🔇 [SILENCE] Cannot start monitor from sync context (will start on next async call)")
+
+    def _post_greeting_window_open(self) -> bool:
+        """Return True while the breathing window is still protecting the user."""
+        return getattr(self, '_post_greeting_window_active', False) and not getattr(self, '_post_greeting_window_finished', False)
+
+    def _maybe_release_post_greeting_window(self, reason: str):
+        """
+        End the breathing window either because user already spoke or the timer elapsed.
+        """
+        if getattr(self, '_post_greeting_window_finished', False):
+            return
+        self._post_greeting_window_finished = True
+        self._post_greeting_window_active = False
+        print(f"🧘 [GREETING] Breathing window ended ({reason})")
+
+    def _mark_response_cancelled_locally(self, response_id: Optional[str], source: str = ""):
+        """Remember responses we cancelled so late events can be ignored."""
+        if not response_id:
+            return
+        self._cancelled_response_ids.add(response_id)
+        if source:
+            print(f"🪓 [BARGE-IN] Marked response {response_id[:20]}... as cancelled ({source})")
     
     async def _send_text_to_ai(self, text: str):
         """
@@ -8239,19 +8356,38 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _try_lock_city_from_utterance(self, text: str):
         """
-        🔥 BUILD 326: CITY LOCK MECHANISM
-        
-        When user says a city (short Hebrew, 1-4 words after AI asked for city),
-        lock it as the SOURCE OF TRUTH. AI can NEVER change it.
-        
-        No city dictionaries - just takes what user said literally.
+        🔥 BUILD 326: CITY LOCK MECHANISM (enhanced)
         """
         import re
         
-        # Only lock if city is needed and not already locked
-        if self._city_locked and 'city' in self.lead_capture_state:
-            print(f"🔒 [BUILD 326] City already locked: '{self.lead_capture_state.get('city')}'")
+        def _normalize_city_name(name: str) -> str:
+            return re.sub(r'\s+', ' ', name.strip()).lower()
+        
+        def _ensure_city_catalog():
+            if self._known_city_names_set is None:
+                from server.services.city_normalizer import get_all_city_names
+                names = get_all_city_names()
+                self._known_city_names_set = {_normalize_city_name(n) for n in names if n}
+            return self._known_city_names_set
+        
+        def _is_known_city(candidate: str) -> bool:
+            if not candidate:
+                return False
+            catalog = _ensure_city_catalog()
+            return _normalize_city_name(candidate) in catalog
+        
+        if not text:
             return
+        
+        cleaned = text.strip()
+        if not cleaned:
+            return
+        
+        city_already_locked = self._city_locked and 'city' in self.lead_capture_state
+        is_first_answer = getattr(self, '_current_transcript_is_first_answer', False)
+        token_count = getattr(self, '_current_transcript_token_count', 0) or len(cleaned.split())
+        stt_confidence = getattr(self, '_current_stt_confidence', None)
+        LOW_CONFIDENCE_THRESHOLD = 0.45
         
         # Check if last AI message asked for city
         last_ai_msg = None
@@ -8266,55 +8402,86 @@ SPEAK HEBREW to customer. Be brief and helpful.
             ]
         )
         
-        if not ai_asked_for_city:
+        cleaned_no_punct = re.sub(r'[\.!\?:,;]', '', cleaned)
+        words = cleaned_no_punct.split()
+        
+        # Detect strong "<service> ב<city>" mention
+        strong_pattern_city = None
+        strong_match = re.search(r'\bב([א-ת][א-ת\s\-]{1,20})\b', cleaned_no_punct)
+        if strong_match:
+            candidate = strong_match.group(1).strip()
+            if _is_known_city(candidate):
+                strong_pattern_city = candidate
+        
+        if not ai_asked_for_city and not strong_pattern_city:
             return
         
-        # Clean the utterance
-        cleaned = text.strip()
+        if is_first_answer:
+            if token_count < 3:
+                print(f"⏭️ [CITY LOCK] First utterance too short ({token_count} tokens) - waiting for clearer answer")
+                return
+            if stt_confidence is not None and stt_confidence < LOW_CONFIDENCE_THRESHOLD:
+                print(f"⏭️ [CITY LOCK] First utterance low confidence ({stt_confidence:.2f}) - not locking city")
+                return
         
-        # Remove punctuation
-        cleaned = re.sub(r'[\.!\?:,;]', '', cleaned)
-        
-        # Skip if too long (more than 4 words = probably not just a city)
-        words = cleaned.split()
-        if len(words) > 4:
-            return
-        
-        # Skip non-Hebrew or nonsense responses
-        hebrew_chars = sum(1 for c in cleaned if '\u0590' <= c <= '\u05FF')
+        hebrew_chars = sum(1 for c in cleaned_no_punct if '\u0590' <= c <= '\u05FF')
         if hebrew_chars < 2:
             return
-        
-        # Skip confirmation/rejection words (not cities)
         skip_words = ["כן", "לא", "נכון", "בדיוק", "ממש לא", "תודה", "שלום", "עדיין", "רגע"]
-        if cleaned in skip_words or any(cleaned.startswith(sw) for sw in ["לא ", "כן ", "עדיין"]):
+        if cleaned_no_punct in skip_words or any(cleaned_no_punct.startswith(sw) for sw in ["לא ", "כן ", "עדיין"]):
+            return
+        if len(words) > 4 and not strong_pattern_city:
             return
         
-        # Clean common prefixes (בעיר, באזור, אני ב, אני מ, etc.)
         city_prefixes = [
             r'^בעיר\s+', r'^באזור\s+', r'^עיר\s+', r'^מעיר\s+',
             r'^אני ב', r'^אני מ', r'^אנחנו ב', r'^אנחנו מ',
             r'^ב', r'^מ'
         ]
         
-        city_name = cleaned
+        city_name = cleaned_no_punct
         for prefix_pattern in city_prefixes:
-            city_name = re.sub(prefix_pattern, '', city_name, flags=re.IGNORECASE)
-            if city_name != cleaned:
+            stripped = re.sub(prefix_pattern, '', city_name, flags=re.IGNORECASE)
+            if stripped != city_name:
+                city_name = stripped
                 break
         
         city_name = city_name.strip()
-        
-        # Must have at least 2 Hebrew characters
         if len(city_name) < 2:
             return
         
-        # LOCK THE CITY!
-        self._city_raw_from_stt = city_name
+        candidate_city = strong_pattern_city or city_name
+        if not _is_known_city(candidate_city):
+            if is_first_answer:
+                print(f"⏭️ [CITY LOCK] First utterance '{candidate_city}' not in known city list - waiting for clarification")
+            else:
+                print(f"⏭️ [CITY LOCK] '{candidate_city}' not recognized as Israeli city - skipping lock")
+            return
+        
+        can_override_locked_city = (
+            city_already_locked and
+            strong_pattern_city and
+            candidate_city != self.lead_capture_state.get('city')
+        )
+        
+        if city_already_locked and not can_override_locked_city:
+            print(f"🔒 [CITY LOCK] City already locked as '{self.lead_capture_state.get('city')}' - ignoring '{candidate_city}'")
+            return
+        
+        if can_override_locked_city:
+            old_city = self.lead_capture_state.get('city')
+            self._city_raw_from_stt = candidate_city
+            self._city_source = 'user_utterance'
+            self._city_locked = True
+            self._update_lead_capture_state('city', candidate_city, source='user_utterance')
+            print(f"🔁 [CITY UPDATE] Overriding city from '{old_city}' to '{candidate_city}' based on strong pattern")
+            return
+        
+        self._city_raw_from_stt = candidate_city
         self._city_locked = True
         self._city_source = 'user_utterance'
-        self._update_lead_capture_state('city', city_name)
-        print(f"🔒 [BUILD 326] CITY LOCKED from STT: '{city_name}' (raw: '{text}')")
+        self._update_lead_capture_state('city', candidate_city)
+        print(f"🔒 [BUILD 326] CITY LOCKED from STT: '{candidate_city}' (raw: '{text}')")
     
     def _unlock_city(self):
         """
@@ -8357,6 +8524,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
         self._confirmation_validated = False
         self._speak_exact_resend_count = 0
         self._verification_prompt_sent = False
+        self._lead_confirmation_received = False
+        self._lead_closing_dispatched = False
         print(f"🔄 [BUILD 336] Confirmation state reset - ready for new flow")
     
     def _update_lead_capture_state(self, field: str, value: str, source: str = 'unknown'):
