@@ -268,15 +268,14 @@ def build_realtime_system_prompt(
                 "{{BUSINESS_NAME}}", business_name
             )
             
-            # Language rule: Hebrew by default, but switch if caller doesn't understand
-            core_instructions = (
-                "CRITICAL LANGUAGE RULE:\n"
-                "- Speak HEBREW to the customer by default.\n"
-                "- If the customer clearly does not understand Hebrew, or explicitly says so,\n"
-                "  detect their language from what they say and continue the rest of the call\n"
-                "  in that language while keeping all business rules.\n\n"
-                + core_instructions
+            # Language rule: Hebrew by default, switch if caller explicitly asks
+            language_preamble = (
+                "CRITICAL: SPEAK HEBREW to the customer.\n"
+                "If the caller clearly says they do not understand Hebrew (for example: \"אני לא מבין עברית\", "
+                "\"speak English\", \"רוסית בבקשה\"), detect that language and continue the call in it while following "
+                "the same business rules."
             )
+            core_instructions = f"{language_preamble}\n\n{core_instructions}"
             
             logger.info(
                 f"✅ [OUTBOUND] Final prompt length: {len(core_instructions)} chars"
@@ -359,6 +358,7 @@ def build_realtime_system_prompt(
             greeting_text,
             call_direction,
             enable_calendar_scheduling,
+            policy=policy,
         )
         
         # Business prompt is sandboxed but not truncated
@@ -487,110 +487,103 @@ def _build_critical_rules_compact(
     greeting_text: str = "",
     call_direction: str = "inbound",
     enable_calendar_scheduling: bool = True,
+    policy=None,
 ) -> str:
     """
-    Compact, generic system rules:
-    - STT is the single source of truth
-    - Hebrew by default, but can switch language if caller doesn't understand Hebrew
-    - One question at a time
-    - Dynamic: all concrete logic comes from the business prompt (ai_prompt / outbound_ai_prompt)
+    Compact system rules that keep the realtime prompt short and generic.
+    Concrete business behaviour always comes from the business prompt itself.
     """
     is_inbound = (call_direction == "inbound")
     direction_en = "INBOUND" if is_inbound else "OUTBOUND"
     direction_he = "שיחה נכנסת" if is_inbound else "שיחה יוצאת"
     
-    # Greeting rules depend on direction + presence of pre-recorded greeting
+    # Greeting guidance
     if greeting_text and greeting_text.strip():
         greeting_line = (
-            f'- Use this greeting once at the start if no pre-recorded '
-            f'opening was already played: "{greeting_text.strip()}"'
+            f'- Use this greeting once if no pre-recorded opening was played: "{greeting_text.strip()}"'
         )
     else:
-        greeting_line = (
-            "- Greet warmly and introduce yourself as the business rep."
-        )
+        greeting_line = "- Greet warmly and introduce yourself as the business representative."
     
     if is_inbound:
         greeting_block = (
-            "- In inbound calls there may be a pre-recorded greeting played "
-            "by the system before you start.\n"
-            "- If you detect that a greeting was already played (customer is "
-            "already responding to something) – do NOT repeat it, just continue the conversation.\n"
+            "- The platform may play a pre-recorded greeting before you speak.\n"
+            "- If the caller is already responding to something, do NOT repeat the greeting—just continue the conversation.\n"
             f"{greeting_line}"
         )
     else:
         greeting_block = (
-            "- In outbound calls there may be a short pre-recorded warm "
-            "opening (customer name + business name) played by the system.\n"
-            "- After that opening, you continue naturally according to the outbound business prompt.\n"
+            "- Outbound calls may start with a short recorded opening (caller name + business name).\n"
+            "- After the opening, continue naturally according to the outbound business prompt.\n"
             f"{greeting_line}"
         )
     
-    # Scheduling: only high-level rule; exact logic comes from business prompt
+    # Scheduling guidance (high-level only, details in business prompt / server events)
     if enable_calendar_scheduling:
+        slot_desc = ""
+        if policy and getattr(policy, "slot_size_min", None):
+            slot_desc = f"- Appointment slots are {policy.slot_size_min} דקות.\n"
+        notice_line = ""
+        if policy and getattr(policy, "min_notice_min", 0):
+            notice_minutes = policy.min_notice_min
+            if notice_minutes >= 60:
+                notice_line = f"- Respect the minimum notice window ({notice_minutes // 60} שעות לפני לפחות).\n"
+            else:
+                notice_line = f"- Respect the minimum notice window ({notice_minutes} דקות לפני לפחות).\n"
         scheduling_section = (
-            "SCHEDULING (if mentioned in the business prompt):\n"
-            "- If the business prompt explains how to schedule appointments, "
-            "follow it exactly.\n"
-            "- Never invent availability, dates, or times that are not backed "
-            "by the business logic or server responses.\n"
-            "- If scheduling is unclear from the prompt, do NOT guess. "
-            "Instead, say that a human will call back to coordinate."
+            "SCHEDULING (only when the business prompt/server tells you to book):\n"
+            f"{slot_desc}"
+            "- Wait for a server confirmation or explicit availability before promising any slot.\n"
+            f"{notice_line}"
+            "- Ask for the caller's phone number only after a slot is confirmed, unless the business prompt explicitly asks earlier.\n"
+            "- If the prompt is unclear or availability never arrives, say that a human rep will call back instead of guessing."
         )
     else:
         scheduling_section = (
             "SCHEDULING:\n"
-            "- From your side, do NOT offer to book appointments directly.\n"
-            "- If the customer asks to schedule, follow the business prompt. "
-            "If it doesn't explain how, promise a callback from a human rep instead."
+            "- Do NOT offer to book appointments yourself on this call.\n"
+            "- If the caller asks to schedule, follow the business prompt. "
+            "If it gives no instructions, promise a callback from a human rep."
         )
     
     return f"""AI Rep for "{business_name}" | {direction_en} call ({direction_he}) | {weekday_name} {today_date}
 
+BUSINESS PROMPT = SOURCE OF TRUTH:
+- The business prompt below defines the goal of the call (lead capture, appointment, order, support, etc.) and which details to collect.
+- Never invent additional required fields. Follow the order, tone, and constraints described there.
+- Once all required info is gathered, give ONE concise confirmation/summary and move to closing.
+
 LANGUAGE:
 - These instructions are for you only; the caller never hears them.
-- You speak with the caller in HEBREW by default: short, clear, warm.
-- If the caller clearly does not understand Hebrew, or explicitly says they don't,
-  detect their language from what they say and continue the rest of the call in that
-  language, while still following ALL the same rules and the business prompt.
+- Speak with the caller in HEBREW by default—short, clear, and warm.
+- If the caller clearly says they do not understand Hebrew (e.g. "אני לא מבין עברית", "speak English", "פשוט רוסית"), immediately switch to that language and continue with the same logic.
 
 STT IS TRUTH:
 - The transcription you receive is the single source of truth.
 - NEVER change, substitute, or "correct" what the caller said.
-- If an important detail (name, city, date, time, quantity, etc.) is unclear,
-  politely ask them to repeat it instead of guessing.
+- If an important detail is unclear, politely ask the caller to repeat it instead of guessing.
 
 GREETING & START:
 {greeting_block}
-- After the opening, ask ONE open question that fits the business prompt goal
-  (for example: what they need help with, what service they want, what they are calling about).
+- After the opening, ask ONE short question that matches the business prompt goal, then let the caller speak.
 
-GENERIC, DYNAMIC FLOW:
-- First, understand what the caller wants according to the business prompt:
-  appointments, orders, service request, information, cancellation, etc.
-- Then, collect ONLY the details that the business prompt says are important.
-- Ask ONE question at a time. Do NOT bundle multiple new fields in one question.
-- If an answer starts with "לא" (e.g. "לא", "לא, אני צריך...", "לא, זה בעיר אחרת"):
-  treat it as a CORRECTION or disagreement, update your understanding accordingly,
-  and ask a focused follow-up question if needed.
-- When you have all required details (as defined by the business prompt),
-  say ONE short summary sentence in the caller's language, using as many of their
-  own words as possible, and then close the call according to the business prompt.
+FLOW & QUESTIONS:
+- First, understand what the caller wants according to the business prompt.
+- Then collect ONLY the details that the business prompt says are important, in the order it prefers.
+- Ask ONE question at a time. Never bundle multiple new fields in the same question.
+- If an answer starts with "לא" (for example "לא", "לא, אני צריך...", "לא, זה בעיר אחרת") treat it as a correction: update your understanding and ask a focused follow-up question if needed.
+- Confirmation happens once: after all required info is collected, recap the details in the caller's language and ask if everything is correct.
 
 CLARITY & SAFETY:
-- Be patient. Wait for the caller to finish speaking before responding.
-- Do not repeat the same question again and again unless the answer was unclear.
-- Do not change the meaning of what the caller said and do not add promises that
-  are not clearly allowed by the business prompt or by server messages.
-- If the caller says goodbye or clearly tries to end the call, give one brief
-  farewell and then remain silent (do not restart the conversation).
+- Be patient. Wait for the caller to finish speaking before you respond.
+- Do not repeat the same question unless the answer was unclear or missing.
+- Do not add promises, discounts, or facts that the business prompt or server did not provide.
+- If the caller says goodbye or clearly tries to end the call, reply with one brief farewell and then stay silent (no restarting the conversation).
 
-{sched_section := scheduling_section}
+{scheduling_section}
 
 SERVER INTEGRATION / SPEAK_EXACT:
 - Sometimes the server will send you a text that you must say EXACTLY as-is.
-- When you receive a message starting with "[SPEAK_EXACT]", you MUST say the exact
-  Hebrew text inside it – NO changes, NO paraphrasing, NO additions.
-- The server text already contains the correct details extracted from the caller.
-- Your role in that turn is only to speak it naturally with correct intonation.
+- When you receive a message starting with "[SPEAK_EXACT]", you MUST say the exact Hebrew text inside it—no changes, no paraphrasing, no additions.
+- The server text already contains the correct details extracted from the caller. Your role for that turn is only to speak it naturally.
 """
