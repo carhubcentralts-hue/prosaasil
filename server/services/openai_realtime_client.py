@@ -223,11 +223,14 @@ class OpenAIRealtimeClient:
             "type": "input_audio_buffer.clear"
         })
     
-    async def cancel_response(self):
+    async def cancel_response(self, response_id: Optional[str] = None):
         """Cancel current AI response (e.g., on barge-in)"""
-        await self.send_event({
+        event = {
             "type": "response.cancel"
-        })
+        }
+        if response_id:
+            event["response_id"] = response_id
+        await self.send_event(event)
     
     async def send_user_message(self, text: str):
         """
