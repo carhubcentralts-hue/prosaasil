@@ -613,24 +613,32 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             return _business_get_info_impl(business_id=business_id)
         
-        tools_to_use = [
-            calendar_find_slots_wrapped,
-            calendar_create_appointment_wrapped,
-            leads_upsert_wrapped,
-            leads_search,
-            whatsapp_send,
-            business_get_info
-        ]
-        logger.info(f"✅ Created business_id-injected tools for business {business_id}")
+        # 🚫 DISABLED: All tools disabled - empty list
+        tools_to_use = []
+        logger.info(f"🚫 Tools DISABLED - using empty tools list for business {business_id}")
+        
+        # OLD CODE - DISABLED:
+        # tools_to_use = [
+        #     calendar_find_slots_wrapped,
+        #     calendar_create_appointment_wrapped,
+        #     leads_upsert_wrapped,
+        #     leads_search,
+        #     whatsapp_send,
+        #     business_get_info
+        # ]
     else:
-        # Use original tools without injection
-        tools_to_use = [
-            calendar_find_slots,
-            calendar_create_appointment,
-            leads_upsert,
-            leads_search,
-            whatsapp_send
-        ]
+        # 🚫 DISABLED: All tools disabled - empty list
+        tools_to_use = []
+        logger.info(f"🚫 Tools DISABLED - using empty tools list")
+        
+        # OLD CODE - DISABLED:
+        # tools_to_use = [
+        #     calendar_find_slots,
+        #     calendar_create_appointment,
+        #     leads_upsert,
+        #     leads_search,
+        #     whatsapp_send
+        # ]
     
 
     # 🔥 BUILD 135: MERGE DB prompts WITH base instructions (not replace!)
@@ -811,11 +819,12 @@ Be friendly and professional."""
             model_settings = AGENT_MODEL_SETTINGS  # Phone: 60 tokens (global default)
             logger.info(f"📞 Phone channel: using max_tokens=60")
         
+        # 🚫 DISABLED: All tools disabled - passing empty list
         agent = Agent(
             name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
             instructions=instructions,
-            tools=tools_to_use,  # Use wrapped or original tools based on business_id
+            tools=[],  # 🚫 DISABLED: Empty tools list - no tools registered
             model_settings=model_settings  # ⚡ Channel-specific settings
         )
         
@@ -1029,31 +1038,36 @@ BEFORE any appointment/invoice/contract:
 **CRITICAL: ALL RESPONSES MUST BE IN HEBREW. USE TOOLS FOR EVERYTHING. KEEP IT SHORT!**
 """
 
-    # Prepare tools
-    from server.agent_tools.tools_business import business_get_info
+    # 🚫 DISABLED: All tools disabled - empty list
+    tools_to_use = []
+    logger.info(f"🚫 Tools DISABLED for ops_agent")
     
-    tools_to_use = [
-        calendar_find_slots,
-        calendar_create_appointment,
-        leads_upsert,
-        leads_search,
-        invoices_create,
-        payments_link,
-        contracts_generate_and_send,
-        whatsapp_send,
-        summarize_thread,
-        business_get_info
-    ]
+    # OLD CODE - DISABLED:
+    # from server.agent_tools.tools_business import business_get_info
+    # 
+    # tools_to_use = [
+    #     calendar_find_slots,
+    #     calendar_create_appointment,
+    #     leads_upsert,
+    #     leads_search,
+    #     invoices_create,
+    #     payments_link,
+    #     contracts_generate_and_send,
+    #     whatsapp_send,
+    #     summarize_thread,
+    #     business_get_info
+    # ]
     
     # If business_id provided, could wrap tools here (similar to booking_agent)
     # For now, business_id will come from context
     
     try:
+        # 🚫 DISABLED: All tools disabled - passing empty list
         agent = Agent(
             name=f"ops_agent_{business_name}",
             model="gpt-4o-mini",
             instructions=instructions,
-            tools=tools_to_use,
+            tools=[],  # 🚫 DISABLED: Empty tools list - no tools registered
             model_settings=AGENT_MODEL_SETTINGS
         )
         
@@ -1106,19 +1120,23 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
 **CRITICAL: ALL RESPONSES MUST BE IN HEBREW - NATURAL AND WARM!**
 """
 
-    from server.agent_tools.tools_business import business_get_info
+    # 🚫 DISABLED: All tools disabled - empty list
+    # from server.agent_tools.tools_business import business_get_info
 
     try:
+        # 🚫 DISABLED: All tools disabled - passing empty list
         agent = Agent(
             name=f"sales_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",
             instructions=instructions,
-            tools=[
-                leads_upsert,
-                leads_search,
-                whatsapp_send,
-                business_get_info
-            ]
+            tools=[]  # 🚫 DISABLED: Empty tools list - no tools registered
+            # OLD CODE - DISABLED:
+            # tools=[
+            #     leads_upsert,
+            #     leads_search,
+            #     whatsapp_send,
+            #     business_get_info
+            # ]
         )
         
         logger.info(f"✅ Created sales agent for '{business_name}' with 3 tools")

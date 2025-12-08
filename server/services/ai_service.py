@@ -1281,203 +1281,24 @@ class AIService:
                 print(f"🔍 new_items value: {result.new_items}")
                 print(f"🔍 new_items length: {len(result.new_items) if result.new_items else 0}")
             
-            # Extract tool calls from new_items
+            # 🚫 DISABLED: Tool handling disabled - no tool calls expected
             tool_calls_data = []
             tool_count = 0
             booking_successful = False  # Track if booking actually succeeded
             
-            if hasattr(result, 'new_items') and result.new_items:
-                print(f"📊 Agent returned {len(result.new_items)} items")
-                logger.info(f"📊 Agent returned {len(result.new_items)} items")
-                # Filter for ToolCallItem types and extract tool names
-                for idx, item in enumerate(result.new_items):
-                    item_type = type(item).__name__
-                    print(f"   - Item #{idx}: {item_type}")
-                    logger.info(f"   - Item type: {item_type}")
-                    
-                    if item_type == 'ToolCallItem':
-                        tool_count += 1
-                        
-                        # 🔍 FULL DEBUG: Print ALL attributes to find tool name
-                        print(f"  🔍 DEBUG ToolCallItem #{tool_count}:")
-                        all_attrs = [a for a in dir(item) if not a.startswith('_')]
-                        print(f"     All attributes: {all_attrs}")
-                        
-                        # Try to access common attributes
-                        for attr in ['name', 'tool_name', 'tool_call', 'function', 'tool']:
-                            if hasattr(item, attr):
-                                val = getattr(item, attr)
-                                print(f"     {attr} = {val}")
-                        
-                        # Try multiple ways to get tool name
-                        tool_name = getattr(item, 'name', None)
-                        if not tool_name:
-                            tool_name = getattr(item, 'tool_name', None)
-                        if not tool_name and hasattr(item, 'tool_call'):
-                            tc = getattr(item, 'tool_call')
-                            if isinstance(tc, dict):
-                                tool_name = tc.get('name') or tc.get('function', {}).get('name')
-                            elif hasattr(tc, 'name'):
-                                tool_name = tc.name
-                            elif hasattr(tc, 'function'):
-                                tool_name = getattr(tc.function, 'name', None)
-                        if not tool_name and hasattr(item, 'tool'):
-                            tool_obj = getattr(item, 'tool')
-                            tool_name = getattr(tool_obj, 'name', None)
-                        if not tool_name:
-                            tool_name = 'unknown'
-                        
-                        print(f"  🔧 Tool call #{tool_count}: {tool_name}")
-                        logger.info(f"  ✅ Tool call #{tool_count}: {tool_name}")
-                        tool_calls_data.append({
-                            "tool": tool_name,
-                            "status": "success",
-                            "result": None  # Result is in separate ToolCallOutputItem
-                        })
-                    
-                    elif item_type == 'ToolCallOutputItem':
-                        # Extract tool output/result
-                        output = getattr(item, 'output', None)
-                        print(f"  📤 Tool output: {str(output)[:200] if output else 'None'}...")
-                        if output:
-                            logger.info(f"     Tool returned: {str(output)[:100]}")
-                            
-                            # 🔍 CHECK if this is a successful booking
-                            if isinstance(output, dict):
-                                if output.get('ok') is True and output.get('appointment_id'):
-                                    booking_successful = True
-                                    print(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={output.get('appointment_id')}")
-                                    # Store appointment details for WhatsApp validation
-                                    if not hasattr(result, 'appointment_details'):
-                                        result.appointment_details = output
-                
-                if tool_count > 0:
-                    print(f"✅ Agent executed {tool_count} tool actions")
-                    logger.info(f"✅ Agent executed {tool_count} tool actions")
-                else:
-                    print(f"⚠️ Agent DID NOT call any tools! (message: '{message[:50]}...')")
-                    logger.warning(f"⚠️ Agent DID NOT call any tools! (message: '{message[:50]}...')")
-            else:
-                print(f"⚠️ Result has NO new_items or new_items is empty!")
+            # Tools are disabled, so we don't expect any tool calls
+            logger.info(f"🚫 Tools disabled - no tool call processing")
             
-            # 🚨 BUILD 138+: VALIDATION - Detect "hallucinated bookings" AND "hallucinated availability"
-            # If agent claims action without executing tool, BLOCK response
-            claim_words = ["קבעתי", "שלחתי", "יצרתי", "הפגישה נקבעה", "הפגישה קבועה", "סגרתי", "נקבע", "התור נקבע", "התור קבוע"]
-            claimed_action = any(word in reply_text for word in claim_words)
+            # 🚫 DISABLED: Tool validation disabled - no tools to validate
+            claimed_action = False
+            claimed_availability = False
             
-            # 🔥 NEW: Detect "hallucinated availability" (saying "busy/available" without checking)
-            # 🚨 FIX: Only flag if saying "NO availability" or "YES available" (absolute claims)
-            # Saying "15:00 תפוס אבל 17:00 פנוי" is VALID after tool call!
-            # 🔥 FIX #3: Added "תפוס" and "פנוי" to catch simple hallucinations
-            hallucinated_availability_words = ["אין זמנים פנויים", "אין זמינות", "הכל תפוס", "לא פנוי", "לא זמין", "תפוס", "פנוי", "תפוס ב"]
-            claimed_availability = any(word in reply_text for word in hallucinated_availability_words)
+            # 🚫 DISABLED: Tool validation disabled - no tool calls expected
+            booking_tool_called = False
+            check_availability_called = False
+            whatsapp_sent = False
             
-            # Check if calendar_create_appointment was called (with or without _wrapped suffix)
-            booking_tool_called = any(
-                tc.get("tool") in ["calendar_create_appointment", "calendar_create_appointment_wrapped"]
-                for tc in tool_calls_data
-            )
-            
-            # 🔥 FALLBACK: If tool name extraction failed, check output structure
-            # If we see {'appointment_id': ...} in ANY tool output → calendar_create_appointment was called
-            if not booking_tool_called and tool_count > 0:
-                for item in result.new_items if hasattr(result, 'new_items') else []:
-                    if type(item).__name__ == 'ToolCallOutputItem':
-                        output = getattr(item, 'output', None)
-                        if isinstance(output, dict) and 'appointment_id' in output:
-                            print(f"  🔥 FALLBACK: Detected calendar_create_appointment from output structure (has 'appointment_id' key)")
-                            booking_tool_called = True
-                            break
-            
-            # Check if calendar_find_slots was called
-            check_availability_called = any(
-                tc.get("tool") in ["calendar_find_slots", "calendar_find_slots_wrapped"]
-                for tc in tool_calls_data
-            )
-            
-            # 🔥 FALLBACK: If tool name extraction failed, check output structure
-            # If we see {'slots': [...]} in ANY tool output → calendar_find_slots was called
-            if not check_availability_called and tool_count > 0:
-                for item in result.new_items if hasattr(result, 'new_items') else []:
-                    if type(item).__name__ == 'ToolCallOutputItem':
-                        output = getattr(item, 'output', None)
-                        if isinstance(output, dict) and 'slots' in output:
-                            print(f"  🔥 FALLBACK: Detected calendar_find_slots from output structure (has 'slots' key)")
-                            check_availability_called = True
-                            break
-            
-            # Check if whatsapp_send was called (for phone channel only)
-            whatsapp_sent = any(
-                tc.get("tool") == "whatsapp_send"
-                for tc in tool_calls_data
-            )
-            
-            # 🔥 WORKAROUND: Also check if we detected a successful booking in the output
-            # (in case tool name extraction failed but booking actually succeeded)
-            print(f"  🔍 VALIDATION CHECK:")
-            print(f"     claimed_action={claimed_action}")
-            print(f"     claimed_availability={claimed_availability}")
-            print(f"     booking_tool_called={booking_tool_called}")
-            print(f"     check_availability_called={check_availability_called}")
-            print(f"     booking_successful={booking_successful}")
-            
-            # 🔥 BUILD 110: HARD BLOCK - Agent CANNOT claim success without tool execution!
-            # Regex patterns for detecting false claims
-            import re
-            booking_claims = re.compile(r'(קבעתי|קבענו|שריינתי|תיאמתי|נקבעה פגישה|נקבע לך)', re.IGNORECASE)
-            # WhatsApp claims - match BOTH directions (verb-noun AND noun-verb)
-            whatsapp_claims = re.compile(
-                r'((שלחתי|שולח|נשלח).*(אישור|הודעה|וואטסאפ|whatsapp))|'
-                r'((אישור|הודעה|וואטסאפ|whatsapp).*(שלחתי|נשלח))',
-                re.IGNORECASE
-            )
-            
-            # Check if agent is lying about booking
-            claims_booking = bool(booking_claims.search(reply_text))
-            claims_whatsapp = bool(whatsapp_claims.search(reply_text))
-            
-            print(f"🔍 HARD VALIDATION:")
-            print(f"   claims_booking={claims_booking}, booking_tool_called={booking_tool_called}")
-            print(f"   claims_whatsapp={claims_whatsapp}")
-            
-            # 🚨 BLOCK 1: Hallucinated booking - STRICT ENFORCEMENT
-            if claims_booking and not booking_tool_called and not booking_successful:
-                print(f"🚨 HARD BLOCKED BOOKING LIE!")
-                print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO calendar_create_appointment was called!")
-                logger.error(f"🚨 HARD BLOCK: Blocked booking lie without tool call")
-                
-                # 🔥 OVERRIDE: Agent cannot claim booking without tool!
-                reply_text = "מה השעה המועדפת שלך? אבדוק זמינות ואקבע."
-                print(f"   ✅ HARD OVERRIDE: '{reply_text}'")
-            
-            # 🚨 BLOCK 2: Hallucinated WhatsApp send
-            elif claims_whatsapp and not whatsapp_sent and channel == "calls":
-                print(f"🚨 HARD BLOCKED WHATSAPP LIE!")
-                print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO whatsapp_send was called!")
-                logger.error(f"🚨 HARD BLOCK: Blocked WhatsApp send lie without tool call")
-                
-                # 🔥 OVERRIDE: Be HONEST - did NOT send WhatsApp!
-                reply_text = "מעולה! הפרטים נרשמו. ניצור קשר בהמשך עם פרטי הפגישה."
-                print(f"   ✅ HARD OVERRIDE: '{reply_text}'")
-            
-            # 🚨 BLOCK 3: Hallucinated availability
-            elif claimed_availability and not check_availability_called:
-                print(f"🚨 BLOCKED HALLUCINATED AVAILABILITY!")
-                print(f"   Agent claimed: '{reply_text[:80]}...'")
-                print(f"   But NO calendar_find_slots was called!")
-                logger.error(f"🚨 Blocked hallucinated availability: agent claimed busy/free without checking")
-                
-                # Override response with corrective message
-                reply_text = "באיזה יום ושעה נוח לך?"
-                print(f"   ✅ Replaced with: '{reply_text}'")
-            
-            # ⚠️  LOG: Missing WhatsApp confirmation (not blocking)
-            elif booking_successful and channel == "calls" and not whatsapp_sent:
-                print(f"⚠️  INFO: Booking successful but NO WhatsApp sent (agent didn't try)")
-                logger.info(f"⚠️  Booking successful without WhatsApp confirmation")
-                # Don't block - just log (WhatsApp is nice-to-have, not critical)
+            # 🚫 DISABLED: Tool validation disabled - no validation checks needed
             
             # ✨ Save trace to database
             try:
