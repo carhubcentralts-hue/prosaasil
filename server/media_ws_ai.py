@@ -13,11 +13,11 @@ from server.services.hebrew_stt_validator import validate_stt_output, is_gibberi
 # 🚫 LOOP DETECTION: Disabled by default - wrap all loop-detect logic behind this flag
 ENABLE_LOOP_DETECT = False
 
-# 🚫 REALTIME TOOLS: Disabled completely - no tools sent to OpenAI
-ENABLE_REALTIME_TOOLS = False
-
 # 🚫 LEGACY CITY/SERVICE LOGIC: Disabled - no mid-call city/service inference
 ENABLE_LEGACY_CITY_LOGIC = False
+
+# ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
+# Realtime phone calls now use dynamic tool selection (appointments only when enabled)
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
@@ -1351,6 +1351,71 @@ class MediaStreamHandler:
         self._is_silence_handler_response = False  # Track if current response is from SILENCE_HANDLER (shouldn't count)
         self._user_responded_after_greeting = False  # Track if user has responded after greeting (end grace early)
 
+    def _build_realtime_tools_for_call(self) -> list:
+        """
+        🎯 SMART TOOL SELECTION for Realtime phone calls
+        
+        Realtime phone calls policy:
+        - Default: NO tools (pure conversation)
+        - If business has appointments enabled: ONLY appointment scheduling tool
+        - Never: city tools, lead tools, WhatsApp tools, AgentKit tools
+        
+        Returns:
+            list[dict]: Tool schemas for OpenAI Realtime (empty list or appointment tool only)
+        """
+        tools = []
+        
+        # Check if business has appointment scheduling enabled
+        try:
+            business_id = getattr(self, 'business_id', None)
+            if not business_id:
+                logger.info("[TOOLS][REALTIME] No business_id - no tools enabled")
+                return tools
+            
+            # Load business settings to check if appointments are enabled
+            from server.models_sql import BusinessSettings
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            
+            if settings and getattr(settings, 'enable_calendar_scheduling', False):
+                # Appointment tool schema
+                appointment_tool = {
+                    "type": "function",
+                    "name": "schedule_appointment",
+                    "description": "Schedule an appointment when customer confirms time and provides required details",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "customer_name": {
+                                "type": "string",
+                                "description": "Customer's full name"
+                            },
+                            "appointment_date": {
+                                "type": "string",
+                                "description": "Appointment date in YYYY-MM-DD format"
+                            },
+                            "appointment_time": {
+                                "type": "string",
+                                "description": "Appointment time in HH:MM format (24-hour)"
+                            },
+                            "service_type": {
+                                "type": "string",
+                                "description": "Type of service requested"
+                            }
+                        },
+                        "required": ["customer_name", "appointment_date", "appointment_time"]
+                    }
+                }
+                tools.append(appointment_tool)
+                logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED for business {business_id}")
+            else:
+                logger.info(f"[TOOLS][REALTIME] Appointments DISABLED - no tools for business {business_id}")
+                
+        except Exception as e:
+            logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
+            # Safe fallback - no tools
+        
+        return tools
+    
     def _init_streaming_stt(self):
         """
         ⚡ BUILD 114: Initialize streaming STT with retry mechanism
@@ -1801,44 +1866,44 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 
                 asyncio.create_task(warmup_to_active())
             
-            # ⭐ BUILD 350: PHASE 2 DISABLED - No mid-call tools!
-            # Tools are now completely removed from calls. Only pure conversation.
-            # Service/city extraction happens ONLY from summary at end of call.
-            if ENABLE_LEGACY_TOOLS:
-                # LEGACY CODE - DISABLED
-                # 🚫 DISABLED: Tool loading completely disabled via ENABLE_REALTIME_TOOLS flag
-                if ENABLE_REALTIME_TOOLS:
-                    async def _load_lead_tool_only():
-                        try:
-                            wait_start = time.time()
-                            max_wait_seconds = 15
-                            
-                            while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
-                                await asyncio.sleep(0.1)
-                            
-                            lead_tool = self._build_lead_capture_tool()
-                            
-                            if lead_tool:
-                                await client.send_event({
-                                    "type": "session.update",
-                                    "session": {
-                                        "tools": [lead_tool],
-                                        "tool_choice": "auto"
-                                    }
-                                })
-                                print(f"✅ [LEGACY] Tool added")
-                            else:
-                                print(f"ℹ️ [LEGACY] No tool needed")
-                                
-                        except Exception as e:
-                            print(f"⚠️ [LEGACY] Phase 2 error: {e}")
-                    
-                    # LEGACY: Start Phase 2 in background (disabled by default)
-                    asyncio.create_task(_load_lead_tool_only())
-                else:
-                    print(f"✅ Tools DISABLED (ENABLE_REALTIME_TOOLS=False)")
+            # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
+            # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
+            realtime_tools = self._build_realtime_tools_for_call()
+            
+            if realtime_tools:
+                # Appointment tool is enabled - send session update
+                tool_choice = "auto"
+                print(f"[TOOLS][REALTIME] Appointment tool enabled - tools={len(realtime_tools)}")
+                logger.info(f"[TOOLS][REALTIME] Session will use appointment tool (count={len(realtime_tools)})")
+                
+                # Wait for greeting to complete before adding tools (avoid interference)
+                async def _load_appointment_tool():
+                    try:
+                        wait_start = time.time()
+                        max_wait_seconds = 15
+                        
+                        while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
+                            await asyncio.sleep(0.1)
+                        
+                        await client.send_event({
+                            "type": "session.update",
+                            "session": {
+                                "tools": realtime_tools,
+                                "tool_choice": tool_choice
+                            }
+                        })
+                        print(f"✅ [TOOLS][REALTIME] Appointment tool registered in session")
+                        logger.info(f"[TOOLS][REALTIME] Appointment tool successfully added to session")
+                        
+                    except Exception as e:
+                        print(f"⚠️ [TOOLS][REALTIME] Failed to register appointment tool: {e}")
+                        logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
+                
+                asyncio.create_task(_load_appointment_tool())
             else:
-                print(f"✅ [BUILD 350] Tool loading DISABLED - pure conversation mode")
+                # No tools enabled - pure conversation mode
+                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                logger.info(f"[TOOLS][REALTIME] Realtime call running with zero tools")
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
@@ -2497,13 +2562,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     # ✅ Continue processing - don't retry, don't crash, just log and move on
                     continue
                 
-                # 🚫 DISABLED: Function calls completely disabled via ENABLE_REALTIME_TOOLS flag
+                # 🎯 Handle function calls from Realtime (appointment scheduling)
                 if event_type == "response.function_call_arguments.done":
-                    if ENABLE_REALTIME_TOOLS:
-                        print(f"🔧 [LEGACY BUILD 313] Function call received!")
-                        await self._handle_function_call(event, client)
-                    else:
-                        print(f"⭐ Function call received but IGNORED (ENABLE_REALTIME_TOOLS=False)")
+                    print(f"🔧 [TOOLS][REALTIME] Function call received!")
+                    logger.info(f"[TOOLS][REALTIME] Processing function call from OpenAI Realtime")
+                    await self._handle_function_call(event, client)
                     continue
                 
                 # 🔍 DEBUG: Log all event types to catch duplicates
