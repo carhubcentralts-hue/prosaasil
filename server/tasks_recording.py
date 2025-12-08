@@ -330,6 +330,13 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             
             db.session.commit()
             
+            # ✅ Explicit debug to confirm final_transcript was saved
+            print(f"[OFFLINE_STT] ✅ Saved to DB for {call_sid}:")
+            print(f"[OFFLINE_STT]    - final_transcript: {len(final_transcript) if final_transcript else 0} chars")
+            print(f"[OFFLINE_STT]    - extracted_service: {extracted_service or 'None'}")
+            print(f"[OFFLINE_STT]    - extracted_city: {extracted_city or 'None'}")
+            print(f"[OFFLINE_STT]    - confidence: {extraction_confidence or 'N/A'}")
+            
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
             if from_number and call_log and call_log.business_id:
                 ci = CustomerIntelligence(call_log.business_id)

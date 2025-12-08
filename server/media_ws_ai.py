@@ -9764,19 +9764,33 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             from server.services.generic_webhook_service import send_call_completed_webhook
                             from server.models_sql import Lead
                             
+                            # 🔁 CRITICAL: Re-load fresh CallLog from DB to get offline worker updates
+                            # The offline recording worker may have updated:
+                            # - final_transcript (high-quality Whisper transcription)
+                            # - extracted_city / extracted_service (AI extraction from recording)
+                            # The call_log loaded at the start may be stale
+                            print(f"[DEBUG] 🔁 Re-loading CallLog from DB to check for offline worker updates...")
+                            fresh_call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                            if fresh_call_log:
+                                print(f"[DEBUG] Fresh CallLog for {self.call_sid}:")
+                                print(f"[DEBUG]    - final_transcript: {len(fresh_call_log.final_transcript) if fresh_call_log.final_transcript else 0} chars")
+                                print(f"[DEBUG]    - extracted_service: {fresh_call_log.extracted_service or 'None'}")
+                                print(f"[DEBUG]    - extracted_city: {fresh_call_log.extracted_city or 'None'}")
+                                print(f"[DEBUG]    - extraction_confidence: {fresh_call_log.extraction_confidence or 'N/A'}")
+                            
                             lead_id = None
                             city = None
                             service_category = None
                             
-                            # 🆕 PRIORITY 1: Use offline extracted fields from CallLog (if available)
+                            # 🆕 PRIORITY 1: Use offline extracted fields from fresh CallLog (if available)
                             # These come from post-call recording transcription + AI extraction
-                            if call_log:
-                                if call_log.extracted_city:
-                                    city = call_log.extracted_city
-                                    print(f"✅ [WEBHOOK] Using offline extracted city from CallLog: '{city}' (confidence: {call_log.extraction_confidence or 'N/A'})")
-                                if call_log.extracted_service:
-                                    service_category = call_log.extracted_service
-                                    print(f"✅ [WEBHOOK] Using offline extracted service from CallLog: '{service_category}' (confidence: {call_log.extraction_confidence or 'N/A'})")
+                            if fresh_call_log:
+                                if fresh_call_log.extracted_city:
+                                    city = fresh_call_log.extracted_city
+                                    print(f"✅ [WEBHOOK] Using offline extracted city from CallLog: '{city}' (confidence: {fresh_call_log.extraction_confidence or 'N/A'})")
+                                if fresh_call_log.extracted_service:
+                                    service_category = fresh_call_log.extracted_service
+                                    print(f"✅ [WEBHOOK] Using offline extracted service from CallLog: '{service_category}' (confidence: {fresh_call_log.extraction_confidence or 'N/A'})")
                             
                             # 📱 Phone extraction - fallback chain with detailed logging
                             phone = None
@@ -9942,9 +9956,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 # preferred_time should come from summary analysis if needed
                             
                             # 🆕 Use final_transcript from offline processing if available (higher quality)
-                            final_transcript = call_log.final_transcript if call_log and call_log.final_transcript else full_conversation
-                            if final_transcript and final_transcript != full_conversation:
+                            # fresh_call_log was loaded above with offline worker updates
+                            final_transcript = full_conversation  # Default to realtime
+                            if fresh_call_log and fresh_call_log.final_transcript:
+                                final_transcript = fresh_call_log.final_transcript
                                 print(f"✅ [WEBHOOK] Using offline final_transcript ({len(final_transcript)} chars) instead of realtime ({len(full_conversation)} chars)")
+                            else:
+                                print(f"ℹ️ [WEBHOOK] No offline final_transcript available yet for {self.call_sid} - using realtime transcript ({len(full_conversation)} chars)")
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
