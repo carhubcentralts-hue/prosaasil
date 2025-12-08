@@ -1281,14 +1281,16 @@ class AIService:
                 print(f"🔍 new_items value: {result.new_items}")
                 print(f"🔍 new_items length: {len(result.new_items) if result.new_items else 0}")
             
-            # Extract tool calls from new_items
+            # ✅ RESTORED: Tool call extraction for AgentKit (non-realtime flows)
+            # IMPORTANT: This code runs ONLY for AgentKit / non-realtime flows (WhatsApp, backend tasks)
+            # Realtime phone calls use media_ws_ai.py with separate tool handling
             tool_calls_data = []
             tool_count = 0
             booking_successful = False  # Track if booking actually succeeded
             
             if hasattr(result, 'new_items') and result.new_items:
                 print(f"📊 Agent returned {len(result.new_items)} items")
-                logger.info(f"📊 Agent returned {len(result.new_items)} items")
+                logger.info(f"📊 [AGENTKIT] Agent returned {len(result.new_items)} items")
                 # Filter for ToolCallItem types and extract tool names
                 for idx, item in enumerate(result.new_items):
                     item_type = type(item).__name__
@@ -1298,7 +1300,7 @@ class AIService:
                     if item_type == 'ToolCallItem':
                         tool_count += 1
                         
-                        # 🔍 FULL DEBUG: Print ALL attributes to find tool name
+                        # 🔍 DEBUG: Print ALL attributes to find tool name
                         print(f"  🔍 DEBUG ToolCallItem #{tool_count}:")
                         all_attrs = [a for a in dir(item) if not a.startswith('_')]
                         print(f"     All attributes: {all_attrs}")
@@ -1328,7 +1330,7 @@ class AIService:
                             tool_name = 'unknown'
                         
                         print(f"  🔧 Tool call #{tool_count}: {tool_name}")
-                        logger.info(f"  ✅ Tool call #{tool_count}: {tool_name}")
+                        logger.info(f"  ✅ [AGENTKIT] Tool call #{tool_count}: {tool_name}")
                         tool_calls_data.append({
                             "tool": tool_name,
                             "status": "success",
@@ -1340,7 +1342,7 @@ class AIService:
                         output = getattr(item, 'output', None)
                         print(f"  📤 Tool output: {str(output)[:200] if output else 'None'}...")
                         if output:
-                            logger.info(f"     Tool returned: {str(output)[:100]}")
+                            logger.info(f"     [AGENTKIT] Tool returned: {str(output)[:100]}")
                             
                             # 🔍 CHECK if this is a successful booking
                             if isinstance(output, dict):
@@ -1352,26 +1354,24 @@ class AIService:
                                         result.appointment_details = output
                 
                 if tool_count > 0:
-                    print(f"✅ Agent executed {tool_count} tool actions")
-                    logger.info(f"✅ Agent executed {tool_count} tool actions")
+                    print(f"✅ [AGENTKIT] Agent executed {tool_count} tool actions")
+                    logger.info(f"✅ [AGENTKIT] Agent executed {tool_count} tool actions")
                 else:
-                    print(f"⚠️ Agent DID NOT call any tools! (message: '{message[:50]}...')")
-                    logger.warning(f"⚠️ Agent DID NOT call any tools! (message: '{message[:50]}...')")
+                    print(f"⚠️ [AGENTKIT] Agent DID NOT call any tools! (message: '{message[:50]}...')")
+                    logger.warning(f"⚠️ [AGENTKIT] Agent DID NOT call any tools! (message: '{message[:50]}...')")
             else:
-                print(f"⚠️ Result has NO new_items or new_items is empty!")
+                print(f"⚠️ [AGENTKIT] Result has NO new_items or new_items is empty!")
             
-            # 🚨 BUILD 138+: VALIDATION - Detect "hallucinated bookings" AND "hallucinated availability"
+            # ✅ RESTORED: Tool validation for AgentKit (non-realtime flows)
             # If agent claims action without executing tool, BLOCK response
             claim_words = ["קבעתי", "שלחתי", "יצרתי", "הפגישה נקבעה", "הפגישה קבועה", "סגרתי", "נקבע", "התור נקבע", "התור קבוע"]
             claimed_action = any(word in reply_text for word in claim_words)
             
-            # 🔥 NEW: Detect "hallucinated availability" (saying "busy/available" without checking)
-            # 🚨 FIX: Only flag if saying "NO availability" or "YES available" (absolute claims)
-            # Saying "15:00 תפוס אבל 17:00 פנוי" is VALID after tool call!
-            # 🔥 FIX #3: Added "תפוס" and "פנוי" to catch simple hallucinations
+            # Detect "hallucinated availability" (saying "busy/available" without checking)
             hallucinated_availability_words = ["אין זמנים פנויים", "אין זמינות", "הכל תפוס", "לא פנוי", "לא זמין", "תפוס", "פנוי", "תפוס ב"]
             claimed_availability = any(word in reply_text for word in hallucinated_availability_words)
             
+            # ✅ RESTORED: Tool call validation for AgentKit (non-realtime flows)
             # Check if calendar_create_appointment was called (with or without _wrapped suffix)
             booking_tool_called = any(
                 tc.get("tool") in ["calendar_create_appointment", "calendar_create_appointment_wrapped"]
@@ -1412,9 +1412,10 @@ class AIService:
                 for tc in tool_calls_data
             )
             
+            # ✅ RESTORED: Hallucination detection for AgentKit (non-realtime flows)
             # 🔥 WORKAROUND: Also check if we detected a successful booking in the output
             # (in case tool name extraction failed but booking actually succeeded)
-            print(f"  🔍 VALIDATION CHECK:")
+            print(f"  🔍 [AGENTKIT] VALIDATION CHECK:")
             print(f"     claimed_action={claimed_action}")
             print(f"     claimed_availability={claimed_availability}")
             print(f"     booking_tool_called={booking_tool_called}")
@@ -1436,16 +1437,16 @@ class AIService:
             claims_booking = bool(booking_claims.search(reply_text))
             claims_whatsapp = bool(whatsapp_claims.search(reply_text))
             
-            print(f"🔍 HARD VALIDATION:")
+            print(f"🔍 [AGENTKIT] HARD VALIDATION:")
             print(f"   claims_booking={claims_booking}, booking_tool_called={booking_tool_called}")
             print(f"   claims_whatsapp={claims_whatsapp}")
             
             # 🚨 BLOCK 1: Hallucinated booking - STRICT ENFORCEMENT
             if claims_booking and not booking_tool_called and not booking_successful:
-                print(f"🚨 HARD BLOCKED BOOKING LIE!")
+                print(f"🚨 [AGENTKIT] HARD BLOCKED BOOKING LIE!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
                 print(f"   But NO calendar_create_appointment was called!")
-                logger.error(f"🚨 HARD BLOCK: Blocked booking lie without tool call")
+                logger.error(f"🚨 [AGENTKIT] HARD BLOCK: Blocked booking lie without tool call")
                 
                 # 🔥 OVERRIDE: Agent cannot claim booking without tool!
                 reply_text = "מה השעה המועדפת שלך? אבדוק זמינות ואקבע."
@@ -1453,10 +1454,10 @@ class AIService:
             
             # 🚨 BLOCK 2: Hallucinated WhatsApp send
             elif claims_whatsapp and not whatsapp_sent and channel == "calls":
-                print(f"🚨 HARD BLOCKED WHATSAPP LIE!")
+                print(f"🚨 [AGENTKIT] HARD BLOCKED WHATSAPP LIE!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
                 print(f"   But NO whatsapp_send was called!")
-                logger.error(f"🚨 HARD BLOCK: Blocked WhatsApp send lie without tool call")
+                logger.error(f"🚨 [AGENTKIT] HARD BLOCK: Blocked WhatsApp send lie without tool call")
                 
                 # 🔥 OVERRIDE: Be HONEST - did NOT send WhatsApp!
                 reply_text = "מעולה! הפרטים נרשמו. ניצור קשר בהמשך עם פרטי הפגישה."
@@ -1464,10 +1465,10 @@ class AIService:
             
             # 🚨 BLOCK 3: Hallucinated availability
             elif claimed_availability and not check_availability_called:
-                print(f"🚨 BLOCKED HALLUCINATED AVAILABILITY!")
+                print(f"🚨 [AGENTKIT] BLOCKED HALLUCINATED AVAILABILITY!")
                 print(f"   Agent claimed: '{reply_text[:80]}...'")
                 print(f"   But NO calendar_find_slots was called!")
-                logger.error(f"🚨 Blocked hallucinated availability: agent claimed busy/free without checking")
+                logger.error(f"🚨 [AGENTKIT] Blocked hallucinated availability: agent claimed busy/free without checking")
                 
                 # Override response with corrective message
                 reply_text = "באיזה יום ושעה נוח לך?"
@@ -1475,8 +1476,8 @@ class AIService:
             
             # ⚠️  LOG: Missing WhatsApp confirmation (not blocking)
             elif booking_successful and channel == "calls" and not whatsapp_sent:
-                print(f"⚠️  INFO: Booking successful but NO WhatsApp sent (agent didn't try)")
-                logger.info(f"⚠️  Booking successful without WhatsApp confirmation")
+                print(f"⚠️  [AGENTKIT] INFO: Booking successful but NO WhatsApp sent (agent didn't try)")
+                logger.info(f"⚠️  [AGENTKIT] Booking successful without WhatsApp confirmation")
                 # Don't block - just log (WhatsApp is nice-to-have, not critical)
             
             # ✨ Save trace to database
