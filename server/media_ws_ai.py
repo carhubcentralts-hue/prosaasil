@@ -2969,9 +2969,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # This handles: "בעפולה" ↔ "עפולה", "צילינדרים" ↔ "צילינדר"
                             extra_tokens_flexible = _tokens_match_flexibly(expected_tokens, actual_tokens)
                             
-                            # Allowed filler tokens (greetings, acknowledgements)
+                            # Allowed filler tokens (greetings, acknowledgements, and harmless location words)
                             # 🔥 BUILD 338: Also normalize the filler for comparison
-                            allowed_filler = {"כן", "בסדר", "אוקיי", "טוב", "יופי", "אמ", "אה", "אז", "נו", "בבקשה", "תודה", "נכון", "מצוין"}
+                            # 🔥 BUILD 339: Added "עיר" and "בעיר" as harmless filler (they don't change meaning)
+                            allowed_filler = {
+                                # Greetings and acknowledgements
+                                "כן", "בסדר", "אוקיי", "טוב", "יופי", "אמ", "אה", "אז", "נו", "בבקשה", "תודה", "נכון", "מצוין",
+                                # Function words / prepositions that don't change meaning
+                                "עיר", "בעיר", "ב", "ל", "של", "את", "אתה", "אני", "זה", "זו", "היא", "הוא",
+                                "רק", "מוודא", "האם", "צריך", "צריכה", "צריכים",
+                                "מאוד", "באמת", "כבר", "עכשיו", "שוב", "עוד", "גם", "רגע"
+                            }
                             allowed_filler_normalized = {_normalize_hebrew_token(t) for t in allowed_filler}
                             
                             # Remove allowed filler from extra tokens
@@ -2982,90 +2990,164 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 print(f"🔍 [BUILD 338] Extra tokens (after prefix/plural normalization): {extra_tokens_flexible}")
                                 print(f"🔍 [BUILD 338] After removing filler: {substantive_extras}")
                             
-                            # 🔥 BUILD 338 FIX: VERIFY locked values ARE PRESENT in transcript (with prefix/plural flexibility)
-                            # Default to True only if no lock exists for that field
-                            # If lock exists, MUST verify the value is in transcript
+                            # 🔥 BUILD 339 FIX: GENERIC TOKEN-BASED VALIDATION
+                            # city_ok: STRICT - ALL city tokens must be present (for multi-word cities like "קריית גת")
+                            # service_ok: FLEXIBLE - Use Jaccard similarity, no domain-specific hardcoding
                             
-                            def _value_present_flexibly(value, text):
-                                """Check if a value is present in text with Hebrew prefix/plural flexibility"""
-                                # Simple check first
-                                if value in text:
+                            def _city_tokens_all_present(city_value, transcript_text):
+                                """
+                                🔥 BUILD 339: STRICT city validation - ALL city tokens must be present.
+                                Example: city="קריית גת" → both "קריית" and "גת" must be in transcript.
+                                "יערת גת" would fail because "קריית" is missing.
+                                """
+                                # Get city tokens (normalized)
+                                city_tokens = [_normalize_hebrew_token(t) for t in city_value.split() if t.strip()]
+                                # Get transcript tokens (normalized)
+                                transcript_tokens = {_normalize_hebrew_token(t) for t in transcript_text.split()}
+                                
+                                # Check each city token is present in transcript
+                                for city_token in city_tokens:
+                                    found = False
+                                    for t_token in transcript_tokens:
+                                        # Exact normalized match
+                                        if city_token == t_token:
+                                            found = True
+                                            break
+                                        # Partial match (handles בקריית → קריית)
+                                        if len(city_token) >= 3 and len(t_token) >= 3:
+                                            if city_token in t_token or t_token in city_token:
+                                                found = True
+                                                break
+                                    if not found:
+                                        print(f"⚠️ [BUILD 339] City token '{city_token}' NOT FOUND in transcript tokens: {transcript_tokens}")
+                                        return False
+                                return True
+                            
+                            def _service_matches_semantically(service_value, transcript_text, filler_set):
+                                """
+                                🔥 BUILD 339: GENERIC service validation using Jaccard similarity.
+                                No domain-specific hardcoding (no locksmith/pizza/plumber words).
+                                Works purely based on the canonical service string.
+                                
+                                Example: service="הנצרים פריצה דלתות", AI says "פריצה לדלת"
+                                → Strong token overlap → service_ok=True
+                                """
+                                # Tokenize and normalize service
+                                service_tokens = [_normalize_hebrew_token(t) for t in service_value.split() if t.strip()]
+                                # Remove filler from service tokens (keep only substantive words)
+                                service_tokens = [t for t in service_tokens if t and t not in filler_set and len(t) > 1]
+                                
+                                # Tokenize and normalize transcript
+                                transcript_tokens = [_normalize_hebrew_token(t) for t in transcript_text.split() if t.strip()]
+                                # Remove filler from transcript tokens
+                                transcript_tokens = [t for t in transcript_tokens if t and t not in filler_set and len(t) > 1]
+                                
+                                if not service_tokens:
+                                    # No substantive service tokens to match - accept by default
                                     return True
-                                # Normalize both and check again
-                                norm_value = _normalize_hebrew_token(value)
-                                words = text.split()
-                                for word in words:
-                                    norm_word = _normalize_hebrew_token(word)
-                                    # Check if normalized forms match (handles prefix/plural variations)
-                                    if norm_value == norm_word:
-                                        return True
-                                    # Also check if one contains the other (partial match)
-                                    if len(norm_value) >= 3 and len(norm_word) >= 3:
-                                        if norm_value in norm_word or norm_word in norm_value:
-                                            return True
+                                
+                                canon_set = set(service_tokens)
+                                ai_set = set(transcript_tokens)
+                                
+                                # Calculate intersection
+                                intersection = canon_set & ai_set
+                                
+                                # Also check with partial matching (handles דלתות→דלת, צילינדרים→צילינדר)
+                                partial_matches = 0
+                                for canon_token in canon_set:
+                                    for ai_token in ai_set:
+                                        if canon_token != ai_token:  # Not already counted
+                                            if len(canon_token) >= 3 and len(ai_token) >= 3:
+                                                if canon_token in ai_token or ai_token in canon_token:
+                                                    partial_matches += 1
+                                                    break
+                                
+                                # Effective matches = direct + partial
+                                effective_matches = len(intersection) + partial_matches
+                                
+                                # Jaccard-like similarity
+                                jaccard = effective_matches / max(len(canon_set), 1)
+                                
+                                print(f"🔍 [BUILD 339] Service matching: canon_set={canon_set}, ai_set={ai_set}, intersection={intersection}, partial={partial_matches}, jaccard={jaccard:.2f}")
+                                
+                                # Accept if:
+                                # 1) At least 1 token matches AND jaccard >= 0.5
+                                if effective_matches >= 1 and jaccard >= 0.5:
+                                    return True
+                                
+                                # 2) Fallback: substring match on normalized full strings
+                                norm_canon_str = " ".join(service_tokens)
+                                norm_ai_str = " ".join(transcript_tokens)
+                                if norm_canon_str in norm_ai_str or norm_ai_str in norm_canon_str:
+                                    return True
+                                
                                 return False
                             
                             city_ok = True
                             service_ok = True
                             
-                            # CITY: If locked, MUST be in transcript (with flexible matching)
+                            # CITY: If locked, ALL city tokens MUST be in transcript (strict matching for multi-word cities)
                             if self._city_locked:
                                 if self._city_raw_from_stt:
                                     normalized_city = _normalize_hebrew(self._city_raw_from_stt)
-                                    city_ok = _value_present_flexibly(normalized_city, normalized_transcript)
+                                    city_ok = _city_tokens_all_present(normalized_city, normalized_transcript)
                                     if not city_ok:
-                                        print(f"⚠️ [BUILD 338] City MISSING! Expected '{self._city_raw_from_stt}' (normalized: '{normalized_city}') in transcript")
+                                        print(f"⚠️ [BUILD 339] City FAILED! Expected ALL tokens of '{self._city_raw_from_stt}' (normalized: '{normalized_city}') in transcript")
                                 else:
                                     # Lock set but no value - inconsistent state, fail
                                     city_ok = False
-                                    print(f"⚠️ [BUILD 338] City locked but no raw STT value!")
+                                    print(f"⚠️ [BUILD 339] City locked but no raw STT value!")
                             
-                            # SERVICE: If locked, MUST be in transcript (with flexible matching)
+                            # SERVICE: If locked, use generic semantic matching (Jaccard similarity)
                             if self._service_locked:
                                 if self._service_raw_from_stt:
                                     normalized_service = _normalize_hebrew(self._service_raw_from_stt)
-                                    service_ok = _value_present_flexibly(normalized_service, normalized_transcript)
+                                    service_ok = _service_matches_semantically(normalized_service, normalized_transcript, allowed_filler_normalized)
                                     if not service_ok:
-                                        print(f"⚠️ [BUILD 338] Service MISSING! Expected '{self._service_raw_from_stt}' (normalized: '{normalized_service}') in transcript")
+                                        print(f"⚠️ [BUILD 339] Service FAILED! Expected semantic match for '{self._service_raw_from_stt}' (normalized: '{normalized_service}') in transcript")
                                 else:
                                     # Lock set but no value - inconsistent state, fail
                                     service_ok = False
-                                    print(f"⚠️ [BUILD 338] Service locked but no raw STT value!")
+                                    print(f"⚠️ [BUILD 339] Service locked but no raw STT value!")
                             
-                            # STRICT: No extra substantive tokens allowed
+                            # Check for extra substantive tokens (after filler removal)
                             no_extra_content = len(substantive_extras) == 0
                             
                             exact_match = normalized_expected == normalized_transcript
                             
-                            # Detailed logging
+                            # 🔥 BUILD 339: Detailed logging for debugging
                             if substantive_extras:
-                                print(f"⚠️ [BUILD 336] Extra tokens detected: {substantive_extras}")
+                                print(f"⚠️ [BUILD 339] Extra tokens after filler removal: {substantive_extras}")
                             
-                            # 🔥 BUILD 336 STRICT VALIDATION:
-                            # ONLY TWO ACCEPTABLE OUTCOMES:
-                            # 1. Exact match - perfect
-                            # 2. Locked values present + ZERO substantive extras
-                            # Otherwise - FAIL (no tier-3 allowance!)
+                            # 🔥 BUILD 339 VALIDATION LOGIC:
+                            # Accept confirmation if:
+                            # 1. Exact match (AI said exactly what we asked), OR
+                            # 2. city_ok=True AND service_ok=True AND no substantive extra tokens
+                            # 
+                            # Reject if:
+                            # - city_ok=False (city tokens missing), OR
+                            # - service_ok=False (service doesn't match semantically), OR
+                            # - Non-filler extra tokens present
                             
                             if exact_match:
                                 self._confirmation_validated = True
-                                print(f"✅ [BUILD 336] EXACT MATCH! AI said exactly what we asked")
+                                print(f"✅ [BUILD 339] EXACT MATCH! AI said exactly what we asked")
                             elif city_ok and service_ok and no_extra_content:
                                 self._confirmation_validated = True
-                                print(f"✅ [BUILD 336] Confirmation valid - locked values present, zero extra content")
+                                print(f"✅ [BUILD 339] VALID CONFIRMATION (city_ok=True, service_ok=True, no extras)")
                             else:
-                                # 🚨 ANY extra substantive tokens = HALLUCINATION = FAIL
-                                print(f"🚨 [BUILD 336] VALIDATION FAILED! Extras: {substantive_extras}, city_ok={city_ok}, service_ok={service_ok}")
+                                # 🚨 BUILD 339: Validation failed - wrong city, wrong service, or extra content
+                                print(f"🚨 [BUILD 339] VALIDATION FAILED! Extras: {substantive_extras}, city_ok={city_ok}, service_ok={service_ok}")
                                 # AI deviated - resend instruction (limit to 2 retries to prevent infinite loop)
                                 if self._speak_exact_resend_count < 2:
                                     self._speak_exact_resend_count += 1
-                                    print(f"🔁 [BUILD 336] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
+                                    print(f"🔁 [BUILD 339] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
                                     # 🔥 FIX: Clear stale state before resend
                                     asyncio.create_task(self._send_server_event_to_ai(
                                         f"[SPEAK_EXACT] עצור! אמרת פרטים שגויים. אמור בדיוק: \"{expected}\""
                                     ))
                                 else:
-                                    print(f"❌ [BUILD 336] Max resends reached - AI keeps deviating")
+                                    print(f"❌ [BUILD 339] Max resends reached - AI keeps deviating")
                                     # 🔥 FIX: Reset state to allow retry with fresh data
                                     self._expected_confirmation = None
                                     self._speak_exact_resend_count = 0
