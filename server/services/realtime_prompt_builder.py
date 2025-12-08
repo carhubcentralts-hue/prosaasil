@@ -1,11 +1,17 @@
 """
 Realtime Prompt Builder
 Build dynamic system prompts for OpenAI Realtime API based on business settings
+
+🔥 BUILD: PERFECT INBOUND & OUTBOUND SEPARATION
+- build_inbound_system_prompt(): Full control settings + appointment scheduling
+- build_outbound_system_prompt(): Pure prompt mode, no call control
+- build_realtime_system_prompt(): Router that calls the correct builder
 """
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 from datetime import datetime
 import pytz
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +153,11 @@ If unclear - ask to repeat. SPEAK HEBREW.{scheduling_note}"""
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
     """
-    Build system prompt for OpenAI Realtime API based on business settings
+    🔥 ROUTER: Routes to correct prompt builder based on call direction
+    
+    This function is the main entry point and routes to:
+    - build_inbound_system_prompt() for inbound calls
+    - build_outbound_system_prompt() for outbound calls
     
     Args:
         business_id: Business ID
@@ -155,11 +165,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         call_direction: "inbound" or "outbound" - determines which prompt to use
     
     Returns:
-        System prompt in Hebrew for the AI assistant
+        Complete system prompt for the AI assistant
     """
     try:
         from server.models_sql import Business, BusinessSettings
-        from server.policy.business_policy import get_business_policy
         
         # Load business and settings
         try:
@@ -178,128 +187,40 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         
         business_name = business.name or "Business"
         
-        # Load business policy (slot size, opening hours, etc.)
-        policy = get_business_policy(business_id, prompt_text=None, db_session=db_session)
+        logger.info(f"📋 [ROUTER] Building prompt for {business_name} (business_id={business_id}, direction={call_direction})")
         
-        logger.info(f"📋 Building Realtime prompt for {business_name} (business_id={business_id}, direction={call_direction})")
+        # 🔥 PREPARE BUSINESS SETTINGS DICT
+        business_settings_dict = {
+            "id": business_id,
+            "name": business_name,
+            "ai_prompt": settings.ai_prompt if settings else "",
+            "outbound_ai_prompt": settings.outbound_ai_prompt if settings else "",
+            "greeting_message": business.greeting_message or ""
+        }
         
-        # 🔥 BUILD 186: SEPARATE LOGIC FOR INBOUND vs OUTBOUND
-        # - OUTBOUND: Uses ONLY the outbound_ai_prompt from DB (no call control settings)
-        # - INBOUND: Uses ai_prompt + call control settings (calendar scheduling, etc.)
-        
-        core_instructions = ""
-        
+        # 🔥 ROUTE TO CORRECT BUILDER
         if call_direction == "outbound":
-            # 🔥 OUTBOUND CALLS: Use the outbound prompt + mandatory SPEAK HEBREW directive
-            if settings and settings.outbound_ai_prompt and settings.outbound_ai_prompt.strip():
-                core_instructions = settings.outbound_ai_prompt.strip()
-                logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt for business {business_id} ({len(core_instructions)} chars)")
-            else:
-                # 🔥 BUILD 324: English fallback - no outbound_ai_prompt
-                core_instructions = f"""You are a professional sales rep for "{business_name}". Be brief and persuasive."""
-                logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt for business {business_id} - using English fallback")
-            
-            # Replace placeholders
-            core_instructions = core_instructions.replace("{{business_name}}", business_name)
-            core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
-            
-            # 🔥 BUILD 324: SPEAK HEBREW directive with language switch option
-            core_instructions = f"""CRITICAL: SPEAK HEBREW to customer. If they don't understand Hebrew - switch to their language.
-
-{core_instructions}"""
-            
-            logger.info(f"✅ [OUTBOUND] Final prompt length: {len(core_instructions)} chars")
-            return core_instructions
-        
-        # 🔥 INBOUND CALLS: Use ai_prompt + call control settings
-        if settings and settings.ai_prompt and settings.ai_prompt.strip():
-            import json
-            try:
-                if settings.ai_prompt.strip().startswith('{'):
-                    prompt_obj = json.loads(settings.ai_prompt)
-                    if 'calls' in prompt_obj:
-                        core_instructions = prompt_obj['calls']
-                        logger.info(f"✅ [INBOUND] Using 'calls' prompt from DB for business {business_id}")
-                    elif 'whatsapp' in prompt_obj:
-                        core_instructions = prompt_obj['whatsapp']
-                        logger.info(f"⚠️ [INBOUND] Using 'whatsapp' as fallback for business {business_id}")
-                    else:
-                        core_instructions = settings.ai_prompt
-                else:
-                    core_instructions = settings.ai_prompt
-            except json.JSONDecodeError:
-                core_instructions = settings.ai_prompt
-        
-        if not core_instructions:
-            # 🔥 BUILD 324: English fallback - no ai_prompt in DB
-            logger.error(f"❌ [INBOUND] No prompt in DB for business {business_id}")
-            core_instructions = f"""You are a professional service rep for "{business_name}". SPEAK HEBREW to customer. Be brief and helpful."""
-        
-        # Replace placeholders
-        core_instructions = core_instructions.replace("{{business_name}}", business_name)
-        core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
-        
-        # 🔥 BUILD 324: English date context
-        tz = pytz.timezone(policy.tz)
-        today = datetime.now(tz)
-        today_date = today.strftime("%d/%m/%Y")
-        weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-        weekday_name = weekday_names[today.weekday()]
-        
-        # 🔥 LOAD GREETING FROM DB
-        greeting_text = business.greeting_message if business else ""
-        if not greeting_text:
-            greeting_text = ""
-        
-        # 🔥 BUILD 327: Removed required_lead_fields - AI follows prompt instructions
-        
-        # 🔥 BUILD 186: Check calendar scheduling setting
-        enable_calendar_scheduling = True  # Default to enabled
-        if settings and hasattr(settings, 'enable_calendar_scheduling'):
-            enable_calendar_scheduling = settings.enable_calendar_scheduling
-        logger.info(f"📅 [INBOUND] Calendar scheduling: {'ENABLED' if enable_calendar_scheduling else 'DISABLED'}")
-        
-        # 🎯 BUILD 324: COMPACT English system prompt with call control settings
-        # 🔥 BUILD 327: Simplified call without required_lead_fields
-        critical_rules = _build_critical_rules_compact(
-            business_name, today_date, weekday_name, greeting_text, 
-            call_direction, enable_calendar_scheduling
-        )
-        
-        # 🔥 BUILD 335: NO TRUNCATION OF BUSINESS PROMPTS - Keep full business context!
-        # Only system rules are compact, business prompts stay as-is
-        
-        # Compact sandbox wrapper - business prompt is NOT truncated
-        sandboxed_instructions = f"""--- BUSINESS INFO (follow FLOW above) ---
-{core_instructions}
----"""
-        
-        # Combine: Rules + Sandboxed custom prompt + Policy
-        full_prompt = critical_rules + "\n" + sandboxed_instructions
-        
-        # 🔥 BUILD 324: Scheduling info in English (AI speaks Hebrew to customer)
-        if enable_calendar_scheduling:
-            hours_description = _build_hours_description(policy)
-            
-            min_notice = ""
-            if policy.min_notice_min > 0:
-                min_notice_hours = policy.min_notice_min // 60
-                if min_notice_hours > 0:
-                    min_notice = f" (advance booking: {min_notice_hours}h)"
-            
-            full_prompt += f"\n\nSCHEDULING: {policy.slot_size_min}min slots{min_notice}\n{hours_description}"
+            # 🔥 OUTBOUND: Use pure prompt mode (no call control settings)
+            return build_outbound_system_prompt(
+                business_settings=business_settings_dict,
+                db_session=db_session
+            )
         else:
-            # Explicitly tell AI not to schedule appointments
-            full_prompt += "\n\nNO SCHEDULING: Do NOT offer appointments. Focus on info and collecting lead details only."
-        
-        # Log final length
-        logger.info(f"✅ REALTIME PROMPT [business_id={business_id}] LEN={len(full_prompt)} chars")
-        print(f"📏 [PROMPT] Final length: {len(full_prompt)} chars")
-        
-        if len(full_prompt) > 3000:
-            logger.warning(f"⚠️ Prompt may be too long ({len(full_prompt)} chars)")
-        
-        return full_prompt
+            # 🔥 INBOUND: Use full call control settings
+            call_control_settings_dict = {
+                "enable_calendar_scheduling": settings.enable_calendar_scheduling if (settings and hasattr(settings, 'enable_calendar_scheduling')) else True,
+                "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if (settings and hasattr(settings, 'auto_end_after_lead_capture')) else False,
+                "auto_end_on_goodbye": settings.auto_end_on_goodbye if (settings and hasattr(settings, 'auto_end_on_goodbye')) else False,
+                "smart_hangup_enabled": settings.smart_hangup_enabled if (settings and hasattr(settings, 'smart_hangup_enabled')) else True,
+                "silence_timeout_sec": settings.silence_timeout_sec if (settings and hasattr(settings, 'silence_timeout_sec')) else 15,
+                "silence_max_warnings": settings.silence_max_warnings if (settings and hasattr(settings, 'silence_max_warnings')) else 2,
+            }
+            
+            return build_inbound_system_prompt(
+                business_settings=business_settings_dict,
+                call_control_settings=call_control_settings_dict,
+                db_session=db_session
+            )
         
     except Exception as e:
         logger.error(f"❌ Error building Realtime prompt: {e}")
@@ -418,3 +339,265 @@ STRICT RULES:
 [SPEAK_EXACT] INSTRUCTION:
 When you receive a message starting with "[SPEAK_EXACT]", you MUST say the exact Hebrew text quoted inside - NO changes, NO paraphrasing, NO "improvements". The server provides the CORRECT values from the customer's actual words. Just say it exactly!
 """
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 NEW: PERFECT INBOUND & OUTBOUND SEPARATION
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+def build_inbound_system_prompt(
+    business_settings: Dict[str, Any],
+    call_control_settings: Dict[str, Any],
+    db_session=None
+) -> str:
+    """
+    🔥 BUILD INBOUND SYSTEM PROMPT - Complete separation from outbound
+    
+    This prompt is used ONLY for inbound calls and includes:
+    - Business's inbound ai_prompt
+    - Call control settings (שליטת שיחה)
+    - Appointment scheduling logic (if enabled)
+    - No mid-call tools
+    
+    Args:
+        business_settings: Dict with business info (id, name, ai_prompt, greeting_message)
+        call_control_settings: Dict with call control (enable_calendar_scheduling, etc.)
+        db_session: Optional SQLAlchemy session
+    
+    Returns:
+        Complete system prompt for inbound calls (English instructions, Hebrew speech)
+    """
+    try:
+        business_id = business_settings.get("id")
+        business_name = business_settings.get("name", "Business")
+        ai_prompt_raw = business_settings.get("ai_prompt", "")
+        greeting_text = business_settings.get("greeting_message", "")
+        
+        # Extract call control settings
+        enable_calendar_scheduling = call_control_settings.get("enable_calendar_scheduling", True)
+        
+        logger.info(f"📋 [INBOUND] Building prompt for {business_name} (id={business_id}, scheduling={enable_calendar_scheduling})")
+        
+        # 🔥 PARSE AI PROMPT (handle JSON format with 'calls' key)
+        core_instructions = ""
+        if ai_prompt_raw and ai_prompt_raw.strip():
+            try:
+                if ai_prompt_raw.strip().startswith('{'):
+                    prompt_obj = json.loads(ai_prompt_raw)
+                    if 'calls' in prompt_obj:
+                        core_instructions = prompt_obj['calls']
+                        logger.info(f"✅ [INBOUND] Using 'calls' prompt from DB")
+                    elif 'whatsapp' in prompt_obj:
+                        core_instructions = prompt_obj['whatsapp']
+                        logger.info(f"⚠️ [INBOUND] Using 'whatsapp' as fallback")
+                    else:
+                        core_instructions = ai_prompt_raw
+                else:
+                    core_instructions = ai_prompt_raw
+            except json.JSONDecodeError:
+                core_instructions = ai_prompt_raw
+        
+        # Replace placeholders
+        if core_instructions:
+            core_instructions = core_instructions.replace("{{business_name}}", business_name)
+            core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
+        
+        # 🔥 BEHAVIORAL RULES (English instructions, AI speaks Hebrew)
+        behavioral_rules = f"""You are a male virtual call agent for an Israeli business: "{business_name}".
+
+LANGUAGE RULES:
+- You ALWAYS speak Hebrew unless the caller explicitly says they do not understand Hebrew.
+- If the caller says "I don't understand Hebrew" or speaks another language and requests it, switch to that language and continue the conversation there.
+
+TRANSCRIPTION IS TRUTH:
+- You NEVER invent facts. The user's transcript is the single source of truth.
+- If the user says a city, service, name, phone number, or details — you repeat EXACTLY what they said.
+- If something is unclear, ask politely for clarification.
+- NEVER correct or modify the caller's words.
+
+TONE & STYLE:
+- Warm, helpful, patient, concise, masculine, and natural.
+- Ask ONE question at a time.
+
+"""
+        
+        # 🔥 APPOINTMENT SCHEDULING LOGIC
+        if enable_calendar_scheduling:
+            # Load policy for scheduling info
+            from server.policy.business_policy import get_business_policy
+            policy = get_business_policy(business_id, prompt_text=None, db_session=db_session)
+            
+            # Get date context
+            tz = pytz.timezone(policy.tz)
+            today = datetime.now(tz)
+            today_date = today.strftime("%d/%m/%Y")
+            weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            weekday_name = weekday_names[today.weekday()]
+            
+            # Build hours description
+            hours_description = _build_hours_description(policy)
+            
+            min_notice = ""
+            if policy.min_notice_min > 0:
+                min_notice_hours = policy.min_notice_min // 60
+                if min_notice_hours > 0:
+                    min_notice = f" (minimum {min_notice_hours}h advance booking required)"
+            
+            scheduling_rules = f"""
+APPOINTMENT SCHEDULING:
+Today is {weekday_name}, {today_date}
+
+BOOKING FLOW (STRICT ORDER):
+1. FIRST: Ask for NAME: "מה השם שלך?" - Get name before anything else
+2. THEN: Ask for DATE/TIME: "לאיזה יום ושעה?" - Get preferred date and time
+3. WAIT: For system to check availability (don't promise slot is available!)
+4. AFTER CONFIRMATION: Ask for PHONE: "מה הטלפון שלך לאישור?" - Phone is collected LAST
+5. BOOKING SUCCESS: Only say "התור נקבע" AFTER system confirms booking
+
+CRITICAL RULES:
+- Appointment slots: {policy.slot_size_min} minutes{min_notice}
+- Business hours: {hours_description}
+- Phone is collected LAST, only after appointment time is confirmed
+- If slot is taken, offer alternatives (system will provide)
+- NEVER ask for phone before confirming date/time availability
+"""
+        else:
+            scheduling_rules = """
+NO APPOINTMENT SCHEDULING:
+- You do NOT offer appointments.
+- If customer asks for an appointment, politely say a representative will call them back to schedule.
+- Focus only on collecting lead information.
+"""
+        
+        # 🔥 END OF CALL SUMMARY
+        end_of_call_summary = """
+END OF CALL:
+- At the end of the conversation, summarize what the caller requested in ONE short Hebrew sentence.
+- Use ONLY the exact details the user provided (never correct or modify them).
+- After saying goodbye, stay quiet.
+"""
+        
+        # 🔥 COMBINE ALL SECTIONS
+        full_prompt = f"""{behavioral_rules}
+
+--- BUSINESS INSTRUCTIONS ---
+{core_instructions if core_instructions else f"You are a professional service representative for {business_name}. Be helpful and collect customer information."}
+---
+
+{scheduling_rules}
+
+{end_of_call_summary}
+
+CRITICAL: Do not perform any mid-call extraction or internal tools. Only converse naturally.
+Never hallucinate cities or services.
+Never correct the caller's words.
+Repeat details EXACTLY as the customer said them.
+"""
+        
+        logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars")
+        return full_prompt
+        
+    except Exception as e:
+        logger.error(f"❌ [INBOUND] Error building prompt: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"You are a professional service rep for {business_settings.get('name', 'the business')}. SPEAK HEBREW to customer. Be brief and helpful."
+
+
+def build_outbound_system_prompt(
+    business_settings: Dict[str, Any],
+    db_session=None
+) -> str:
+    """
+    🔥 BUILD OUTBOUND SYSTEM PROMPT - Pure prompt mode, no call control
+    
+    This prompt is used ONLY for outbound calls and includes:
+    - Business's outbound ai_prompt ONLY
+    - NO call control settings
+    - NO appointment scheduling logic (unless explicitly in the prompt)
+    - NO tools
+    
+    Args:
+        business_settings: Dict with business info (id, name, outbound_ai_prompt)
+        db_session: Optional SQLAlchemy session
+    
+    Returns:
+        Complete system prompt for outbound calls (English instructions, Hebrew speech)
+    """
+    try:
+        business_id = business_settings.get("id")
+        business_name = business_settings.get("name", "Business")
+        outbound_prompt = business_settings.get("outbound_ai_prompt", "")
+        
+        logger.info(f"📋 [OUTBOUND] Building prompt for {business_name} (id={business_id})")
+        
+        # 🔥 USE OUTBOUND PROMPT ONLY
+        core_instructions = ""
+        if outbound_prompt and outbound_prompt.strip():
+            core_instructions = outbound_prompt.strip()
+            logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ({len(core_instructions)} chars)")
+        else:
+            # Fallback if no outbound prompt
+            core_instructions = f"You are a professional sales representative for {business_name}. Be brief and persuasive."
+            logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt found - using fallback")
+        
+        # Replace placeholders
+        core_instructions = core_instructions.replace("{{business_name}}", business_name)
+        core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
+        
+        # 🔥 BEHAVIORAL RULES FOR OUTBOUND (English instructions, AI speaks Hebrew)
+        behavioral_rules = f"""You are a male virtual outbound caller representing the business: "{business_name}".
+
+LANGUAGE RULES:
+- You ALWAYS speak Hebrew unless the customer explicitly requests another language.
+- If customer says "I don't understand Hebrew" or speaks another language, switch immediately.
+
+OUTBOUND GREETING:
+- Start naturally with a short greeting appropriate for outbound calls.
+- Example: "שלום, מדבר נציג של {business_name}..."
+- Be warm but professional.
+
+TRANSCRIPTION IS TRUTH:
+- You NEVER invent any facts.
+- Repeat ONLY what is given in the transcript or outbound prompt context.
+- If something is unclear, ask politely.
+
+TONE & STYLE:
+- Polite, concise, masculine, and helpful.
+- Ask ONE question at a time.
+
+"""
+        
+        # 🔥 OUTBOUND CLOSING
+        outbound_closing = """
+END OF CALL:
+- At the end of the conversation, politely close the call.
+- Thank the customer for their time.
+- After saying goodbye, stay quiet.
+"""
+        
+        # 🔥 COMBINE ALL SECTIONS
+        full_prompt = f"""{behavioral_rules}
+
+--- OUTBOUND INSTRUCTIONS ---
+{core_instructions}
+---
+
+{outbound_closing}
+
+CRITICAL: 
+- Use ONLY the information provided in the outbound prompt above.
+- Do not use inbound call logic.
+- NEVER invent facts or details.
+- Be polite and professional.
+"""
+        
+        logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars")
+        return full_prompt
+        
+    except Exception as e:
+        logger.error(f"❌ [OUTBOUND] Error building prompt: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"You are a professional sales rep for {business_settings.get('name', 'the business')}. SPEAK HEBREW to customer. Be brief and persuasive."
