@@ -1617,7 +1617,9 @@ class MediaStreamHandler:
         """
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
-        _orig_print(f"🚀 [REALTIME] Thread started for call {call_id} (FRESH SESSION)", flush=True)
+        # 🔥 CRITICAL: Unconditional logs at the very top
+        _orig_print(f"🚀 [REALTIME] _run_realtime_mode_thread ENTERED for call {call_id} (FRESH SESSION)", flush=True)
+        logger.info(f"[REALTIME] _run_realtime_mode_thread ENTERED for call {call_id}")
         logger.info(f"[REALTIME] Thread started for call {call_id}")
         logger.info(f"[REALTIME] About to run asyncio.run(_run_realtime_mode_async)...")
         
@@ -1898,6 +1900,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 tool_choice = "auto"
                 print(f"[TOOLS][REALTIME] Appointment tool enabled - tools={len(realtime_tools)}")
                 logger.info(f"[TOOLS][REALTIME] Session will use appointment tool (count={len(realtime_tools)})")
+            else:
+                # 🔥 CRITICAL: Log that we're continuing with NO tools (pure conversation)
+                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                logger.info(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
                 
                 # Wait for greeting to complete before adding tools (avoid interference)
                 async def _load_appointment_tool():
@@ -5262,9 +5268,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
         self.rx_frames = 0
         self.tx_frames = 0
         
-        # ✅ FIX: stream_sid is None until START event - safe logging
-        _orig_print(f"🔵 [CALL] run() started - waiting for START event...", flush=True)
-        logger.info("[CALL] run() started - waiting for START event")
+        # 🔥 CRITICAL: Unconditional logs at the very top (always printed!)
+        _orig_print(f"🔵 [REALTIME] MediaStreamHandler.run() ENTERED - waiting for START event...", flush=True)
+        logger.info("[REALTIME] MediaStreamHandler.run() ENTERED - waiting for START event")
+        logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, websocket_type={type(self.ws)}")
         
         try:
             while True:
@@ -5336,9 +5343,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     import uuid
                     self._call_session_id = f"SES-{uuid.uuid4().hex[:8]}"
                     
-                    # 🔥 CRITICAL: Force print to bypass DEBUG override
-                    _orig_print(f"🎯 [CALL DEBUG] START EVENT RECEIVED! session={self._call_session_id}", flush=True)
-                    logger.info(f"[{self._call_session_id}] START EVENT RECEIVED - entering start handler")
+                    # 🔥 CRITICAL: Unconditional logs - Force print to bypass DEBUG override
+                    _orig_print(f"🎯 [REALTIME] START EVENT RECEIVED! session={self._call_session_id}", flush=True)
+                    logger.info(f"[REALTIME] [{self._call_session_id}] START EVENT RECEIVED - entering start handler")
+                    logger.info(f"[REALTIME] [{self._call_session_id}] Event data keys: {list(evt.keys())}")
                     
                     # תמיכה בשני פורמטים: Twilio אמיתי ובדיקות
                     if "start" in evt:
@@ -5420,27 +5428,37 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         stream_registry.mark_start(self.call_sid)
                     
                     # 🚀 PARALLEL STARTUP: Start OpenAI connection AND DB query simultaneously!
-                    logger.info(f"[CALL DEBUG] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
+                    logger.info(f"[REALTIME] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
+                    logger.info(f"[REALTIME] About to check if we should start realtime thread...")
+                    logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
                     
                     # 🔥 STEP 1: Start OpenAI thread IMMEDIATELY (connects while DB runs)
                     if USE_REALTIME_API and not self.realtime_thread:
+                        logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
                         t_realtime_start = time.time()
                         delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
                         _orig_print(f"🚀 [PARALLEL] Starting OpenAI at T0+{delta_from_t0:.0f}ms (BEFORE DB query!)", flush=True)
                         
+                        logger.info(f"[REALTIME] Creating realtime thread...")
                         self.realtime_thread = threading.Thread(
                             target=self._run_realtime_mode_thread,
                             daemon=True
                         )
+                        logger.info(f"[REALTIME] Starting realtime thread...")
                         self.realtime_thread.start()
                         self.background_threads.append(self.realtime_thread)
+                        logger.info(f"[REALTIME] Realtime thread started successfully!")
                         
+                        logger.info(f"[REALTIME] Creating realtime audio out thread...")
                         realtime_out_thread = threading.Thread(
                             target=self._realtime_audio_out_loop,
                             daemon=True
                         )
                         realtime_out_thread.start()
                         self.background_threads.append(realtime_out_thread)
+                        logger.info(f"[REALTIME] Both realtime threads started successfully!")
+                    else:
+                        logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                     
                     # 🔥 STEP 2: DB query runs IN PARALLEL with OpenAI connection
                     t_biz_start = time.time()
