@@ -159,6 +159,7 @@ class CallConfig:
     auto_end_on_goodbye: bool = False
     smart_hangup_enabled: bool = True
     enable_calendar_scheduling: bool = True  # 🔥 BUILD 186: AI can schedule appointments
+    verification_enabled: bool = False  # 🔥 FIX: Disable legacy verification/lead confirmed early hangup
     
     # 🔥 BUILD 309: SIMPLE_MODE Call Profile
     call_goal: str = "lead_only"  # "lead_only" or "appointment"
@@ -245,6 +246,7 @@ def load_call_config(business_id: int) -> CallConfig:
             auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
             smart_hangup_enabled=getattr(settings, 'smart_hangup_enabled', True) if settings else True,
             enable_calendar_scheduling=getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
+            verification_enabled=getattr(settings, 'verification_enabled', False) if settings else False,
             call_goal=call_goal,
             confirm_before_hangup=confirm_before_hangup,
             silence_timeout_sec=getattr(settings, 'silence_timeout_sec', 15) if settings else 15,
@@ -4144,12 +4146,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         ]
                         transcript_lower = transcript.strip().lower()
                         if any(word in transcript_lower for word in confirmation_words):
-                            print(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
-                            self.verification_confirmed = True
-                            self._lead_confirmation_received = True
-                            self._awaiting_confirmation_reply = False
-                            # 🔥 BUILD 203: Clear rejection flag when user confirms
-                            self.user_rejected_confirmation = False
+                            # 🔥 FIX: Only set verification_confirmed if verification is enabled
+                            verification_enabled = getattr(self.call_config, 'verification_enabled', False) if self.call_config else False
+                            if verification_enabled:
+                                print(f"✅ [BUILD 176] User CONFIRMED with '{transcript[:30]}' - verification_confirmed = True")
+                                self.verification_confirmed = True
+                                self._lead_confirmation_received = True
+                                self._awaiting_confirmation_reply = False
+                                # 🔥 BUILD 203: Clear rejection flag when user confirms
+                                self.user_rejected_confirmation = False
+                            else:
+                                print(f"ℹ️ [BUILD 176] User said '{transcript[:30]}' but verification feature is DISABLED - ignoring as confirmation")
                         
                         # 🛡️ BUILD 168: If user says correction words, reset verification
                         # 🔥 BUILD 310: IMPROVED REJECTION DETECTION
@@ -4283,14 +4290,16 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         # 🔥 BUILD 172 FIX: Only close after customer CONFIRMS the details!
-                        if self.auto_end_after_lead_capture and not self.pending_hangup:
+                        # 🔥 FIX: Verification feature must be enabled for this to work
+                        verification_enabled = getattr(self.call_config, 'verification_enabled', False) if self.call_config else False
+                        if self.auto_end_after_lead_capture and not self.pending_hangup and verification_enabled:
                             fields_ready = self._check_lead_captured()
                             if fields_ready and not self.lead_captured:
                                 self.lead_captured = True
                             readiness_confirmed = (self.lead_captured or self._lead_confirmation_received) and self.verification_confirmed
                             
                             if readiness_confirmed and not self._lead_closing_dispatched:
-                                print(f"✅ [BUILD 163] Lead confirmed - closing call")
+                                print(f"✅ [BUILD 163] Lead confirmed - closing call (verification enabled)")
                                 self._lead_closing_dispatched = True
                                 
                                 if self.call_state == CallState.ACTIVE:
@@ -9759,6 +9768,16 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             city = None
                             service_category = None
                             
+                            # 🆕 PRIORITY 1: Use offline extracted fields from CallLog (if available)
+                            # These come from post-call recording transcription + AI extraction
+                            if call_log:
+                                if call_log.extracted_city:
+                                    city = call_log.extracted_city
+                                    print(f"✅ [WEBHOOK] Using offline extracted city from CallLog: '{city}' (confidence: {call_log.extraction_confidence or 'N/A'})")
+                                if call_log.extracted_service:
+                                    service_category = call_log.extracted_service
+                                    print(f"✅ [WEBHOOK] Using offline extracted service from CallLog: '{service_category}' (confidence: {call_log.extraction_confidence or 'N/A'})")
+                            
                             # 📱 Phone extraction - fallback chain with detailed logging
                             phone = None
                             print(f"📱 [WEBHOOK] Phone extraction debug:")
@@ -9789,13 +9808,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             
                             # 🏠 Extract lead_id, city, service_category from multiple sources
                             
-                            # 🔍 FIRST: Extract service from AI CONFIRMATION patterns in transcript
+                            # 🔍 FALLBACK: Extract service from AI CONFIRMATION patterns in transcript
+                            # ONLY if offline extraction didn't provide these fields
                             # Pattern: "אתה צריך X בעיר Y" or "רק מוודא – אתה צריך X בעיר Y"
                             # This extracts the SPECIFIC service requested, not just generic professional type
                             # 🔥 BUILD 180: Priority to AI confirmation patterns for accurate service extraction
                             import re
                             
-                            if full_conversation:
+                            if full_conversation and not service_category:
                                 # Look for AI confirmation patterns - get LAST occurrence
                                 confirmation_patterns = [
                                     r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,30})(?:\s+בעיר|\s+ב)',  # "אתה צריך קיצור דלתות בעיר"
@@ -9921,6 +9941,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     customer_name = self.crm_context.customer_name
                                 # preferred_time should come from summary analysis if needed
                             
+                            # 🆕 Use final_transcript from offline processing if available (higher quality)
+                            final_transcript = call_log.final_transcript if call_log and call_log.final_transcript else full_conversation
+                            if final_transcript and final_transcript != full_conversation:
+                                print(f"✅ [WEBHOOK] Using offline final_transcript ({len(final_transcript)} chars) instead of realtime ({len(full_conversation)} chars)")
+                            
                             send_call_completed_webhook(
                                 business_id=business_id,
                                 call_id=self.call_sid,
@@ -9929,7 +9954,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 started_at=call_log.created_at,
                                 ended_at=call_log.updated_at,
                                 duration_sec=call_log.duration or 0,
-                                transcript=full_conversation,
+                                transcript=final_transcript,
                                 summary=summary_data.get('summary', ''),
                                 agent_name=getattr(self, 'bot_name', 'Assistant'),
                                 direction=getattr(self, 'call_direction', 'inbound'),
