@@ -91,6 +91,13 @@ class CallLog(db.Model):
     transcription = db.Column(db.Text)
     summary = db.Column(db.Text)  # ✨ סיכום חכם קצר של השיחה (80-150 מילים) - BUILD 106
     status = db.Column(db.String(32), default="received")
+    
+    # 🆕 POST-CALL EXTRACTION: Full offline transcript + extracted lead fields
+    final_transcript = db.Column(db.Text, nullable=True)  # Full high-quality Hebrew transcript from recording
+    extracted_service = db.Column(db.String(255), nullable=True)  # Service type extracted from transcript
+    extracted_city = db.Column(db.String(255), nullable=True)  # City extracted from transcript
+    extraction_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -354,6 +361,10 @@ class Lead(db.Model):
     tags = db.Column(db.JSON)  # JSON array for flexible tagging
     notes = db.Column(db.Text)
     summary = db.Column(db.Text)  # ✨ סיכום חכם קצר (10-30 מילים) מכל השיחות
+    
+    # 🆕 POST-CALL EXTRACTION: Service type and city extracted from call transcripts
+    service_type = db.Column(db.String(255), nullable=True)  # Service type extracted from calls (e.g., "פורץ מנעולים")
+    city = db.Column(db.String(255), nullable=True)  # City extracted from calls (e.g., "תל אביב")
     
     # BUILD 162: WhatsApp session summary
     whatsapp_last_summary = db.Column(db.Text)  # Latest WhatsApp conversation summary
