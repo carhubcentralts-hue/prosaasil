@@ -21,25 +21,6 @@ logger = logging.getLogger(__name__)
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
 
 
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, default))
-    except (TypeError, ValueError):
-        return default
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, default))
-    except (TypeError, ValueError):
-        return default
-
-
-# Tunable server-side VAD defaults (telephony-optimized)
-TURN_DETECTION_THRESHOLD = _env_float("REALTIME_TURN_THRESHOLD", 0.65)
-TURN_DETECTION_SILENCE_MS = _env_int("REALTIME_TURN_SILENCE_MS", 700)
-
-
 class OpenAIRealtimeClient:
     """
     WebSocket client for OpenAI Realtime API
@@ -244,13 +225,11 @@ class OpenAIRealtimeClient:
     
     async def cancel_response(self, response_id: Optional[str] = None):
         """Cancel current AI response (e.g., on barge-in)"""
-        if not response_id:
-            logger.debug("[REALTIME] cancel_response skipped - no active response id")
-            return
         event = {
-            "type": "response.cancel",
-            "response_id": response_id
+            "type": "response.cancel"
         }
+        if response_id:
+            event["response_id"] = response_id
         await self.send_event(event)
     
     async def send_user_message(self, text: str):
@@ -313,8 +292,8 @@ class OpenAIRealtimeClient:
         voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = TURN_DETECTION_THRESHOLD,
-        silence_duration_ms: int = TURN_DETECTION_SILENCE_MS,
+        vad_threshold: float = 0.85,  # 🔥 BUILD 206: 0.85 - balanced for Hebrew telephony
+        silence_duration_ms: int = 450,  # 🔥 BUILD 206: 450ms - telephony sweet spot (300-500ms range)
         temperature: float = 0.18,
         max_tokens: int = 300,
         transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
@@ -372,7 +351,6 @@ class OpenAIRealtimeClient:
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
-        logger.info(f"[REALTIME CONFIG] turn_detection threshold={vad_threshold:.2f} silence_ms={silence_duration_ms}")
         
         # 🚫 NO TOOLS for phone calls - appointment scheduling via NLP only
         
