@@ -742,6 +742,44 @@ def apply_migrations():
             migrations_applied.append("add_confirm_before_hangup")
             log.info("✅ Applied migration 33b: add_confirm_before_hangup - Requires confirmation before disconnecting")
     
+    # Migration 34: POST-CALL EXTRACTION - Full transcript + extracted fields for CallLog
+    if check_table_exists('call_log'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('call_log', 'final_transcript'):
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN final_transcript TEXT"))
+            migrations_applied.append("add_call_log_final_transcript")
+            log.info("✅ Applied migration 34a: add_call_log_final_transcript - Full offline transcript storage")
+        
+        if not check_column_exists('call_log', 'extracted_service'):
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN extracted_service VARCHAR(255)"))
+            migrations_applied.append("add_call_log_extracted_service")
+            log.info("✅ Applied migration 34b: add_call_log_extracted_service - AI-extracted service type")
+        
+        if not check_column_exists('call_log', 'extracted_city'):
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN extracted_city VARCHAR(255)"))
+            migrations_applied.append("add_call_log_extracted_city")
+            log.info("✅ Applied migration 34c: add_call_log_extracted_city - AI-extracted city")
+        
+        if not check_column_exists('call_log', 'extraction_confidence'):
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN extraction_confidence FLOAT"))
+            migrations_applied.append("add_call_log_extraction_confidence")
+            log.info("✅ Applied migration 34d: add_call_log_extraction_confidence - Confidence score for extraction")
+    
+    # Migration 35: POST-CALL EXTRACTION - Service type and city fields for Lead
+    if check_table_exists('leads'):
+        from sqlalchemy import text
+        
+        if not check_column_exists('leads', 'service_type'):
+            db.session.execute(text("ALTER TABLE leads ADD COLUMN service_type VARCHAR(255)"))
+            migrations_applied.append("add_leads_service_type")
+            log.info("✅ Applied migration 35a: add_leads_service_type - Service type from call extraction")
+        
+        if not check_column_exists('leads', 'city'):
+            db.session.execute(text("ALTER TABLE leads ADD COLUMN city VARCHAR(255)"))
+            migrations_applied.append("add_leads_city")
+            log.info("✅ Applied migration 35b: add_leads_city - City from call extraction")
+    
     if migrations_applied:
         db.session.commit()
         log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
