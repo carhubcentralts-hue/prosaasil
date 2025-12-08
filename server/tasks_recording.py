@@ -328,7 +328,13 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 call_log.status = "processed"
                 call_log.updated_at = datetime.utcnow()
             
+            # 🔥 CRITICAL: Commit to database BEFORE logging
             db.session.commit()
+            
+            # ✅ Explicit confirmation logging
+            print(f"[OFFLINE_STT] ✅ Saved final_transcript ({len(final_transcript) if final_transcript else 0} chars) for {call_sid}")
+            print(f"[OFFLINE_STT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence}")
+            log.info(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
             
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
             if from_number and call_log and call_log.business_id:
