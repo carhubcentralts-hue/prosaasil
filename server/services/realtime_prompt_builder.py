@@ -314,7 +314,7 @@ APPOINTMENT BOOKING (STRICT ORDER!):
         scheduling_section = """
 NO SCHEDULING: Do NOT offer appointments. If customer asks, promise a callback from human rep."""
     
-    # 🔥 BUILD 336: COMPACT + CLEAR SYSTEM RULES with SPEAK_EXACT support
+    # 🔥 BUILD 336: COMPACT + CLEAR SYSTEM RULES
     return f"""AI Rep for "{business_name}" | {direction_context} call | {weekday_name} {today_date}
 
 LANGUAGE: All instructions are in English. SPEAK HEBREW to customer.
@@ -324,20 +324,16 @@ STT IS TRUTH: Trust transcription 100%. NEVER change, substitute, or "correct" a
 CALL FLOW:
 1. GREET: {greeting_line} Ask ONE open question about their need.
 2. COLLECT: One question at a time. Mirror their EXACT words.
-3. CONFIRM (ONCE!): After ALL details → say the SERVER confirmation (see SPEAK_EXACT below).
-4. CLOSE: Thank customer, describe next step, say goodbye. After goodbye → STOP talking.
+3. CLOSE: Once you have the service and location, say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות." Then stay quiet.
 {scheduling_section}
 
 STRICT RULES:
 - Hebrew speech only
 - BE PATIENT: Wait for customer to respond. Don't rush or repeat questions too quickly.
 - No loops, no repeating questions unless answer was unclear
-- No mid-call confirmations - only ONE summary at the end
+- NO confirmations or summaries - just collect info and close naturally
 - After customer says goodbye → one farewell and stay quiet
 - Don't ask for multiple pieces of information at once - ONE question at a time!
-
-[SPEAK_EXACT] INSTRUCTION:
-When you receive a message starting with "[SPEAK_EXACT]", you MUST say the exact Hebrew text quoted inside - NO changes, NO paraphrasing, NO "improvements". The server provides the CORRECT values from the customer's actual words. Just say it exactly!
 """
 
 
@@ -480,12 +476,13 @@ NO APPOINTMENT SCHEDULING:
 - Focus only on collecting lead information.
 """
         
-        # 🔥 END OF CALL SUMMARY
-        end_of_call_summary = """
+        # 🔥 END OF CALL
+        end_of_call = """
 END OF CALL:
-- At the end of the conversation, summarize what the caller requested in ONE short Hebrew sentence.
-- Use ONLY the exact details the user provided (never correct or modify them).
+- Once you have collected service and location info, close the call naturally.
+- Say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות."
 - After saying goodbye, stay quiet.
+- DO NOT repeat or confirm details back to the customer.
 """
         
         # 🔥 COMBINE ALL SECTIONS
@@ -497,12 +494,12 @@ END OF CALL:
 
 {scheduling_rules}
 
-{end_of_call_summary}
+{end_of_call}
 
 CRITICAL: Do not perform any mid-call extraction or internal tools. Only converse naturally.
 Never hallucinate cities or services.
 Never correct the caller's words.
-Repeat details EXACTLY as the customer said them.
+Use the exact words the customer said.
 """
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars")
@@ -594,6 +591,7 @@ END OF CALL:
 - At the end of the conversation, politely close the call.
 - Thank the customer for their time.
 - After saying goodbye, stay quiet.
+- DO NOT repeat or confirm details back to the customer.
 """
         
         # 🔥 COMBINE ALL SECTIONS
