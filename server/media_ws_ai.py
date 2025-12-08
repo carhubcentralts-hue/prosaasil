@@ -182,9 +182,9 @@ class CallConfig:
     
     def __post_init__(self):
         if self.required_lead_fields is None:
-            # 🔥 BUILD 340: Don't include phone by default - phone is collected LAST
-            # after appointment slot is confirmed. See APPOINTMENT BOOKING flow in prompt.
-            self.required_lead_fields = ['name', 'preferred_time']
+            # 🔥 PROMPT-ONLY MODE: No hardcoded required fields
+            # What is "required" is defined by the business system prompt only
+            self.required_lead_fields = []
 
 
 def load_call_config(business_id: int) -> CallConfig:
@@ -223,20 +223,17 @@ def load_call_config(business_id: int) -> CallConfig:
         except Exception as db_err:
             logger.warning(f"⚠️ [CALL CONFIG] Could not load settings for {business_id} (DB schema issue): {db_err}")
         
-        # 🔥 BUILD 340: Sanitize required_lead_fields - remove 'phone' (collected at end, not required)
-        # This handles legacy data where businesses had ['name', 'phone'] stored in DB
-        raw_required_fields = getattr(settings, 'required_lead_fields', ['name', 'preferred_time']) if settings else ['name', 'preferred_time']
+        # 🔥 PROMPT-ONLY MODE: No hardcoded required fields
+        # What is "required" comes from the business system prompt, not Python code
+        raw_required_fields = getattr(settings, 'required_lead_fields', None) if settings else None
         if raw_required_fields and isinstance(raw_required_fields, list):
             # Remove 'phone' - it's collected at end of call, not a required field
             sanitized_fields = [f for f in raw_required_fields if f != 'phone']
-            # Ensure we have preferred_time for appointment scheduling
-            if 'preferred_time' not in sanitized_fields and 'name' in sanitized_fields:
-                sanitized_fields.append('preferred_time')
-            required_lead_fields = sanitized_fields if sanitized_fields else ['name', 'preferred_time']
+            required_lead_fields = sanitized_fields if sanitized_fields else []
         else:
-            required_lead_fields = ['name', 'preferred_time']
+            required_lead_fields = []
         
-        logger.info(f"🔧 [BUILD 340] Sanitized required_lead_fields: {raw_required_fields} → {required_lead_fields}")
+        logger.info(f"🔧 [PROMPT-ONLY] required_lead_fields: {raw_required_fields} → {required_lead_fields}")
         
         config = CallConfig(
             business_id=business_id,
@@ -1296,9 +1293,9 @@ class MediaStreamHandler:
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
         self.silence_max_warnings = 2  # Default - overwritten by CallConfig
         self.smart_hangup_enabled = True  # Default - overwritten by CallConfig
-        # 🔥 BUILD 340: Default to name + preferred_time for appointment scheduling
-        # Phone is collected LAST after slot is confirmed, not in required_lead_fields
-        self.required_lead_fields = ['name', 'preferred_time']
+        # 🔥 PROMPT-ONLY MODE: No hardcoded required fields
+        # What is "required" is defined by the business system prompt only
+        self.required_lead_fields = []
         # 🔥 BUILD 309: SIMPLE_MODE settings
         self.call_goal = 'lead_only'  # Default - "lead_only" or "appointment"
         self.confirm_before_hangup = True  # Default - Always confirm before disconnecting
@@ -2533,6 +2530,61 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             content_types = [c.get("type", "?") for c in content] if content else []
                             _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
                         
+                        # 🔥 PROMPT-ONLY: Handle OpenAI server_error with retry + graceful failure
+                        if status == "failed":
+                            error_info = status_details.get("error") if isinstance(status_details, dict) else None
+                            if not error_info:
+                                # Try alternate location for error info
+                                error_info = response.get("error")
+                            
+                            if error_info and error_info.get("type") == "server_error":
+                                _orig_print(f"🔥 [SERVER_ERROR] OpenAI Realtime server error detected", flush=True)
+                                
+                                # Initialize retry flag if not exists
+                                if not hasattr(self, '_server_error_retried'):
+                                    self._server_error_retried = False
+                                
+                                # Get call duration to decide if we should retry
+                                call_duration = time.time() - getattr(self, 'call_start_time', time.time())
+                                
+                                # Retry once if not already retried and call is not too old
+                                if not self._server_error_retried and call_duration < 60:
+                                    self._server_error_retried = True
+                                    _orig_print(f"🔄 [SERVER_ERROR] Retrying response (first attempt)...", flush=True)
+                                    
+                                    # Send a system message and trigger retry
+                                    retry_msg = (
+                                        "היתה שגיאה זמנית ביצירת התשובה האחרונה. "
+                                        "אנא ענה שוב בקצרה, לפי ההוראות שלך, כאילו זה אותו תור."
+                                    )
+                                    await self._send_text_to_ai(retry_msg)
+                                    
+                                    # Trigger new response
+                                    try:
+                                        await client.send_event({"type": "response.create"})
+                                        _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent", flush=True)
+                                    except Exception as retry_err:
+                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
+                                
+                                else:
+                                    # Already retried or call too long - graceful failure
+                                    _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
+                                    
+                                    # Send technical problem message in Hebrew
+                                    failure_msg = (
+                                        "יש בעיה טכנית זמנית במערכת. "
+                                        "אמור ללקוח בעברית שיש בעיה טכנית ושיצור קשר שוב מאוחר יותר, "
+                                        "ואז אמור שלום בצורה מנומסת וסיים את השיחה."
+                                    )
+                                    await self._send_text_to_ai(failure_msg)
+                                    
+                                    # Trigger final response
+                                    try:
+                                        await client.send_event({"type": "response.create"})
+                                        _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
+                                    except Exception as fail_err:
+                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
+                        
                         # 🔥 BUILD 200: Clear active_response_id when response is done (completed or cancelled)
                         # This is the ONLY place where active_response_id should be cleared!
                         resp_id = response.get("id", "")
@@ -3558,18 +3610,24 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
                         # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
-                        # Also requires either: user confirmed, lead captured, OR meaningful conversation happened
+                        # 🔥 PROMPT-ONLY MODE: When no required_lead_fields, rely only on goodbye + user interaction
                         elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
-                            # Additional guard: must have some interaction (user spoken + either confirmed or lead info)
-                            has_meaningful_interaction = (
-                                self.verification_confirmed or 
-                                self.lead_captured or 
-                                len(self.conversation_history) >= 4  # At least 2 exchanges
-                            )
-                            if has_meaningful_interaction:
-                                hangup_reason = "ai_goodbye_auto_end"
+                            # Prompt-only mode: If no required fields configured, allow hangup on goodbye alone
+                            if not self.required_lead_fields:
+                                hangup_reason = "ai_goodbye_prompt_only"
                                 should_hangup = True
-                                print(f"✅ [HANGUP BUILD 176] AI said goodbye with auto_end_on_goodbye=True + user interaction - disconnecting")
+                                print(f"✅ [HANGUP PROMPT-ONLY] AI said goodbye with auto_end_on_goodbye=True + user has spoken - disconnecting")
+                            else:
+                                # Legacy mode: Additional guard for required fields
+                                has_meaningful_interaction = (
+                                    self.verification_confirmed or 
+                                    self.lead_captured or 
+                                    len(self.conversation_history) >= 4  # At least 2 exchanges
+                                )
+                                if has_meaningful_interaction:
+                                    hangup_reason = "ai_goodbye_auto_end"
+                                    should_hangup = True
+                                    print(f"✅ [HANGUP BUILD 176] AI said goodbye with auto_end_on_goodbye=True + user interaction - disconnecting")
                         
                         # Log when AI says closing but we're blocking hangup
                         elif ai_polite_closing_detected:
@@ -3965,13 +4023,48 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             print(f"✅ [BUILD 303] First post-greeting utterance: '{transcript[:50]}...' - processing as answer to greeting question")
                         
                         # ═══════════════════════════════════════════════════════════════════════════
-                        # 🔥 BUILD 303: NEGATIVE ANSWER DETECTION - Don't skip questions when user says "no"
+                        # 🔥 PROMPT-ONLY: NEGATIVE ANSWER DETECTION - Full reset on "לא"
                         # ═══════════════════════════════════════════════════════════════════════════
                         transcript_clean_neg = transcript.strip().lower().replace(".", "").replace("!", "").replace("?", "")
                         negative_answers = ["לא", "ממש לא", "חד משמעית לא", "לא צריך", "אין צורך", "לא לא", "לא נכון", "טעות"]
                         is_negative_answer = any(transcript_clean_neg.startswith(neg) for neg in negative_answers)
                         
-                        if is_negative_answer:
+                        # Detect STRONG rejection: short, clear "no" (not just "לא" in a long sentence)
+                        is_strong_rejection = is_negative_answer and len(transcript_clean_neg) < 20
+                        
+                        if is_strong_rejection:
+                            print(f"🔥 [PROMPT-ONLY] STRONG REJECTION detected: '{transcript}' - resetting verification state")
+                            
+                            # 1) Clear verification / lead candidate state
+                            self._verification_state = None
+                            self._lead_candidate = {}
+                            self._lead_confirmation_received = False
+                            self.verification_confirmed = False
+                            self.user_rejected_confirmation = True
+                            
+                            # 2) Clear any locked fields from previous interpretation
+                            self._city_locked = False
+                            self._city_raw_from_stt = None
+                            self._service_locked = False
+                            self._service_raw_from_stt = None
+                            
+                            print(f"   → Cleared verification state, lead candidate, and locked fields")
+                            
+                            # 3) Inject system message to guide AI (generic, no hardcoded fields)
+                            system_msg = (
+                                "המשתמש דחה את ההבנה הקודמת שלך. "
+                                "אל תנחש פרטים חדשים. "
+                                "התנצל בקצרה ובקש מהמשתמש לחזור על כל הפרטים החשובים במשפט אחד קצר, "
+                                "לפי ההוראות של העסק שלך. "
+                                "אם המשתמש יספק רק חלק מהמידע, הבן איזה חלק חסר "
+                                "(לפי ההוראות שלך) ושאל רק על החלק החסר."
+                            )
+                            
+                            # Queue system message for next processing cycle
+                            asyncio.create_task(self._send_text_to_ai(system_msg))
+                            print(f"   → Sent reset system message to AI")
+                            
+                        elif is_negative_answer:
                             print(f"⚠️ [BUILD 303] NEGATIVE ANSWER detected: '{transcript}' - user is rejecting/correcting")
                             # Mark that we need to handle this as a correction, not move forward
                             self.user_rejected_confirmation = True
@@ -4587,7 +4680,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             has_name = (crm_context and crm_context.customer_name) or (hasattr(self, 'pending_customer_name') and self.pending_customer_name) or customer_name
             
             # Check if name is required by business prompt
-            required_fields = getattr(self, 'required_lead_fields', ['city', 'service_type'])
+            required_fields = getattr(self, 'required_lead_fields', [])
             name_required = 'name' in required_fields
             
             # 🔥 BUILD 337 FIX: ALWAYS BLOCK if name required but missing
@@ -7788,7 +7881,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
         print(f"📞 [SMART HANGUP] Lead captured: {self.lead_captured}")
         print(f"📞 [SMART HANGUP] Goodbye detected: {self.goodbye_detected}")
         print(f"📞 [SMART HANGUP] Lead state: {getattr(self, 'lead_capture_state', {})}")
-        print(f"📞 [SMART HANGUP] Required fields: {getattr(self, 'required_lead_fields', ['name', 'preferred_time'])}")
+        print(f"📞 [SMART HANGUP] Required fields: {getattr(self, 'required_lead_fields', [])}")
         crm = getattr(self, 'crm_context', None)
         if crm:
             print(f"📞 [SMART HANGUP] CRM: name={crm.customer_name}, phone={crm.customer_phone}")
@@ -8877,9 +8970,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # Get required fields from business settings
         required_fields = getattr(self, 'required_lead_fields', None)
         print(f"🔍 [DEBUG] _check_lead_captured: required_fields from self = {required_fields}")
+        
+        # 🔥 PROMPT-ONLY MODE: If no required fields configured, never enforce anything
+        # The business prompt defines what "enough" means, not the Python code
         if not required_fields:
-            required_fields = ['name', 'phone']  # Default for backward compatibility
-            print(f"⚠️ [DEBUG] Using default required_fields (no custom config found)")
+            print(f"✅ [PROMPT-ONLY] No required_lead_fields configured - letting prompt handle conversation flow")
+            return False
         
         # Get current capture state
         lead_state = getattr(self, 'lead_capture_state', {})
