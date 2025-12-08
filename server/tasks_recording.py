@@ -17,7 +17,7 @@ def enqueue_recording(form_data):
     log.info("Recording processing queued for CallSid=%s", form_data.get("CallSid"))
 
 def process_recording_async(form_data):
-    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם"""
+    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION"""
     try:
         recording_url = form_data.get("RecordingUrl")
         call_sid = form_data.get("CallSid")
@@ -28,8 +28,75 @@ def process_recording_async(form_data):
         # 1. הורד קובץ הקלטה
         audio_file = download_recording(recording_url, call_sid)
         
-        # 2. תמלול עברית (Google STT v2 + Whisper fallback)
+        # 2. תמלול עברית (Google STT v2 + Whisper fallback) - for summary
         transcription = transcribe_hebrew(audio_file)
+        
+        # 🆕 2.5. POST-CALL: High-quality full transcript using Whisper (offline)
+        # This is separate from realtime transcription - runs after call ends
+        final_transcript = None
+        extracted_service = None
+        extracted_city = None
+        extraction_confidence = None
+        
+        if audio_file and os.path.exists(audio_file):
+            try:
+                from server.services.lead_extraction_service import transcribe_recording_with_whisper, extract_lead_from_transcript
+                
+                # Get full offline transcript (higher quality than realtime)
+                log.info(f"[OFFLINE_STT] Starting offline transcription for {call_sid}")
+                final_transcript = transcribe_recording_with_whisper(audio_file, call_sid)
+                
+                if final_transcript and len(final_transcript) > 20:
+                    log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
+                    
+                    # 🆕 Extract service + city from transcript using AI
+                    # Get business context for extraction
+                    from server.app_factory import get_process_app
+                    to_number = form_data.get('To', '')
+                    
+                    business_prompt = None
+                    business_id = None
+                    try:
+                        app = get_process_app()
+                        with app.app_context():
+                            business = _identify_business_for_call(to_number, from_number)
+                            if business:
+                                business_id = business.id
+                                # Try to get business prompt for context
+                                try:
+                                    from server.services.ai_service import get_ai_service
+                                    prompt_data = get_ai_service().get_business_prompt(business_id, "calls")
+                                    business_prompt = prompt_data.get("system_prompt")
+                                except Exception as e:
+                                    log.warning(f"⚠️ Could not load business prompt: {e}")
+                    except Exception as e:
+                        log.warning(f"⚠️ Could not get business context for extraction: {e}")
+                    
+                    # Extract lead info from transcript
+                    log.info(f"[OFFLINE_EXTRACT] Starting extraction for {call_sid}")
+                    extraction_result = extract_lead_from_transcript(
+                        final_transcript, 
+                        business_prompt=business_prompt,
+                        business_id=business_id
+                    )
+                    
+                    if extraction_result:
+                        extracted_service = extraction_result.get("service")
+                        extracted_city = extraction_result.get("city")
+                        extraction_confidence = extraction_result.get("confidence", 0.0)
+                        
+                        if extracted_service or extracted_city:
+                            log.info(f"[OFFLINE_EXTRACT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence:.2f}")
+                        else:
+                            log.info(f"[OFFLINE_EXTRACT] No reliable data extracted from transcript")
+                else:
+                    log.warning(f"[OFFLINE_STT] Transcript too short or empty: {len(final_transcript or '')} chars")
+                    
+            except Exception as e:
+                log.error(f"[OFFLINE_STT/EXTRACT] Post-call processing failed: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue processing - don't fail entire pipeline if extraction fails
         
         # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
         summary = ""
@@ -56,14 +123,23 @@ def process_recording_async(form_data):
             summary = summarize_conversation(transcription, call_sid, business_type, business_name)
             log.info(f"✅ Dynamic summary generated: {summary[:50]}...")
         
-        # 4. שמור לDB עם תמלול + סיכום
+        # 4. שמור לDB עם תמלול + סיכום + 🆕 POST-CALL DATA
         to_number = form_data.get('To', '')
-        save_call_to_db(call_sid, from_number, recording_url, transcription, to_number, summary)
+        save_call_to_db(
+            call_sid, from_number, recording_url, transcription, to_number, summary,
+            # 🆕 Pass extracted data
+            final_transcript=final_transcript,
+            extracted_service=extracted_service,
+            extracted_city=extracted_city,
+            extraction_confidence=extraction_confidence
+        )
         
         log.info("✅ Recording processed successfully: CallSid=%s", call_sid)
         
     except Exception as e:
         log.error("❌ Recording processing failed: %s", e)
+        import traceback
+        traceback.print_exc()
 
 def download_recording(recording_url, call_sid):
     """הורד קובץ הקלטה מTwilio"""
@@ -116,8 +192,9 @@ def transcribe_hebrew(audio_file):
         log.error("❌ Transcription failed: %s", e)
         return ""
 
-def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None, summary=None):
-    """✨ שמור שיחה + תמלול + סיכום ל-DB + יצירת לקוח/ליד אוטומטית"""
+def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None, summary=None,
+                   final_transcript=None, extracted_service=None, extracted_city=None, extraction_confidence=None):
+    """✨ שמור שיחה + תמלול + סיכום + 🆕 POST-CALL EXTRACTION ל-DB + יצירת לקוח/ליד אוטומטית"""
     try:
         # ✅ Use PostgreSQL + SQLAlchemy instead of SQLite
         from server.app_factory import get_process_app
@@ -144,6 +221,11 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     call_log.recording_url = recording_url
                     call_log.transcription = transcription
                     call_log.summary = summary  # ✨ סיכום חכם
+                    # 🆕 POST-CALL EXTRACTION fields
+                    call_log.final_transcript = final_transcript
+                    call_log.extracted_service = extracted_service
+                    call_log.extracted_city = extracted_city
+                    call_log.extraction_confidence = extraction_confidence
                     call_log.status = "processed"
                     call_log.created_at = datetime.utcnow()
                     
@@ -166,6 +248,11 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     log.info(f"✅ Updated recording_url for existing call: {call_sid}")
                 call_log.transcription = transcription
                 call_log.summary = summary  # ✨ סיכום חכם
+                # 🆕 POST-CALL EXTRACTION fields
+                call_log.final_transcript = final_transcript
+                call_log.extracted_service = extracted_service
+                call_log.extracted_city = extracted_city
+                call_log.extraction_confidence = extraction_confidence
                 call_log.status = "processed"
                 call_log.updated_at = datetime.utcnow()
             
@@ -183,6 +270,36 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # עדכון CallLog עם customer_id
                 if customer:
                     call_log.customer_id = customer.id
+                
+                # 🆕 POST-CALL: Update Lead with extracted service/city (if extraction succeeded)
+                if lead and (extracted_service or extracted_city):
+                    # Only update if fields are empty OR confidence is high (> 0.8)
+                    update_service = False
+                    update_city = False
+                    
+                    if extracted_service:
+                        if not lead.service_type:
+                            update_service = True
+                            log.info(f"[OFFLINE_EXTRACT] Lead {lead.id} service_type is empty, will update")
+                        elif extraction_confidence and extraction_confidence > 0.8:
+                            update_service = True
+                            log.info(f"[OFFLINE_EXTRACT] High confidence ({extraction_confidence:.2f}), will overwrite lead {lead.id} service_type")
+                    
+                    if extracted_city:
+                        if not lead.city:
+                            update_city = True
+                            log.info(f"[OFFLINE_EXTRACT] Lead {lead.id} city is empty, will update")
+                        elif extraction_confidence and extraction_confidence > 0.8:
+                            update_city = True
+                            log.info(f"[OFFLINE_EXTRACT] High confidence ({extraction_confidence:.2f}), will overwrite lead {lead.id} city")
+                    
+                    if update_service:
+                        lead.service_type = extracted_service
+                        log.info(f"[OFFLINE_EXTRACT] ✅ Updated lead {lead.id} service_type: '{extracted_service}'")
+                    
+                    if update_city:
+                        lead.city = extracted_city
+                        log.info(f"[OFFLINE_EXTRACT] ✅ Updated lead {lead.id} city: '{extracted_city}'")
                 
                 # 3. ✨ סיכום חכם של השיחה (שימוש בסיכום שכבר יצרנו!)
                 conversation_summary = ci.generate_conversation_summary(transcription)
