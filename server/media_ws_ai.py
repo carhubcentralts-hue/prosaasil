@@ -1929,10 +1929,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
                 
                 asyncio.create_task(_load_appointment_tool())
-            else:
-                # No tools enabled - pure conversation mode
-                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-                logger.info(f"[TOOLS][REALTIME] Realtime call running with zero tools")
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
@@ -3404,24 +3400,24 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 should_engage_guard = False
                                 print(f"⏭️ [LOOP GUARD] Skipped - appointment confirmed (has_appointment=True)")
                             elif is_scheduling:
-                            # 🔥 BUILD 337: LIMITED loop guard during scheduling - prevent AI monologues!
-                            # Allow 2 consecutive responses during scheduling, then engage guard
-                            # This prevents AI from looping while still allowing back-and-forth
-                            max_scheduling_consecutive = 2
-                            if self._consecutive_ai_responses >= max_scheduling_consecutive and user_silent_long_time:
-                                should_engage_guard = True
-                                print(f"⚠️ [BUILD 337] LOOP GUARD ENGAGED during scheduling! ({self._consecutive_ai_responses} consecutive, user silent)")
+                                # 🔥 BUILD 337: LIMITED loop guard during scheduling - prevent AI monologues!
+                                # Allow 2 consecutive responses during scheduling, then engage guard
+                                # This prevents AI from looping while still allowing back-and-forth
+                                max_scheduling_consecutive = 2
+                                if self._consecutive_ai_responses >= max_scheduling_consecutive and user_silent_long_time:
+                                    should_engage_guard = True
+                                    print(f"⚠️ [BUILD 337] LOOP GUARD ENGAGED during scheduling! ({self._consecutive_ai_responses} consecutive, user silent)")
+                                else:
+                                    should_engage_guard = False
+                                    print(f"📋 [BUILD 337] Scheduling flow - limited guard ({self._consecutive_ai_responses}/{max_scheduling_consecutive})")
                             else:
-                                should_engage_guard = False
-                                print(f"📋 [BUILD 337] Scheduling flow - limited guard ({self._consecutive_ai_responses}/{max_scheduling_consecutive})")
-                        else:
-                            # INBOUND: Normal loop guard logic
-                            max_consecutive = self._max_consecutive_ai_responses
-                            should_engage_guard = (
-                                (self._consecutive_ai_responses >= max_consecutive and user_silent_long_time) or
-                                (is_repeating and self._consecutive_ai_responses >= 3) or
-                                self._mishearing_count >= 3
-                            )
+                                # INBOUND: Normal loop guard logic
+                                max_consecutive = self._max_consecutive_ai_responses
+                                should_engage_guard = (
+                                    (self._consecutive_ai_responses >= max_consecutive and user_silent_long_time) or
+                                    (is_repeating and self._consecutive_ai_responses >= 3) or
+                                    self._mishearing_count >= 3
+                                )
                         
                         # 🚫 DISABLED: Loop guard actions disabled via ENABLE_LOOP_DETECT flag
                         if should_engage_guard and ENABLE_LOOP_DETECT:
