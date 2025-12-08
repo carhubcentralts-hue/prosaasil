@@ -613,6 +613,9 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             return _business_get_info_impl(business_id=business_id)
         
+        # ✅ RESTORED: AgentKit tools for non-realtime flows (WhatsApp, backend tasks, post-call)
+        # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
+        # Realtime phone calls use media_ws_ai.py with separate tool policy
         tools_to_use = [
             calendar_find_slots_wrapped,
             calendar_create_appointment_wrapped,
@@ -621,9 +624,11 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             whatsapp_send,
             business_get_info
         ]
-        logger.info(f"✅ Created business_id-injected tools for business {business_id}")
+        logger.info(f"✅ AgentKit tools RESTORED for business {business_id} (non-realtime flows)")
     else:
-        # Use original tools without injection
+        # ✅ RESTORED: AgentKit tools without business_id injection
+        # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
+        # Realtime phone calls use media_ws_ai.py with separate tool policy
         tools_to_use = [
             calendar_find_slots,
             calendar_create_appointment,
@@ -631,6 +636,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             leads_search,
             whatsapp_send
         ]
+        logger.info(f"✅ AgentKit tools RESTORED (non-realtime flows)")
     
 
     # 🔥 BUILD 135: MERGE DB prompts WITH base instructions (not replace!)
@@ -811,11 +817,13 @@ Be friendly and professional."""
             model_settings = AGENT_MODEL_SETTINGS  # Phone: 60 tokens (global default)
             logger.info(f"📞 Phone channel: using max_tokens=60")
         
+        # ✅ RESTORED: AgentKit with tools for non-realtime flows
+        # IMPORTANT: Realtime phone calls use media_ws_ai.py (not AgentKit)
         agent = Agent(
             name=f"booking_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",  # ⚡ Fast model for real-time conversations
             instructions=instructions,
-            tools=tools_to_use,  # Use wrapped or original tools based on business_id
+            tools=tools_to_use,  # ✅ RESTORED: Full tools for AgentKit / non-realtime
             model_settings=model_settings  # ⚡ Channel-specific settings
         )
         
@@ -1029,7 +1037,9 @@ BEFORE any appointment/invoice/contract:
 **CRITICAL: ALL RESPONSES MUST BE IN HEBREW. USE TOOLS FOR EVERYTHING. KEEP IT SHORT!**
 """
 
-    # Prepare tools
+    # ✅ RESTORED: Full ops agent tools for non-realtime flows
+    # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
+    # Realtime phone calls use media_ws_ai.py with separate tool policy
     from server.agent_tools.tools_business import business_get_info
     
     tools_to_use = [
@@ -1044,16 +1054,18 @@ BEFORE any appointment/invoice/contract:
         summarize_thread,
         business_get_info
     ]
+    logger.info(f"✅ Ops agent tools RESTORED (non-realtime flows)")
     
     # If business_id provided, could wrap tools here (similar to booking_agent)
     # For now, business_id will come from context
     
     try:
+        # ✅ RESTORED: Ops agent with full tools for non-realtime flows
         agent = Agent(
             name=f"ops_agent_{business_name}",
             model="gpt-4o-mini",
             instructions=instructions,
-            tools=tools_to_use,
+            tools=tools_to_use,  # ✅ RESTORED: Full tools for AgentKit / non-realtime
             model_settings=AGENT_MODEL_SETTINGS
         )
         
@@ -1106,9 +1118,12 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
 **CRITICAL: ALL RESPONSES MUST BE IN HEBREW - NATURAL AND WARM!**
 """
 
+    # ✅ RESTORED: Sales agent tools for non-realtime flows
+    # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
     from server.agent_tools.tools_business import business_get_info
 
     try:
+        # ✅ RESTORED: Sales agent with tools for AgentKit / non-realtime
         agent = Agent(
             name=f"sales_agent_{business_name}",  # Required: Agent name
             model="gpt-4o-mini",
@@ -1118,7 +1133,7 @@ def create_sales_agent(business_name: str = "העסק") -> Agent:
                 leads_search,
                 whatsapp_send,
                 business_get_info
-            ]
+            ]  # ✅ RESTORED: Full tools for AgentKit / non-realtime
         )
         
         logger.info(f"✅ Created sales agent for '{business_name}' with 3 tools")

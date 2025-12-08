@@ -10,6 +10,15 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
+# 🚫 LOOP DETECTION: Disabled by default - wrap all loop-detect logic behind this flag
+ENABLE_LOOP_DETECT = False
+
+# 🚫 LEGACY CITY/SERVICE LOGIC: Disabled - no mid-call city/service inference
+ENABLE_LEGACY_CITY_LOGIC = False
+
+# ⚠️ NOTE: ENABLE_REALTIME_TOOLS removed - replaced with per-call _build_realtime_tools_for_call()
+# Realtime phone calls now use dynamic tool selection (appointments only when enabled)
+
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
 _orig_print = builtins.print
@@ -1342,6 +1351,71 @@ class MediaStreamHandler:
         self._is_silence_handler_response = False  # Track if current response is from SILENCE_HANDLER (shouldn't count)
         self._user_responded_after_greeting = False  # Track if user has responded after greeting (end grace early)
 
+    def _build_realtime_tools_for_call(self) -> list:
+        """
+        🎯 SMART TOOL SELECTION for Realtime phone calls
+        
+        Realtime phone calls policy:
+        - Default: NO tools (pure conversation)
+        - If business has appointments enabled: ONLY appointment scheduling tool
+        - Never: city tools, lead tools, WhatsApp tools, AgentKit tools
+        
+        Returns:
+            list[dict]: Tool schemas for OpenAI Realtime (empty list or appointment tool only)
+        """
+        tools = []
+        
+        # Check if business has appointment scheduling enabled
+        try:
+            business_id = getattr(self, 'business_id', None)
+            if not business_id:
+                logger.info("[TOOLS][REALTIME] No business_id - no tools enabled")
+                return tools
+            
+            # Load business settings to check if appointments are enabled
+            from server.models_sql import BusinessSettings
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            
+            if settings and getattr(settings, 'enable_calendar_scheduling', False):
+                # Appointment tool schema
+                appointment_tool = {
+                    "type": "function",
+                    "name": "schedule_appointment",
+                    "description": "Schedule an appointment when customer confirms time and provides required details",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "customer_name": {
+                                "type": "string",
+                                "description": "Customer's full name"
+                            },
+                            "appointment_date": {
+                                "type": "string",
+                                "description": "Appointment date in YYYY-MM-DD format"
+                            },
+                            "appointment_time": {
+                                "type": "string",
+                                "description": "Appointment time in HH:MM format (24-hour)"
+                            },
+                            "service_type": {
+                                "type": "string",
+                                "description": "Type of service requested"
+                            }
+                        },
+                        "required": ["customer_name", "appointment_date", "appointment_time"]
+                    }
+                }
+                tools.append(appointment_tool)
+                logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED for business {business_id}")
+            else:
+                logger.info(f"[TOOLS][REALTIME] Appointments DISABLED - no tools for business {business_id}")
+                
+        except Exception as e:
+            logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
+            # Safe fallback - no tools
+        
+        return tools
+    
     def _init_streaming_stt(self):
         """
         ⚡ BUILD 114: Initialize streaming STT with retry mechanism
@@ -1792,12 +1866,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 
                 asyncio.create_task(warmup_to_active())
             
-            # ⭐ BUILD 350: PHASE 2 DISABLED - No mid-call tools!
-            # Tools are now completely removed from calls. Only pure conversation.
-            # Service/city extraction happens ONLY from summary at end of call.
-            if ENABLE_LEGACY_TOOLS:
-                # LEGACY CODE - DISABLED
-                async def _load_lead_tool_only():
+            # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
+            # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
+            realtime_tools = self._build_realtime_tools_for_call()
+            
+            if realtime_tools:
+                # Appointment tool is enabled - send session update
+                tool_choice = "auto"
+                print(f"[TOOLS][REALTIME] Appointment tool enabled - tools={len(realtime_tools)}")
+                logger.info(f"[TOOLS][REALTIME] Session will use appointment tool (count={len(realtime_tools)})")
+                
+                # Wait for greeting to complete before adding tools (avoid interference)
+                async def _load_appointment_tool():
                     try:
                         wait_start = time.time()
                         max_wait_seconds = 15
@@ -1805,27 +1885,25 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
                             await asyncio.sleep(0.1)
                         
-                        lead_tool = self._build_lead_capture_tool()
+                        await client.send_event({
+                            "type": "session.update",
+                            "session": {
+                                "tools": realtime_tools,
+                                "tool_choice": tool_choice
+                            }
+                        })
+                        print(f"✅ [TOOLS][REALTIME] Appointment tool registered in session")
+                        logger.info(f"[TOOLS][REALTIME] Appointment tool successfully added to session")
                         
-                        if lead_tool:
-                            await client.send_event({
-                                "type": "session.update",
-                                "session": {
-                                    "tools": [lead_tool],
-                                    "tool_choice": "auto"
-                                }
-                            })
-                            print(f"✅ [LEGACY] Tool added")
-                        else:
-                            print(f"ℹ️ [LEGACY] No tool needed")
-                            
                     except Exception as e:
-                        print(f"⚠️ [LEGACY] Phase 2 error: {e}")
+                        print(f"⚠️ [TOOLS][REALTIME] Failed to register appointment tool: {e}")
+                        logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
                 
-                # LEGACY: Start Phase 2 in background (disabled by default)
-                asyncio.create_task(_load_lead_tool_only())
+                asyncio.create_task(_load_appointment_tool())
             else:
-                print(f"✅ [BUILD 350] Tool loading DISABLED - pure conversation mode")
+                # No tools enabled - pure conversation mode
+                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                logger.info(f"[TOOLS][REALTIME] Realtime call running with zero tools")
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
@@ -2484,13 +2562,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     # ✅ Continue processing - don't retry, don't crash, just log and move on
                     continue
                 
-                # ⭐ BUILD 350: Function calls DISABLED - no mid-call tools!
+                # 🎯 Handle function calls from Realtime (appointment scheduling)
                 if event_type == "response.function_call_arguments.done":
-                    if ENABLE_LEGACY_TOOLS:
-                        print(f"🔧 [LEGACY BUILD 313] Function call received!")
-                        await self._handle_function_call(event, client)
-                    else:
-                        print(f"⭐ [BUILD 350] Function call received but IGNORED (tools disabled)")
+                    print(f"🔧 [TOOLS][REALTIME] Function call received!")
+                    logger.info(f"[TOOLS][REALTIME] Processing function call from OpenAI Realtime")
+                    await self._handle_function_call(event, client)
                     continue
                 
                 # 🔍 DEBUG: Log all event types to catch duplicates
@@ -3168,45 +3244,50 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     self._verification_prompt_sent = False
                         
                         # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
-                        # Added: length floor to avoid false positives on short confirmations
-                        MIN_LENGTH_FOR_SIMILARITY = 15  # Don't compare short confirmations
-                        
-                        def _text_similarity(a, b):
-                            """Simple word overlap similarity (0-1)"""
-                            words_a = set(a.split())
-                            words_b = set(b.split())
-                            if not words_a or not words_b:
-                                return 0
-                            intersection = words_a & words_b
-                            union = words_a | words_b
-                            return len(intersection) / len(union) if union else 0
-                        
-                        # Track last AI responses for similarity check
-                        self._last_ai_responses.append(transcript)
-                        if len(self._last_ai_responses) > 5:
-                            self._last_ai_responses.pop(0)  # Keep only last 5
-                        
-                        # Check for semantic repetition (similarity > 70% with any of last 3 responses)
-                        # 🔥 ARCHITECT FIX: Only check if responses are long enough (avoid short template FP)
+                        # 🚫 DISABLED: Loop detection disabled via ENABLE_LOOP_DETECT flag
                         is_repeating = False
-                        if len(self._last_ai_responses) >= 2 and len(transcript) >= MIN_LENGTH_FOR_SIMILARITY:
-                            for prev_response in self._last_ai_responses[:-1]:
-                                if len(prev_response) < MIN_LENGTH_FOR_SIMILARITY:
-                                    continue  # Skip short responses
-                                similarity = _text_similarity(transcript, prev_response)
-                                if similarity > 0.70:
-                                    is_repeating = True
-                                    print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
-                                    break
+                        if ENABLE_LOOP_DETECT:
+                            # Added: length floor to avoid false positives on short confirmations
+                            MIN_LENGTH_FOR_SIMILARITY = 15  # Don't compare short confirmations
+                            
+                            def _text_similarity(a, b):
+                                """Simple word overlap similarity (0-1)"""
+                                words_a = set(a.split())
+                                words_b = set(b.split())
+                                if not words_a or not words_b:
+                                    return 0
+                                intersection = words_a & words_b
+                                union = words_a | words_b
+                                return len(intersection) / len(union) if union else 0
+                            
+                            # Track last AI responses for similarity check
+                            self._last_ai_responses.append(transcript)
+                            if len(self._last_ai_responses) > 5:
+                                self._last_ai_responses.pop(0)  # Keep only last 5
+                            
+                            # Check for semantic repetition (similarity > 70% with any of last 3 responses)
+                            # 🔥 ARCHITECT FIX: Only check if responses are long enough (avoid short template FP)
+                            if len(self._last_ai_responses) >= 2 and len(transcript) >= MIN_LENGTH_FOR_SIMILARITY:
+                                for prev_response in self._last_ai_responses[:-1]:
+                                    if len(prev_response) < MIN_LENGTH_FOR_SIMILARITY:
+                                        continue  # Skip short responses
+                                    similarity = _text_similarity(transcript, prev_response)
+                                    if similarity > 0.70:
+                                        is_repeating = True
+                                        print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
+                                        break
                         
                         # 🔥 BUILD 169.1: MISHEARING DETECTION (Architect: reduced to 2 for better UX)
-                        confusion_phrases = ["לא הבנתי", "לא שמעתי", "אפשר לחזור", "מה אמרת", "לא הצלחתי", "בבקשה חזור"]
-                        is_confused = any(phrase in transcript for phrase in confusion_phrases)
-                        if is_confused:
-                            self._mishearing_count += 1
-                            print(f"❓ [MISHEARING] AI confused ({self._mishearing_count} times): '{transcript[:50]}...'")
-                        else:
-                            self._mishearing_count = 0  # Reset on clear response
+                        # 🚫 DISABLED: Loop detection disabled via ENABLE_LOOP_DETECT flag
+                        is_confused = False
+                        if ENABLE_LOOP_DETECT:
+                            confusion_phrases = ["לא הבנתי", "לא שמעתי", "אפשר לחזור", "מה אמרת", "לא הצלחתי", "בבקשה חזור"]
+                            is_confused = any(phrase in transcript for phrase in confusion_phrases)
+                            if is_confused:
+                                self._mishearing_count += 1
+                                print(f"❓ [MISHEARING] AI confused ({self._mishearing_count} times): '{transcript[:50]}...'")
+                            else:
+                                self._mishearing_count = 0  # Reset on clear response
                         
                         # 🔥 BUILD 311.1: POST-GREETING PATIENCE - Smart grace period!
                         # Grace period ends early when user speaks (user_has_spoken=True)
@@ -3245,50 +3326,53 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         is_closing = getattr(self, 'call_state', None) == CallState.CLOSING
                         is_hanging_up = getattr(self, 'hangup_triggered', False)
                         
-                        # 🔥 BUILD 182: Check if appointment was recently created/scheduled
-                        crm_ctx = getattr(self, 'crm_context', None)
-                        has_appointment = crm_ctx and getattr(crm_ctx, 'has_appointment_created', False)
-                        
-                        # 🔥 BUILD 337 FIX: Check scheduling mode flag OR keywords in transcript
-                        # The flag persists across responses, keywords are transient
-                        is_scheduling_flag = getattr(self, '_is_scheduling_mode', False)
-                        
-                        # 🔥 BUILD 337 FIX: Extended keyword list + check both original and lowercase
-                        appointment_keywords = [
-                            'תור', 'פגישה', 'לקבוע', 'זמינות', 'אשר', 'מאשר', 'תאריך', 'שעה',
-                            'קביעת', 'לתאם', 'לזמן', 'להזמין', 'פנוי', 'תפוס', 'מתי', 'יום'
-                        ]
-                        transcript_lower = transcript.lower() if transcript else ""
-                        has_keywords = any(kw in transcript or kw in transcript_lower for kw in appointment_keywords) if transcript else False
-                        
-                        # Set scheduling mode flag if keywords detected
-                        if has_keywords and not is_scheduling_flag:
-                            self._is_scheduling_mode = True
-                            print(f"📋 [BUILD 337] Scheduling mode ACTIVATED (keywords detected)")
-                        
-                        # Clear scheduling mode if appointment created
-                        if has_appointment and is_scheduling_flag:
-                            self._is_scheduling_mode = False
-                            print(f"✅ [BUILD 337] Scheduling mode DEACTIVATED (appointment created)")
-                        
-                        is_scheduling = is_scheduling_flag or has_keywords
-                        
-                        if in_post_greeting_grace:
-                            # 🔥 BUILD 311: NEVER engage loop guard during grace period - give customer time to respond!
-                            should_engage_guard = False
-                            print(f"⏳ [BUILD 311] Post-greeting grace period ({time_since_greeting:.1f}s/{grace_period}s) - LOOP GUARD DISABLED")
-                        elif is_outbound:
-                            # 🔥 OUTBOUND: Never engage loop guard - let AI talk freely
-                            should_engage_guard = False
-                        elif is_closing or is_hanging_up:
-                            # 🔥 BUILD 179: Never engage loop guard during call ending
-                            should_engage_guard = False
-                            print(f"⏭️ [LOOP GUARD] Skipped - call is ending (closing={is_closing}, hangup={is_hanging_up})")
-                        elif has_appointment:
-                            # 🔥 BUILD 182: Skip loop guard ONLY if appointment already created
-                            should_engage_guard = False
-                            print(f"⏭️ [LOOP GUARD] Skipped - appointment confirmed (has_appointment=True)")
-                        elif is_scheduling:
+                        # 🚫 DISABLED: Loop guard disabled via ENABLE_LOOP_DETECT flag
+                        should_engage_guard = False
+                        if ENABLE_LOOP_DETECT:
+                            # 🔥 BUILD 182: Check if appointment was recently created/scheduled
+                            crm_ctx = getattr(self, 'crm_context', None)
+                            has_appointment = crm_ctx and getattr(crm_ctx, 'has_appointment_created', False)
+                            
+                            # 🔥 BUILD 337 FIX: Check scheduling mode flag OR keywords in transcript
+                            # The flag persists across responses, keywords are transient
+                            is_scheduling_flag = getattr(self, '_is_scheduling_mode', False)
+                            
+                            # 🔥 BUILD 337 FIX: Extended keyword list + check both original and lowercase
+                            appointment_keywords = [
+                                'תור', 'פגישה', 'לקבוע', 'זמינות', 'אשר', 'מאשר', 'תאריך', 'שעה',
+                                'קביעת', 'לתאם', 'לזמן', 'להזמין', 'פנוי', 'תפוס', 'מתי', 'יום'
+                            ]
+                            transcript_lower = transcript.lower() if transcript else ""
+                            has_keywords = any(kw in transcript or kw in transcript_lower for kw in appointment_keywords) if transcript else False
+                            
+                            # Set scheduling mode flag if keywords detected
+                            if has_keywords and not is_scheduling_flag:
+                                self._is_scheduling_mode = True
+                                print(f"📋 [BUILD 337] Scheduling mode ACTIVATED (keywords detected)")
+                            
+                            # Clear scheduling mode if appointment created
+                            if has_appointment and is_scheduling_flag:
+                                self._is_scheduling_mode = False
+                                print(f"✅ [BUILD 337] Scheduling mode DEACTIVATED (appointment created)")
+                            
+                            is_scheduling = is_scheduling_flag or has_keywords
+                            
+                            if in_post_greeting_grace:
+                                # 🔥 BUILD 311: NEVER engage loop guard during grace period - give customer time to respond!
+                                should_engage_guard = False
+                                print(f"⏳ [BUILD 311] Post-greeting grace period ({time_since_greeting:.1f}s/{grace_period}s) - LOOP GUARD DISABLED")
+                            elif is_outbound:
+                                # 🔥 OUTBOUND: Never engage loop guard - let AI talk freely
+                                should_engage_guard = False
+                            elif is_closing or is_hanging_up:
+                                # 🔥 BUILD 179: Never engage loop guard during call ending
+                                should_engage_guard = False
+                                print(f"⏭️ [LOOP GUARD] Skipped - call is ending (closing={is_closing}, hangup={is_hanging_up})")
+                            elif has_appointment:
+                                # 🔥 BUILD 182: Skip loop guard ONLY if appointment already created
+                                should_engage_guard = False
+                                print(f"⏭️ [LOOP GUARD] Skipped - appointment confirmed (has_appointment=True)")
+                            elif is_scheduling:
                             # 🔥 BUILD 337: LIMITED loop guard during scheduling - prevent AI monologues!
                             # Allow 2 consecutive responses during scheduling, then engage guard
                             # This prevents AI from looping while still allowing back-and-forth
@@ -3308,7 +3392,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self._mishearing_count >= 3
                             )
                         
-                        if should_engage_guard:
+                        # 🚫 DISABLED: Loop guard actions disabled via ENABLE_LOOP_DETECT flag
+                        if should_engage_guard and ENABLE_LOOP_DETECT:
                             guard_reason = "consecutive_responses" if self._consecutive_ai_responses >= self._max_consecutive_ai_responses else \
                                           "semantic_repetition" if is_repeating else "mishearing_loop"
                             print(f"⚠️ [LOOP GUARD] Triggered by {guard_reason}!")
@@ -8222,7 +8307,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
             self.lead_captured = True
             print(f"🎯 [BUILD 313] All lead fields captured! {self.lead_capture_state}")
         else:
-            print(f"📋 [BUILD 313] Still missing fields: {missing}")
+            # 🚫 DISABLED: City/service logic disabled via ENABLE_LEGACY_CITY_LOGIC flag
+            if ENABLE_LEGACY_CITY_LOGIC:
+                print(f"📋 [BUILD 313] Still missing fields: {missing}")
     
     def _check_simple_appointment_keywords(self, ai_text: str):
         """
@@ -8362,7 +8449,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
         if not is_user_speech:
             # Track city mentioned by AI for user "נכון" confirmation
             if 'נכון' in text or 'מאשר' in text:
-                self._last_ai_mentioned_city = self._extract_city_from_confirmation(text)
+                # 🚫 DISABLED: City extraction disabled via ENABLE_LEGACY_CITY_LOGIC flag
+                if ENABLE_LEGACY_CITY_LOGIC:
+                    self._last_ai_mentioned_city = self._extract_city_from_confirmation(text)
             return
         
         # 🔥 BUILD 313: Minimal fallback patterns - OpenAI Tool handles the rest!
@@ -8476,7 +8565,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # No action verb - check if it's too short to be a service
             words = cleaned.split()
             if len(words) <= 2:
-                # Short phrase without action verb - might be a city, let city lock handle it
+                # 🚫 DISABLED: City lock logic disabled via ENABLE_LEGACY_CITY_LOGIC flag
+                # Short phrase without action verb - might be a city (DISABLED)
                 print(f"⏭️ [BUILD 336] Skipping short phrase without verb: '{cleaned}'")
                 return
         
@@ -8800,7 +8890,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
             print(f"✅ [SMART HANGUP] All required fields collected: {', '.join(collected_values)}")
             return True
         
-        print(f"⏳ [SMART HANGUP] Still missing fields: {missing_fields} | Collected: {collected_values}")
+        # 🚫 DISABLED: City/service logic disabled via ENABLE_LEGACY_CITY_LOGIC flag
+        if ENABLE_LEGACY_CITY_LOGIC:
+            print(f"⏳ [SMART HANGUP] Still missing fields: {missing_fields} | Collected: {collected_values}")
         return False
 
     def _process_dtmf_skip(self):
