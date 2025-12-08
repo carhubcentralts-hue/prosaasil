@@ -225,11 +225,13 @@ class OpenAIRealtimeClient:
     
     async def cancel_response(self, response_id: Optional[str] = None):
         """Cancel current AI response (e.g., on barge-in)"""
+        if not response_id:
+            logger.debug("[REALTIME] cancel_response skipped - no active response id")
+            return
         event = {
-            "type": "response.cancel"
+            "type": "response.cancel",
+            "response_id": response_id
         }
-        if response_id:
-            event["response_id"] = response_id
         await self.send_event(event)
     
     async def send_user_message(self, text: str):
