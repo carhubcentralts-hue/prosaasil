@@ -836,4 +836,20 @@ def create_app():
     except Exception:
         pass
     
+    # Recording transcription worker (offline STT + lead extraction)
+    try:
+        from server.tasks_recording import start_recording_worker
+        import threading
+        
+        recording_thread = threading.Thread(
+            target=start_recording_worker,
+            args=(app,),
+            daemon=True,
+            name="RecordingWorker"
+        )
+        recording_thread.start()
+        print("✅ [BACKGROUND] Recording worker started")
+    except Exception as e:
+        print(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
+    
     return app
