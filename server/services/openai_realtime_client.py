@@ -352,7 +352,9 @@ class OpenAIRealtimeClient:
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
         
-        # 🚫 NO TOOLS for phone calls - appointment scheduling via NLP only
+        # ⭐ BUILD 350: NO TOOLS for phone calls - pure conversation mode
+        # All field extraction (service, city, details) happens ONLY from summary at end of call
+        # Appointment scheduling uses simple keyword detection, NOT Realtime Tools
         
         # For g711_ulaw, sample rate is always 8000 Hz (telephony standard)
         # No need to explicitly set it - it's implicit in the format
