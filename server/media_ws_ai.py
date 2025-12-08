@@ -1929,11 +1929,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
                 
                 asyncio.create_task(_load_appointment_tool())
-            else:
-                # No tools enabled - pure conversation mode
-                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-                logger.info(f"[TOOLS][REALTIME] Realtime call running with zero tools")
-            
+          
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
             customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'customer_phone_dtmf', None)
