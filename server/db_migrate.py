@@ -743,42 +743,96 @@ def apply_migrations():
             log.info("✅ Applied migration 33b: add_confirm_before_hangup - Requires confirmation before disconnecting")
     
     # Migration 34: POST-CALL EXTRACTION - Full transcript + extracted fields for CallLog
+    # 🔒 IDEMPOTENT: Uses PostgreSQL DO blocks to safely add columns
     if check_table_exists('call_log'):
         from sqlalchemy import text
         
-        if not check_column_exists('call_log', 'final_transcript'):
-            db.session.execute(text("ALTER TABLE call_log ADD COLUMN final_transcript TEXT"))
-            migrations_applied.append("add_call_log_final_transcript")
-            log.info("✅ Applied migration 34a: add_call_log_final_transcript - Full offline transcript storage")
-        
-        if not check_column_exists('call_log', 'extracted_service'):
-            db.session.execute(text("ALTER TABLE call_log ADD COLUMN extracted_service VARCHAR(255)"))
-            migrations_applied.append("add_call_log_extracted_service")
-            log.info("✅ Applied migration 34b: add_call_log_extracted_service - AI-extracted service type")
-        
-        if not check_column_exists('call_log', 'extracted_city'):
-            db.session.execute(text("ALTER TABLE call_log ADD COLUMN extracted_city VARCHAR(255)"))
-            migrations_applied.append("add_call_log_extracted_city")
-            log.info("✅ Applied migration 34c: add_call_log_extracted_city - AI-extracted city")
-        
-        if not check_column_exists('call_log', 'extraction_confidence'):
-            db.session.execute(text("ALTER TABLE call_log ADD COLUMN extraction_confidence FLOAT"))
-            migrations_applied.append("add_call_log_extraction_confidence")
-            log.info("✅ Applied migration 34d: add_call_log_extraction_confidence - Confidence score for extraction")
+        try:
+            # Use single DO block for all call_log columns - more efficient
+            db.session.execute(text("""
+                DO $$
+                BEGIN
+                    -- Add final_transcript column
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'call_log' AND column_name = 'final_transcript'
+                    ) THEN
+                        ALTER TABLE call_log ADD COLUMN final_transcript TEXT;
+                        RAISE NOTICE 'Added call_log.final_transcript';
+                    END IF;
+
+                    -- Add extracted_service column
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'call_log' AND column_name = 'extracted_service'
+                    ) THEN
+                        ALTER TABLE call_log ADD COLUMN extracted_service VARCHAR(255);
+                        RAISE NOTICE 'Added call_log.extracted_service';
+                    END IF;
+
+                    -- Add extracted_city column
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'call_log' AND column_name = 'extracted_city'
+                    ) THEN
+                        ALTER TABLE call_log ADD COLUMN extracted_city VARCHAR(255);
+                        RAISE NOTICE 'Added call_log.extracted_city';
+                    END IF;
+
+                    -- Add extraction_confidence column
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'call_log' AND column_name = 'extraction_confidence'
+                    ) THEN
+                        ALTER TABLE call_log ADD COLUMN extraction_confidence DOUBLE PRECISION;
+                        RAISE NOTICE 'Added call_log.extraction_confidence';
+                    END IF;
+                END;
+                $$;
+            """))
+            migrations_applied.append("add_call_log_extraction_fields")
+            log.info("✅ Applied migration 34: add_call_log_extraction_fields - POST-CALL EXTRACTION for CallLog")
+        except Exception as e:
+            log.error(f"❌ Migration 34 failed: {e}")
+            db.session.rollback()
+            raise
     
     # Migration 35: POST-CALL EXTRACTION - Service type and city fields for Lead
+    # 🔒 IDEMPOTENT: Uses PostgreSQL DO blocks to safely add columns
     if check_table_exists('leads'):
         from sqlalchemy import text
         
-        if not check_column_exists('leads', 'service_type'):
-            db.session.execute(text("ALTER TABLE leads ADD COLUMN service_type VARCHAR(255)"))
-            migrations_applied.append("add_leads_service_type")
-            log.info("✅ Applied migration 35a: add_leads_service_type - Service type from call extraction")
-        
-        if not check_column_exists('leads', 'city'):
-            db.session.execute(text("ALTER TABLE leads ADD COLUMN city VARCHAR(255)"))
-            migrations_applied.append("add_leads_city")
-            log.info("✅ Applied migration 35b: add_leads_city - City from call extraction")
+        try:
+            # Use single DO block for all leads columns - more efficient
+            db.session.execute(text("""
+                DO $$
+                BEGIN
+                    -- Add service_type column
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'leads' AND column_name = 'service_type'
+                    ) THEN
+                        ALTER TABLE leads ADD COLUMN service_type VARCHAR(255);
+                        RAISE NOTICE 'Added leads.service_type';
+                    END IF;
+
+                    -- Add city column
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'leads' AND column_name = 'city'
+                    ) THEN
+                        ALTER TABLE leads ADD COLUMN city VARCHAR(255);
+                        RAISE NOTICE 'Added leads.city';
+                    END IF;
+                END;
+                $$;
+            """))
+            migrations_applied.append("add_leads_extraction_fields")
+            log.info("✅ Applied migration 35: add_leads_extraction_fields - POST-CALL EXTRACTION for Lead")
+        except Exception as e:
+            log.error(f"❌ Migration 35 failed: {e}")
+            db.session.rollback()
+            raise
     
     if migrations_applied:
         db.session.commit()
