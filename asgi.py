@@ -126,20 +126,26 @@ async def ws_twilio_media(websocket: WebSocket):
     twilio_log.info("[REALTIME] WebSocket connected: /ws/twilio-media")
     
     # Create sync wrapper
+    print("[REALTIME] Creating SyncWebSocketWrapper...", flush=True)
     twilio_log.info("[REALTIME] Creating SyncWebSocketWrapper...")
     ws_wrapper = SyncWebSocketWrapper()
     handler_thread = None
     
+    print("[REALTIME] SyncWebSocketWrapper created - about to enter try block", flush=True)
+    
     try:
+        print("[REALTIME] INSIDE try block - importing MediaStreamHandler...", flush=True)
         twilio_log.info("[REALTIME] Importing MediaStreamHandler...")
         # Import MediaStreamHandler
         from server.media_ws_ai import MediaStreamHandler
+        print("[REALTIME] MediaStreamHandler imported successfully!", flush=True)
         twilio_log.info("[REALTIME] MediaStreamHandler imported successfully")
         
         # Task 1: Receive from Starlette WS → put in queue for sync handler
         async def receive_loop():
             msg_count = 0
             try:
+                print("[REALTIME] receive_loop: STARTED", flush=True)
                 twilio_log.info("[WS] receive_loop started")
                 while ws_wrapper.running:
                     try:
@@ -165,6 +171,7 @@ async def ws_twilio_media(websocket: WebSocket):
         # Task 2: Get from queue → send to Starlette WS
         async def send_loop():
             try:
+                print("[REALTIME] send_loop: STARTED", flush=True)
                 error_count = 0
                 max_errors = 10
                 
@@ -204,12 +211,16 @@ async def ws_twilio_media(websocket: WebSocket):
         # Task 3: MediaStreamHandler in background thread
         def run_handler():
             try:
+                print("[REALTIME] run_handler: STARTED - Getting Flask app...", flush=True)
                 twilio_log.info("[REALTIME] run_handler: STARTED - Getting Flask app...")
                 _ = get_flask_app()
+                print("[REALTIME] run_handler: Flask app ready - Creating MediaStreamHandler...", flush=True)
                 twilio_log.info("[REALTIME] run_handler: Flask app ready - Creating MediaStreamHandler...")
                 handler = MediaStreamHandler(ws_wrapper)
+                print("[REALTIME] run_handler: MediaStreamHandler created - About to call handler.run()...", flush=True)
                 twilio_log.info("[REALTIME] run_handler: MediaStreamHandler created - Starting handler.run()...")
                 handler.run()
+                print("[REALTIME] run_handler: handler.run() completed normally", flush=True)
                 twilio_log.info("[REALTIME] run_handler: handler.run() completed normally")
             except Exception as e:
                 twilio_log.exception(f"[REALTIME] MediaStreamHandler error: {e}")
@@ -221,21 +232,26 @@ async def ws_twilio_media(websocket: WebSocket):
         
         # Start loops and handler together
         async def run_all():
+            print("[REALTIME] run_all: STARTING async loops and handler thread...", flush=True)
             twilio_log.info("[REALTIME] run_all: STARTING async loops and handler thread...")
             # Start async loops
+            print("[REALTIME] run_all: Creating asyncio.gather for receive_loop and send_loop...", flush=True)
             loops_task = asyncio.gather(
                 receive_loop(),
                 send_loop(),
                 return_exceptions=True
             )
+            print("[REALTIME] run_all: Async loops started - sleeping 0.1s...", flush=True)
             
             # Give loops time to start
             await asyncio.sleep(0.1)
             
             # Now start handler thread
+            print("[REALTIME] run_all: Creating and starting handler thread...", flush=True)
             twilio_log.info("[REALTIME] run_all: Creating and starting handler thread...")
             handler_thread = threading.Thread(target=run_handler, daemon=True)
             handler_thread.start()
+            print("[REALTIME] run_all: Handler thread STARTED - waiting for loops to finish...", flush=True)
             twilio_log.info("[REALTIME] run_all: Handler thread started - waiting for loops...")
             
             # Wait for loops to finish
@@ -248,15 +264,20 @@ async def ws_twilio_media(websocket: WebSocket):
             )
             twilio_log.info("[REALTIME] run_all: Handler thread joined - all tasks complete")
         
+        print("[REALTIME] About to call run_all()...", flush=True)
         twilio_log.info("[REALTIME] About to call run_all()...")
         await run_all()
+        print("[REALTIME] run_all() completed - handler finished", flush=True)
         twilio_log.info("[REALTIME] run_all() completed")
         
     except Exception as e:
+        print(f"[REALTIME] EXCEPTION in ws_twilio_media: {e}", flush=True)
         twilio_log.exception(f"[REALTIME] WebSocket error in ws_twilio_media: {e}")
         import traceback
+        print(f"[REALTIME] Full traceback:\n{traceback.format_exc()}", flush=True)
         twilio_log.error(f"[REALTIME] Full traceback:\n{traceback.format_exc()}")
     finally:
+        print("[REALTIME] FINALLY block - stopping wrapper and closing websocket", flush=True)
         twilio_log.info("[REALTIME] FINALLY block - stopping wrapper and closing websocket")
         ws_wrapper.stop()
         try:
