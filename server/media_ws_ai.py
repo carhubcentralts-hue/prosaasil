@@ -983,6 +983,11 @@ class MediaStreamHandler:
     def __init__(self, ws):
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
+        # 🧪 Manual sanity tests for lead capture flow:
+        # 1) "התקנת מנעול חכם בחיפה" → שירות+עיר ננעלים, אישור יחיד אחרי "כן".
+        # 2) "התקנת מנעול חכם" → AI שואל רק על העיר ("קריית אתא"), אין ערים מומצאות.
+        # 3) "התקנת מנעול חכם בחיפה" → אישור → "לא, אני צריך בעיר קריית אתא." → מתעדכן לעיר החדשה עם אישור אחד נוסף.
+        # 4) Barge-in באמצע משפט של ה-AI → response.cancel נשלח רק אם יש תגובה פעילה, בלי response_cancel_not_active.
         
         # 🔧 תאימות WebSocket - EventLet vs RFC6455 עם טיפול שגיאות
         if hasattr(ws, 'send'):
@@ -1305,6 +1310,12 @@ class MediaStreamHandler:
         self._current_stt_confidence = None
         self._current_transcript_token_count = 0
         self._current_transcript_is_first_answer = False
+        self.service_question_sent_after_greeting = False  # True once we have a reliable service answer
+        self._service_to_city_prompt_sent = False  # Prevent duplicate "[SERVER] focus on city" nudges
+        self._pending_focus_on_city = False  # Deferred instruction flag (set inside STT handlers)
+        self.awaiting_correction = False  # Tracks if last user utterance was a correction
+        self._pending_city_override_from = None  # Remember old city when user corrects
+        self._pending_service_override_from = None  # Remember old service when user corrects
         
         # 🔥 BUILD 336: SERVICE TYPE LOCK - Same logic for service
         self._service_locked = False        # True = service is locked from user utterance
@@ -1314,6 +1325,7 @@ class MediaStreamHandler:
         self._expected_confirmation = None  # The confirmation we told AI to say
         self._confirmation_validated = False  # True if AI said correct confirmation
         self._speak_exact_resend_count = 0  # Track resend attempts to prevent infinite loops
+        self.confirmation_prompt_sent = False  # Mirrors _verification_prompt_sent for clarity
         
         # 🛡️ BUILD 168: VERIFICATION GATE - Only disconnect after user confirms
         # Set to True when user says confirmation words: "כן", "נכון", "בדיוק", "כן כן"
@@ -2687,6 +2699,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
+                        if response_id and not self.active_response_id:
+                            self.active_response_id = response_id
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -3070,6 +3084,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     self._expected_confirmation = None
                                     self._speak_exact_resend_count = 0
                                     self._verification_prompt_sent = False
+                                    self.confirmation_prompt_sent = False
                         
                         # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
                         # Added: length floor to avoid false positives on short confirmations
@@ -3849,32 +3864,30 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # 🔥 BUILD 203: Clear rejection flag when user confirms
                             self.user_rejected_confirmation = False
                         
-                        # 🛡️ BUILD 168: If user says correction words, reset verification
-                        # 🔥 BUILD 310: IMPROVED REJECTION DETECTION
-                        # Only reset if:
-                        # 1. Message starts with a rejection word (direct correction)
-                        # 2. Message is ONLY a rejection (e.g., "לא", "לא ממש לא")
-                        # 3. Message contains explicit correction phrases
-                        # Don't reset for incidental "לא" like "אני לא צריך עזרה אחרת"
-                        
+                        # 🛡️ BUILD 168/310: Detect user corrections ("לא", "לא בעיר...")
                         transcript_stripped = transcript_lower.strip()
                         words = transcript_stripped.split()
                         
-                        # Strong rejection patterns that ALWAYS trigger reset
                         strong_rejection_patterns = [
-                            "לא נכון", "טעות", "תתקן", "לשנות", "ממש לא", "לא לא", 
+                            "לא נכון", "טעות", "תתקן", "לשנות", "ממש לא", "לא לא",
                             "זה לא נכון", "לא זה", "אז לא", "אבל לא", "ממש ממש לא"
                         ]
-                        is_strong_rejection = any(pattern in transcript_stripped for pattern in strong_rejection_patterns)
+                        correction_phrases = [
+                            "לא צריך", "לא צריכה", "לא בעיר", "לא ב", "לא זה",
+                            "לא, אני צריך", "לא אני צריך", "לא אני צריכה", "לא בעיר הזאת"
+                        ]
                         
-                        # Weak rejection: message starts with or is just "לא" 
-                        # Only trigger if short AND starts with rejection
+                        is_strong_rejection = any(pattern in transcript_stripped for pattern in strong_rejection_patterns)
+                        starts_with_no = transcript_stripped.startswith("לא")
+                        short_negative = starts_with_no and len(words) <= 4
+                        contains_correction_keyword = any(kw in transcript_stripped for kw in correction_phrases)
+                        contains_city_hint = "בעיר" in transcript_stripped or bool(re.search(r'\bב[א-ת]', transcript_stripped))
+                        
                         is_weak_rejection = (
-                            len(words) <= 4 and  # Short response
-                            words and words[0] in ["לא", "רגע", "שנייה"]  # Starts with rejection
+                            len(words) <= 4 and
+                            words and words[0] in ["לא", "רגע", "שנייה"]
                         )
                         
-                        # Check if AI just asked for confirmation (verification context)
                         ai_asked_verification = last_ai_msg and any(
                             phrase in last_ai_msg for phrase in [
                                 "נכון", "האם הפרטים", "לאשר", "בסדר", "מסכים", "האם זה"
@@ -3882,23 +3895,34 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         )
                         
                         should_reset_verification = (
-                            is_strong_rejection or 
+                            is_strong_rejection or
+                            short_negative or
+                            contains_correction_keyword or
+                            (starts_with_no and contains_city_hint) or
                             (is_weak_rejection and ai_asked_verification)
                         )
                         
                         if should_reset_verification:
-                            print(f"🔄 [BUILD 310] User CORRECTION detected: strong={is_strong_rejection}, weak={is_weak_rejection}, ai_verify={ai_asked_verification}")
+                            print(f"🔄 [BUILD 310] User CORRECTION detected (strong={is_strong_rejection}, short={short_negative}, city_hint={contains_city_hint}, ai_verify={ai_asked_verification})")
                             self.verification_confirmed = False
                             self._lead_confirmation_received = False
                             self._awaiting_confirmation_reply = False
                             # 🔥 FIX: Also reset the prompt flag so we can send a new verification request
                             self._verification_prompt_sent = False
+                            self.confirmation_prompt_sent = False
                             # 🔥 BUILD 203: Cancel any pending hangup - user rejected!
                             self.user_rejected_confirmation = True
                             self.goodbye_detected = False  # Clear goodbye flag
                             if self.call_state == CallState.CLOSING:
                                 self.call_state = CallState.ACTIVE
                                 print(f"📞 [BUILD 203] CLOSING → ACTIVE (user rejected confirmation)")
+                            
+                            old_city = self.lead_capture_state.get('city')
+                            old_service = self.lead_capture_state.get('service_type')
+                            self._pending_city_override_from = old_city
+                            self._pending_service_override_from = old_service
+                            self.awaiting_correction = True
+                            self.lead_captured = False
                             
                             # 🔥 BUILD 326: UNLOCK city - user is correcting
                             # This allows user to provide new city
@@ -3913,7 +3937,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             self._rejection_timestamp = time.time()
                             print(f"⏳ [BUILD 308] POST-REJECTION COOL-OFF - AI will wait for user to speak")
                         elif "לא" in transcript_stripped:
-                            # Incidental "לא" - just log it, don't reset
                             print(f"ℹ️ [BUILD 310] Incidental 'לא' in '{transcript[:30]}' - NOT resetting verification")
                         
                         # Track conversation
@@ -3922,18 +3945,32 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
                         self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
+                        if getattr(self, '_pending_focus_on_city', False) and self._service_locked and not self._city_locked:
+                            self._pending_focus_on_city = False
+                            self._service_to_city_prompt_sent = True
+                            asyncio.create_task(self._send_server_event_to_ai(
+                                "[SERVER] יש לנו כבר את סוג השירות. שאל רק באיזו עיר צריך את השירות, שאלה אחת קצרה וברורה."
+                            ))
+                            print(f"🏙️ [CITY LOCK] Service locked ('{self._service_raw_from_stt}'), nudging AI to focus on city question")
+                        if self.awaiting_correction:
+                            new_city = self.lead_capture_state.get('city')
+                            new_service = self.lead_capture_state.get('service_type')
+                            city_corrected = False
+                            service_corrected = False
+                            if self._pending_city_override_from is not None and self._city_locked and new_city and new_city != self._pending_city_override_from:
+                                print(f"🔁 [CITY UPDATE] Overriding city from '{self._pending_city_override_from or '—'}' to '{new_city}' based on correction")
+                                city_corrected = True
+                            if self._pending_service_override_from is not None and self._service_locked and new_service and new_service != self._pending_service_override_from:
+                                print(f"🔁 [SERVICE LOCK] User corrected service '{self._pending_service_override_from or '—'}' → '{new_service}'")
+                                service_corrected = True
+                            self._pending_city_override_from = None
+                            self._pending_service_override_from = None
+                            if city_corrected or service_corrected or (self._city_locked and self._service_locked):
+                                self.awaiting_correction = False
+                        
                         self._current_stt_confidence = None
                         self._current_transcript_token_count = 0
                         self._current_transcript_is_first_answer = False
-                        
-                        # 🔥 BUILD 313: Handle user confirmation with "נכון" - save city from AI's previous statement
-                        confirmation_words = ["כן", "נכון", "בדיוק", "כן כן", "יופי", "מסכים"]
-                        if any(word in transcript_lower for word in confirmation_words):
-                            last_ai_city = getattr(self, '_last_ai_mentioned_city', None)
-                            if last_ai_city and 'city' in getattr(self, 'required_lead_fields', []):
-                                # User confirmed - save the city!
-                                self._update_lead_capture_state('city', last_ai_city)
-                                print(f"🔒 [BUILD 313] User confirmed city '{last_ai_city}'")
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
@@ -3999,6 +4036,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 asyncio.create_task(self._fallback_hangup_after_timeout(10, "lead_captured_confirmed"))
                             elif fields_ready and not self.verification_confirmed and not getattr(self, '_verification_prompt_sent', False) and not self._awaiting_confirmation_reply:
                                 self._verification_prompt_sent = True
+                                self.confirmation_prompt_sent = True
                                 print(f"⏳ [BUILD 172] Lead fields collected - waiting for customer confirmation")
                                 
                                 templated_confirmation = self._build_confirmation_from_state()
@@ -4030,6 +4068,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 else:
                                     print(f"❌ [BUILD 336] No STT data to confirm - waiting for more info")
                                     self._verification_prompt_sent = False
+                                    self.confirmation_prompt_sent = False
                                     self._expected_confirmation = None
                                     self._confirmation_validated = False
                                     self._speak_exact_resend_count = 0
@@ -4144,32 +4183,29 @@ SPEAK HEBREW to customer. Be brief and helpful.
         print("[REALTIME] BARGE-IN triggered – user started speaking, CANCELING AI response")
         
         # 🔥 CRITICAL: Cancel active AI response generation (not just playback!)
-        if self.active_response_id and self.realtime_client:
+        if self.realtime_client and self.active_response_id:
             try:
                 import asyncio
-                # Create event loop if needed
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                
-                # Send response.cancel event
                 cancelled_id = self.active_response_id
-                cancel_event = {"type": "response.cancel"}
-                if cancelled_id:
-                    cancel_event["response_id"] = cancelled_id
+                cancel_event = {"type": "response.cancel", "response_id": cancelled_id}
                 future = asyncio.run_coroutine_threadsafe(
                     self.realtime_client.send_event(cancel_event),
                     loop
                 )
-                future.result(timeout=0.5)  # Wait max 0.5s
-                print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id}")
-                if cancelled_id:
-                    self._mark_response_cancelled_locally(cancelled_id, "threaded_barge")
+                future.result(timeout=0.5)
+                print(f"✅ [BARGE-IN] Cancelled response {cancelled_id}")
+                self._mark_response_cancelled_locally(cancelled_id, "threaded_barge")
                 self.active_response_id = None
             except Exception as e:
                 print(f"⚠️ [BARGE-IN] Failed to cancel response: {e}")
+        else:
+            if not self.active_response_id:
+                print("ℹ️ [BARGE-IN] No active response to cancel (already idle)")
         
         # Stop AI speaking flag (checked in audio output bridge)
         self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped due to barge-in
@@ -7794,14 +7830,16 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 print(f"🔇 [SILENCE] BLOCKED - hangup pending/triggered, not sending warning")
                 return
             
-            # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
             fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
-            if fields_collected and not self.verification_confirmed:
+            if not self._service_locked:
+                warning_prompt = "[SYSTEM] הלקוח עדיין לא אמר איזה שירות הוא צריך. שאל שוב פעם אחת בקצרה: 'איזה סוג שירות אתה צריך?'"
+                self.service_question_sent_after_greeting = True
+            elif not self._city_locked:
+                warning_prompt = "[SYSTEM] יש לנו כבר את סוג השירות. שאל רק על העיר: 'ובאיזה עיר אתה צריך את השירות?'"
+            elif fields_collected and not self.verification_confirmed:
                 warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
             else:
-                # 🔥 BUILD 311.1: Dynamic - let AI continue naturally based on conversation context
-                # Don't hardcode "אתה עדיין איתי?" - let AI decide what makes sense
-                warning_prompt = "[SYSTEM] הלקוח שותק. המשך את השיחה בטבעיות - שאל שוב את השאלה האחרונה בניסוח אחר או בדוק אם הלקוח שם."
+                warning_prompt = "[SYSTEM] הלקוח שותק. המשך את השיחה בטבעיות - בדוק בעדינות אם הוא עדיין על הקו."
             await self._send_text_to_ai(warning_prompt)
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
@@ -8161,14 +8199,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # 🔥 BUILD 336: Log what we're building from
         print(f"📋 [BUILD 336] Building confirmation from STT state: {state}")
         
-        # Get service and city - these are the EXACT values from STT
-        service = state.get('service_type', '')
-        city = state.get('city', '')
+        # Get service and city - ONLY from STT locks (never from AI hallucinations)
+        service = self._service_raw_from_stt if self._service_locked else ''
+        city = self._city_raw_from_stt if self._city_locked else ''
         name = state.get('name', '')
         
         # Build natural Hebrew confirmation
         if service and city:
-            confirmation = f"רק מוודא — אתה צריך {service} ב{city}, נכון?"
+            confirmation = f"רק מוודא — אתה צריך {service} בעיר {city}, נכון?"
         elif service:
             confirmation = f"רק מוודא — אתה צריך {service}, נכון?"
         elif city:
@@ -8177,6 +8215,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # No data captured yet
             return ""
         
+        print(f"🧾 [CONFIRM TEMPLATE] service='{service or '—'}', city='{city or '—'}', service_locked={self._service_locked}, city_locked={self._city_locked}")
+
         # Add name if captured
         if name:
             confirmation = confirmation.replace("נכון?", f"והשם שלך {name}, נכון?")
@@ -8351,7 +8391,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # LOCK THE SERVICE!
         self._service_raw_from_stt = service_name
         self._service_locked = True
-        self._update_lead_capture_state('service_type', service_name)
+        self._update_lead_capture_state('service_type', service_name, source='user_utterance')
+        if not self.service_question_sent_after_greeting:
+            self.service_question_sent_after_greeting = True
+        if not self._service_to_city_prompt_sent and not self._pending_focus_on_city and not self._city_locked:
+            self._pending_focus_on_city = True
         print(f"🔒 [BUILD 336] SERVICE LOCKED from STT: '{service_name}' (raw: '{text}')")
     
     def _try_lock_city_from_utterance(self, text: str):
@@ -8480,7 +8524,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
         self._city_raw_from_stt = candidate_city
         self._city_locked = True
         self._city_source = 'user_utterance'
-        self._update_lead_capture_state('city', candidate_city)
+        self._update_lead_capture_state('city', candidate_city, source='user_utterance')
         print(f"🔒 [BUILD 326] CITY LOCKED from STT: '{candidate_city}' (raw: '{text}')")
     
     def _unlock_city(self):
@@ -8496,6 +8540,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             if 'city' in self.lead_capture_state:
                 del self.lead_capture_state['city']
             print(f"🔓 [BUILD 326] CITY UNLOCKED (was: '{old_city}') - waiting for new city")
+            self._service_to_city_prompt_sent = False
             
             # 🔥 BUILD 336 FIX: Reset confirmation state on unlock
             self._reset_confirmation_state()
@@ -8511,6 +8556,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
             if 'service_type' in self.lead_capture_state:
                 del self.lead_capture_state['service_type']
             print(f"🔓 [BUILD 336] SERVICE UNLOCKED (was: '{old_service}') - waiting for new service")
+            self._service_to_city_prompt_sent = False
+            self.service_question_sent_after_greeting = False
+            self._pending_focus_on_city = False
             
             # 🔥 BUILD 336 FIX: Reset confirmation state on unlock
             self._reset_confirmation_state()
@@ -8524,6 +8572,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
         self._confirmation_validated = False
         self._speak_exact_resend_count = 0
         self._verification_prompt_sent = False
+        self.confirmation_prompt_sent = False
         self._lead_confirmation_received = False
         self._lead_closing_dispatched = False
         print(f"🔄 [BUILD 336] Confirmation state reset - ready for new flow")
@@ -8550,6 +8599,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # 🔥 BUILD 336: STT TRUTH LOCK - Block non-STT sources from changing locked values!
         
         is_stt_source = source in ('user_utterance', 'stt', 'dtmf', 'user')
+
+        if field == 'city' and not is_stt_source:
+            print(f"🛡️ [CITY LOCK] Ignoring city '{value}' from source '{source}' - waiting for STT lock")
+            return
         
         # CITY LOCK - Only STT sources can change locked city
         if field == 'city' and self._city_locked:
@@ -8631,6 +8684,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # First check dynamic lead_capture_state
             value = lead_state.get(field)
             
+            if field == 'city':
+                if self._city_locked and self._city_raw_from_stt:
+                    value = self._city_raw_from_stt
+                else:
+                    value = None  # Only trust STT-locked cities
+            elif field == 'service_type':
+                if self._service_locked and self._service_raw_from_stt:
+                    value = self._service_raw_from_stt
+                else:
+                    value = None  # Service must also come from STT lock
+
             # Fallback to CRM context for legacy fields (name, phone, email)
             if not value and crm_context:
                 crm_attr = field_to_crm_attr.get(field)

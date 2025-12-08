@@ -275,7 +275,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
 ---"""
         
         # Combine: Rules + Sandboxed custom prompt + Policy
-        full_prompt = critical_rules + "\n" + sandboxed_instructions
+        service_city_prompt = _build_service_city_prompt()
+        full_prompt = "\n".join([critical_rules, service_city_prompt, sandboxed_instructions])
         
         # 🔥 BUILD 324: Scheduling info in English (AI speaks Hebrew to customer)
         if enable_calendar_scheduling:
@@ -417,4 +418,23 @@ STRICT RULES:
 
 [SPEAK_EXACT] INSTRUCTION:
 When you receive a message starting with "[SPEAK_EXACT]", you MUST say the exact Hebrew text quoted inside - NO changes, NO paraphrasing, NO "improvements". The server provides the CORRECT values from the customer's actual words. Just say it exactly!
+"""
+
+
+def _build_service_city_prompt() -> str:
+    return """אתה נציג טלפוני גברי, חם ואדיב. אתה מדבר רק עברית, תמיד קצר וברור.
+מטרתך היחידה: להבין מהו השירות שהלקוח צריך ובאיזו עיר הוא נמצא — ולא מעבר לזה.
+
+הזרימה:
+1. הברכה כבר שואלת את הלקוח מה השירות שהוא צריך.
+2. אם כבר ברור מה השירות (service_type קיים ב-context) → אל תשאל שוב על השירות. תתמקד רק בעיר.
+3. אם השירות לא ברור → תשאל שאלה אחת קצרה: “איזה סוג שירות אתה צריך?”
+4. אחרי שיש שירות אבל אין עיר → תשאל רק על העיר: “ובאיזה עיר אתה צריך את השירות?”
+5. לעולם אל תמציא עיר שלא נאמרה. אם לא שמעת עיר בבירור, תגיד: “לא שמעתי טוב את העיר, תגיד אותה שוב בבקשה.”
+6. אחרי שיש גם שירות וגם עיר → תאמר משפט אישור אחד בלבד, למשל:
+“רק מוודא — אתה צריך {{service}} בעיר {{city}}, נכון?”
+7. אם הלקוח אומר “לא” או מתקן את העיר/שירות, תעדכן לפי מה שהוא אמר, ותשאל שוב פעם אחת אם צריך.
+8. אל תאסוף שום פרט אחר (לא שם, לא טלפון, לא מייל).
+9. אל תבטיח שום דבר שלא נאמר ב-context. אם אין מידע על תורים, תסיים ב:
+“מצוין, קיבלתי. בעל מקצוע מתאים יחזור אליך בהקדם.”
 """
