@@ -4,17 +4,89 @@ Background Recording Processing - תמלול והקלטות ברקע
 import os
 import requests
 import logging
+import queue
 from threading import Thread
 from datetime import datetime
 
 log = logging.getLogger("tasks.recording")
 
+# ✅ Global queue for recording jobs - single shared instance
+RECORDING_QUEUE = queue.Queue()
+
+def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number=""):
+    """Enqueue recording job for background processing"""
+    RECORDING_QUEUE.put({
+        "call_sid": call_sid,
+        "recording_url": recording_url,
+        "business_id": business_id,
+        "from_number": from_number,
+        "to_number": to_number,
+    })
+    print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid}")
+    log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
+
 def enqueue_recording(form_data):
-    """שלח הקלטה לעיבוד ברקע (Thread) למנוע timeout"""
-    thread = Thread(target=process_recording_async, args=(form_data,))
-    thread.daemon = True
-    thread.start()
-    log.info("Recording processing queued for CallSid=%s", form_data.get("CallSid"))
+    """Legacy wrapper - converts form_data to new queue format"""
+    call_sid = form_data.get("CallSid")
+    recording_url = form_data.get("RecordingUrl")
+    to_number = form_data.get("To", "")
+    from_number = form_data.get("From", "")
+    
+    # Identify business_id
+    business_id = None
+    try:
+        from server.app_factory import get_process_app
+        app = get_process_app()
+        with app.app_context():
+            business = _identify_business_for_call(to_number, from_number)
+            if business:
+                business_id = business.id
+    except Exception as e:
+        log.warning(f"Could not identify business for recording: {e}")
+    
+    # Enqueue for worker processing
+    enqueue_recording_job(call_sid, recording_url, business_id, from_number, to_number)
+
+def start_recording_worker(app):
+    """Background worker loop - processes recording jobs from queue"""
+    print("✅ [OFFLINE_STT] Recording worker loop started")
+    log.info("[OFFLINE_STT] Recording worker thread initialized")
+    
+    with app.app_context():
+        while True:
+            try:
+                # Block until a job is available
+                job = RECORDING_QUEUE.get()
+                
+                call_sid = job["call_sid"]
+                recording_url = job["recording_url"]
+                business_id = job.get("business_id")
+                from_number = job.get("from_number", "")
+                to_number = job.get("to_number", "")
+                
+                print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid}")
+                log.info(f"[OFFLINE_STT] Processing recording: {call_sid}")
+                
+                # Build form_data for legacy processing function
+                form_data = {
+                    "CallSid": call_sid,
+                    "RecordingUrl": recording_url,
+                    "From": from_number,
+                    "To": to_number,
+                }
+                
+                # Process the recording
+                process_recording_async(form_data)
+                
+                print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
+                log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
+                
+            except Exception as e:
+                log.error(f"[OFFLINE_STT] Worker error: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                RECORDING_QUEUE.task_done()
 
 def process_recording_async(form_data):
     """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION"""
