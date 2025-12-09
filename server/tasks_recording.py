@@ -239,30 +239,17 @@ def process_recording_async(form_data):
 
 def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
     """
-    הורדת קובץ הקלטה מ-Twilio בצורה חסינה:
-    - מטפל ב-URL יחסי שמגיע מ-Twilio (.json)
-    - מנסה כמה וריאציות: בלי סיומת, .mp3, .wav
+    ✅ הורדת קובץ הקלטה מ-Twilio בצורה נכונה:
+    - משתמש ב-Twilio SDK Client (לא requests.get ידני)
+    - מפענח Recording SID מה-URL
+    - מוריד את ההקלטה דרך ה-client המאומת
     """
     try:
-        base_url = recording_url or ""
-        log.info(f"[OFFLINE_STT] Original recording_url for {call_sid}: {base_url}")
+        recording_url = recording_url or ""
+        log.info(f"[OFFLINE_STT] Original recording_url for {call_sid}: {recording_url}")
+        print(f"[OFFLINE_STT] Original recording_url for {call_sid}: {recording_url}")
 
-        # 1) אם יחסי – להוסיף דומיין
-        if base_url.startswith("/"):
-            base_url = f"https://api.twilio.com{base_url}"
-
-        # 2) להסיר .json אם קיים (נשאר בסיס בלי סיומת)
-        if base_url.endswith(".json"):
-            base_url = base_url[:-5]
-
-        # עכשיו יש לנו בסיס: .../Recordings/RExxxxxx
-        candidates = [
-            base_url,              # בלי סיומת – פורמט ברירת מחדל של Twilio
-            base_url + ".mp3",
-            base_url + ".wav",
-        ]
-
-        # הורד עם Basic Auth של Twilio
+        # Get Twilio credentials
         account_sid = os.getenv("TWILIO_ACCOUNT_SID")
         auth_token = os.getenv("TWILIO_AUTH_TOKEN")
         
@@ -271,54 +258,79 @@ def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
             log.error("Missing Twilio credentials for download")
             return None
 
-        session = requests.Session()
-        session.auth = (account_sid, auth_token)
+        # Extract Recording SID from URL
+        # URL format: "/2010-04-01/Accounts/AC.../Recordings/RE949ef4484c7c2e207a1fb4ef96aee4b1.json"
+        # We need the "RExxxxx" part
+        import re
+        match = re.search(r'/Recordings/(RE[a-zA-Z0-9]+)', recording_url)
+        
+        if not match:
+            log.error(f"[OFFLINE_STT] Could not extract recording SID from URL: {recording_url}")
+            print(f"❌ [OFFLINE_STT] Could not extract recording SID from URL: {recording_url}")
+            return None
+        
+        recording_sid = match.group(1)
+        log.info(f"[OFFLINE_STT] Extracted recording SID: {recording_sid}")
+        print(f"[OFFLINE_STT] Extracted recording SID: {recording_sid}")
 
-        for url in candidates:
-            try:
-                log.info(f"[OFFLINE_STT] Trying download for {call_sid}: {url}")
-                print(f"[OFFLINE_STT] Trying download for {call_sid}: {url}")
-                
-                resp = session.get(url, timeout=15)
-                
-                log.info(f"[OFFLINE_STT] Download status for {call_sid}: {resp.status_code} ({url})")
-                print(f"[OFFLINE_STT] Download status for {call_sid}: {resp.status_code} ({url})")
-
-                if resp.status_code == 200 and resp.content:
-                    log.info(f"[OFFLINE_STT] ✅ Download OK for {call_sid}, bytes={len(resp.content)} from {url}")
-                    print(f"[OFFLINE_STT] ✅ Download OK for {call_sid}, bytes={len(resp.content)} from {url}")
-                    
-                    data = resp.content
-                    
-                    # בדוק שהתקבל אודיו ולא תשובה ריקה
-                    if len(data) < 1000:  # פחות מ-1KB - כנראה לא אודיו תקין
-                        print(f"⚠️ [OFFLINE_STT] Recording too small ({len(data)} bytes) for {call_sid} - trying next candidate")
-                        log.warning(f"Recording suspiciously small: {len(data)} bytes, trying next")
-                        continue
-                    
-                    # שמור לדיסק
-                    recordings_dir = "server/recordings"
-                    os.makedirs(recordings_dir, exist_ok=True)
-                    
-                    file_path = f"{recordings_dir}/{call_sid}.mp3"
-                    with open(file_path, "wb") as f:
-                        f.write(data)
-                    
-                    print(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(data)} bytes)")
-                    log.info("Recording downloaded: %s (%d bytes)", file_path, len(data))
-                    return file_path
-
-                # 404 → נמשיך לקנדידט הבא
-                if resp.status_code == 404:
-                    continue
-
-            except Exception as e:
-                log.warning(f"[OFFLINE_STT] Error downloading {call_sid} from {url}: {e}")
-                print(f"[OFFLINE_STT] Error downloading {call_sid} from {url}: {e}")
-
-        log.error(f"[OFFLINE_STT] ❌ All download attempts failed for {call_sid}")
-        print(f"[OFFLINE_STT] ❌ All download attempts failed for {call_sid}")
-        return None
+        # ✅ Use Twilio SDK Client to download recording
+        from twilio.rest import Client
+        client = Client(account_sid, auth_token)
+        
+        # Fetch recording metadata
+        try:
+            recording = client.recordings(recording_sid).fetch()
+            log.info(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={recording.duration}s")
+            print(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={recording.duration}s")
+        except Exception as fetch_err:
+            log.error(f"[OFFLINE_STT] Failed to fetch recording {recording_sid}: {fetch_err}")
+            print(f"❌ [OFFLINE_STT] Failed to fetch recording {recording_sid}: {fetch_err}")
+            return None
+        
+        # Build media URL (.mp3 format)
+        # recording.uri is like: "/2010-04-01/Accounts/AC.../Recordings/RE.../json"
+        # We want: "https://api.twilio.com/2010-04-01/Accounts/AC.../Recordings/RE....mp3"
+        media_url = f"https://api.twilio.com{recording.uri.replace('.json', '.mp3')}"
+        log.info(f"[OFFLINE_STT] Downloading recording via Twilio client: {media_url}")
+        print(f"[OFFLINE_STT] Downloading recording via Twilio client: {media_url}")
+        
+        # ✅ Download media using Twilio client's http_client (preserves auth + region config)
+        try:
+            resp = client.http_client.request(
+                'GET',
+                media_url,
+                auth=(client.username, client.password)
+            )
+            
+            log.info(f"[OFFLINE_STT] Download status: {resp.status_code}, bytes={len(resp.content) if resp.content else 0}")
+            print(f"[OFFLINE_STT] Download status: {resp.status_code}, bytes={len(resp.content) if resp.content else 0}")
+            
+            if resp.status_code != 200:
+                log.error(f"[OFFLINE_STT] Download failed with status {resp.status_code}")
+                print(f"❌ [OFFLINE_STT] Download failed with status {resp.status_code}")
+                return None
+            
+            if not resp.content or len(resp.content) < 1000:
+                log.warning(f"[OFFLINE_STT] Recording too small: {len(resp.content or b'')} bytes")
+                print(f"⚠️ [OFFLINE_STT] Recording too small: {len(resp.content or b'')} bytes")
+                return None
+            
+            # Save to disk
+            recordings_dir = "server/recordings"
+            os.makedirs(recordings_dir, exist_ok=True)
+            
+            file_path = f"{recordings_dir}/{call_sid}.mp3"
+            with open(file_path, "wb") as f:
+                f.write(resp.content)
+            
+            log.info(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(resp.content)} bytes)")
+            print(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(resp.content)} bytes)")
+            return file_path
+            
+        except Exception as download_err:
+            log.error(f"[OFFLINE_STT] Media download failed: {download_err}")
+            print(f"❌ [OFFLINE_STT] Media download failed: {download_err}")
+            return None
 
     except Exception as e:
         log.exception(f"[OFFLINE_STT] Fatal error in download_recording for {call_sid}: {e}")
