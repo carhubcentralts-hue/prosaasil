@@ -9977,9 +9977,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 print(f"  - extraction_confidence: {call_log.extraction_confidence}")
                             
                             # 🆕 Use final_transcript from offline processing if available (higher quality)
-                            final_transcript = call_log.final_transcript if call_log and call_log.final_transcript else full_conversation
+                            # Only use offline transcript if it's substantial (> 50 chars)
+                            final_transcript = full_conversation  # Default to realtime
                             if call_log and call_log.final_transcript and len(call_log.final_transcript) > 50:
-                                print(f"✅ [WEBHOOK] Using offline final_transcript ({len(final_transcript)} chars) for {self.call_sid}")
+                                final_transcript = call_log.final_transcript
+                                print(f"✅ [WEBHOOK] Using offline final_transcript ({len(final_transcript)} chars) instead of realtime ({len(full_conversation)} chars)")
                             else:
                                 print(f"ℹ️ [WEBHOOK] No offline final_transcript available for {self.call_sid} - using realtime transcript ({len(full_conversation)} chars)")
                             
