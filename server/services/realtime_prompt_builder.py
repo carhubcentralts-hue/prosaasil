@@ -286,12 +286,55 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
-    🔥 DEPRECATED: This function is no longer used. Keeping for backwards compatibility.
-    🔥 All behavior now comes from System Prompts (INBOUND/OUTBOUND) + Business Prompt
+    🔥 BUILD 333: PHASE-BASED FLOW - prevents mid-confirmation and looping
+    🔥 BUILD 327: STT AS SOURCE OF TRUTH - respond only to what customer actually said
+    🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
-    # This function should not be called anymore
-    logger.warning("⚠️ [DEPRECATED] _build_critical_rules_compact called - should use new prompt builders")
-    return ""
+    direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
+    
+    # Greeting line
+    if greeting_text and greeting_text.strip():
+        greeting_line = f'- Use this greeting once at the start: "{greeting_text.strip()}"'
+    else:
+        greeting_line = "- Greet warmly and introduce yourself as the business rep"
+    
+    # 🔥 BUILD 340: CLEAR SCHEDULING RULES with STRICT FIELD ORDER
+    if enable_calendar_scheduling:
+        scheduling_section = """
+APPOINTMENT BOOKING (STRICT ORDER!):
+1. FIRST ask for NAME: "מה השם שלך?" - get name before anything else
+2. THEN ask for DATE/TIME: "לאיזה יום ושעה?" - get preferred date and time
+3. WAIT for system to check availability (don't promise!)
+4. ONLY AFTER slot is confirmed → ask for PHONE: "מה הטלפון שלך לאישור?"
+- Phone is collected LAST, only after appointment time is locked!
+- Only say "התור נקבע" AFTER system confirms booking success
+- If slot taken: offer alternatives (system will provide)
+- NEVER ask for phone before confirming date/time availability!"""
+    else:
+        scheduling_section = """
+NO SCHEDULING: Do NOT offer appointments. If customer asks, promise a callback from human rep."""
+    
+    # 🔥 BUILD 336: COMPACT + CLEAR SYSTEM RULES
+    return f"""AI Rep for "{business_name}" | {direction_context} call | {weekday_name} {today_date}
+
+LANGUAGE: All instructions are in English. SPEAK HEBREW to customer.
+
+STT IS TRUTH: Trust transcription 100%. NEVER change, substitute, or "correct" any word.
+
+CALL FLOW:
+1. GREET: {greeting_line} Ask ONE open question about their need.
+2. COLLECT: One question at a time. Mirror their EXACT words.
+3. CLOSE: Once you have the service and location, say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות." Then stay quiet.
+{scheduling_section}
+
+STRICT RULES:
+- Hebrew speech only
+- BE PATIENT: Wait for customer to respond. Don't rush or repeat questions too quickly.
+- No loops, no repeating questions unless answer was unclear
+- NO confirmations or summaries - just collect info and close naturally
+- After customer says goodbye → one farewell and stay quiet
+- Don't ask for multiple pieces of information at once - ONE question at a time!
+"""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -356,8 +399,7 @@ def build_inbound_system_prompt(
             core_instructions = core_instructions.replace("{{business_name}}", business_name)
             core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
-        # 🔥 CLEAN BEHAVIORAL RULES (English instructions, AI speaks Hebrew)
-        # NO hardcoded closing sentences, NO specific examples
+        # 🔥 BEHAVIORAL RULES (English instructions, AI speaks Hebrew)
         behavioral_rules = f"""You are a male virtual call agent for an Israeli business: "{business_name}".
 
 LANGUAGE RULES:
@@ -384,14 +426,9 @@ TONE & STYLE:
 - Warm, helpful, patient, concise, masculine, and natural.
 - Ask ONE question at a time.
 
-CUSTOMER PHONE:
-- The customer's phone number is ALREADY available from the call system.
-- You do NOT need to ask for the customer's phone number unless the BUSINESS_PROMPT specifically instructs you to do so.
-- Only collect phone if explicitly required by the business instructions below.
-
 """
         
-        # 🔥 APPOINTMENT SCHEDULING LOGIC (NO hardcoded text)
+        # 🔥 APPOINTMENT SCHEDULING LOGIC
         if enable_calendar_scheduling:
             # Load policy for scheduling info
             from server.policy.business_policy import get_business_policy
@@ -414,72 +451,55 @@ CUSTOMER PHONE:
                     min_notice = f" (minimum {min_notice_hours}h advance booking required)"
             
             scheduling_rules = f"""
-APPOINTMENT SCHEDULING ENABLED:
+APPOINTMENT SCHEDULING:
 Today is {weekday_name}, {today_date}
 
-BOOKING FLOW:
-1. Ask for NAME: Get customer's name first
-2. Ask for DATE/TIME: Get preferred date and time
-3. Call the scheduling tool with the information
-4. WAIT for system response before confirming to customer
-5. ONLY after system confirms success: inform customer the appointment is booked
-6. If system returns an error: explain to customer and offer alternatives
+BOOKING FLOW (STRICT ORDER):
+1. FIRST: Ask for NAME: "מה השם שלך?" - Get name before anything else
+2. THEN: Ask for DATE/TIME: "לאיזה יום ושעה?" - Get preferred date and time
+3. WAIT: For system to check availability (don't promise slot is available!)
+4. AFTER CONFIRMATION: Ask for PHONE: "מה הטלפון שלך לאישור?" - Phone is collected LAST
+5. BOOKING SUCCESS: Only say "התור נקבע" AFTER system confirms booking
 
 CRITICAL RULES:
 - Appointment slots: {policy.slot_size_min} minutes{min_notice}
 - Business hours: {hours_description}
-- Customer phone is already available - do NOT ask for it unless business prompt requires it
-- NEVER tell customer "appointment is confirmed" before the system confirms it
-- If slot is not available, offer alternatives based on system response
+- Phone is collected LAST, only after appointment time is confirmed
+- If slot is taken, offer alternatives (system will provide)
+- NEVER ask for phone before confirming date/time availability
 """
         else:
             scheduling_rules = """
 NO APPOINTMENT SCHEDULING:
 - You do NOT offer appointments.
-- Follow the business prompt instructions for what to say if customer asks about appointments.
-- Focus on collecting information as specified in the business prompt.
+- If customer asks for an appointment, politely say a representative will call them back to schedule.
+- Focus only on collecting lead information.
 """
         
-        # 🔥 END OF CALL (NO hardcoded closing text)
+        # 🔥 END OF CALL
         end_of_call = """
 END OF CALL:
-- Follow the business instructions below for how to close the call.
-- After saying goodbye, stay quiet and let the call end naturally.
-- DO NOT repeat or confirm details back to the customer unless the business prompt instructs you to do so.
+- Once you have collected service and location info, close the call naturally.
+- Say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות."
+- After saying goodbye, stay quiet.
+- DO NOT repeat or confirm details back to the customer.
 """
         
         # 🔥 COMBINE ALL SECTIONS
         full_prompt = f"""{behavioral_rules}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔥 BUSINESS PROMPT - THE SINGLE SOURCE OF TRUTH FOR BEHAVIOR
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-The following business instructions are THE ONLY source for:
-- What information to collect
-- How to greet and close calls
-- What to say if you need to promise a callback
-- Any specific business logic or script
-
-If there is ANY conflict between the system rules above and the business prompt below:
-→ ALWAYS PREFER THE BUSINESS PROMPT.
-
 --- BUSINESS INSTRUCTIONS ---
 {core_instructions if core_instructions else f"You are a professional service representative for {business_name}. Be helpful and collect customer information."}
 ---
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 {scheduling_rules}
 
 {end_of_call}
 
-CRITICAL REMINDERS:
-- Do not perform any mid-call extraction or internal tools. Only converse naturally.
-- Never hallucinate cities or services.
-- Never correct the caller's words.
-- Use the exact words the customer said.
-- Do NOT invent closing sentences - use what the business prompt says.
+CRITICAL: Do not perform any mid-call extraction or internal tools. Only converse naturally.
+Never hallucinate cities or services.
+Never correct the caller's words.
+Use the exact words the customer said.
 """
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars")
@@ -533,8 +553,7 @@ def build_outbound_system_prompt(
         core_instructions = core_instructions.replace("{{business_name}}", business_name)
         core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
         
-        # 🔥 CLEAN BEHAVIORAL RULES FOR OUTBOUND (English instructions, AI speaks Hebrew)
-        # NO hardcoded examples, NO specific scripts
+        # 🔥 BEHAVIORAL RULES FOR OUTBOUND (English instructions, AI speaks Hebrew)
         behavioral_rules = f"""You are a male virtual outbound caller representing the business: "{business_name}".
 
 LANGUAGE RULES:
@@ -542,9 +561,9 @@ LANGUAGE RULES:
 - If customer says "I don't understand Hebrew" or speaks another language, switch immediately.
 
 OUTBOUND GREETING:
-- Follow the outbound instructions below for how to greet the customer.
+- Start naturally with a short greeting appropriate for outbound calls.
+- Example: "שלום, מדבר נציג של {business_name}..."
 - Be warm but professional.
-- Do NOT use hardcoded greetings - use what the business prompt specifies.
 
 TRANSCRIPTION IS TRUTH:
 - You NEVER invent any facts.
@@ -564,51 +583,31 @@ TONE & STYLE:
 - Polite, concise, masculine, and helpful.
 - Ask ONE question at a time.
 
-CUSTOMER PHONE:
-- The customer's phone number is ALREADY available from the call system.
-- You do NOT need to ask for it unless the outbound prompt specifically instructs you to do so.
-
 """
         
-        # 🔥 OUTBOUND CLOSING (NO hardcoded text)
+        # 🔥 OUTBOUND CLOSING
         outbound_closing = """
 END OF CALL:
-- Follow the outbound instructions below for how to close the call.
+- At the end of the conversation, politely close the call.
+- Thank the customer for their time.
 - After saying goodbye, stay quiet.
-- DO NOT repeat or confirm details unless the outbound prompt instructs you to do so.
+- DO NOT repeat or confirm details back to the customer.
 """
         
         # 🔥 COMBINE ALL SECTIONS
         full_prompt = f"""{behavioral_rules}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔥 OUTBOUND BUSINESS PROMPT - THE SINGLE SOURCE OF TRUTH FOR BEHAVIOR
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-The following outbound instructions are THE ONLY source for:
-- How to greet the customer
-- What information to collect
-- What to say and how to present the offer
-- How to close the call
-- Any specific outbound script or logic
-
-If there is ANY conflict between the system rules above and the outbound prompt below:
-→ ALWAYS PREFER THE OUTBOUND PROMPT.
-
 --- OUTBOUND INSTRUCTIONS ---
 {core_instructions}
 ---
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 {outbound_closing}
 
-CRITICAL REMINDERS:
+CRITICAL: 
 - Use ONLY the information provided in the outbound prompt above.
 - Do not use inbound call logic.
 - NEVER invent facts or details.
 - Be polite and professional.
-- Do NOT invent closing sentences - use what the outbound prompt says.
 """
         
         logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars")
