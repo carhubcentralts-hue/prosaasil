@@ -234,11 +234,19 @@ def process_recording_async(form_data):
 def download_recording(recording_url, call_sid):
     """הורד קובץ הקלטה מTwilio"""
     try:
-        # Twilio מחזיר רק metadata, צריך להוסיף .mp3
-        mp3_url = f"{recording_url}.mp3"
+        # Normalize Twilio recording URL:
+        # - if it ends with .json → replace with .mp3
+        # - if it already ends with .mp3 or .wav → leave as is
+        # - otherwise → append .mp3 once
+        download_url = recording_url
         
-        print(f"[OFFLINE_STT] Downloading recording from Twilio: {mp3_url}")
-        log.info(f"[OFFLINE_STT] Attempting to download: {mp3_url}")
+        if download_url.endswith(".json"):
+            download_url = download_url[:-5] + ".mp3"
+        elif not download_url.endswith(".mp3") and not download_url.endswith(".wav"):
+            download_url = download_url + ".mp3"
+        
+        print(f"[OFFLINE_STT] Downloading recording from Twilio: {download_url}")
+        log.info(f"[OFFLINE_STT] Attempting to download: {download_url}")
         
         # הורד עם Basic Auth של Twilio
         account_sid = os.getenv("TWILIO_ACCOUNT_SID")
@@ -250,12 +258,13 @@ def download_recording(recording_url, call_sid):
             return None
             
         auth = (account_sid, auth_token)
-        response = requests.get(mp3_url, auth=auth, timeout=30)
+        response = requests.get(download_url, auth=auth, timeout=30)
         response.raise_for_status()
         
         # בדוק שהתקבל אודיו ולא תשובה ריקה
         audio_bytes = response.content
-        print(f"[OFFLINE_STT] Downloaded recording bytes: {len(audio_bytes)} for {call_sid}")
+        print(f"[OFFLINE_STT] ✅ Download status: {response.status_code}, bytes={len(audio_bytes)} for {call_sid}")
+        log.info(f"[OFFLINE_STT] Download successful: status={response.status_code}, size={len(audio_bytes)} bytes")
         
         if len(audio_bytes) < 1000:  # פחות מ-1KB - כנראה לא אודיו תקין
             print(f"⚠️ [OFFLINE_STT] Recording too small ({len(audio_bytes)} bytes) for {call_sid} - may be corrupted")
