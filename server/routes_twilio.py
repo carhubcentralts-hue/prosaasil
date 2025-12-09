@@ -455,6 +455,15 @@ def incoming_call():
     # This ensures clean recordings without AI greeting echo
     print(f"[CALL_SETUP] Greeting mode: ai_only (no static Play/Say)")
     
+    # 🎧 CRITICAL: Record ONLY inbound audio (user voice) - no AI echo in recordings
+    vr.record(
+        recording_track="inbound",  # Record only user audio, not AI responses
+        max_length=600,  # 10 minutes max
+        timeout=3,  # Stop recording after 3s of silence
+        transcribe=False,  # We handle transcription ourselves
+        play_beep=False  # No beep sound
+    )
+    
     # ✅ Connect + Stream - Minimal required parameters
     # track="inbound_track" ensures only user audio is sent to AI (not AI's own voice)
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
@@ -553,6 +562,15 @@ def outbound_call():
     # 🎧 BUILD: Echo prevention for outbound calls
     print(f"[CALL_SETUP] Outbound call - ai_only mode")
     
+    # 🎧 CRITICAL: Record ONLY inbound audio (user voice) - no AI echo in recordings
+    vr.record(
+        recording_track="inbound",  # Record only user audio, not AI responses
+        max_length=600,  # 10 minutes max
+        timeout=3,  # Stop recording after 3s of silence
+        transcribe=False,  # We handle transcription ourselves
+        play_beep=False  # No beep sound
+    )
+    
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
     stream = connect.stream(
         url=f"wss://{host}/ws/twilio-media",
@@ -586,8 +604,9 @@ def stream_ended():
     resp = make_response("", 204)
     resp.headers["Cache-Control"] = "no-store"
     
-    # עיבוד ברקע - עורר הקלטה או חפש הקלטה קיימת
+    # 🎧 CRITICAL LOG: Recording starts AFTER stream ends (after AI greeting finished)
     if call_sid:
+        print(f"[RECORDING] Stream ended → safe to start recording for {call_sid}")
         threading.Thread(
             target=_trigger_recording_for_call, 
             args=(call_sid,), 
