@@ -93,6 +93,23 @@ def _trigger_recording_for_call(call_sid):
                 for recording in recordings:
                     print(f"✅ Found existing recording for {call_sid}: {recording.uri}")
                     
+                    # ✅ CRITICAL FIX: Save recording_url to CallLog IMMEDIATELY
+                    # This ensures the worker can access the recording
+                    try:
+                        from server.app_factory import get_process_app
+                        app = get_process_app()
+                        with app.app_context():
+                            from server.models_sql import CallLog, db
+                            call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                            if call_log:
+                                call_log.recording_url = recording.uri
+                                db.session.commit()
+                                print(f"✅ Saved recording_url to CallLog for {call_sid}: {recording.uri}")
+                            else:
+                                print(f"⚠️ CallLog not found for {call_sid}, recording_url not saved")
+                    except Exception as e:
+                        print(f"⚠️ Failed to save recording_url to CallLog: {e}")
+                    
                     # קבל פרטי השיחה למספרי טלפון
                     from_num = ''
                     to_num = ''
