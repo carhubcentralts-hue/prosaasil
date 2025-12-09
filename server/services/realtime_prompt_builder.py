@@ -286,12 +286,55 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
-    🔥 DEPRECATED: This function is no longer used. Keeping for backwards compatibility.
-    🔥 All behavior now comes from System Prompts (INBOUND/OUTBOUND) + Business Prompt
+    🔥 BUILD 333: PHASE-BASED FLOW - prevents mid-confirmation and looping
+    🔥 BUILD 327: STT AS SOURCE OF TRUTH - respond only to what customer actually said
+    🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
-    # This function should not be called anymore
-    logger.warning("⚠️ [DEPRECATED] _build_critical_rules_compact called - should use new prompt builders")
-    return ""
+    direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
+    
+    # Greeting line
+    if greeting_text and greeting_text.strip():
+        greeting_line = f'- Use this greeting once at the start: "{greeting_text.strip()}"'
+    else:
+        greeting_line = "- Greet warmly and introduce yourself as the business rep"
+    
+    # 🔥 BUILD 340: CLEAR SCHEDULING RULES with STRICT FIELD ORDER
+    if enable_calendar_scheduling:
+        scheduling_section = """
+APPOINTMENT BOOKING (STRICT ORDER!):
+1. FIRST ask for NAME: "מה השם שלך?" - get name before anything else
+2. THEN ask for DATE/TIME: "לאיזה יום ושעה?" - get preferred date and time
+3. WAIT for system to check availability (don't promise!)
+4. ONLY AFTER slot is confirmed → ask for PHONE: "מה הטלפון שלך לאישור?"
+- Phone is collected LAST, only after appointment time is locked!
+- Only say "התור נקבע" AFTER system confirms booking success
+- If slot taken: offer alternatives (system will provide)
+- NEVER ask for phone before confirming date/time availability!"""
+    else:
+        scheduling_section = """
+NO SCHEDULING: Do NOT offer appointments. If customer asks, promise a callback from human rep."""
+    
+    # 🔥 BUILD 336: COMPACT + CLEAR SYSTEM RULES
+    return f"""AI Rep for "{business_name}" | {direction_context} call | {weekday_name} {today_date}
+
+LANGUAGE: All instructions are in English. SPEAK HEBREW to customer.
+
+STT IS TRUTH: Trust transcription 100%. NEVER change, substitute, or "correct" any word.
+
+CALL FLOW:
+1. GREET: {greeting_line} Ask ONE open question about their need.
+2. COLLECT: One question at a time. Mirror their EXACT words.
+3. CLOSE: Once you have the service and location, say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות." Then stay quiet.
+{scheduling_section}
+
+STRICT RULES:
+- Hebrew speech only
+- BE PATIENT: Wait for customer to respond. Don't rush or repeat questions too quickly.
+- No loops, no repeating questions unless answer was unclear
+- NO confirmations or summaries - just collect info and close naturally
+- After customer says goodbye → one farewell and stay quiet
+- Don't ask for multiple pieces of information at once - ONE question at a time!
+"""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

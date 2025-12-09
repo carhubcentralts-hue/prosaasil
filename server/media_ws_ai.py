@@ -571,62 +571,6 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
         traceback.print_exc()
 
 
-def create_appointment(business_id: int, customer_phone: str, customer_name: str,
-                      requested_dt, service_type: str = "") -> Optional[int]:
-    """
-    🔥 SIMPLIFIED WRAPPER: Create appointment from datetime object
-    
-    Args:
-        business_id: Business ID
-        customer_phone: Customer phone from call
-        customer_name: Customer name
-        requested_dt: datetime object (timezone-aware)
-        service_type: Service type (optional)
-    
-    Returns:
-        Appointment ID if created successfully, None otherwise
-    """
-    try:
-        from datetime import timedelta
-        from server.policy.business_policy import get_business_policy
-        
-        # Get slot size
-        policy = get_business_policy(business_id)
-        slot_duration = timedelta(minutes=policy.slot_size_min)
-        end_dt = requested_dt + slot_duration
-        
-        # Convert to ISO format
-        start_iso = requested_dt.isoformat()
-        end_iso = end_dt.isoformat()
-        
-        # Call existing function
-        result = create_appointment_from_realtime(
-            business_id=business_id,
-            customer_phone=customer_phone,
-            customer_name=customer_name,
-            treatment_type=service_type,
-            start_iso=start_iso,
-            end_iso=end_iso,
-            notes=None
-        )
-        
-        # Extract appointment ID from result
-        if isinstance(result, dict) and result.get('ok'):
-            return result.get('appointment_id')
-        elif isinstance(result, int):
-            return result
-        elif hasattr(result, 'appointment_id'):
-            return result.appointment_id
-        else:
-            return None
-            
-    except Exception as e:
-        print(f"❌ [CREATE_APPT] Error in wrapper: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-
 def create_appointment_from_realtime(business_id: int, customer_phone: str, 
                                      customer_name: str, treatment_type: str,
                                      start_iso: str, end_iso: str, 
@@ -8348,8 +8292,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         🎯 Check if AI said polite closing phrases (for graceful call ending)
         
-        🔥 CLEANED: Removed hardcoded phrases - business prompt controls all closing behavior
-        This function now only checks for generic goodbye patterns
+        These phrases indicate AI is ending the conversation politely:
+        - "תודה שהתקשרת" - Thank you for calling
+        - "יום נפלא/נעים" - Have a great day
+        - "נשמח לעזור שוב" - Happy to help again
+        - "נציג יחזור אליך" - A rep will call you back
         
         Args:
             text: AI transcript to check
@@ -8359,11 +8306,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         text_lower = text.lower().strip()
         
-        # 🔥 GENERIC closing phrases only - no business-specific text
         polite_closing_phrases = [
             "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
             "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
             "נשמח לעזור", "נשמח לעמוד לשירותך",
+            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר",
             "שמח שיכולתי לעזור", "שמחתי לעזור",
             "אם תצטרך משהו נוסף", "אם יש שאלות נוספות"
         ]
@@ -8445,18 +8392,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
         call_id = event.get("call_id", "")
         arguments_str = event.get("arguments", "{}")
         
-        print(f"🔧 [FUNCTION CALL] {function_name}, call_id={call_id[:20] if call_id else 'none'}...")
+        print(f"🔧 [BUILD 313] Function call: {function_name}, call_id={call_id[:20] if call_id else 'none'}...")
         
         if function_name == "save_lead_info":
             try:
                 args = json.loads(arguments_str)
-                print(f"📝 [LEAD INFO] From AI: {args}")
+                print(f"📝 [BUILD 313] Lead info from AI: {args}")
                 
                 # Update lead_capture_state with each field AI provided
                 for field, value in args.items():
                     if value and str(value).strip():
                         self._update_lead_capture_state(field, str(value).strip())
-                        print(f"✅ [LEAD INFO] Saved {field} = '{value}'")
+                        print(f"✅ [BUILD 313] Saved {field} = '{value}'")
                 
                 # Send success response back to AI
                 await client.send_event({
@@ -8475,7 +8422,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 self._check_lead_complete()
                 
             except json.JSONDecodeError as e:
-                print(f"❌ [LEAD INFO] Failed to parse arguments: {e}")
+                print(f"❌ [BUILD 313] Failed to parse function arguments: {e}")
                 await client.send_event({
                     "type": "conversation.item.create",
                     "item": {
@@ -8779,7 +8726,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 await client.send_event({"type": "response.create"})
         
         else:
-            print(f"⚠️ [FUNCTION CALL] Unknown function: {function_name}")
+            print(f"⚠️ [BUILD 313] Unknown function: {function_name}")
     
     def _check_lead_complete(self):
         """
