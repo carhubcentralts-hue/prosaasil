@@ -351,7 +351,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             return {
                 "ok": False,
                 "error": "need_phone",
-                "message": "נדרש מספר טלפון לפני קביעת תור. תקליד/י עכשיו את מספר הטלפון במקלדת הטלפון ואז סיים/י ב-#"
+                "message": "phone_required"
             }
         
         # ⚡ Validate phone number IF provided
@@ -545,7 +545,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
                     last_name=last_name,
                     source=input.source or "ai_agent",
                     status="מתואם",  # Default status for booked appointments
-                    notes=f"תור נקבע: {input.treatment_type} ב-{start.strftime('%d/%m/%Y %H:%M')}"
+                    notes=f"{input.treatment_type} - {start.strftime('%d/%m/%Y %H:%M')}"
                 )
                 
                 # BUILD 147: Call the implementation directly, not the FunctionTool wrapper
