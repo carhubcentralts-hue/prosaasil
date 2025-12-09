@@ -284,6 +284,83 @@ def process_recording_async(form_data):
         
         log.info("✅ Recording processed successfully: CallSid=%s", call_sid)
         
+        # 5. 🔥 SINGLE SOURCE OF TRUTH: Send webhook after everything is complete
+        # This is THE ONLY place that sends webhooks - not from realtime handler!
+        try:
+            from server.services.generic_webhook_service import send_call_completed_webhook
+            from server.app_factory import get_process_app
+            from server.models_sql import CallLog
+            
+            app = get_process_app()
+            with app.app_context():
+                # Reload CallLog to get fresh data with all fields
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                
+                if not call_log:
+                    print(f"⚠️ [WEBHOOK] CallLog not found for {call_sid} - skipping webhook")
+                    log.warning(f"[WEBHOOK] CallLog not found for {call_sid}")
+                else:
+                    # Get business_id
+                    business_id = call_log.business_id
+                    
+                    # Determine call direction
+                    direction = call_log.direction or "inbound"
+                    
+                    # Build webhook payload with ONLY data from DB (single source of truth)
+                    phone = call_log.from_number or ""
+                    city = call_log.extracted_city or ""
+                    service_category = call_log.extracted_service or ""
+                    transcript = call_log.final_transcript or call_log.transcription or ""
+                    summary_text = call_log.summary or ""
+                    
+                    # Get customer name from CRM if available
+                    customer_name = None
+                    if call_log.customer_id:
+                        try:
+                            from server.models_sql import Customer
+                            customer = Customer.query.get(call_log.customer_id)
+                            if customer:
+                                customer_name = customer.name
+                        except Exception as e:
+                            log.warning(f"Could not load customer name: {e}")
+                    
+                    print(f"[WEBHOOK] 📤 Sending webhook for call {call_sid}")
+                    print(f"[WEBHOOK]    Business: {business_id}")
+                    print(f"[WEBHOOK]    Phone: {phone or 'N/A'}")
+                    print(f"[WEBHOOK]    City: {city or 'N/A'}")
+                    print(f"[WEBHOOK]    Service: {service_category or 'N/A'}")
+                    print(f"[WEBHOOK]    Direction: {direction}")
+                    print(f"[WEBHOOK]    Transcript: {len(transcript)} chars")
+                    print(f"[WEBHOOK]    Summary: {len(summary_text)} chars")
+                    
+                    # Send webhook
+                    send_call_completed_webhook(
+                        business_id=business_id,
+                        call_id=call_sid,
+                        lead_id=call_log.lead_id,
+                        phone=phone,
+                        started_at=call_log.created_at,
+                        ended_at=call_log.updated_at,
+                        duration_sec=call_log.duration or 0,
+                        transcript=transcript,
+                        summary=summary_text,
+                        agent_name="AI Assistant",
+                        direction=direction,
+                        city=city,
+                        service_category=service_category,
+                        customer_name=customer_name
+                    )
+                    
+                    print(f"✅ [WEBHOOK] Webhook sent successfully for {call_sid}")
+                    log.info(f"[WEBHOOK] Webhook sent for call {call_sid}")
+                    
+        except Exception as webhook_err:
+            # Webhook errors should not break the recording processing
+            print(f"⚠️ [WEBHOOK] Failed to send webhook for {call_sid}: {webhook_err}")
+            log.error(f"[WEBHOOK] Failed to send webhook: {webhook_err}")
+            import traceback
+            traceback.print_exc()
+        
     except Exception as e:
         log.error("❌ Recording processing failed: %s", e)
         import traceback
