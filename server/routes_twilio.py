@@ -450,9 +450,18 @@ def incoming_call():
     # ✅ Twilio SDK - Simplified for Error 12100 fix
     vr = VoiceResponse()
     
+    # 🎧 BUILD: Echo prevention - no greeting duplication
+    # Recording starts AFTER stream ends (in stream_ended webhook)
+    # This ensures clean recordings without AI greeting echo
+    print(f"[CALL_SETUP] Greeting mode: ai_only (no static Play/Say)")
+    
     # ✅ Connect + Stream - Minimal required parameters
+    # track="inbound_track" ensures only user audio is sent to AI (not AI's own voice)
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
-    stream = connect.stream(url=f"wss://{host}/ws/twilio-media")
+    stream = connect.stream(
+        url=f"wss://{host}/ws/twilio-media",
+        track="inbound_track"  # 🎧 Only send user audio to stream, prevents feedback
+    )
     
     # ✅ CRITICAL: Parameters with CallSid + To
     stream.parameter(name="CallSid", value=call_sid)
@@ -541,8 +550,14 @@ def outbound_call():
     
     vr = VoiceResponse()
     
+    # 🎧 BUILD: Echo prevention for outbound calls
+    print(f"[CALL_SETUP] Outbound call - ai_only mode")
+    
     connect = vr.connect(action=f"https://{host}/webhook/stream_ended")
-    stream = connect.stream(url=f"wss://{host}/ws/twilio-media")
+    stream = connect.stream(
+        url=f"wss://{host}/ws/twilio-media",
+        track="inbound_track"  # 🎧 Only send user audio to stream
+    )
     
     stream.parameter(name="CallSid", value=call_sid)
     stream.parameter(name="To", value=to_number or "unknown")

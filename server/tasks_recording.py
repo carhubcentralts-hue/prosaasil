@@ -215,10 +215,20 @@ def process_recording_async(form_data):
             log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
         
         # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
+        # 🔥 CRITICAL: Use final_transcript (high-quality Whisper) if available, fallback to realtime transcription
         summary = ""
-        if transcription and len(transcription) > 10:
+        
+        # Choose best transcript for summary: final_transcript (Whisper) > transcription (Google STT)
+        source_text_for_summary = final_transcript if (final_transcript and len(final_transcript) > 10) else transcription
+        
+        if source_text_for_summary and len(source_text_for_summary) > 10:
             from server.services.summary_service import summarize_conversation
             from server.app_factory import get_process_app
+            
+            # Log which transcript we're using
+            transcript_source = "final_transcript (Whisper)" if source_text_for_summary == final_transcript else "transcription (realtime)"
+            print(f"[SUMMARY] Using {transcript_source} for summary generation ({len(source_text_for_summary)} chars)")
+            log.info(f"[SUMMARY] Using {transcript_source} for summary generation")
             
             # Get business context for dynamic summarization (requires app context!)
             business_type = None
@@ -236,8 +246,11 @@ def process_recording_async(form_data):
             except Exception as e:
                 log.warning(f"⚠️ Could not get business context for summary: {e}")
             
-            summary = summarize_conversation(transcription, call_sid, business_type, business_name)
-            log.info(f"✅ Dynamic summary generated: {summary[:50]}...")
+            summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
+            log.info(f"✅ Dynamic summary generated from {transcript_source}: {summary[:50]}...")
+        else:
+            print(f"[SUMMARY] ⚠️ No valid transcript available for summary (final_transcript={len(final_transcript or '')} chars, transcription={len(transcription or '')} chars)")
+            log.warning(f"[SUMMARY] No valid transcript for summary")
         
         # 4. שמור לDB עם תמלול + סיכום + 🆕 POST-CALL DATA
         to_number = form_data.get('To', '')
