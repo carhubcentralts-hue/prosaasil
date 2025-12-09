@@ -284,28 +284,38 @@ def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
         retry_delays = [3, 5, 5, 10, 10]  # seconds - increasing backoff
         
         recording = None
+        duration = None
         for attempt in range(max_retries):
             try:
                 recording = client.recordings(recording_sid).fetch()
-                duration = recording.duration
+                
+                # ✅ Safe conversion: duration can be string "-1" or int -1 or None
+                raw_duration = getattr(recording, "duration", None)
+                try:
+                    duration = int(raw_duration) if raw_duration is not None else None
+                except (TypeError, ValueError):
+                    duration = None
+                
+                log.info(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={raw_duration}s")
+                print(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={raw_duration}s")
                 
                 # Check if recording is ready
-                # duration=-1 or None means Twilio is still processing
-                if duration is None or duration == -1:
+                # duration=-1 or None or <0 means Twilio is still processing
+                if duration is None or duration < 0:
                     if attempt < max_retries - 1:
                         wait_time = retry_delays[attempt]
-                        log.info(f"[OFFLINE_STT] Recording not ready yet (duration={duration}), will retry in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                        print(f"[OFFLINE_STT] Recording not ready yet (duration={duration}), will retry in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        log.info(f"[OFFLINE_STT] Recording not ready yet (duration={raw_duration}), will retry in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                        print(f"[OFFLINE_STT] Recording not ready yet (duration={raw_duration}), will retry in {wait_time}s (attempt {attempt + 1}/{max_retries})")
                         time.sleep(wait_time)
                         continue
                     else:
-                        log.error(f"[OFFLINE_STT] Giving up on recording {recording_sid} after {max_retries} attempts (still duration={duration})")
-                        print(f"❌ [OFFLINE_STT] Giving up on recording {recording_sid} after {max_retries} attempts (still duration={duration})")
+                        log.error(f"[OFFLINE_STT] Recording {recording_sid} never became ready (duration={raw_duration})")
+                        print(f"❌ [OFFLINE_STT] Recording {recording_sid} never became ready (duration={raw_duration})")
                         return None
                 else:
                     # Recording is ready!
-                    log.info(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={duration}s")
-                    print(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={duration}s")
+                    log.info(f"[OFFLINE_STT] ✅ Recording ready: {recording.sid}, duration={duration}s")
+                    print(f"[OFFLINE_STT] ✅ Recording ready: {recording.sid}, duration={duration}s")
                     break
                     
             except Exception as fetch_err:
