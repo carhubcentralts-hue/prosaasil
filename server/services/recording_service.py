@@ -8,10 +8,24 @@ import requests
 import time
 from typing import Optional
 from server.models_sql import CallLog
+from flask import current_app, has_app_context
 
 log = logging.getLogger(__name__)
 
-RECORDINGS_DIR = "server/recordings"
+def _get_recordings_dir() -> str:
+    """
+    ✅ מחזיר נתיב מוחלט לתיקיית הקלטות
+    תומך בהרצה עם ובלי Flask context
+    """
+    if has_app_context():
+        # Inside Flask app - use root_path (/app/server)
+        base_dir = current_app.root_path
+    else:
+        # Outside Flask (e.g., worker) - use file location
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    
+    recordings_dir = os.path.join(base_dir, "recordings")
+    return recordings_dir
 
 def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     """
@@ -19,14 +33,14 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     
     Logic:
     1. אם כבר קיים קובץ מקומי → החזר את הנתיב
-    2. אחרת → הורד מטוויליו (בדיוק כמו ה-UI), שמור ב-server/recordings/<call_sid>.mp3
+    2. אחרת → הורד מטוויליו (בדיוק כמו ה-UI), שמור ב-/app/server/recordings/<call_sid>.mp3
     3. החזר את הנתיב או None אם נכשל
     
     Args:
         call_log: CallLog instance with recording_url
         
     Returns:
-        str: Path to local recording file, or None if failed
+        str: Absolute path to local recording file, or None if failed
     """
     if not call_log or not call_log.call_sid:
         log.error("[RECORDING_SERVICE] Invalid call_log provided")
@@ -35,8 +49,9 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     call_sid = call_log.call_sid
     
     # 1. Check if we already have the file locally
-    os.makedirs(RECORDINGS_DIR, exist_ok=True)
-    local_path = f"{RECORDINGS_DIR}/{call_sid}.mp3"
+    recordings_dir = _get_recordings_dir()
+    os.makedirs(recordings_dir, exist_ok=True)
+    local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
     
     if os.path.exists(local_path):
         file_size = os.path.getsize(local_path)
@@ -173,5 +188,6 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
 
 def check_local_recording_exists(call_sid: str) -> bool:
     """בדיקה מהירה אם קיימת הקלטה מקומית"""
-    local_path = f"{RECORDINGS_DIR}/{call_sid}.mp3"
+    recordings_dir = _get_recordings_dir()
+    local_path = os.path.join(recordings_dir, f"{call_sid}.mp3")
     return os.path.exists(local_path) and os.path.getsize(local_path) > 1000
