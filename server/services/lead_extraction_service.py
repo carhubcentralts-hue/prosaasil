@@ -166,10 +166,11 @@ Return ONLY valid JSON with the three required fields: service, city, confidence
 
 def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Optional[str]:
     """
-    Transcribe a full recording using OpenAI Whisper for high accuracy.
+    תמלול הקלטה מלאה בעברית - איכות מקסימלית עם GPT-4o Transcribe.
     
     This is the OFFLINE transcription (post-call) - different from realtime STT.
-    Uses Whisper with optimized settings for Hebrew accuracy.
+    Uses GPT-4o-transcribe with optimized settings for maximum Hebrew accuracy.
+    Falls back to whisper-1 if GPT-4o-transcribe is not available.
     
     Args:
         audio_file_path: Path to the audio file (MP3/WAV)
@@ -183,50 +184,83 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         return None
     
     try:
+        file_size = os.path.getsize(audio_file_path)
         logger.info(f"[OFFLINE_STT] Starting transcription for call {call_sid}")
-        logger.info(f"[OFFLINE_STT] File: {audio_file_path}, size: {os.path.getsize(audio_file_path)} bytes")
+        logger.info(f"[OFFLINE_STT] File: {audio_file_path}, size: {file_size} bytes")
+        print(f"[OFFLINE_STT] 🎧 Using GPT-4o transcribe for {call_sid}, size={file_size} bytes")
         
         # Get OpenAI client
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Transcribe with Whisper - optimized for accuracy
-        with open(audio_file_path, 'rb') as audio_file:
-            # Get file size for logging
-            file_size = os.path.getsize(audio_file_path)
-            logger.info(f"[OFFLINE_STT] Whisper model=whisper-1, file_size={file_size} bytes, language=he")
-            print(f"[OFFLINE_STT] Whisper model=whisper-1, file_size={file_size} bytes, language=he")
-            
-            transcript_response = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="he",  # Hebrew
-                temperature=0.0,  # Most deterministic/accurate
-                response_format="text",  # Plain text output
-                prompt="שיחת טלפון בעברית בין לקוח למוקד שירות מנעולן. תמלל בעברית תקינה."  # Context hint for better accuracy
-            )
+        # Try GPT-4o-transcribe first (highest quality), fallback to whisper-1
+        models_to_try = [
+            ("gpt-4o-transcribe", "GPT-4o transcribe (highest quality)"),
+            ("whisper-1", "Whisper-1 (fallback)")
+        ]
         
-        # Extract text
-        if isinstance(transcript_response, str):
-            transcript_text = transcript_response.strip()
-        else:
-            transcript_text = transcript_response.text.strip() if hasattr(transcript_response, 'text') else str(transcript_response).strip()
+        transcript_text = None
+        last_error = None
         
-        # Log detailed preview
-        logger.info(f"[OFFLINE_STT] Transcription complete: {len(transcript_text)} chars")
-        print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(transcript_text)} chars")
-        print(f"[OFFLINE_STT] Transcript preview (first 150 chars): {transcript_text[:150]!r}")
-        logger.info(f"[OFFLINE_STT] Transcript preview: {transcript_text[:150]!r}")
+        for model, model_desc in models_to_try:
+            try:
+                logger.info(f"[OFFLINE_STT] Trying model: {model}")
+                print(f"[OFFLINE_STT] Attempting transcription with {model_desc}")
+                
+                with open(audio_file_path, 'rb') as audio_file:
+                    transcript_response = client.audio.transcriptions.create(
+                        model=model,
+                        file=audio_file,
+                        language="he",  # Hebrew
+                        temperature=0,  # Most deterministic/accurate
+                        response_format="text",  # Plain text output
+                        # Improved prompt for better context
+                        prompt=(
+                            "תמלל מילה במילה שיחת טלפון בעברית בין לקוח לנציג. "
+                            "תכתוב בעברית תקנית עם פיסוק, בלי להוסיף או להמציא מידע."
+                        )
+                    )
+                
+                # Extract text
+                if isinstance(transcript_response, str):
+                    transcript_text = transcript_response.strip()
+                else:
+                    transcript_text = transcript_response.text.strip() if hasattr(transcript_response, 'text') else str(transcript_response).strip()
+                
+                # Success with this model!
+                logger.info(f"[OFFLINE_STT] ✅ Success with {model}: {len(transcript_text)} chars")
+                print(f"[OFFLINE_STT] ✅ Transcript obtained with {model} ({len(transcript_text)} chars) for {call_sid}")
+                print(f"[OFFLINE_STT] Preview: {transcript_text[:120]!r}")
+                break
+                
+            except Exception as model_error:
+                last_error = model_error
+                error_msg = str(model_error).lower()
+                
+                # Check if model not found - try fallback
+                if "model" in error_msg and ("not found" in error_msg or "does not exist" in error_msg):
+                    logger.warning(f"[OFFLINE_STT] Model {model} not available, trying fallback...")
+                    print(f"⚠️ [OFFLINE_STT] {model} not available, trying fallback...")
+                    continue
+                else:
+                    # Other error - log but try fallback anyway
+                    logger.warning(f"[OFFLINE_STT] Error with {model}: {model_error}")
+                    print(f"⚠️ [OFFLINE_STT] Error with {model}, trying fallback...")
+                    continue
         
-        # Validate
+        # Check if we got a valid transcript
         if not transcript_text or len(transcript_text) < 10:
-            logger.warning(f"[OFFLINE_STT] Transcription too short or empty: {len(transcript_text)} chars")
-            print(f"⚠️ [OFFLINE_STT] Transcription too short or empty: {len(transcript_text)} chars")
+            logger.warning(f"[OFFLINE_STT] Transcription too short or empty: {len(transcript_text or '')} chars")
+            print(f"⚠️ [OFFLINE_STT] Transcription too short or empty: {len(transcript_text or '')} chars")
             return None
+        
+        logger.info(f"[OFFLINE_STT] Transcription complete: {len(transcript_text)} chars")
+        logger.info(f"[OFFLINE_STT] Transcript preview: {transcript_text[:150]!r}")
         
         return transcript_text
         
     except Exception as e:
         logger.error(f"[OFFLINE_STT] Transcription failed for call {call_sid}: {type(e).__name__}: {str(e)[:200]}")
+        print(f"❌ [OFFLINE_STT] Transcription failed for {call_sid}: {e}")
         import traceback
         traceback.print_exc()
         return None
