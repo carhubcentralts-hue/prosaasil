@@ -157,7 +157,7 @@ def get_call_details(call_sid):
 @calls_bp.route("/api/calls/<call_sid>/download", methods=["GET"])
 @require_api_auth()
 def download_recording(call_sid):
-    """הורדה מאובטחת של הקלטה דרך השרת"""
+    """הורדה מאובטחת של הקלטה דרך השרת - using unified recording service"""
     try:
         business_id = get_business_id()
         if not business_id:
@@ -168,90 +168,27 @@ def download_recording(call_sid):
             Call.business_id == business_id
         ).first()
         
-        if not call or not call.recording_url:
-            return jsonify({"success": False, "error": "Recording not found"}), 404
+        if not call:
+            return jsonify({"success": False, "error": "Call not found"}), 404
         
         # Check if recording is expired (7 days)
         if call.created_at and (datetime.utcnow() - call.created_at).days > 7:
             return jsonify({"success": False, "error": "Recording expired and deleted"}), 410
         
-        # Security: Validate recording URL is from trusted Twilio domain
-        parsed_url = urllib.parse.urlparse(call.recording_url)
-        allowed_hosts = ['api.twilio.com']
-        if parsed_url.hostname not in allowed_hosts:
-            log.warning(f"Suspicious recording URL host: {parsed_url.hostname}")
-            return jsonify({"success": False, "error": "Invalid recording source"}), 403
+        # ✅ Use unified recording service - same source as worker
+        from server.services.recording_service import get_recording_file_for_call
         
-        # Download from Twilio with auth
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+        audio_path = get_recording_file_for_call(call)
+        if not audio_path:
+            return jsonify({"success": False, "error": "Recording not available"}), 404
         
-        if not account_sid or not auth_token:
-            return jsonify({"success": False, "error": "Twilio credentials not configured"}), 500
+        # Serve the file directly
+        return send_file(
+            audio_path,
+            mimetype="audio/mpeg",
+            as_attachment=False,
+        )
         
-        # Download recording - try multiple formats
-        auth = (account_sid, auth_token)
-        recording_content = None
-        
-        # 🔥 BUILD 149 FIX: Try multiple URL formats
-        # Handle .json URLs from Twilio properly
-        base_url = call.recording_url
-        if base_url.endswith(".json"):
-            base_url = base_url[:-5]
-        
-        urls_to_try = [
-            base_url,  # בלי סיומת – פורמט ברירת מחדל של Twilio
-            f"{base_url}.mp3",
-            f"{base_url}.wav",
-        ]
-        
-        last_error = None
-        for try_url in urls_to_try:
-            try:
-                log.info(f"Trying recording URL: {try_url[:80]}...")
-                response = requests.get(try_url, auth=auth, timeout=30)
-                if response.status_code == 200 and len(response.content) > 1000:
-                    recording_content = response.content
-                    log.info(f"Successfully downloaded {len(recording_content)} bytes from {try_url[:50]}...")
-                    break
-                else:
-                    log.warning(f"URL {try_url[:50]} returned {response.status_code} or too small ({len(response.content)} bytes)")
-            except requests.RequestException as e:
-                log.warning(f"Failed URL {try_url[:50]}: {e}")
-                last_error = e
-                continue
-        
-        if not recording_content:
-            log.error(f"Failed to download recording from all URLs. Last error: {last_error}")
-            return jsonify({"success": False, "error": "ההקלטה לא נמצאה בשרת Twilio. ייתכן שנמחקה."}), 502
-        
-        # Create temporary file and serve it
-        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-        try:
-            tmp_file.write(recording_content)
-            tmp_file.close()
-            
-            # Serve file with proper cleanup
-            try:
-                return send_file(
-                    tmp_file.name,
-                    as_attachment=True,
-                    download_name=f"recording-{call_sid}.mp3",
-                    mimetype="audio/mpeg"
-                )
-            finally:
-                # Clean up temp file immediately after sending
-                try:
-                    os.unlink(tmp_file.name)
-                except OSError:
-                    log.warning(f"Failed to cleanup temp file: {tmp_file.name}")
-        except Exception as e:
-            # Cleanup on error
-            try:
-                os.unlink(tmp_file.name)
-            except OSError:
-                pass
-            raise e
     except Exception as e:
         log.error(f"Error downloading recording: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
