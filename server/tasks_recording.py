@@ -7,6 +7,7 @@ import logging
 import queue
 from threading import Thread
 from datetime import datetime
+from typing import Optional
 
 log = logging.getLogger("tasks.recording")
 
@@ -100,7 +101,12 @@ def process_recording_async(form_data):
         # 1. הורד קובץ הקלטה
         audio_file = download_recording(recording_url, call_sid)
         
+        if not audio_file:
+            print(f"⚠️ [OFFLINE_STT] Audio download failed for {call_sid} - skipping offline processing")
+            log.warning(f"[OFFLINE_STT] Audio download failed for {call_sid}")
+        
         # 2. תמלול עברית (Google STT v2 + Whisper fallback) - for summary
+        # transcribe_hebrew handles None gracefully and returns ""
         transcription = transcribe_hebrew(audio_file)
         
         # 🆕 2.5. POST-CALL: High-quality full transcript using Whisper (offline)
@@ -231,23 +237,36 @@ def process_recording_async(form_data):
         import traceback
         traceback.print_exc()
 
-def download_recording(recording_url, call_sid):
-    """הורד קובץ הקלטה מTwilio"""
+def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
+    """Download Twilio call recording as binary audio.
+
+    recording_url may be:
+    - relative JSON URI: /2010-04-01/Accounts/.../Recordings/RExxx.json
+    - relative media URI: /2010-04-01/Accounts/.../Recordings/RExxx.mp3
+    - absolute URL:      https://api.twilio.com/2010-04-01/Accounts/.../Recordings/RExxx.json
+    """
     try:
-        # Normalize Twilio recording URL:
-        # - if it ends with .json → replace with .mp3
-        # - if it already ends with .mp3 or .wav → leave as is
-        # - otherwise → append .mp3 once
-        download_url = recording_url
-        
+        original_url = recording_url or ""
+        download_url = original_url
+
+        # 1) Ensure we have a full https URL with api.twilio.com
+        if download_url.startswith("/"):
+            download_url = f"https://api.twilio.com{download_url}"
+
+        # 2) Normalize extension:
+        #    - if endswith .json -> replace with .mp3
+        #    - if already endswith .mp3/.wav -> leave as-is
+        #    - else -> append .mp3 once
         if download_url.endswith(".json"):
             download_url = download_url[:-5] + ".mp3"
-        elif not download_url.endswith(".mp3") and not download_url.endswith(".wav"):
+        elif download_url.endswith(".mp3") or download_url.endswith(".wav"):
+            pass
+        else:
             download_url = download_url + ".mp3"
-        
+
         print(f"[OFFLINE_STT] Downloading recording from Twilio: {download_url}")
-        log.info(f"[OFFLINE_STT] Attempting to download: {download_url}")
-        
+        log.info(f"[OFFLINE_STT] Attempting to download recording: original={original_url}, final={download_url}")
+
         # הורד עם Basic Auth של Twilio
         account_sid = os.getenv("TWILIO_ACCOUNT_SID")
         auth_token = os.getenv("TWILIO_AUTH_TOKEN")
@@ -256,19 +275,32 @@ def download_recording(recording_url, call_sid):
             print(f"❌ [OFFLINE_STT] Missing Twilio credentials for {call_sid}")
             log.error("Missing Twilio credentials for download")
             return None
-            
-        auth = (account_sid, auth_token)
-        response = requests.get(download_url, auth=auth, timeout=30)
-        response.raise_for_status()
+
+        resp = requests.get(
+            download_url,
+            auth=(account_sid, auth_token),
+            timeout=20,
+            stream=True,
+        )
+
+        print(f"[OFFLINE_STT] Download status: {resp.status_code}")
+        log.info(f"[OFFLINE_STT] Download status: {resp.status_code} for {download_url}")
+
+        if resp.status_code != 200:
+            print(f"❌ [OFFLINE_STT] HTTP error downloading recording for {call_sid}: {resp.status_code}")
+            return None
+
+        data = resp.content or b""
+        if not data:
+            print(f"⚠️ [OFFLINE_STT] Empty audio for {call_sid}")
+            return None
+
+        print(f"[OFFLINE_STT] ✅ Downloaded {len(data)} bytes for {call_sid}")
         
         # בדוק שהתקבל אודיו ולא תשובה ריקה
-        audio_bytes = response.content
-        print(f"[OFFLINE_STT] ✅ Download status: {response.status_code}, bytes={len(audio_bytes)} for {call_sid}")
-        log.info(f"[OFFLINE_STT] Download successful: status={response.status_code}, size={len(audio_bytes)} bytes")
-        
-        if len(audio_bytes) < 1000:  # פחות מ-1KB - כנראה לא אודיו תקין
-            print(f"⚠️ [OFFLINE_STT] Recording too small ({len(audio_bytes)} bytes) for {call_sid} - may be corrupted")
-            log.warning(f"Recording suspiciously small: {len(audio_bytes)} bytes")
+        if len(data) < 1000:  # פחות מ-1KB - כנראה לא אודיו תקין
+            print(f"⚠️ [OFFLINE_STT] Recording too small ({len(data)} bytes) for {call_sid} - may be corrupted")
+            log.warning(f"Recording suspiciously small: {len(data)} bytes")
         
         # שמור לדיסק
         recordings_dir = "server/recordings"
@@ -276,25 +308,15 @@ def download_recording(recording_url, call_sid):
         
         file_path = f"{recordings_dir}/{call_sid}.mp3"
         with open(file_path, "wb") as f:
-            f.write(audio_bytes)
+            f.write(data)
         
-        print(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(audio_bytes)} bytes)")
-        log.info("Recording downloaded: %s (%d bytes)", file_path, len(audio_bytes))
+        print(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(data)} bytes)")
+        log.info("Recording downloaded: %s (%d bytes)", file_path, len(data))
         return file_path
-        
-    except requests.exceptions.HTTPError as e:
-        print(f"❌ [OFFLINE_STT] HTTP error downloading recording for {call_sid}: {e.response.status_code}")
-        log.error(f"HTTP error downloading recording: {e}")
-        return None
-    except requests.exceptions.Timeout as e:
-        print(f"❌ [OFFLINE_STT] Timeout downloading recording for {call_sid}")
-        log.error(f"Timeout downloading recording: {e}")
-        return None
+
     except Exception as e:
-        print(f"❌ [OFFLINE_STT] Failed to download recording for {call_sid}: {e}")
-        log.error("Failed to download recording: %s", e)
-        import traceback
-        traceback.print_exc()
+        print(f"❌ [OFFLINE_STT] Exception downloading recording for {call_sid}: {e}")
+        log.exception(f"[OFFLINE_STT] Exception downloading recording for {call_sid}")
         return None
 
 def transcribe_hebrew(audio_file):
