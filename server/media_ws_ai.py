@@ -1434,7 +1434,11 @@ class MediaStreamHandler:
                 from server.models_sql import BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
                 
-                if settings and getattr(settings, 'enable_calendar_scheduling', False):
+                # 🔥 CHECK BOTH: call_goal == "appointment" AND enable_calendar_scheduling
+                call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
+                enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
+                
+                if call_goal == 'appointment' and enable_scheduling:
                     # Appointment tool schema
                     appointment_tool = {
                         "type": "function",
@@ -1464,9 +1468,9 @@ class MediaStreamHandler:
                         }
                     }
                     tools.append(appointment_tool)
-                    logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED for business {business_id}")
+                    logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
                 else:
-                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED - no tools for business {business_id}")
+                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}, scheduling={enable_scheduling}) - no tools for business {business_id}")
                 
         except Exception as e:
             logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
@@ -8483,133 +8487,15 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 await client.send_event({"type": "response.create"})
         
         elif function_name == "schedule_appointment":
-            # 🔥 APPOINTMENT SCHEDULING: Use customer_phone from call
+            # 🔥 APPOINTMENT SCHEDULING: Goal-based with structured errors
             try:
                 args = json.loads(arguments_str)
                 print(f"📅 [APPOINTMENT] Request from AI: {args}")
                 
-                customer_name = args.get("customer_name", "")
-                appointment_date = args.get("appointment_date", "")  # YYYY-MM-DD
-                appointment_time = args.get("appointment_time", "")  # HH:MM
-                service_type = args.get("service_type", "")
-                
-                # 🔥 USE customer_phone FROM CALL - already available!
-                customer_phone = getattr(self, 'phone_number', None)
-                if not customer_phone:
-                    print(f"❌ [APPOINTMENT] No customer phone available!")
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({
-                                "success": False, 
-                                "error": "Customer phone not available"
-                            })
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
-                
-                print(f"📅 [APPOINTMENT] Using customer_phone from call: {customer_phone}")
-                
-                # Validate required fields
-                if not customer_name or not appointment_date or not appointment_time:
-                    error_msg = "Missing required fields: name, date, or time"
-                    print(f"❌ [APPOINTMENT] {error_msg}")
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({"success": False, "error": error_msg})
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
-                
-                # Parse date and time
-                try:
-                    from datetime import datetime
-                    import pytz
-                    
-                    # Combine date and time
-                    datetime_str = f"{appointment_date} {appointment_time}"
-                    requested_dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
-                    
-                    # Get business timezone and localize
-                    business_id = getattr(self, 'business_id', None)
-                    if not business_id:
-                        raise ValueError("No business_id available")
-                    
-                    from server.policy.business_policy import get_business_policy
-                    policy = get_business_policy(business_id)
-                    tz = pytz.timezone(policy.tz)
-                    requested_dt = tz.localize(requested_dt)
-                    
-                    print(f"📅 [APPOINTMENT] Checking slot: {requested_dt} for business {business_id}")
-                    
-                    # Validate slot
-                    is_available = validate_appointment_slot(business_id, requested_dt)
-                    
-                    if not is_available:
-                        print(f"❌ [APPOINTMENT] Slot not available: {requested_dt}")
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "success": False,
-                                    "error": "Slot not available",
-                                    "message": "זמן זה תפוס, אנא בחר זמן אחר"
-                                })
-                            }
-                        })
-                        await client.send_event({"type": "response.create"})
-                        return
-                    
-                    # Create appointment
-                    appointment_id = create_appointment(
-                        business_id=business_id,
-                        customer_phone=customer_phone,
-                        customer_name=customer_name,
-                        requested_dt=requested_dt,
-                        service_type=service_type
-                    )
-                    
-                    if appointment_id:
-                        print(f"✅ [APPOINTMENT] Created successfully: #{appointment_id}")
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "success": True,
-                                    "appointment_id": appointment_id,
-                                    "message": f"פגישה נקבעה ל-{appointment_date} בשעה {appointment_time}"
-                                })
-                            }
-                        })
-                        await client.send_event({"type": "response.create"})
-                    else:
-                        print(f"❌ [APPOINTMENT] Failed to create appointment")
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "success": False,
-                                    "error": "Failed to create appointment"
-                                })
-                            }
-                        })
-                        await client.send_event({"type": "response.create"})
-                        
-                except (ValueError, AttributeError) as parse_error:
-                    print(f"❌ [APPOINTMENT] Date/time parsing error: {parse_error}")
+                # 🔥 STEP 1: Check call_goal and scheduling enabled
+                business_id = getattr(self, 'business_id', None)
+                if not business_id:
+                    print(f"❌ [APPOINTMENT] No business_id available")
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -8617,7 +8503,261 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             "call_id": call_id,
                             "output": json.dumps({
                                 "success": False,
-                                "error": f"Invalid date/time format: {parse_error}"
+                                "error_code": "no_business_context"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Check if already created appointment in this session
+                if getattr(self, '_appointment_created_this_session', False):
+                    print(f"⚠️ [APPOINTMENT] Already created appointment in this session - blocking duplicate")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "appointment_already_created"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Check call_goal
+                call_goal = getattr(self, 'call_goal', 'lead_only')
+                if call_goal != 'appointment':
+                    print(f"❌ [APPOINTMENT] call_goal={call_goal} - appointments not allowed")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "scheduling_disabled"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Check enable_calendar_scheduling
+                call_config = getattr(self, 'call_config', None)
+                if not call_config or not call_config.enable_calendar_scheduling:
+                    print(f"❌ [APPOINTMENT] Calendar scheduling disabled for business {business_id}")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "scheduling_disabled"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # 🔥 STEP 2: Extract and validate fields
+                customer_name = args.get("customer_name", "").strip()
+                appointment_date = args.get("appointment_date", "").strip()  # YYYY-MM-DD
+                appointment_time = args.get("appointment_time", "").strip()  # HH:MM
+                service_type = args.get("service_type", "").strip()
+                
+                # 🔥 STEP 3: Use customer_phone from call context
+                customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                
+                if not customer_phone:
+                    print(f"❌ [APPOINTMENT] No phone in call context")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "missing_phone"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                if not customer_name:
+                    print(f"❌ [APPOINTMENT] Missing customer_name")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "missing_name"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                if not appointment_date or not appointment_time:
+                    print(f"❌ [APPOINTMENT] Missing date or time")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "missing_datetime"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                print(f"📅 [APPOINTMENT] Validated: name={customer_name}, phone={customer_phone}, date={appointment_date}, time={appointment_time}")
+                
+                # 🔥 STEP 4: Create appointment using unified implementation
+                try:
+                    from datetime import datetime, timedelta
+                    import pytz
+                    from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+                    from server.policy.business_policy import get_business_policy
+                    
+                    # Get policy and timezone
+                    policy = get_business_policy(business_id)
+                    tz = pytz.timezone(policy.tz)
+                    
+                    # Parse and localize datetime
+                    datetime_str = f"{appointment_date} {appointment_time}"
+                    requested_dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
+                    requested_dt = tz.localize(requested_dt)
+                    
+                    # Calculate end time
+                    slot_duration = timedelta(minutes=policy.slot_size_min)
+                    end_dt = requested_dt + slot_duration
+                    
+                    print(f"📅 [APPOINTMENT] Creating: {requested_dt.isoformat()} -> {end_dt.isoformat()}")
+                    
+                    # Build context for _calendar_create_appointment_impl
+                    context = {
+                        "customer_phone": customer_phone,
+                        "channel": "phone"
+                    }
+                    
+                    # Create input
+                    input_data = CreateAppointmentInput(
+                        business_id=business_id,
+                        customer_name=customer_name,
+                        customer_phone=customer_phone,
+                        treatment_type=service_type or "Appointment",
+                        start_iso=requested_dt.isoformat(),
+                        end_iso=end_dt.isoformat(),
+                        notes=f"Scheduled via phone call",
+                        source="realtime_phone"
+                    )
+                    
+                    # Call unified implementation
+                    result = _calendar_create_appointment_impl(input_data, context=context, session=self)
+                    
+                    # Handle result
+                    if hasattr(result, 'appointment_id'):
+                        # Success - CreateAppointmentOutput
+                        appt_id = result.appointment_id
+                        print(f"✅ [APPOINTMENT] SUCCESS! ID={appt_id}, status={result.status}")
+                        
+                        # Mark as created to prevent duplicates
+                        self._appointment_created_this_session = True
+                        
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": True,
+                                    "appointment_id": appt_id,
+                                    "start_time": requested_dt.isoformat(),
+                                    "end_time": end_dt.isoformat(),
+                                    "customer_name": customer_name
+                                })
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        
+                    elif isinstance(result, dict):
+                        # Dict result (error or legacy format)
+                        if result.get("ok") or result.get("success"):
+                            appt_id = result.get("appointment_id")
+                            print(f"✅ [APPOINTMENT] SUCCESS (dict)! ID={appt_id}")
+                            
+                            # Mark as created
+                            self._appointment_created_this_session = True
+                            
+                            await client.send_event({
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": json.dumps({
+                                        "success": True,
+                                        "appointment_id": appt_id,
+                                        "start_time": requested_dt.isoformat(),
+                                        "end_time": end_dt.isoformat(),
+                                        "customer_name": customer_name
+                                    })
+                                }
+                            })
+                            await client.send_event({"type": "response.create"})
+                        else:
+                            # Error in dict
+                            error_code = result.get("error", "unknown_error")
+                            print(f"❌ [APPOINTMENT] Error: {error_code}")
+                            await client.send_event({
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": json.dumps({
+                                        "success": False,
+                                        "error_code": error_code
+                                    })
+                                }
+                            })
+                            await client.send_event({"type": "response.create"})
+                    else:
+                        # Unexpected format
+                        print(f"❌ [APPOINTMENT] Unexpected result type: {type(result)}")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "server_error"
+                                })
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        
+                except (ValueError, AttributeError) as parse_error:
+                    print(f"❌ [APPOINTMENT] Error creating appointment: {parse_error}")
+                    import traceback
+                    traceback.print_exc()
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "invalid_datetime"
                             })
                         }
                     })
@@ -8630,7 +8770,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     "item": {
                         "type": "function_call_output",
                         "call_id": call_id,
-                        "output": json.dumps({"success": False, "error": str(e)})
+                        "output": json.dumps({
+                            "success": False,
+                            "error_code": "invalid_arguments"
+                        })
                     }
                 })
                 await client.send_event({"type": "response.create"})
