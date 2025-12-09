@@ -156,49 +156,8 @@ def process_recording_async(form_data):
                     print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
                     log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
                     
-                    # 🆕 Extract service + city from transcript using AI
-                    # Get business context for extraction
-                    from server.app_factory import get_process_app
-                    to_number = form_data.get('To', '')
-                    
-                    business_prompt = None
-                    business_id = None
-                    try:
-                        app = get_process_app()
-                        with app.app_context():
-                            business = _identify_business_for_call(to_number, from_number)
-                            if business:
-                                business_id = business.id
-                                # Try to get business prompt for context
-                                try:
-                                    from server.services.ai_service import get_ai_service
-                                    prompt_data = get_ai_service().get_business_prompt(business_id, "calls")
-                                    business_prompt = prompt_data.get("system_prompt")
-                                except Exception as e:
-                                    log.warning(f"⚠️ Could not load business prompt: {e}")
-                    except Exception as e:
-                        log.warning(f"⚠️ Could not get business context for extraction: {e}")
-                    
-                    # Extract lead info from transcript
-                    print(f"[OFFLINE_EXTRACT] Starting extraction for {call_sid}")
-                    log.info(f"[OFFLINE_EXTRACT] Starting extraction for {call_sid}")
-                    extraction_result = extract_lead_from_transcript(
-                        final_transcript, 
-                        business_prompt=business_prompt,
-                        business_id=business_id
-                    )
-                    
-                    if extraction_result:
-                        extracted_service = extraction_result.get("service")
-                        extracted_city = extraction_result.get("city")
-                        extraction_confidence = extraction_result.get("confidence", 0.0)
-                        
-                        if extracted_service or extracted_city:
-                            print(f"[OFFLINE_EXTRACT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence:.2f}")
-                            log.info(f"[OFFLINE_EXTRACT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence:.2f}")
-                        else:
-                            print(f"[OFFLINE_EXTRACT] No reliable data extracted from transcript")
-                            log.info(f"[OFFLINE_EXTRACT] No reliable data extracted from transcript")
+                    # 🔥 NOTE: City/Service extraction moved to AFTER summary generation
+                    # We extract from the summary, not from raw transcript (more accurate!)
                     
             except Exception as e:
                 print(f"❌ [OFFLINE_STT/EXTRACT] Post-call processing failed for {call_sid}: {e}")
@@ -251,6 +210,66 @@ def process_recording_async(form_data):
         else:
             print(f"[SUMMARY] ⚠️ No valid transcript available for summary (final_transcript={len(final_transcript or '')} chars, transcription={len(transcription or '')} chars)")
             log.warning(f"[SUMMARY] No valid transcript for summary")
+        
+        # 🆕 3.5. חילוץ עיר ושירות מהסיכום (אחרי שנוצר הסיכום!)
+        # זה הפיניש - חילוץ מדויק מהסיכום המלא, לא מטרנסקריפט גולמי
+        
+        # 🔒 PROTECTION: Check if extraction already exists in DB (avoid duplicate processing)
+        skip_extraction = False
+        if call_sid:
+            try:
+                from server.app_factory import get_process_app
+                from server.models_sql import CallLog
+                app = get_process_app()
+                with app.app_context():
+                    existing_call = CallLog.query.filter_by(call_sid=call_sid).first()
+                    if existing_call and existing_call.extracted_city and existing_call.extracted_service:
+                        skip_extraction = True
+                        extracted_city = existing_call.extracted_city
+                        extracted_service = existing_call.extracted_service
+                        extraction_confidence = existing_call.extraction_confidence
+                        print(f"[OFFLINE_EXTRACT] ⏭️ Extraction already exists - skipping (city='{extracted_city}', service='{extracted_service}')")
+                        log.info(f"[OFFLINE_EXTRACT] Extraction already exists for {call_sid} - skipping duplicate processing")
+            except Exception as e:
+                print(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
+                log.warning(f"[OFFLINE_EXTRACT] Could not check existing extraction: {e}")
+        
+        if not skip_extraction and summary and len(summary) > 20:
+            try:
+                from server.services.lead_extraction_service import extract_city_and_service_from_summary
+                
+                print(f"[OFFLINE_EXTRACT] Starting extraction from summary for {call_sid}")
+                log.info(f"[OFFLINE_EXTRACT] Starting extraction from summary")
+                
+                extraction = extract_city_and_service_from_summary(summary)
+                
+                # עדכן את המשתנים שיישמרו ב-DB
+                if extraction.get("city"):
+                    extracted_city = extraction.get("city")
+                    print(f"[OFFLINE_EXTRACT] ✅ Extracted city from summary: '{extracted_city}'")
+                
+                if extraction.get("service_category"):
+                    extracted_service = extraction.get("service_category")
+                    print(f"[OFFLINE_EXTRACT] ✅ Extracted service from summary: '{extracted_service}'")
+                
+                if extraction.get("confidence") is not None:
+                    extraction_confidence = extraction.get("confidence")
+                    print(f"[OFFLINE_EXTRACT] ✅ Extraction confidence: {extraction_confidence:.2f}")
+                
+                # Log final extraction result
+                if extracted_city or extracted_service:
+                    print(f"[OFFLINE_EXTRACT] From summary: city='{extracted_city}', service='{extracted_service}', conf={extraction_confidence}")
+                else:
+                    print(f"[OFFLINE_EXTRACT] No city/service found in summary")
+                    
+            except Exception as e:
+                print(f"❌ [OFFLINE_EXTRACT] Failed to extract from summary: {e}")
+                log.error(f"[OFFLINE_EXTRACT] Failed to extract from summary: {e}")
+                import traceback
+                traceback.print_exc()
+        elif not skip_extraction:
+            print(f"[OFFLINE_EXTRACT] ⚠️ Summary too short for extraction ({len(summary or '')} chars)")
+            log.warning(f"[OFFLINE_EXTRACT] Summary too short for extraction")
         
         # 4. שמור לDB עם תמלול + סיכום + 🆕 POST-CALL DATA
         to_number = form_data.get('To', '')

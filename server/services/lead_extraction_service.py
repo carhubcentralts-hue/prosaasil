@@ -10,6 +10,144 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
+def extract_city_and_service_from_summary(summary_text: str) -> dict:
+    """
+    חילוץ עיר ותחום שירות מסיכום שיחה בלבד.
+    
+    קלט: סיכום שיחה מלא (summary)
+    פלט: dict עם city, raw_city, service_category, confidence
+    
+    זו הפונקציה העיקרית לחילוץ בסוף שיחה - רצה רק על הסיכום שנוצר מה-offline transcript.
+    """
+    if not summary_text or len(summary_text) < 20:
+        logger.warning(f"[OFFLINE_EXTRACT] Summary too short for extraction: {len(summary_text or '')} chars")
+        return {
+            "city": None,
+            "raw_city": None,
+            "service_category": None,
+            "confidence": None,
+        }
+    
+    try:
+        logger.info(f"[OFFLINE_EXTRACT] Starting extraction from summary, length: {len(summary_text)} chars")
+        
+        # Get OpenAI client - reuse existing infrastructure
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Build prompt - focused on summary extraction
+        system_prompt = """You are a data extraction engine for Hebrew phone call summaries.
+
+GOAL:
+Extract exactly TWO pieces of information from the call summary:
+  1) CITY: The city where the service is needed (in Hebrew)
+  2) SERVICE TYPE: The type of service/professional the customer needs (in Hebrew)
+
+STRICT RULES:
+- Use ONLY information explicitly mentioned in the summary
+- Do NOT invent or guess city or service
+- If uncertain, leave the field empty
+- Return both canonical name (city) and raw input (raw_city) if mentioned
+- For service, extract the SPECIFIC service mentioned (e.g., "תיקון מנעול חכם", "חשמלאי", "קיצור דלתות")
+
+OUTPUT FORMAT (JSON ONLY):
+{
+  "city": "<Hebrew city name or empty string>",
+  "raw_city": "<Raw city input from customer or empty string>",
+  "service_category": "<Hebrew service/professional type or empty string>",
+  "confidence": <float between 0.0 and 1.0>
+}
+
+CONFIDENCE SCORING:
+- 0.9-1.0: Both city and service explicitly mentioned
+- 0.7-0.9: Both found but one needs inference
+- 0.5-0.7: Only one clearly mentioned
+- 0.0-0.5: Weak or no evidence
+
+Examples:
+- "לקוח צריך פורץ מנעולים בתל אביב" → {"city": "תל אביב", "raw_city": "תל אביב", "service_category": "פורץ מנעולים", "confidence": 0.95}
+- "לקוח מעוניין בתיקון מנעול חכם בעיר בית שאן" → {"city": "בית שאן", "raw_city": "בית שאן", "service_category": "תיקון מנעול חכם", "confidence": 0.95}
+"""
+        
+        user_prompt = f"""Extract city and service from this call summary (in Hebrew):
+
+\"\"\"{summary_text}\"\"\"
+
+Return ONLY valid JSON with the four required fields: city, raw_city, service_category, confidence.
+"""
+        
+        # Call OpenAI
+        logger.info(f"[OFFLINE_EXTRACT] Calling OpenAI for summary extraction...")
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Fast and cost-effective
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.0,  # Deterministic
+            max_tokens=150,
+            timeout=10.0
+        )
+        
+        # Parse response
+        raw_response = response.choices[0].message.content.strip()
+        logger.info(f"[OFFLINE_EXTRACT] Raw OpenAI response: {raw_response[:200]}")
+        
+        # Extract JSON from response (handle markdown code blocks)
+        json_text = raw_response
+        if "```json" in json_text:
+            json_text = json_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in json_text:
+            json_text = json_text.split("```")[1].split("```")[0].strip()
+        
+        # Parse JSON
+        try:
+            result = json.loads(json_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"[OFFLINE_EXTRACT] JSON parse failed: {e}")
+            logger.error(f"[OFFLINE_EXTRACT] Raw text: {json_text}")
+            return {
+                "city": None,
+                "raw_city": None,
+                "service_category": None,
+                "confidence": None,
+            }
+        
+        # Validate and extract fields
+        city = result.get("city", "").strip()
+        raw_city = result.get("raw_city", "").strip()
+        service_category = result.get("service_category", "").strip()
+        confidence = float(result.get("confidence", 0.0))
+        
+        # Normalize empty strings to None
+        city = city if city else None
+        raw_city = raw_city if raw_city else None
+        service_category = service_category if service_category else None
+        
+        # Log results
+        if city or service_category:
+            logger.info(f"[OFFLINE_EXTRACT] Success from summary: city='{city}', service='{service_category}', confidence={confidence:.2f}")
+        else:
+            logger.info(f"[OFFLINE_EXTRACT] No reliable data found in summary")
+        
+        return {
+            "city": city,
+            "raw_city": raw_city,
+            "service_category": service_category,
+            "confidence": confidence
+        }
+        
+    except Exception as e:
+        logger.error(f"[OFFLINE_EXTRACT] Summary extraction failed: {type(e).__name__}: {str(e)[:200]}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "city": None,
+            "raw_city": None,
+            "service_category": None,
+            "confidence": None,
+        }
+
+
 def extract_lead_from_transcript(transcript: str, business_prompt: Optional[str] = None, business_id: Optional[int] = None) -> Dict[str, Any]:
     """
     Extract service type and city from a full Hebrew call transcript using AI.
