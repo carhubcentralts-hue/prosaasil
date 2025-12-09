@@ -1,0 +1,177 @@
+"""
+Recording Service - שירות מאוחד להורדה ושמירה של הקלטות
+משמש גם ל-UI וגם ל-offline worker - single source of truth
+"""
+import os
+import logging
+import requests
+import time
+from typing import Optional
+from server.models_sql import CallLog
+
+log = logging.getLogger(__name__)
+
+RECORDINGS_DIR = "server/recordings"
+
+def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
+    """
+    ✅ SOURCE OF TRUTH: מחזיר path לקובץ הקלטה עבור שיחה
+    
+    Logic:
+    1. אם כבר קיים קובץ מקומי → החזר את הנתיב
+    2. אחרת → הורד מטוויליו (בדיוק כמו ה-UI), שמור ב-server/recordings/<call_sid>.mp3
+    3. החזר את הנתיב או None אם נכשל
+    
+    Args:
+        call_log: CallLog instance with recording_url
+        
+    Returns:
+        str: Path to local recording file, or None if failed
+    """
+    if not call_log or not call_log.call_sid:
+        log.error("[RECORDING_SERVICE] Invalid call_log provided")
+        return None
+    
+    call_sid = call_log.call_sid
+    
+    # 1. Check if we already have the file locally
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    local_path = f"{RECORDINGS_DIR}/{call_sid}.mp3"
+    
+    if os.path.exists(local_path):
+        file_size = os.path.getsize(local_path)
+        if file_size > 1000:  # Valid file (>1KB)
+            log.info(f"[RECORDING_SERVICE] ✅ Using existing local file: {local_path} ({file_size} bytes)")
+            print(f"[RECORDING_SERVICE] ✅ Using existing recording from disk for {call_sid}")
+            return local_path
+        else:
+            log.warning(f"[RECORDING_SERVICE] Local file too small ({file_size} bytes), will re-download")
+            os.remove(local_path)
+    
+    # 2. Download from Twilio using call_log.recording_url
+    if not call_log.recording_url:
+        log.error(f"[RECORDING_SERVICE] No recording_url for call {call_sid}")
+        print(f"❌ [RECORDING_SERVICE] No recording_url for {call_sid}")
+        return None
+    
+    log.info(f"[RECORDING_SERVICE] Downloading recording from Twilio for {call_sid}")
+    print(f"[RECORDING_SERVICE] Downloading recording from Twilio for {call_sid}")
+    
+    # Get Twilio credentials
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    
+    if not account_sid or not auth_token:
+        log.error("[RECORDING_SERVICE] Missing Twilio credentials")
+        print("❌ [RECORDING_SERVICE] Missing Twilio credentials")
+        return None
+    
+    # ✅ Use EXACT same logic as UI (routes_calls.py download_recording)
+    # This is the single source of truth for downloading recordings
+    recording_content = _download_from_twilio(
+        call_log.recording_url,
+        account_sid,
+        auth_token,
+        call_sid
+    )
+    
+    if not recording_content:
+        log.error(f"[RECORDING_SERVICE] Failed to download recording for {call_sid}")
+        print(f"❌ [RECORDING_SERVICE] Failed to download recording for {call_sid}")
+        return None
+    
+    # 3. Save to local disk
+    try:
+        with open(local_path, "wb") as f:
+            f.write(recording_content)
+        
+        log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes)")
+        print(f"[RECORDING_SERVICE] ✅ Recording saved to disk: {local_path} ({len(recording_content)} bytes)")
+        return local_path
+        
+    except Exception as e:
+        log.error(f"[RECORDING_SERVICE] Failed to save recording to disk: {e}")
+        print(f"❌ [RECORDING_SERVICE] Failed to save recording to disk: {e}")
+        return None
+
+
+def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:
+    """
+    ✅ הורדת הקלטה מטוויליו - EXACT SAME LOGIC AS UI
+    מנסה מספר פורמטים: base URL, .mp3, .wav
+    
+    Args:
+        recording_url: URL from CallLog.recording_url
+        account_sid: Twilio account SID
+        auth_token: Twilio auth token
+        call_sid: Call SID for logging
+        
+    Returns:
+        bytes: Recording content, or None if failed
+    """
+    try:
+        # Handle .json URLs from Twilio properly (same as UI)
+        base_url = recording_url
+        if base_url.endswith(".json"):
+            base_url = base_url[:-5]
+        
+        # Convert relative URL to absolute (if needed)
+        if not base_url.startswith("http"):
+            base_url = f"https://api.twilio.com{base_url}"
+        
+        # Try multiple formats - EXACT same as routes_calls.py
+        urls_to_try = [
+            base_url,  # No extension - Twilio's default format
+            f"{base_url}.mp3",
+            f"{base_url}.wav",
+        ]
+        
+        auth = (account_sid, auth_token)
+        last_error = None
+        
+        for attempt, try_url in enumerate(urls_to_try, 1):
+            try:
+                log.info(f"[RECORDING_SERVICE] Trying URL format {attempt}/{len(urls_to_try)}: {try_url[:80]}...")
+                print(f"[RECORDING_SERVICE] Trying URL format {attempt}/{len(urls_to_try)}")
+                
+                response = requests.get(try_url, auth=auth, timeout=30)
+                
+                log.info(f"[RECORDING_SERVICE] Status: {response.status_code}, bytes: {len(response.content)}")
+                print(f"[RECORDING_SERVICE] Status: {response.status_code}, bytes: {len(response.content)}")
+                
+                # Check for 404 - might need to wait for Twilio processing
+                if response.status_code == 404:
+                    if attempt == 1:
+                        log.info("[RECORDING_SERVICE] Got 404, waiting 5s before next format...")
+                        print("[RECORDING_SERVICE] Got 404, waiting 5s...")
+                        time.sleep(5)
+                    continue
+                
+                # Success!
+                if response.status_code == 200 and len(response.content) > 1000:
+                    log.info(f"[RECORDING_SERVICE] ✅ Successfully downloaded {len(response.content)} bytes")
+                    print(f"[RECORDING_SERVICE] ✅ Successfully downloaded {len(response.content)} bytes")
+                    return response.content
+                else:
+                    log.warning(f"[RECORDING_SERVICE] URL returned {response.status_code} or too small ({len(response.content)} bytes)")
+                    
+            except requests.RequestException as e:
+                log.warning(f"[RECORDING_SERVICE] Failed URL: {e}")
+                last_error = e
+                continue
+        
+        # All attempts failed
+        log.error(f"[RECORDING_SERVICE] All download attempts failed for {call_sid}. Last error: {last_error}")
+        print(f"❌ [RECORDING_SERVICE] All download attempts failed for {call_sid}")
+        return None
+        
+    except Exception as e:
+        log.error(f"[RECORDING_SERVICE] Download error for {call_sid}: {e}")
+        print(f"❌ [RECORDING_SERVICE] Download error: {e}")
+        return None
+
+
+def check_local_recording_exists(call_sid: str) -> bool:
+    """בדיקה מהירה אם קיימת הקלטה מקומית"""
+    local_path = f"{RECORDINGS_DIR}/{call_sid}.mp3"
+    return os.path.exists(local_path) and os.path.getsize(local_path) > 1000
