@@ -298,21 +298,17 @@ def _build_critical_rules_compact(business_name: str, today_date: str, weekday_n
     else:
         greeting_line = "- Greet warmly and introduce yourself as the business rep"
     
-    # 🔥 BUILD 340: CLEAR SCHEDULING RULES with STRICT FIELD ORDER
+    # 🔥 APPOINTMENT SCHEDULING - Fully dynamic from business prompt
     if enable_calendar_scheduling:
         scheduling_section = """
-APPOINTMENT BOOKING (STRICT ORDER!):
-1. FIRST ask for NAME: "מה השם שלך?" - get name before anything else
-2. THEN ask for DATE/TIME: "לאיזה יום ושעה?" - get preferred date and time
-3. WAIT for system to check availability (don't promise!)
-4. ONLY AFTER slot is confirmed → ask for PHONE: "מה הטלפון שלך לאישור?"
-- Phone is collected LAST, only after appointment time is locked!
-- Only say "התור נקבע" AFTER system confirms booking success
-- If slot taken: offer alternatives (system will provide)
-- NEVER ask for phone before confirming date/time availability!"""
+APPOINTMENT BOOKING:
+- Follow the appointment instructions in the business prompt.
+- WAIT for system confirmation before promising any slot.
+- NEVER say appointment is confirmed until system confirms it.
+- Be patient and natural - follow the business prompt flow."""
     else:
         scheduling_section = """
-NO SCHEDULING: Do NOT offer appointments. If customer asks, promise a callback from human rep."""
+NO SCHEDULING: Follow business prompt instructions if customer requests appointment."""
     
     # 🔥 BUILD 336: COMPACT + CLEAR SYSTEM RULES
     return f"""AI Rep for "{business_name}" | {direction_context} call | {weekday_name} {today_date}
@@ -324,7 +320,7 @@ STT IS TRUTH: Trust transcription 100%. NEVER change, substitute, or "correct" a
 CALL FLOW:
 1. GREET: {greeting_line} Ask ONE open question about their need.
 2. COLLECT: One question at a time. Mirror their EXACT words.
-3. CLOSE: Once you have the service and location, say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות." Then stay quiet.
+3. CLOSE: Once you have collected the necessary information, politely close the conversation naturally. Then stay quiet.
 {scheduling_section}
 
 STRICT RULES:
@@ -412,19 +408,21 @@ TRANSCRIPTION IS TRUTH:
 - If something is unclear, ask politely for clarification.
 - NEVER correct or modify the caller's words.
 
-HANDLING REJECTIONS:
-- When the user says "לא" (no) or rejects your understanding:
-  * Apologize briefly
-  * Ask them to repeat ALL important details in one short sentence
-  * Follow the business instructions to understand what information is needed
-- When the user provides only PARTIAL information:
-  * Identify what pieces are missing according to the business instructions
-  * Ask ONLY about the missing parts
-  * Do not restart the entire conversation unless they explicitly reject everything
+PATIENCE IS KEY:
+- After asking a question, WAIT for the customer to respond completely.
+- Do NOT rush or repeat questions if the customer is thinking.
+- Give the customer time to speak - silence is okay.
+- Only ask a follow-up question if the customer has clearly finished speaking.
+
+HANDLING RESPONSES:
+- When the user responds, acknowledge their answer and move forward naturally.
+- Do NOT repeat back what they said unless specifically asked.
+- Do NOT ask for confirmation unless something is genuinely unclear.
+- Ask ONE question at a time and wait for the answer.
 
 TONE & STYLE:
 - Warm, helpful, patient, concise, masculine, and natural.
-- Ask ONE question at a time.
+- Conversational and relaxed - not robotic or scripted.
 
 """
         
@@ -454,52 +452,52 @@ TONE & STYLE:
 APPOINTMENT SCHEDULING:
 Today is {weekday_name}, {today_date}
 
-BOOKING FLOW (STRICT ORDER):
-1. FIRST: Ask for NAME: "מה השם שלך?" - Get name before anything else
-2. THEN: Ask for DATE/TIME: "לאיזה יום ושעה?" - Get preferred date and time
-3. WAIT: For system to check availability (don't promise slot is available!)
-4. AFTER CONFIRMATION: Ask for PHONE: "מה הטלפון שלך לאישור?" - Phone is collected LAST
-5. BOOKING SUCCESS: Only say "התור נקבע" AFTER system confirms booking
-
-CRITICAL RULES:
+BOOKING FLOW:
+- Follow the appointment booking instructions in the business prompt above.
 - Appointment slots: {policy.slot_size_min} minutes{min_notice}
 - Business hours: {hours_description}
-- Phone is collected LAST, only after appointment time is confirmed
-- If slot is taken, offer alternatives (system will provide)
-- NEVER ask for phone before confirming date/time availability
+- NEVER promise a slot is available before checking with the system.
+- NEVER say "התור נקבע" until the system confirms the booking.
+- If a slot is taken, offer alternatives naturally.
+
+CRITICAL:
+- Let the business prompt guide what information to collect and in what order.
+- Be patient and natural - follow the conversation flow.
 """
         else:
             scheduling_rules = """
 NO APPOINTMENT SCHEDULING:
-- You do NOT offer appointments.
-- If customer asks for an appointment, politely say a representative will call them back to schedule.
-- Focus only on collecting lead information.
+- Appointment scheduling is not available for this business.
+- If customer asks for an appointment, handle it according to the business prompt instructions.
+- Follow the conversation naturally based on the business prompt.
 """
         
-        # 🔥 END OF CALL
+        # 🔥 END OF CALL - Fully dynamic from business prompt
+        # NO hardcoded closing sentences - business defines how to close
         end_of_call = """
 END OF CALL:
-- Once you have collected service and location info, close the call naturally.
-- Say: "מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות."
+- When the conversation is naturally complete, close the call as instructed in the business prompt above.
 - After saying goodbye, stay quiet.
-- DO NOT repeat or confirm details back to the customer.
+- DO NOT repeat or confirm details back to the customer unless specifically instructed.
 """
         
         # 🔥 COMBINE ALL SECTIONS
         full_prompt = f"""{behavioral_rules}
 
 --- BUSINESS INSTRUCTIONS ---
-{core_instructions if core_instructions else f"You are a professional service representative for {business_name}. Be helpful and collect customer information."}
+{core_instructions if core_instructions else f"You are a professional service representative for {business_name}. Be helpful and natural."}
 ---
 
 {scheduling_rules}
 
 {end_of_call}
 
-CRITICAL: Do not perform any mid-call extraction or internal tools. Only converse naturally.
-Never hallucinate cities or services.
-Never correct the caller's words.
-Use the exact words the customer said.
+CRITICAL REMINDERS:
+- Converse naturally - no mid-call processing or extraction.
+- NEVER invent information - only use what the customer says.
+- NEVER correct the customer's words - repeat them exactly.
+- Be patient and wait for the customer to finish speaking.
+- Follow the business instructions above for conversation flow.
 """
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars")
@@ -570,17 +568,20 @@ TRANSCRIPTION IS TRUTH:
 - Repeat ONLY what is given in the transcript or outbound prompt context.
 - If something is unclear, ask politely.
 
-HANDLING REJECTIONS:
-- When the customer says "לא" (no) or rejects your understanding:
-  * Apologize briefly
-  * Ask them to repeat ALL important details in one short sentence
-  * Follow the outbound instructions to understand what information is needed
-- When the customer provides only PARTIAL information:
-  * Identify what pieces are missing according to the outbound instructions
-  * Ask ONLY about the missing parts
+PATIENCE IS KEY:
+- After asking a question, WAIT for the customer to respond completely.
+- Do NOT rush or interrupt if the customer is thinking.
+- Give the customer time to speak - silence is okay.
+- Only ask a follow-up question if the customer has clearly finished speaking.
+
+HANDLING RESPONSES:
+- When the customer responds, acknowledge their answer and move forward naturally.
+- Do NOT repeat back what they said unless specifically asked.
+- Do NOT ask for confirmation unless something is genuinely unclear.
 
 TONE & STYLE:
-- Polite, concise, masculine, and helpful.
+- Polite, concise, masculine, helpful, and patient.
+- Conversational and natural - not robotic or scripted.
 - Ask ONE question at a time.
 
 """
