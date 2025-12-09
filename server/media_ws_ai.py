@@ -1242,7 +1242,8 @@ class MediaStreamHandler:
             AUDIO_GUARD_ENABLED, AUDIO_GUARD_INITIAL_NOISE_FLOOR,
             AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR, AUDIO_GUARD_MIN_ZCR_FOR_SPEECH,
             AUDIO_GUARD_MIN_RMS_DELTA, AUDIO_GUARD_MUSIC_ZCR_THRESHOLD,
-            AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER, AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
+            AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER, AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES,
+            AUDIO_GUARD_MIN_SPEECH_FRAMES, AUDIO_GUARD_SILENCE_RESET_FRAMES
         )
         self._audio_guard_enabled = AUDIO_GUARD_ENABLED
         self._audio_guard_noise_floor = AUDIO_GUARD_INITIAL_NOISE_FLOOR
@@ -1253,7 +1254,14 @@ class MediaStreamHandler:
         self._audio_guard_music_cooldown_frames = 0
         self._audio_guard_drop_count = 0  # Rate-limited logging
         self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
-        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED} (dynamic noise floor, speech gating, music_mode, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
+        
+        # 🔥 NEW: Duration-based filtering - ignore short bursts
+        self._audio_guard_speech_frames = 0  # Consecutive speech frames counter
+        self._audio_guard_silence_frames = 0  # Consecutive silence frames counter
+        self._audio_guard_min_speech_frames = AUDIO_GUARD_MIN_SPEECH_FRAMES  # 15 frames = 300ms
+        self._audio_guard_silence_reset = AUDIO_GUARD_SILENCE_RESET_FRAMES  # 25 frames = 500ms
+        
+        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED} (noise floor, ZCR, duration gating, music filter)")
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -1690,8 +1698,62 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             logger.info("[REALTIME] Connected")
             
-            # 🚀 PARALLEL STEP 2: Wait for business info from main thread (max 2s)
-            print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
+            # 🚀 FAST GREETING: Send initial greeting with minimal prompt BEFORE waiting for full business info
+            # This eliminates 2-3 second delay from DB queries
+            print(f"🎤 [FAST GREETING] Sending initial greeting config BEFORE business info...")
+            
+            # Configure with minimal generic prompt first
+            business_name_fast = getattr(self, 'business_name', None) or "העסק"
+            greeting_text_fast = getattr(self, 'greeting_text', None)
+            bot_speaks_first_fast = getattr(self, 'bot_speaks_first', True)
+            
+            # Build minimal greeting-only prompt
+            if greeting_text_fast and greeting_text_fast.strip():
+                minimal_greeting_prompt = f"""You are a professional service representative for {business_name_fast}.
+SPEAK HEBREW to customer.
+
+GREETING:
+Say this EXACT greeting in Hebrew: "{greeting_text_fast.strip()}"
+Then WAIT for customer response. Be patient."""
+            else:
+                minimal_greeting_prompt = f"""You are a professional service representative for {business_name_fast}.
+SPEAK HEBREW to customer.
+
+GREETING:
+Introduce yourself briefly in Hebrew and wait for customer."""
+            
+            # Configure session with minimal greeting prompt (FAST!)
+            await client.configure_session(
+                instructions=minimal_greeting_prompt,
+                voice="ash",
+                input_audio_format="g711_ulaw",
+                output_audio_format="g711_ulaw",
+                vad_threshold=0.85,
+                silence_duration_ms=450,
+                temperature=0.6,
+                max_tokens=4096,
+                transcription_prompt=""
+            )
+            print(f"✅ [FAST GREETING] Minimal session configured in {(time.time() - t_connected)*1000:.0f}ms")
+            
+            # 🚀 IMMEDIATE GREETING: Trigger greeting NOW if bot speaks first
+            if bot_speaks_first_fast:
+                print(f"🎤 [FAST GREETING] Bot speaks first - triggering IMMEDIATELY!")
+                self.greeting_sent = True
+                self.is_playing_greeting = True
+                self._greeting_start_ts = time.time()
+                
+                # Send response.create immediately
+                try:
+                    await client.send_event({"type": "response.create"})
+                    print(f"✅ [FAST GREETING] Greeting triggered in {(time.time() - t_connected)*1000:.0f}ms from connect!")
+                except Exception as e:
+                    print(f"⚠️ [FAST GREETING] Failed to trigger: {e}")
+                    self.greeting_sent = False
+                    self.is_playing_greeting = False
+            
+            # 🚀 PARALLEL STEP 2: NOW wait for full business info (in background while greeting plays)
+            print(f"⏳ [PARALLEL] Waiting for full business info from DB query (greeting already sent)...")
             
             # Use asyncio to wait for the threading.Event
             loop = asyncio.get_event_loop()
@@ -1702,7 +1764,7 @@ class MediaStreamHandler:
                 )
                 t_ready = time.time()
                 wait_ms = (t_ready - t_connected) * 1000
-                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
+                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms (greeting already playing)")
             except asyncio.TimeoutError:
                 print(f"⚠️ [PARALLEL] Timeout waiting for business info - using defaults")
                 # Use helper with force_greeting=True to ensure greeting fires
@@ -1821,7 +1883,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
-            # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
+            # 🔥 UPDATE SESSION: Now that we have full business info, update session with complete prompt
+            # Greeting is already playing with minimal prompt, this enhances AI's understanding mid-call
+            print(f"🔄 [UPDATE SESSION] Sending full business prompt (greeting already sent)...")
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -1836,37 +1900,20 @@ SPEAK HEBREW to customer. Be brief and helpful.
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
             total_ms = (t_after_config - t_start) * 1000
-            print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
-            print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
+            print(f"⏱️ [UPDATE SESSION] Full prompt configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
+            print(f"✅ [REALTIME] FULL CONTEXT: AI now has complete business prompt, voice={call_voice}")
             
-            # 🚀 Start audio/text bridges FIRST (before CRM)
+            # 🚀 Start audio/text bridges
             logger.info(f"[REALTIME] Starting audio/text bridge tasks...")
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             logger.info(f"[REALTIME] Audio/text tasks created successfully")
             
-            # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
-            # No waiting for CRM, no 0.2s delay - just speak!
+            # 🎯 GREETING ALREADY SENT: No need to trigger again if bot speaks first
+            # The greeting was triggered immediately after minimal config (above)
             logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}")
-            if self.bot_speaks_first:
-                greeting_start_ts = time.time()
-                print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
-                self.greeting_sent = True  # Mark greeting as sent to allow audio through
-                self.is_playing_greeting = True
-                self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-                # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
-                triggered = await self.trigger_response("GREETING", client, is_greeting=True)
-                if triggered:
-                    t_speak = time.time()
-                    total_openai_ms = (t_speak - t_start) * 1000
-                    print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
-                else:
-                    print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
-                    # Reset flags since greeting failed
-                    self.greeting_sent = False
-                    self.is_playing_greeting = False
-            else:
+            if not self.bot_speaks_first:
                 # Standard flow - AI waits for user speech first
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
                 
@@ -1879,6 +1926,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         await self._start_silence_monitor()
                 
                 asyncio.create_task(warmup_to_active())
+            else:
+                print(f"✅ [GREETING] Already sent with fast greeting - no need to trigger again")
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
@@ -2341,19 +2390,48 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # Update previous RMS for next frame
         self._audio_guard_prev_rms = rms
         
+        # 🔥 NEW: DURATION-BASED FILTERING - Ignore short bursts (noise, breathing, single words)
+        # Speech must be sustained for at least 300ms (15 frames) to pass through
+        if is_speech:
+            self._audio_guard_speech_frames += 1
+            self._audio_guard_silence_frames = 0
+            
+            # Only pass speech after minimum duration threshold
+            if self._audio_guard_speech_frames >= self._audio_guard_min_speech_frames:
+                # Sustained speech - allow it through
+                should_send = True
+            else:
+                # Short burst - still accumulating, don't send yet
+                should_send = False
+                if self._audio_guard_speech_frames == 1:
+                    print(f"⏳ [AUDIO_GUARD] Speech detected - waiting for {self._audio_guard_min_speech_frames} frames (300ms) before sending...")
+        else:
+            # Silence detected
+            self._audio_guard_silence_frames += 1
+            
+            # Reset speech counter after sustained silence (500ms)
+            if self._audio_guard_silence_frames >= self._audio_guard_silence_reset:
+                if self._audio_guard_speech_frames > 0:
+                    print(f"🔇 [AUDIO_GUARD] Silence detected - resetting speech counter (was {self._audio_guard_speech_frames} frames)")
+                self._audio_guard_speech_frames = 0
+            
+            should_send = False
+        
         # Rate-limited logging for dropped frames
-        if not is_speech:
+        if not should_send:
             self._audio_guard_drop_count += 1
             if self._audio_guard_drop_count % 50 == 0:  # Log every 50 drops (~1 second)
-                print(f"🔇 [AUDIO_GUARD] Dropped {self._audio_guard_drop_count} non-speech frames (rms={rms:.1f}, zcr={zcr:.3f}, threshold={effective_threshold:.1f})")
+                reason = "short_burst" if is_speech else "noise/silence"
+                print(f"🔇 [AUDIO_GUARD] Dropped {self._audio_guard_drop_count} frames (reason={reason}, rms={rms:.1f}, zcr={zcr:.3f}, speech_frames={self._audio_guard_speech_frames})")
         
         # Periodic summary log every 5 seconds
         now = time.time()
         if now - self._audio_guard_last_summary_ts >= 5.0:
             self._audio_guard_last_summary_ts = now
-            print(f"📊 [AUDIO_GUARD] noise_floor={self._audio_guard_noise_floor:.1f}, threshold={effective_threshold:.1f}, music_mode={self._audio_guard_music_mode}")
+            print(f"📊 [AUDIO_GUARD] noise_floor={self._audio_guard_noise_floor:.1f}, threshold={effective_threshold:.1f}, " 
+                  f"speech_frames={self._audio_guard_speech_frames}, music_mode={self._audio_guard_music_mode}")
         
-        return is_speech
+        return should_send
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
@@ -7854,7 +7932,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         if goodbye_text:
                             await self._send_text_to_ai(f"[SYSTEM] השיחה מסתיימת. אמור: {goodbye_text}")
                         else:
-                            await self._send_text_to_ai("[SYSTEM] השיחה מסתיימת. אמור משפט סיום קצר ומנומס בעברית, כמו 'תודה שהתקשרת, בעל המקצוע יחזור אליך בהקדם. להתראות!'")
+                            # No hardcoded goodbye - let AI close naturally based on the business prompt
+                            await self._send_text_to_ai("[SYSTEM] השיחה מסתיימת. אמור משפט סיום קצר ומנומס בעברית לפי הפרומפט של העסק.")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -8046,10 +8125,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 print(f"🔇 [SILENCE] Can't give final chance - call ending")
                                 return
                             
-                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final confirmation request")
+                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final request")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
+                            # Let AI decide what to ask based on business prompt, not hardcoded
                             await self._send_text_to_ai(
-                                "[SYSTEM] הלקוח שותק וטרם אישר את הפרטים. שאל בפעם אחרונה: 'אני רק צריך שתאשר את הפרטים - הכל נכון?'"
+                                "[SYSTEM] הלקוח שותק. נסה לקבל תשובה פעם אחרונה בצורה נחמדה."
                             )
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
@@ -8288,34 +8368,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         🎯 Check if AI said polite closing phrases (for graceful call ending)
         
-        These phrases indicate AI is ending the conversation politely:
-        - "תודה שהתקשרת" - Thank you for calling
-        - "יום נפלא/נעים" - Have a great day
-        - "נשמח לעזור שוב" - Happy to help again
-        - "נציג יחזור אליך" - A rep will call you back
+        NO HARDCODED PHRASES - Let AI close naturally based on business prompt.
+        This function is deprecated and should not trigger hardcoded behavior.
         
         Args:
             text: AI transcript to check
             
         Returns:
-            True if polite closing phrase detected
+            False - polite closing detection disabled (prompt-driven only)
         """
-        text_lower = text.lower().strip()
-        
-        polite_closing_phrases = [
-            "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
-            "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
-            "נשמח לעזור", "נשמח לעמוד לשירותך",
-            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר",
-            "שמח שיכולתי לעזור", "שמחתי לעזור",
-            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות"
-        ]
-        
-        for phrase in polite_closing_phrases:
-            if phrase in text_lower:
-                print(f"[POLITE CLOSING] Detected: '{phrase}'")
-                return True
-        
+        # 🔥 DISABLED: No hardcoded polite closing detection
+        # The AI should close based on the business prompt instructions only
         return False
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -8638,13 +8701,16 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _try_lock_service_from_utterance(self, text: str):
         """
-        🔥 BUILD 336: SERVICE LOCK MECHANISM
+        🔥 DISABLED: No mid-call service extraction
         
-        Locks service from ANY user utterance during discovery phase.
-        Triggers on: response to greeting, first few messages, or when AI asked for service.
-        
-        Takes what user said literally - no dictionaries or normalization.
+        Service extraction happens ONLY from summary at end of call.
+        The AI collects information naturally based on the business prompt.
         """
+        # 🔥 ALWAYS DISABLED: No mid-call extraction
+        if not ENABLE_LEGACY_CITY_LOGIC:
+            return
+        
+        # Legacy code below - disabled unless flag is explicitly enabled
         import re
         
         # Only lock if service is needed and not already locked
@@ -8735,8 +8801,16 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _try_lock_city_from_utterance(self, text: str):
         """
-        🔥 BUILD 326: CITY LOCK MECHANISM (enhanced)
+        🔥 DISABLED: No mid-call city extraction
+        
+        City information is extracted ONLY from summary at end of call.
+        The AI collects information naturally based on the business prompt.
         """
+        # 🔥 ALWAYS DISABLED: No mid-call extraction
+        if not ENABLE_LEGACY_CITY_LOGIC:
+            return
+        
+        # Legacy code below - disabled unless flag is explicitly enabled
         import re
         
         def _normalize_city_name(name: str) -> str:
@@ -8968,22 +9042,23 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _check_lead_captured(self) -> bool:
         """
-        🎯 SMART HANGUP: Check if all required lead information has been collected
+        🎯 PROMPT-ONLY MODE: Lead completion is determined by AI conversation flow, not hardcoded fields
         
-        Uses business-specific required_lead_fields if configured.
-        Checks BOTH lead_capture_state (dynamic) AND crm_context (legacy).
+        This function is DEPRECATED and should always return False.
+        The AI decides when enough information has been collected based on the business prompt.
+        No hardcoded field requirements or branching logic.
         
         Returns:
-            True if all required lead fields are collected
+            False - always, prompt drives conversation completion
         """
-        # Get required fields from business settings
-        required_fields = getattr(self, 'required_lead_fields', None)
-        print(f"🔍 [DEBUG] _check_lead_captured: required_fields from self = {required_fields}")
+        # 🔥 ALWAYS DISABLED: No hardcoded field checking
+        # The business prompt instructs the AI on what to collect and when to end
+        print(f"✅ [PROMPT-ONLY] Lead capture driven by AI prompt - no hardcoded field checking")
+        return False
         
-        # 🔥 PROMPT-ONLY MODE: If no required fields configured, never enforce anything
-        # The business prompt defines what "enough" means, not the Python code
+        # Legacy code below is DISABLED - kept for reference only
+        required_fields = getattr(self, 'required_lead_fields', None)
         if not required_fields:
-            print(f"✅ [PROMPT-ONLY] No required_lead_fields configured - letting prompt handle conversation flow")
             return False
         
         # Get current capture state
