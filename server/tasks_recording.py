@@ -115,10 +115,19 @@ def process_recording_async(form_data):
                 from server.services.lead_extraction_service import transcribe_recording_with_whisper, extract_lead_from_transcript
                 
                 # Get full offline transcript (higher quality than realtime)
+                print(f"[OFFLINE_STT] Starting Whisper transcription for {call_sid}")
                 log.info(f"[OFFLINE_STT] Starting offline transcription for {call_sid}")
+                
                 final_transcript = transcribe_recording_with_whisper(audio_file, call_sid)
                 
-                if final_transcript and len(final_transcript) > 20:
+                # ✅ CRITICAL: Only proceed if we got a valid transcript
+                if not final_transcript or len(final_transcript.strip()) < 10:
+                    print(f"⚠️ [OFFLINE_STT] Empty or invalid transcript for {call_sid} - NOT updating call_log.final_transcript")
+                    log.warning(f"[OFFLINE_STT] Transcription returned empty/invalid result: {len(final_transcript or '')} chars")
+                    final_transcript = None  # Set to None so we don't save empty string
+                else:
+                    # Success - we have a valid transcript!
+                    print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
                     log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
                     
                     # 🆕 Extract service + city from transcript using AI
@@ -145,6 +154,7 @@ def process_recording_async(form_data):
                         log.warning(f"⚠️ Could not get business context for extraction: {e}")
                     
                     # Extract lead info from transcript
+                    print(f"[OFFLINE_EXTRACT] Starting extraction for {call_sid}")
                     log.info(f"[OFFLINE_EXTRACT] Starting extraction for {call_sid}")
                     extraction_result = extract_lead_from_transcript(
                         final_transcript, 
@@ -158,17 +168,25 @@ def process_recording_async(form_data):
                         extraction_confidence = extraction_result.get("confidence", 0.0)
                         
                         if extracted_service or extracted_city:
+                            print(f"[OFFLINE_EXTRACT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence:.2f}")
                             log.info(f"[OFFLINE_EXTRACT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence:.2f}")
                         else:
+                            print(f"[OFFLINE_EXTRACT] No reliable data extracted from transcript")
                             log.info(f"[OFFLINE_EXTRACT] No reliable data extracted from transcript")
-                else:
-                    log.warning(f"[OFFLINE_STT] Transcript too short or empty: {len(final_transcript or '')} chars")
                     
             except Exception as e:
+                print(f"❌ [OFFLINE_STT/EXTRACT] Post-call processing failed for {call_sid}: {e}")
                 log.error(f"[OFFLINE_STT/EXTRACT] Post-call processing failed: {e}")
                 import traceback
                 traceback.print_exc()
-                # Continue processing - don't fail entire pipeline if extraction fails
+                # Set to None to avoid saving empty/corrupted data
+                final_transcript = None
+                extracted_service = None
+                extracted_city = None
+                extraction_confidence = None
+        else:
+            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline transcription")
+            log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
         
         # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
         summary = ""
@@ -219,11 +237,15 @@ def download_recording(recording_url, call_sid):
         # Twilio מחזיר רק metadata, צריך להוסיף .mp3
         mp3_url = f"{recording_url}.mp3"
         
+        print(f"[OFFLINE_STT] Downloading recording from Twilio: {mp3_url}")
+        log.info(f"[OFFLINE_STT] Attempting to download: {mp3_url}")
+        
         # הורד עם Basic Auth של Twilio
         account_sid = os.getenv("TWILIO_ACCOUNT_SID")
         auth_token = os.getenv("TWILIO_AUTH_TOKEN")
         
         if not account_sid or not auth_token:
+            print(f"❌ [OFFLINE_STT] Missing Twilio credentials for {call_sid}")
             log.error("Missing Twilio credentials for download")
             return None
             
@@ -231,19 +253,39 @@ def download_recording(recording_url, call_sid):
         response = requests.get(mp3_url, auth=auth, timeout=30)
         response.raise_for_status()
         
+        # בדוק שהתקבל אודיו ולא תשובה ריקה
+        audio_bytes = response.content
+        print(f"[OFFLINE_STT] Downloaded recording bytes: {len(audio_bytes)} for {call_sid}")
+        
+        if len(audio_bytes) < 1000:  # פחות מ-1KB - כנראה לא אודיו תקין
+            print(f"⚠️ [OFFLINE_STT] Recording too small ({len(audio_bytes)} bytes) for {call_sid} - may be corrupted")
+            log.warning(f"Recording suspiciously small: {len(audio_bytes)} bytes")
+        
         # שמור לדיסק
         recordings_dir = "server/recordings"
         os.makedirs(recordings_dir, exist_ok=True)
         
         file_path = f"{recordings_dir}/{call_sid}.mp3"
         with open(file_path, "wb") as f:
-            f.write(response.content)
+            f.write(audio_bytes)
         
-        log.info("Recording downloaded: %s (%d bytes)", file_path, len(response.content))
+        print(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(audio_bytes)} bytes)")
+        log.info("Recording downloaded: %s (%d bytes)", file_path, len(audio_bytes))
         return file_path
         
+    except requests.exceptions.HTTPError as e:
+        print(f"❌ [OFFLINE_STT] HTTP error downloading recording for {call_sid}: {e.response.status_code}")
+        log.error(f"HTTP error downloading recording: {e}")
+        return None
+    except requests.exceptions.Timeout as e:
+        print(f"❌ [OFFLINE_STT] Timeout downloading recording for {call_sid}")
+        log.error(f"Timeout downloading recording: {e}")
+        return None
     except Exception as e:
+        print(f"❌ [OFFLINE_STT] Failed to download recording for {call_sid}: {e}")
         log.error("Failed to download recording: %s", e)
+        import traceback
+        traceback.print_exc()
         return None
 
 def transcribe_hebrew(audio_file):
@@ -332,8 +374,16 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             db.session.commit()
             
             # ✅ Explicit confirmation logging
-            print(f"[OFFLINE_STT] ✅ Saved final_transcript ({len(final_transcript) if final_transcript else 0} chars) for {call_sid}")
-            print(f"[OFFLINE_STT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence}")
+            if final_transcript and len(final_transcript) > 0:
+                print(f"[OFFLINE_STT] ✅ Saved final_transcript ({len(final_transcript)} chars) for {call_sid}")
+            else:
+                print(f"[OFFLINE_STT] ℹ️ No offline transcript saved for {call_sid} (empty or failed)")
+            
+            if extracted_service or extracted_city:
+                print(f"[OFFLINE_STT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence}")
+            else:
+                print(f"[OFFLINE_STT] ℹ️ No extraction data for {call_sid} (service=None, city=None)")
+            
             log.info(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
             
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
