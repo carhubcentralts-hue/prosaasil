@@ -194,11 +194,15 @@ def download_recording(call_sid):
         recording_content = None
         
         # 🔥 BUILD 149 FIX: Try multiple URL formats
-        # Twilio recordings can be .mp3 suffix OR raw URL
+        # Handle .json URLs from Twilio properly
+        base_url = call.recording_url
+        if base_url.endswith(".json"):
+            base_url = base_url[:-5]
+        
         urls_to_try = [
-            f"{call.recording_url}.mp3",
-            call.recording_url,
-            f"{call.recording_url}?Download=true",
+            base_url,  # בלי סיומת – פורמט ברירת מחדל של Twilio
+            f"{base_url}.mp3",
+            f"{base_url}.wav",
         ]
         
         last_error = None
