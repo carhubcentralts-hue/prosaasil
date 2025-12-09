@@ -1743,8 +1743,22 @@ Introduce yourself briefly in Hebrew and wait for customer."""
                 self.is_playing_greeting = True
                 self._greeting_start_ts = time.time()
                 
-                # Send response.create immediately
+                # 🔥 FIX: Send conversation item + response.create to actually trigger greeting
+                # Without a conversation item, response.create has nothing to respond to!
                 try:
+                    # Add a system message that instructs the AI to speak the greeting
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{
+                                "type": "input_text",
+                                "text": "התחל את השיחה"
+                            }]
+                        }
+                    })
+                    # Now trigger the response
                     await client.send_event({"type": "response.create"})
                     print(f"✅ [FAST GREETING] Greeting triggered in {(time.time() - t_connected)*1000:.0f}ms from connect!")
                 except Exception as e:
@@ -2097,13 +2111,21 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
                 # Solution: Don't send audio to OpenAI until greeting finishes playing.
                 if self.is_playing_greeting:
-                    if not _greeting_block_logged:
-                        print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
-                        _greeting_block_logged = True
-                    # 🔥 BUILD 200: Track blocked audio stats
-                    self._stats_audio_blocked += 1
-                    # Drop the audio chunk - don't send to OpenAI during greeting
-                    continue
+                    # 🔥 TIMEOUT: Force greeting to end after 3 seconds to prevent infinite blocking
+                    greeting_elapsed = time.time() - getattr(self, '_greeting_start_ts', time.time())
+                    if greeting_elapsed > 3.0:
+                        print(f"⏱️ [GREETING TIMEOUT] Forcing is_playing_greeting=False after {greeting_elapsed:.1f}s")
+                        self.is_playing_greeting = False
+                        self.barge_in_enabled_after_greeting = True
+                        # Don't continue - allow this frame through
+                    else:
+                        if not _greeting_block_logged:
+                            print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
+                            _greeting_block_logged = True
+                        # 🔥 BUILD 200: Track blocked audio stats
+                        self._stats_audio_blocked += 1
+                        # Drop the audio chunk - don't send to OpenAI during greeting
+                        continue
                 else:
                     # Greeting finished - resume sending audio
                     if _greeting_block_logged and not _greeting_resumed_logged:
@@ -2940,7 +2962,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
                         if self.greeting_sent and not self.user_has_spoken:
-                            print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                            # 🔥 FIX: Only log first greeting audio frame
+                            if not hasattr(self, '_greeting_audio_logged'):
+                                print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                                self._greeting_audio_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
                             now = time.time()
@@ -2948,7 +2973,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
                             self.is_ai_speaking_event.set()
-                            self.is_playing_greeting = True
+                            # 🔥 FIX: Don't keep resetting is_playing_greeting - it should already be set from trigger
+                            # If it's not set, set it now (fallback for safety)
+                            if not self.is_playing_greeting:
+                                self.is_playing_greeting = True
+                                self._greeting_start_ts = time.time()
+                                print(f"🎤 [GREETING] First audio frame received - greeting playback started")
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                             except queue.Full:
@@ -5801,11 +5831,19 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # OpenAI's server-side VAD detects incoming audio and cancels the greeting.
                         # Block audio until greeting finishes OR user has already spoken.
                         if self.is_playing_greeting and not self.user_has_spoken:
-                            # Log once
-                            if not hasattr(self, '_greeting_enqueue_block_logged'):
-                                print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
-                                self._greeting_enqueue_block_logged = True
-                            continue  # Don't enqueue audio during greeting
+                            # 🔥 TIMEOUT: Force greeting to end after 3 seconds to prevent infinite blocking
+                            greeting_elapsed = time.time() - getattr(self, '_greeting_start_ts', time.time())
+                            if greeting_elapsed > 3.0:
+                                print(f"⏱️ [GREETING TIMEOUT] Forcing is_playing_greeting=False after {greeting_elapsed:.1f}s (enqueue path)")
+                                self.is_playing_greeting = False
+                                self.barge_in_enabled_after_greeting = True
+                                # Don't continue - allow this frame to be enqueued
+                            else:
+                                # Log once
+                                if not hasattr(self, '_greeting_enqueue_block_logged'):
+                                    print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
+                                    self._greeting_enqueue_block_logged = True
+                                continue  # Don't enqueue audio during greeting
                         
                         if not self.barge_in_enabled_after_greeting:
                             # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
@@ -5930,22 +5968,33 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
+                                # 🔥 FIX: Enhanced logging with greeting state
                                 if self._twilio_audio_chunks_sent <= 3:
                                     first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, consec_frames={self._consecutive_voice_frames}")
+                                    print(f"✅ [VOICE] Frame accepted: chunk#{self._twilio_audio_chunks_sent}, rms={rms:.0f}, zcr={zcr if 'zcr' in locals() else 'N/A'}, playing_greeting={self.is_playing_greeting}, consec_frames={self._consecutive_voice_frames}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
                                 pass
                         else:
-                            # 🔥 BUILD 171: Enhanced logging for debugging
-                            if not hasattr(self, '_noise_reject_count'):
-                                self._noise_reject_count = 0
-                            self._noise_reject_count += 1
-                            # Log every 100 rejected frames with more detail
-                            if self._noise_reject_count % 100 == 0:
-                                reason = "noise" if is_noise else f"insufficient_consec_frames({self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
-                                print(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} frames (rms={rms:.0f}, reason={reason})")
+                            # 🔥 FIX: Log rejected frames with reason
+                            if not hasattr(self, '_voice_reject_count'):
+                                self._voice_reject_count = 0
+                            self._voice_reject_count += 1
+                            
+                            # Determine rejection reason
+                            if is_noise:
+                                reason = "noise"
+                            elif not has_sustained_speech:
+                                reason = f"short_burst(frames={self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
+                            elif getattr(self, '_audio_guard_enabled', False):
+                                reason = "audio_guard"
+                            else:
+                                reason = "threshold"
+                            
+                            # Log every 50th rejection
+                            if self._voice_reject_count % 50 == 0:
+                                print(f"❌ [VOICE] Frame rejected: reason={reason}, rms={rms:.0f}, zcr={zcr if 'zcr' in locals() else 'N/A'}, playing_greeting={self.is_playing_greeting}, total_rejected={self._voice_reject_count}")
                     # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
                     elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)
@@ -7676,10 +7725,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self.call_goal = self.call_config.call_goal  # "lead_only" or "appointment"
                         self.confirm_before_hangup = self.call_config.confirm_before_hangup  # Always confirm before disconnect
                     
-                    # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
+                    # 🔥 FIX: DON'T set is_playing_greeting here! Only set it when greeting is ACTUALLY triggered.
+                    # Setting it early causes all audio to be blocked even before greeting starts,
+                    # resulting in frames_sent=0 and "NO USER SPEECH" false positives.
+                    # The greeting trigger happens in the realtime connection handler (line ~1743)
                     if self.bot_speaks_first:
-                        self.is_playing_greeting = True
-                        print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
+                        print(f"🎤 [CONFIG] bot_speaks_first=True - greeting will be triggered when OpenAI connects")
                     
                     # 🔥 CRITICAL: Mark settings as loaded to prevent duplicate loading
                     self._call_settings_loaded = True
