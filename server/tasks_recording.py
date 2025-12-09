@@ -398,6 +398,45 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             
             log.info(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
             
+            # 🔥 SEND WEBHOOK with extracted data (after commit!)
+            try:
+                from server.services.generic_webhook_service import send_call_completed_webhook
+                
+                # Get business_id from call_log
+                business_id = call_log.business_id if call_log else None
+                
+                if business_id:
+                    # Build webhook payload with extracted fields
+                    final_city = extracted_city
+                    final_service = extracted_service
+                    
+                    print(f"[WEBHOOK] Sending from worker: city='{final_city}', service='{final_service}'")
+                    
+                    send_call_completed_webhook(
+                        business_id=business_id,
+                        call_id=call_sid,
+                        lead_id=None,  # Will be enriched below if available
+                        phone=from_number or '',
+                        started_at=call_log.created_at if call_log else None,
+                        ended_at=call_log.updated_at if call_log else None,
+                        duration_sec=call_log.duration if call_log else 0,
+                        transcript=final_transcript or transcription or '',
+                        summary=summary or '',
+                        agent_name='Assistant',
+                        direction='inbound',
+                        city=final_city,
+                        service_category=final_service,
+                        customer_name=None,
+                        preferred_time=None
+                    )
+                    print(f"✅ [WEBHOOK] Sent from worker: city={final_city or 'N/A'}, service={final_service or 'N/A'}")
+                else:
+                    print(f"⚠️ [WEBHOOK] No business_id for call {call_sid} - webhook not sent")
+                    
+            except Exception as webhook_err:
+                print(f"⚠️ [WEBHOOK] Error sending from worker (non-blocking): {webhook_err}")
+                log.error(f"[WEBHOOK] Error: {webhook_err}")
+            
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
             if from_number and call_log and call_log.business_id:
                 ci = CustomerIntelligence(call_log.business_id)
