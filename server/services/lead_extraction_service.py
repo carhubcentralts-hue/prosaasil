@@ -12,20 +12,15 @@ logger = logging.getLogger(__name__)
 
 def extract_city_and_service_from_summary(summary_text: str) -> dict:
     """
-    חילוץ עיר ותחום שירות מטקסט שיחה (סיכום או תמלול).
+    חילוץ עיר ותחום שירות מסיכום שיחה בלבד.
     
-    קלט: טקסט שיחה - summary (מועדף) או transcript מלא (fallback)
+    קלט: סיכום שיחה מלא (summary)
     פלט: dict עם city, raw_city, service_category, confidence
     
-    🔥 SMART FALLBACK: הפונקציה יכולה לעבוד עם:
-    - סיכום GPT (אידיאלי - מרוכז ומדויק)
-    - תמלול Whisper מלא (fallback - אם אין סיכום)
-    - תמלול realtime (fallback אחרון)
-    
-    זו הפונקציה העיקרית לחילוץ בסוף שיחה.
+    זו הפונקציה העיקרית לחילוץ בסוף שיחה - רצה רק על הסיכום שנוצר מה-offline transcript.
     """
     if not summary_text or len(summary_text) < 20:
-        logger.warning(f"[OFFLINE_EXTRACT] Text too short for extraction: {len(summary_text or '')} chars")
+        logger.warning(f"[OFFLINE_EXTRACT] Summary too short for extraction: {len(summary_text or '')} chars")
         return {
             "city": None,
             "raw_city": None,

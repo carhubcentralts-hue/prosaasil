@@ -47,35 +47,19 @@ def summarize_conversation(
     user_spoke = False
     user_content_length = 0
     
-    # Check if transcript has speaker tags (old format: "לקוח:", "נציג:") or is continuous (new Whisper format)
-    has_speaker_tags = any(
-        prefix in transcription 
-        for prefix in ['לקוח:', 'user:', 'User:', 'Customer:', 'נציג:', 'agent:', 'Agent:']
-    )
-    
-    if has_speaker_tags:
-        # OLD FORMAT: Parse by speaker tags
-        for line in transcription.split('\n'):
-            line = line.strip()
-            # Check for user speech markers
-            if line.startswith('לקוח:') or line.startswith('user:') or line.startswith('User:') or line.startswith('Customer:'):
-                # Extract content after the prefix
-                content = line.split(':', 1)[1].strip() if ':' in line else ""
-                # Filter out noise/silence markers
-                noise_patterns = ['...', '(שקט)', '(silence)', '(noise)', '(רעש)', '(לא שמע)', '(inaudible)']
-                if content and len(content) > 2:
-                    is_noise = any(noise in content.lower() for noise in noise_patterns)
-                    if not is_noise:
-                        user_spoke = True
-                        user_content_length += len(content)
-    else:
-        # NEW FORMAT: Continuous transcript without tags (from Whisper)
-        # If transcript is long enough, assume real conversation happened
-        user_content_length = len(transcription.strip())
-        # Consider it a real conversation if > 50 chars (not just greeting)
-        if user_content_length > 50:
-            user_spoke = True
-            log.info(f"📊 [SUMMARY] Continuous transcript detected ({user_content_length} chars), treating as real conversation")
+    for line in transcription.split('\n'):
+        line = line.strip()
+        # Check for user speech markers
+        if line.startswith('לקוח:') or line.startswith('user:') or line.startswith('User:') or line.startswith('Customer:'):
+            # Extract content after the prefix
+            content = line.split(':', 1)[1].strip() if ':' in line else ""
+            # Filter out noise/silence markers
+            noise_patterns = ['...', '(שקט)', '(silence)', '(noise)', '(רעש)', '(לא שמע)', '(inaudible)']
+            if content and len(content) > 2:
+                is_noise = any(noise in content.lower() for noise in noise_patterns)
+                if not is_noise:
+                    user_spoke = True
+                    user_content_length += len(content)
     
     # 🔥 BUILD 183: If no meaningful user speech, return empty (no hallucination!)
     if not user_spoke or user_content_length < 5:
