@@ -9790,6 +9790,50 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     service_from_calllog = True
                                     print(f"✅ [WEBHOOK] Using offline extracted service from summary: '{service_category}' (confidence: {call_log.extraction_confidence or 'N/A'})")
                             
+                            # 🔁 CRITICAL: Wait for offline extraction (city/service from summary) with retry mechanism
+                            # The offline worker processes the recording after the call ends:
+                            # 1. Transcribes with Whisper → final_transcript
+                            # 2. Generates summary from transcript
+                            # 3. Extracts city/service from summary → extracted_city/extracted_service
+                            # We wait up to 15 seconds (3 attempts x 5 sec) for extraction to complete
+                            # 🔥 MUST RUN BEFORE FALLBACK LOGIC to prioritize summary-based extraction!
+                            if not city_from_calllog or not service_from_calllog:
+                                import time
+                                max_retries = 3
+                                retry_delay = 5  # seconds
+                                
+                                print(f"⏳ [WEBHOOK] Waiting for offline extraction to complete...")
+                                for attempt in range(max_retries):
+                                    # Reload fresh from DB
+                                    db.session.expire(call_log)  # Force SQLAlchemy to reload from DB
+                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                    
+                                    # ✅ Check if extraction completed (city OR service found)
+                                    # Note: We check extracted fields, not final_transcript, because extraction happens AFTER transcript
+                                    if call_log and (call_log.extracted_city or call_log.extracted_service):
+                                        print(f"✅ [WEBHOOK] Offline extraction found on attempt {attempt + 1}: city='{call_log.extracted_city}', service='{call_log.extracted_service}'")
+                                        # 🔥 CRITICAL: Update local variables with extracted values
+                                        if call_log.extracted_city and not city_from_calllog:
+                                            city = call_log.extracted_city
+                                            city_from_calllog = True
+                                            print(f"✅ [WEBHOOK] Updated city from offline extraction: '{city}'")
+                                        if call_log.extracted_service and not service_from_calllog:
+                                            service_category = call_log.extracted_service
+                                            service_from_calllog = True
+                                            print(f"✅ [WEBHOOK] Updated service from offline extraction: '{service_category}'")
+                                        break
+                                    elif attempt < max_retries - 1:
+                                        print(f"⏳ [WEBHOOK] Waiting {retry_delay}s for offline extraction (attempt {attempt + 1}/{max_retries})...")
+                                        time.sleep(retry_delay)
+                                    else:
+                                        print(f"ℹ️ [WEBHOOK] No offline extraction after {max_retries} attempts ({max_retries * retry_delay}s), will use fallback sources")
+                            
+                            # 📊 STATUS AFTER WAIT: Log what we have after waiting for offline extraction
+                            print(f"📊 [WEBHOOK] Status after waiting for offline extraction:")
+                            print(f"   - city: '{city or 'NONE'}' (from_calllog: {city_from_calllog})")
+                            print(f"   - service: '{service_category or 'NONE'}' (from_calllog: {service_from_calllog})")
+                            print(f"   - Will use fallback: city={not city_from_calllog}, service={not service_from_calllog}")
+                            
                             # 📱 Phone extraction - fallback chain with detailed logging
                             phone = None
                             print(f"📱 [WEBHOOK] Phone extraction debug:")
@@ -9924,28 +9968,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     customer_name = self.crm_context.customer_name
                                 # preferred_time should come from summary analysis if needed
                             
-                            # 🔁 CRITICAL: Wait for offline transcript with retry mechanism
-                            # The offline worker processes the recording after the call ends
-                            # We wait up to 10 seconds (2 attempts x 5 sec) for final_transcript to appear
-                            import time
-                            max_retries = 2
-                            retry_delay = 5  # seconds
-                            
-                            for attempt in range(max_retries):
-                                # Reload fresh from DB
-                                db.session.expire(call_log)  # Force SQLAlchemy to reload from DB
-                                call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                                
-                                if call_log and call_log.final_transcript:
-                                    print(f"✅ [WEBHOOK] Offline final_transcript found on attempt {attempt + 1}")
-                                    break
-                                elif attempt < max_retries - 1:
-                                    print(f"⏳ [WEBHOOK] Waiting {retry_delay}s for offline transcript (attempt {attempt + 1}/{max_retries})...")
-                                    time.sleep(retry_delay)
-                                else:
-                                    print(f"ℹ️ [WEBHOOK] No offline transcript after {max_retries} attempts, proceeding with realtime")
-                            
-                            # 🔍 DEBUG: Log fresh state
+                            # 🔍 DEBUG: Log fresh state after wait loop
                             if call_log:
                                 print(f"[DEBUG] CallLog FRESH state for {self.call_sid}:")
                                 print(f"  - final_transcript: {len(call_log.final_transcript) if call_log.final_transcript else 0} chars")
