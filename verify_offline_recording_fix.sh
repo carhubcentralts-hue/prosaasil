@@ -110,16 +110,16 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "📊 4. Webhook Transcript Selection Logic"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-check_pattern "server/media_ws_ai.py" 'final_transcript = full_conversation  # Default to realtime' \
-    "Default to realtime - initial assignment"
+check_pattern "server/media_ws_ai.py" 'OFFLINE TRANSCRIPT = PRIMARY SOURCE' \
+    "Offline transcript priority - no thresholds"
 
-check_pattern "server/media_ws_ai.py" 'if call_log and call_log.final_transcript and len(call_log.final_transcript) > 50:' \
-    "Offline transcript validation - checks for substantial content"
+check_pattern "server/media_ws_ai.py" 'if call_log and call_log.final_transcript:' \
+    "Offline transcript check - simple existence check (no length threshold)"
 
-check_pattern "server/media_ws_ai.py" 'Using offline final_transcript.*instead of realtime' \
+check_pattern "server/media_ws_ai.py" 'Using OFFLINE transcript' \
     "Success logging - logs when using offline transcript"
 
-check_pattern "server/media_ws_ai.py" 'No offline final_transcript available.*using realtime' \
+check_pattern "server/media_ws_ai.py" 'Offline transcript missing.*using realtime' \
     "Fallback logging - logs when falling back to realtime"
 
 echo ""

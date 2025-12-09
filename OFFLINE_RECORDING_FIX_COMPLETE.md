@@ -76,23 +76,23 @@ This ensures the flow gracefully handles download failures:
 final_transcript = call_log.final_transcript if call_log and call_log.final_transcript else full_conversation
 ```
 
-**After:**
+**After (Updated - NO THRESHOLDS):**
 ```python
-# Default to realtime
-final_transcript = full_conversation
-
-# Only use offline transcript if it's substantial (> 50 chars)
-if call_log and call_log.final_transcript and len(call_log.final_transcript) > 50:
+# OFFLINE TRANSCRIPT = PRIMARY SOURCE (no thresholds, no length checks)
+# Realtime is ONLY a fallback when offline is missing
+if call_log and call_log.final_transcript:
     final_transcript = call_log.final_transcript
-    print(f"✅ [WEBHOOK] Using offline final_transcript ({len(final_transcript)} chars) instead of realtime ({len(full_conversation)} chars)")
+    print(f"✅ [WEBHOOK] Using OFFLINE transcript ({len(final_transcript)} chars)")
 else:
-    print(f"ℹ️ [WEBHOOK] No offline final_transcript available for {self.call_sid} - using realtime transcript ({len(full_conversation)} chars)")
+    final_transcript = full_conversation
+    print(f"ℹ️ [WEBHOOK] Offline transcript missing → using realtime ({len(full_conversation)} chars)")
 ```
 
 **Key Improvements:**
-- ✅ More explicit logic (default to realtime, override if offline is good)
-- ✅ Clearer logging showing both transcript lengths
-- ✅ Ensures we only use offline transcript when it's substantial
+- ✅ **Offline is ALWAYS primary** when available (no length thresholds)
+- ✅ Realtime is ONLY a fallback
+- ✅ Clearer logging showing transcript source
+- ✅ Consistent, predictable behavior
 
 ## 🔍 Existing Safeguards (Already Working)
 
@@ -141,14 +141,15 @@ To verify the fix works:
    - [ ] Check logs for: `[OFFLINE_STT] ✅ Saved final_transcript (X chars)`
 
 4. ✅ **Webhook Usage:**
-   - [ ] Check logs for: `✅ [WEBHOOK] Using offline final_transcript (X chars) instead of realtime (Y chars)`
+   - [ ] Check logs for: `✅ [WEBHOOK] Using OFFLINE transcript (X chars)`
    - [ ] Verify `final_transcript` in CallLog database is populated
    - [ ] Verify webhook receives high-quality transcript
+   - [ ] **NOTE:** Offline is now used ALWAYS when available (no thresholds)
 
 5. ✅ **Failure Handling:**
    - [ ] If download fails (404), check for: `❌ [OFFLINE_STT] HTTP error downloading recording: 404`
    - [ ] Verify no empty `final_transcript` is saved
-   - [ ] Verify webhook falls back to realtime: `ℹ️ [WEBHOOK] No offline final_transcript available - using realtime`
+   - [ ] Verify webhook falls back to realtime: `ℹ️ [WEBHOOK] Offline transcript missing → using realtime`
 
 ## 🚀 Expected Behavior After Fix
 
@@ -164,7 +165,7 @@ To verify the fix works:
 8. [OFFLINE_EXTRACT] Starting extraction
 9. [OFFLINE_EXTRACT] ✅ Extracted: service='פריצת לוטו', city='בית שאן', confidence=0.92
 10. [OFFLINE_STT] ✅ Saved final_transcript (342 chars)
-11. [WEBHOOK] ✅ Using offline final_transcript (342 chars) instead of realtime (287 chars)
+11. [WEBHOOK] ✅ Using OFFLINE transcript (342 chars)
 ```
 
 ### Failure Flow (Download Fails):

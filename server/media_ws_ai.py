@@ -9959,7 +9959,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 db.session.expire(call_log)  # Force SQLAlchemy to reload from DB
                                 call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
                                 
-                                if call_log and call_log.final_transcript and len(call_log.final_transcript) > 50:
+                                if call_log and call_log.final_transcript:
                                     print(f"✅ [WEBHOOK] Offline final_transcript found on attempt {attempt + 1}")
                                     break
                                 elif attempt < max_retries - 1:
@@ -9976,14 +9976,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 print(f"  - extracted_service: {call_log.extracted_service}")
                                 print(f"  - extraction_confidence: {call_log.extraction_confidence}")
                             
-                            # 🆕 Use final_transcript from offline processing if available (higher quality)
-                            # Only use offline transcript if it's substantial (> 50 chars)
-                            final_transcript = full_conversation  # Default to realtime
-                            if call_log and call_log.final_transcript and len(call_log.final_transcript) > 50:
+                            # 🆕 OFFLINE TRANSCRIPT = PRIMARY SOURCE (no thresholds, no length checks)
+                            # Realtime is ONLY a fallback when offline is missing
+                            if call_log and call_log.final_transcript:
                                 final_transcript = call_log.final_transcript
-                                print(f"✅ [WEBHOOK] Using offline final_transcript ({len(final_transcript)} chars) instead of realtime ({len(full_conversation)} chars)")
+                                print(f"✅ [WEBHOOK] Using OFFLINE transcript ({len(final_transcript)} chars)")
                             else:
-                                print(f"ℹ️ [WEBHOOK] No offline final_transcript available for {self.call_sid} - using realtime transcript ({len(full_conversation)} chars)")
+                                final_transcript = full_conversation
+                                print(f"ℹ️ [WEBHOOK] Offline transcript missing → using realtime ({len(full_conversation)} chars)")
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
