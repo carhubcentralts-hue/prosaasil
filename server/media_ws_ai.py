@@ -9774,15 +9774,21 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             city = None
                             service_category = None
                             
-                            # 🆕 PRIORITY 1: Use offline extracted fields from CallLog (if available)
-                            # These come from post-call recording transcription + AI extraction
+                            # 🔥 BUILD 350+: PRIORITY 1: Use offline extracted fields from CallLog (if available)
+                            # These come from post-call SUMMARY extraction (not transcript!)
+                            # This is the PRIMARY and PREFERRED source - extracted from summary after call ends
+                            city_from_calllog = False
+                            service_from_calllog = False
+                            
                             if call_log:
                                 if call_log.extracted_city:
                                     city = call_log.extracted_city
-                                    print(f"✅ [WEBHOOK] Using offline extracted city from CallLog: '{city}' (confidence: {call_log.extraction_confidence or 'N/A'})")
+                                    city_from_calllog = True
+                                    print(f"✅ [WEBHOOK] Using offline extracted city from summary: '{city}' (confidence: {call_log.extraction_confidence or 'N/A'})")
                                 if call_log.extracted_service:
                                     service_category = call_log.extracted_service
-                                    print(f"✅ [WEBHOOK] Using offline extracted service from CallLog: '{service_category}' (confidence: {call_log.extraction_confidence or 'N/A'})")
+                                    service_from_calllog = True
+                                    print(f"✅ [WEBHOOK] Using offline extracted service from summary: '{service_category}' (confidence: {call_log.extraction_confidence or 'N/A'})")
                             
                             # 📱 Phone extraction - fallback chain with detailed logging
                             phone = None
@@ -9812,54 +9818,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             else:
                                 print(f"   ⚠️ No phone found in any source!")
                             
-                            # 🏠 Extract lead_id, city, service_category from multiple sources
+                            # 🏠 Extract lead_id from CRM sources only
+                            # 🚫 BUILD 350+: NO TRANSCRIPT PARSING IN WEBHOOK!
+                            # All city/service extraction happens OFFLINE in tasks_recording.py from summary
+                            # Webhook ONLY uses call_log.extracted_city / call_log.extracted_service
                             
-                            # 🔍 FALLBACK: Extract service from AI CONFIRMATION patterns in transcript
-                            # ONLY if offline extraction didn't provide these fields
-                            # Pattern: "אתה צריך X בעיר Y" or "רק מוודא – אתה צריך X בעיר Y"
-                            # This extracts the SPECIFIC service requested, not just generic professional type
-                            # 🔥 BUILD 180: Priority to AI confirmation patterns for accurate service extraction
-                            import re
+                            # If CallLog doesn't have city/service, we leave them as None/N/A
+                            # This ensures we wait for offline processing to complete before sending accurate data
+                            if not city_from_calllog and not city:
+                                print(f"ℹ️ [WEBHOOK] No city from CallLog - will send as N/A (offline extraction pending or failed)")
                             
-                            if full_conversation and not service_category:
-                                # Look for AI confirmation patterns - get LAST occurrence
-                                confirmation_patterns = [
-                                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,30})(?:\s+בעיר|\s+ב)',  # "אתה צריך קיצור דלתות בעיר"
-                                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,30})(?:,?\s+נכון)',  # "אתה צריך קיצור דלתות, נכון?"
-                                    r'שירות(?:\s+של)?\s+([א-ת\s]{3,30})(?:\s+בעיר|\s+ב)',  # "שירות קיצור דלתות בעיר"
-                                ]
-                                
-                                for pattern in confirmation_patterns:
-                                    matches = list(re.finditer(pattern, full_conversation))
-                                    if matches:
-                                        last_match = matches[-1]  # Get LAST occurrence
-                                        extracted_service = last_match.group(1).strip()
-                                        # Filter out question fragments
-                                        question_fragments = ['אתה צריך', 'צריכים', 'צריך', 'תרצה', 'תרצו', 'רוצה', 'רוצים']
-                                        if extracted_service and len(extracted_service) > 3 and extracted_service not in question_fragments:
-                                            service_category = extracted_service
-                                            print(f"🎯 [WEBHOOK] Extracted SPECIFIC service from AI confirmation: '{service_category}'")
-                                            break
-                            
-                            # FALLBACK: Extract service from known professionals list
-                            # 🔥 BUILD 179: Find the LAST mentioned professional (user may change mind)
-                            if not service_category and full_conversation:
-                                known_professionals = ['חשמלאי', 'אינסטלטור', 'שיפוצניק', 'מנקה', 'הובלות', 'מנעולן',
-                                                       'טכנאי מזגנים', 'גנן', 'צבעי', 'רצף', 'נגר', 'אלומיניום',
-                                                       'טכנאי מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנאי',
-                                                       'שיפוצים', 'ניקיון', 'גינון', 'צביעה', 'ריצוף', 'נגרות',
-                                                       'קיצור דלתות', 'החלפת מנעול', 'פתיחת דלת', 'התקנת דלת']
-                                # Find LAST occurrence of any professional
-                                last_prof_pos = -1
-                                last_prof = None
-                                for prof in known_professionals:
-                                    pos = full_conversation.rfind(prof)  # rfind = LAST occurrence
-                                    if pos > last_prof_pos:
-                                        last_prof_pos = pos
-                                        last_prof = prof
-                                if last_prof:
-                                    service_category = last_prof
-                                    print(f"🎯 [WEBHOOK] Found LAST professional in transcript: {last_prof} (pos={last_prof_pos})")
+                            if not service_from_calllog and not service_category:
+                                print(f"ℹ️ [WEBHOOK] No service from CallLog - will send as N/A (offline extraction pending or failed)")
                             
                             # ⭐ BUILD 350: DISABLED lead_capture_state - service/city come ONLY from summary!
                             # All field extraction happens from transcript analysis above, NOT from mid-call tools.
@@ -9868,37 +9838,44 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             
                             if ENABLE_LEGACY_TOOLS:
                                 # LEGACY: Source 1: lead_capture_state (collected during conversation) - for city/phone only
+                                # 🔥 BUILD 350+: Skip if we already have from CallLog!
                                 lead_state = getattr(self, 'lead_capture_state', {}) or {}
                                 if lead_state:
                                     print(f"📋 [LEGACY WEBHOOK] Lead capture state: {lead_state}")
-                                    if not city:
+                                    if not city_from_calllog and not city:
                                         city = lead_state.get('city') or lead_state.get('עיר')
+                                        print(f"ℹ️ [WEBHOOK] Using city from legacy lead_state (fallback): {city}")
                                     # 🔥 BUILD 184: Get raw_city and confidence from city normalizer
                                     raw_city = lead_state.get('raw_city')
                                     city_confidence = lead_state.get('city_confidence')
-                                    # Only use service from lead_state if we didn't find a known professional
-                                    if not service_category:
+                                    # Only use service from lead_state if we didn't find from CallLog or transcript
+                                    if not service_from_calllog and not service_category:
                                         raw_service = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
                                         # Filter out AI question fragments
                                         if raw_service and raw_service not in ['תרצה עזרה', 'תרצו עזרה', 'אתה צריך', 'אתם צריכים']:
                                             service_category = raw_service
+                                            print(f"ℹ️ [WEBHOOK] Using service from legacy lead_state (fallback): {service_category}")
                                     if not phone:
                                         phone = lead_state.get('phone') or lead_state.get('טלפון')
                             else:
                                 print(f"✅ [BUILD 350] lead_capture_state IGNORED - using summary-only extraction")
                             
                             # Source 2: CRM context
+                            # 🔥 BUILD 350+: Only use CRM context if we don't have from CallLog!
                             if hasattr(self, 'crm_context') and self.crm_context:
                                 lead_id = self.crm_context.lead_id
                                 
-                                # Try to get city/service from CRM context attributes
-                                if not city and hasattr(self.crm_context, 'city'):
+                                # Try to get city/service from CRM context attributes (only if missing from CallLog)
+                                if not city_from_calllog and not city and hasattr(self.crm_context, 'city'):
                                     city = self.crm_context.city
-                                if not service_category:
+                                    print(f"ℹ️ [WEBHOOK] Using city from CRM context (fallback): {city}")
+                                if not service_from_calllog and not service_category:
                                     if hasattr(self.crm_context, 'service_category'):
                                         service_category = self.crm_context.service_category
+                                        print(f"ℹ️ [WEBHOOK] Using service from CRM context (fallback): {service_category}")
                                     elif hasattr(self.crm_context, 'professional'):
                                         service_category = self.crm_context.professional
+                                        print(f"ℹ️ [WEBHOOK] Using professional from CRM context (fallback): {service_category}")
                                 
                                 # Fallback: Load from Lead model if we have lead_id
                                 if lead_id and (not city or not service_category or not phone):
@@ -9911,16 +9888,16 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                                 phone = lead.phone_e164
                                                 print(f"   └─ Phone from Lead: {phone}")
                                             
-                                            # Try to extract city/service from Lead tags (JSON)
+                                            # Try to extract city/service from Lead tags (JSON) - only if missing from CallLog
                                             if lead.tags and isinstance(lead.tags, dict):
-                                                if not city:
+                                                if not city_from_calllog and not city:
                                                     city = lead.tags.get('city') or lead.tags.get('עיר')
                                                     if city:
-                                                        print(f"   └─ City from Lead tags: {city}")
-                                                if not service_category:
+                                                        print(f"   └─ City from Lead tags (fallback): {city}")
+                                                if not service_from_calllog and not service_category:
                                                     service_category = lead.tags.get('service_category') or lead.tags.get('professional') or lead.tags.get('תחום') or lead.tags.get('מקצוע')
                                                     if service_category:
-                                                        print(f"   └─ Service from Lead tags: {service_category}")
+                                                        print(f"   └─ Service from Lead tags (fallback): {service_category}")
                                         else:
                                             print(f"⚠️ [WEBHOOK] Lead #{lead_id} not found in DB")
                                     except Exception as lead_err:
@@ -9984,6 +9961,12 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             else:
                                 final_transcript = full_conversation
                                 print(f"ℹ️ [WEBHOOK] Offline transcript missing → using realtime ({len(full_conversation)} chars)")
+                            
+                            # 🔥 BUILD 350+: Log final extraction sources for debugging
+                            print(f"[WEBHOOK] 📦 Final extraction sources:")
+                            print(f"  - city: '{city or 'N/A'}' (from {'CallLog summary' if city_from_calllog else 'fallback'})")
+                            print(f"  - service: '{service_category or 'N/A'}' (from {'CallLog summary' if service_from_calllog else 'fallback'})")
+                            print(f"  - phone: '{phone or 'N/A'}'")
                             
                             send_call_completed_webhook(
                                 business_id=business_id,
