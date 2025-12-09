@@ -213,7 +213,28 @@ def process_recording_async(form_data):
         
         # 🆕 3.5. חילוץ עיר ושירות מהסיכום (אחרי שנוצר הסיכום!)
         # זה הפיניש - חילוץ מדויק מהסיכום המלא, לא מטרנסקריפט גולמי
-        if summary and len(summary) > 20:
+        
+        # 🔒 PROTECTION: Check if extraction already exists in DB (avoid duplicate processing)
+        skip_extraction = False
+        if call_sid:
+            try:
+                from server.app_factory import get_process_app
+                from server.models_sql import CallLog
+                app = get_process_app()
+                with app.app_context():
+                    existing_call = CallLog.query.filter_by(call_sid=call_sid).first()
+                    if existing_call and existing_call.extracted_city and existing_call.extracted_service:
+                        skip_extraction = True
+                        extracted_city = existing_call.extracted_city
+                        extracted_service = existing_call.extracted_service
+                        extraction_confidence = existing_call.extraction_confidence
+                        print(f"[OFFLINE_EXTRACT] ⏭️ Extraction already exists - skipping (city='{extracted_city}', service='{extracted_service}')")
+                        log.info(f"[OFFLINE_EXTRACT] Extraction already exists for {call_sid} - skipping duplicate processing")
+            except Exception as e:
+                print(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
+                log.warning(f"[OFFLINE_EXTRACT] Could not check existing extraction: {e}")
+        
+        if not skip_extraction and summary and len(summary) > 20:
             try:
                 from server.services.lead_extraction_service import extract_city_and_service_from_summary
                 
@@ -246,7 +267,7 @@ def process_recording_async(form_data):
                 log.error(f"[OFFLINE_EXTRACT] Failed to extract from summary: {e}")
                 import traceback
                 traceback.print_exc()
-        else:
+        elif not skip_extraction:
             print(f"[OFFLINE_EXTRACT] ⚠️ Summary too short for extraction ({len(summary or '')} chars)")
             log.warning(f"[OFFLINE_EXTRACT] Summary too short for extraction")
         

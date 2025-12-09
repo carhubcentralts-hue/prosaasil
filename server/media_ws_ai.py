@@ -9818,55 +9818,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             else:
                                 print(f"   ⚠️ No phone found in any source!")
                             
-                            # 🏠 Extract lead_id, city, service_category from multiple sources
+                            # 🏠 Extract lead_id from CRM sources only
+                            # 🚫 BUILD 350+: NO TRANSCRIPT PARSING IN WEBHOOK!
+                            # All city/service extraction happens OFFLINE in tasks_recording.py from summary
+                            # Webhook ONLY uses call_log.extracted_city / call_log.extracted_service
                             
-                            # 🔍 FALLBACK: Extract service from AI CONFIRMATION patterns in transcript
-                            # ONLY if offline extraction didn't provide these fields
-                            # 🔥 BUILD 350+: Skip ALL fallback logic if we have CallLog extraction!
-                            import re
+                            # If CallLog doesn't have city/service, we leave them as None/N/A
+                            # This ensures we wait for offline processing to complete before sending accurate data
+                            if not city_from_calllog and not city:
+                                print(f"ℹ️ [WEBHOOK] No city from CallLog - will send as N/A (offline extraction pending or failed)")
                             
-                            if not service_from_calllog and full_conversation and not service_category:
-                                print(f"ℹ️ [WEBHOOK] No service from CallLog → trying fallback extraction from transcript")
-                                # Look for AI confirmation patterns - get LAST occurrence
-                                confirmation_patterns = [
-                                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,30})(?:\s+בעיר|\s+ב)',  # "אתה צריך קיצור דלתות בעיר"
-                                    r'(?:אתה צריך|צריך|צריכים)\s+([א-ת\s]{3,30})(?:,?\s+נכון)',  # "אתה צריך קיצור דלתות, נכון?"
-                                    r'שירות(?:\s+של)?\s+([א-ת\s]{3,30})(?:\s+בעיר|\s+ב)',  # "שירות קיצור דלתות בעיר"
-                                ]
-                                
-                                for pattern in confirmation_patterns:
-                                    matches = list(re.finditer(pattern, full_conversation))
-                                    if matches:
-                                        last_match = matches[-1]  # Get LAST occurrence
-                                        extracted_service = last_match.group(1).strip()
-                                        # Filter out question fragments
-                                        question_fragments = ['אתה צריך', 'צריכים', 'צריך', 'תרצה', 'תרצו', 'רוצה', 'רוצים']
-                                        if extracted_service and len(extracted_service) > 3 and extracted_service not in question_fragments:
-                                            service_category = extracted_service
-                                            print(f"🎯 [WEBHOOK] Extracted SPECIFIC service from AI confirmation (fallback): '{service_category}'")
-                                            break
-                            
-                            # FALLBACK: Extract service from known professionals list
-                            # 🔥 BUILD 179: Find the LAST mentioned professional (user may change mind)
-                            # 🔥 BUILD 350+: Skip if we have CallLog extraction!
-                            if not service_from_calllog and not service_category and full_conversation:
-                                print(f"ℹ️ [WEBHOOK] No service found → trying known professionals fallback")
-                                known_professionals = ['חשמלאי', 'אינסטלטור', 'שיפוצניק', 'מנקה', 'הובלות', 'מנעולן',
-                                                       'טכנאי מזגנים', 'גנן', 'צבעי', 'רצף', 'נגר', 'אלומיניום',
-                                                       'טכנאי מכשירי חשמל', 'מזגנים', 'דוד שמש', 'אנטנאי',
-                                                       'שיפוצים', 'ניקיון', 'גינון', 'צביעה', 'ריצוף', 'נגרות',
-                                                       'קיצור דלתות', 'החלפת מנעול', 'פתיחת דלת', 'התקנת דלת']
-                                # Find LAST occurrence of any professional
-                                last_prof_pos = -1
-                                last_prof = None
-                                for prof in known_professionals:
-                                    pos = full_conversation.rfind(prof)  # rfind = LAST occurrence
-                                    if pos > last_prof_pos:
-                                        last_prof_pos = pos
-                                        last_prof = prof
-                                if last_prof:
-                                    service_category = last_prof
-                                    print(f"🎯 [WEBHOOK] Found LAST professional in transcript (fallback): {last_prof} (pos={last_prof_pos})")
+                            if not service_from_calllog and not service_category:
+                                print(f"ℹ️ [WEBHOOK] No service from CallLog - will send as N/A (offline extraction pending or failed)")
                             
                             # ⭐ BUILD 350: DISABLED lead_capture_state - service/city come ONLY from summary!
                             # All field extraction happens from transcript analysis above, NOT from mid-call tools.
