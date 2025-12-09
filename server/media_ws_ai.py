@@ -571,6 +571,62 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
         traceback.print_exc()
 
 
+def create_appointment(business_id: int, customer_phone: str, customer_name: str,
+                      requested_dt, service_type: str = "") -> Optional[int]:
+    """
+    🔥 SIMPLIFIED WRAPPER: Create appointment from datetime object
+    
+    Args:
+        business_id: Business ID
+        customer_phone: Customer phone from call
+        customer_name: Customer name
+        requested_dt: datetime object (timezone-aware)
+        service_type: Service type (optional)
+    
+    Returns:
+        Appointment ID if created successfully, None otherwise
+    """
+    try:
+        from datetime import timedelta
+        from server.policy.business_policy import get_business_policy
+        
+        # Get slot size
+        policy = get_business_policy(business_id)
+        slot_duration = timedelta(minutes=policy.slot_size_min)
+        end_dt = requested_dt + slot_duration
+        
+        # Convert to ISO format
+        start_iso = requested_dt.isoformat()
+        end_iso = end_dt.isoformat()
+        
+        # Call existing function
+        result = create_appointment_from_realtime(
+            business_id=business_id,
+            customer_phone=customer_phone,
+            customer_name=customer_name,
+            treatment_type=service_type,
+            start_iso=start_iso,
+            end_iso=end_iso,
+            notes=None
+        )
+        
+        # Extract appointment ID from result
+        if isinstance(result, dict) and result.get('ok'):
+            return result.get('appointment_id')
+        elif isinstance(result, int):
+            return result
+        elif hasattr(result, 'appointment_id'):
+            return result.appointment_id
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"❌ [CREATE_APPT] Error in wrapper: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def create_appointment_from_realtime(business_id: int, customer_phone: str, 
                                      customer_name: str, treatment_type: str,
                                      start_iso: str, end_iso: str, 
@@ -8288,11 +8344,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         🎯 Check if AI said polite closing phrases (for graceful call ending)
         
-        These phrases indicate AI is ending the conversation politely:
-        - "תודה שהתקשרת" - Thank you for calling
-        - "יום נפלא/נעים" - Have a great day
-        - "נשמח לעזור שוב" - Happy to help again
-        - "נציג יחזור אליך" - A rep will call you back
+        🔥 CLEANED: Removed hardcoded phrases - business prompt controls all closing behavior
+        This function now only checks for generic goodbye patterns
         
         Args:
             text: AI transcript to check
@@ -8302,11 +8355,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         text_lower = text.lower().strip()
         
+        # 🔥 GENERIC closing phrases only - no business-specific text
         polite_closing_phrases = [
             "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
             "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
             "נשמח לעזור", "נשמח לעמוד לשירותך",
-            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר",
             "שמח שיכולתי לעזור", "שמחתי לעזור",
             "אם תצטרך משהו נוסף", "אם יש שאלות נוספות"
         ]
@@ -8388,18 +8441,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
         call_id = event.get("call_id", "")
         arguments_str = event.get("arguments", "{}")
         
-        print(f"🔧 [BUILD 313] Function call: {function_name}, call_id={call_id[:20] if call_id else 'none'}...")
+        print(f"🔧 [FUNCTION CALL] {function_name}, call_id={call_id[:20] if call_id else 'none'}...")
         
         if function_name == "save_lead_info":
             try:
                 args = json.loads(arguments_str)
-                print(f"📝 [BUILD 313] Lead info from AI: {args}")
+                print(f"📝 [LEAD INFO] From AI: {args}")
                 
                 # Update lead_capture_state with each field AI provided
                 for field, value in args.items():
                     if value and str(value).strip():
                         self._update_lead_capture_state(field, str(value).strip())
-                        print(f"✅ [BUILD 313] Saved {field} = '{value}'")
+                        print(f"✅ [LEAD INFO] Saved {field} = '{value}'")
                 
                 # Send success response back to AI
                 await client.send_event({
@@ -8418,7 +8471,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 self._check_lead_complete()
                 
             except json.JSONDecodeError as e:
-                print(f"❌ [BUILD 313] Failed to parse function arguments: {e}")
+                print(f"❌ [LEAD INFO] Failed to parse arguments: {e}")
                 await client.send_event({
                     "type": "conversation.item.create",
                     "item": {
@@ -8428,8 +8481,162 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     }
                 })
                 await client.send_event({"type": "response.create"})
+        
+        elif function_name == "schedule_appointment":
+            # 🔥 APPOINTMENT SCHEDULING: Use customer_phone from call
+            try:
+                args = json.loads(arguments_str)
+                print(f"📅 [APPOINTMENT] Request from AI: {args}")
+                
+                customer_name = args.get("customer_name", "")
+                appointment_date = args.get("appointment_date", "")  # YYYY-MM-DD
+                appointment_time = args.get("appointment_time", "")  # HH:MM
+                service_type = args.get("service_type", "")
+                
+                # 🔥 USE customer_phone FROM CALL - already available!
+                customer_phone = getattr(self, 'phone_number', None)
+                if not customer_phone:
+                    print(f"❌ [APPOINTMENT] No customer phone available!")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False, 
+                                "error": "Customer phone not available"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                print(f"📅 [APPOINTMENT] Using customer_phone from call: {customer_phone}")
+                
+                # Validate required fields
+                if not customer_name or not appointment_date or not appointment_time:
+                    error_msg = "Missing required fields: name, date, or time"
+                    print(f"❌ [APPOINTMENT] {error_msg}")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({"success": False, "error": error_msg})
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Parse date and time
+                try:
+                    from datetime import datetime
+                    import pytz
+                    
+                    # Combine date and time
+                    datetime_str = f"{appointment_date} {appointment_time}"
+                    requested_dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
+                    
+                    # Get business timezone and localize
+                    business_id = getattr(self, 'business_id', None)
+                    if not business_id:
+                        raise ValueError("No business_id available")
+                    
+                    from server.policy.business_policy import get_business_policy
+                    policy = get_business_policy(business_id)
+                    tz = pytz.timezone(policy.tz)
+                    requested_dt = tz.localize(requested_dt)
+                    
+                    print(f"📅 [APPOINTMENT] Checking slot: {requested_dt} for business {business_id}")
+                    
+                    # Validate slot
+                    is_available = validate_appointment_slot(business_id, requested_dt)
+                    
+                    if not is_available:
+                        print(f"❌ [APPOINTMENT] Slot not available: {requested_dt}")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error": "Slot not available",
+                                    "message": "זמן זה תפוס, אנא בחר זמן אחר"
+                                })
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
+                    
+                    # Create appointment
+                    appointment_id = create_appointment(
+                        business_id=business_id,
+                        customer_phone=customer_phone,
+                        customer_name=customer_name,
+                        requested_dt=requested_dt,
+                        service_type=service_type
+                    )
+                    
+                    if appointment_id:
+                        print(f"✅ [APPOINTMENT] Created successfully: #{appointment_id}")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": True,
+                                    "appointment_id": appointment_id,
+                                    "message": f"פגישה נקבעה ל-{appointment_date} בשעה {appointment_time}"
+                                })
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                    else:
+                        print(f"❌ [APPOINTMENT] Failed to create appointment")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error": "Failed to create appointment"
+                                })
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        
+                except (ValueError, AttributeError) as parse_error:
+                    print(f"❌ [APPOINTMENT] Date/time parsing error: {parse_error}")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error": f"Invalid date/time format: {parse_error}"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    
+            except json.JSONDecodeError as e:
+                print(f"❌ [APPOINTMENT] Failed to parse arguments: {e}")
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({"success": False, "error": str(e)})
+                    }
+                })
+                await client.send_event({"type": "response.create"})
+        
         else:
-            print(f"⚠️ [BUILD 313] Unknown function: {function_name}")
+            print(f"⚠️ [FUNCTION CALL] Unknown function: {function_name}")
     
     def _check_lead_complete(self):
         """
