@@ -44,12 +44,16 @@ def list_calls():
         
         # Apply filters
         if search:
-            query = query.filter(
-                or_(
-                    Call.from_number.ilike(f'%{search}%'),
-                    Call.transcription.ilike(f'%{search}%')
-                )
-            )
+            # ✅ Search in both final_transcript (offline) and transcription (realtime)
+            search_conditions = [
+                Call.from_number.ilike(f'%{search}%'),
+                Call.transcription.ilike(f'%{search}%')
+            ]
+            # Add final_transcript to search if column exists
+            if hasattr(Call, 'final_transcript'):
+                search_conditions.append(Call.final_transcript.ilike(f'%{search}%'))
+            
+            query = query.filter(or_(*search_conditions))
         
         if status != 'all':
             query = query.filter(Call.status == status)
@@ -73,6 +77,9 @@ def list_calls():
             if call.recording_url and call.created_at:
                 expiry_date = (call.created_at + timedelta(days=7)).isoformat()
             
+            # ✅ Prefer offline transcript (final_transcript) over realtime (transcription)
+            best_transcript = getattr(call, 'final_transcript', None) or call.transcription
+            
             calls_data.append({
                 "sid": call.call_sid,
                 "lead_id": getattr(call, 'lead_id', None),
@@ -85,10 +92,10 @@ def list_calls():
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "created_at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
-                "transcription": call.transcription,
+                "transcription": best_transcript,
                 "summary": call.summary if hasattr(call, 'summary') else None,
                 "hasRecording": bool(call.recording_url),
-                "hasTranscript": bool(call.transcription),
+                "hasTranscript": bool(best_transcript),
                 "expiresAt": expiry_date
             })
         
@@ -125,6 +132,9 @@ def get_call_details(call_sid):
             return jsonify({"success": False, "error": "Call not found"}), 404
         
         # Enhanced call details
+        # ✅ Prefer offline transcript (final_transcript) over realtime (transcription)
+        best_transcript = getattr(call, 'final_transcript', None) or call.transcription or "אין תמליל זמין"
+        
         details = {
             "call": {
                 "sid": call.call_sid,
@@ -138,9 +148,9 @@ def get_call_details(call_sid):
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
                 "hasRecording": bool(call.recording_url),
-                "hasTranscript": bool(call.transcription)
+                "hasTranscript": bool(getattr(call, 'final_transcript', None) or call.transcription)
             },
-            "transcript": call.transcription or "אין תמליל זמין",
+            "transcript": best_transcript,
             "summary": call.summary if call.summary else None,
             "sentiment": getattr(call, 'sentiment', None)
         }

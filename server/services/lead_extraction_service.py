@@ -191,12 +191,18 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         
         # Transcribe with Whisper - optimized for accuracy
         with open(audio_file_path, 'rb') as audio_file:
+            # Get file size for logging
+            file_size = os.path.getsize(audio_file_path)
+            logger.info(f"[OFFLINE_STT] Whisper model=whisper-1, file_size={file_size} bytes, language=he")
+            print(f"[OFFLINE_STT] Whisper model=whisper-1, file_size={file_size} bytes, language=he")
+            
             transcript_response = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
                 language="he",  # Hebrew
                 temperature=0.0,  # Most deterministic/accurate
-                response_format="text"  # Plain text output
+                response_format="text",  # Plain text output
+                prompt="שיחת טלפון בעברית בין לקוח למוקד שירות מנעולן. תמלל בעברית תקינה."  # Context hint for better accuracy
             )
         
         # Extract text
@@ -205,13 +211,17 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         else:
             transcript_text = transcript_response.text.strip() if hasattr(transcript_response, 'text') else str(transcript_response).strip()
         
+        # Log detailed preview
+        logger.info(f"[OFFLINE_STT] Transcription complete: {len(transcript_text)} chars")
+        print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(transcript_text)} chars")
+        print(f"[OFFLINE_STT] Transcript preview (first 150 chars): {transcript_text[:150]!r}")
+        logger.info(f"[OFFLINE_STT] Transcript preview: {transcript_text[:150]!r}")
+        
         # Validate
         if not transcript_text or len(transcript_text) < 10:
             logger.warning(f"[OFFLINE_STT] Transcription too short or empty: {len(transcript_text)} chars")
+            print(f"⚠️ [OFFLINE_STT] Transcription too short or empty: {len(transcript_text)} chars")
             return None
-        
-        logger.info(f"[OFFLINE_STT] Transcription complete: {len(transcript_text)} chars")
-        logger.info(f"[OFFLINE_STT] Preview: {transcript_text[:100]}...")
         
         return transcript_text
         
