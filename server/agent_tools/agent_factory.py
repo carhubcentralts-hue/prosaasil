@@ -400,7 +400,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 # 🔥 CRITICAL: Validate both NAME and PHONE!
                 if not customer_name or customer_name.strip() in ["", "לקוח", "customer"]:
-                    error_msg = "חובה לציין שם לקוח לפני קביעת תור! שאל: 'מה השם שלך?'"
+                    error_msg = "missing_name"
                     logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg}")
                     return {
                         "ok": False,
@@ -410,7 +410,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 # 🔥 NEW: Validate phone was collected via DTMF
                 if not customer_phone or len(customer_phone.strip()) < 9:
-                    error_msg = "חובה לאסוף מספר טלפון לפני קביעת תור! בקש: 'הקלד את מספר הטלפון במקשים ולחץ #'"
+                    error_msg = "missing_phone"
                     logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg}")
                     return {
                         "ok": False,
@@ -959,39 +959,14 @@ Today is {today.strftime('%Y-%m-%d (%A)')}, current time: {today.strftime('%H:%M
 
 🎯 **CRITICAL: This is a 4-turn conversation - DO NOT skip steps!**
 
-**Turn 1: Get NAME**
-→ Ask: "מה השם שלך?" or "איך קוראים לך?"
-→ WAIT for customer to say their name
-→ Save name in memory
-
-**Turn 2: Get PHONE via DTMF**
-→ Request DTMF phone input: "בבקשה הקלד את מספר הטלפון שלך במקשים ואז לחץ על סולמית (#)"
-→ WAIT for phone_number from DTMF
-→ Save phone in memory
-
-**Turn 3: Get DATE preference**
-→ Ask: "באיזה תאריך נוח לך? מחר? מחרתיים?"
-→ WAIT for customer to say date (e.g., "מחר", "יום רביעי", "13 בנובמבר")
-→ Convert Hebrew to ISO date (use context: today={today.strftime('%Y-%m-%d')})
-
-**Turn 4: Get TIME + CHECK + BOOK**
-→ IF customer already mentioned specific time (e.g., "רוצה תור ב-17:00"):
-  • Parse the time from their message
-  • MUST call: calendar_find_slots(date_iso="YYYY-MM-DD", duration_min=60, preferred_time="17:00")
-  • IF requested time IS IN the returned slots:
-    ✅ BOOK IMMEDIATELY! Call: calendar_create_appointment(date_iso=..., time_str=..., customer_name=..., customer_phone=...)
-    ✅ Respond: "מעולה! קבעתי לך תור ב-[date] ב-[time]. נתראה!"
-  • IF requested time NOT in returned slots (occupied/unavailable):
-    ❌ Say: "17:00 תפוס. הכי קרוב: [slot1] או [slot2]. באיזו שעה נוח?"
-    ❌ WAIT for customer to choose → then book
-→ IF customer did NOT mention specific time:
-  • Ask: "באיזו שעה נוח לך?"
-  • WAIT for customer to say time → then check calendar
-
-🚨 **CRITICAL RULE - DON'T ASK IF CUSTOMER ALREADY SAID!**
-- Customer said "תור ב-17:00" + 17:00 available → BOOK at 17:00 (DON'T ask "באיזו שעה?")
-- Customer said "תור ב-17:00" + 17:00 occupied → Suggest alternatives
-- Customer said "תור מחר" (no time) → Ask "באיזו שעה?"
+**Appointment Flow Steps:**
+→ Collect customer name
+→ Collect phone number (via DTMF on phone calls)
+→ Ask for preferred date
+→ Ask for preferred time
+→ Check availability with calendar_find_slots
+→ Create appointment with calendar_create_appointment
+→ Confirm booking to customer
 
 🎯 **SMART SLOT SELECTION:**
 - ALWAYS use preferred_time parameter in calendar_find_slots when customer mentioned time!

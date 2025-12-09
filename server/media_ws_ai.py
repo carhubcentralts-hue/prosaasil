@@ -3593,7 +3593,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self._check_appointment_confirmation(transcript)
                             # Send immediate correction event
                             asyncio.create_task(self._send_server_event_to_ai(
-                                "⚠️ תיקון: התור עדיין לא אושר על ידי המערכת! אל תאשר עד שתקבל הודעה שהתור נקבע"
+                                "⚠️ Appointment not yet confirmed by system"
                             ))
                         
                         # Track conversation
@@ -4736,7 +4736,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             call_config = getattr(self, 'call_config', None)
             if call_config and not call_config.enable_calendar_scheduling:
                 print(f"⚠️ [NLP] Calendar scheduling is DISABLED - not checking availability")
-                await self._send_server_event_to_ai("⚠️ קביעת תורים מושבתת כרגע. הסבר ללקוח שנציג יחזור אליו בהקדם.")
+                await self._send_server_event_to_ai("⚠️ Calendar scheduling disabled")
                 return
             
             # 🔥 BUILD 337: CHECK IF NAME IS REQUIRED BUT MISSING - BLOCK scheduling!
@@ -4870,7 +4870,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             if call_config and not call_config.enable_calendar_scheduling:
                 print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - Calendar scheduling is DISABLED for this business!")
                 print(f"⚠️ [APPOINTMENT FLOW] Informing AI to redirect customer to human representative")
-                await self._send_server_event_to_ai("⚠️ קביעת תורים מושבתת. הסבר ללקוח שנציג יחזור אליו בהקדם לקביעת פגישה.")
+                await self._send_server_event_to_ai("⚠️ Calendar scheduling disabled")
                 return
             
             # 🛡️ CRITICAL GUARD: Check if appointment was already created in this session
@@ -5120,11 +5120,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                         customer_phone = caller_id
                                     else:
                                         # Proceed without phone - appointment already "confirmed" to customer
-                                        await self._send_server_event_to_ai("✅ התור נקבע. הפרטים יישלחו אליך בהמשך.")
+                                        await self._send_server_event_to_ai("✅ Appointment created")
                                         return
                                 else:
                                     logger.info(f"📞 [DTMF VERIFICATION] Requesting phone via DTMF - AI will ask user to press digits")
-                                    await self._send_server_event_to_ai("חסר מספר טלפון. שאל: 'אפשר מספר טלפון? תלחץ עכשיו על הספרות בטלפון ותסיים בכפתור סולמית (#)'")
+                                    await self._send_server_event_to_ai("missing_phone_collect_via_dtmf")
                             else:
                                 await self._send_server_event_to_ai(f"❌ שגיאה: {error_msg}")
                             return
@@ -7910,7 +7910,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         if goodbye_text:
                             await self._send_text_to_ai(f"[SYSTEM] השיחה מסתיימת. אמור: {goodbye_text}")
                         else:
-                            await self._send_text_to_ai("[SYSTEM] השיחה מסתיימת. אמור משפט סיום קצר ומנומס בעברית, כמו 'תודה שהתקשרת, בעל המקצוע יחזור אליך בהקדם. להתראות!'")
+                            await self._send_text_to_ai("[SYSTEM] call_ending_say_goodbye")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -9368,7 +9368,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     asyncio.set_event_loop(loop)
                     try:
                         loop.run_until_complete(self._send_server_event_to_ai(
-                            f"📞 הלקוח הקליד מספר טלפון ב-DTMF: {phone_to_show}. שמור את המספר ותאשר ללקוח שקיבלת אותו."
+                            f"📞 Customer entered phone via DTMF: {phone_to_show}"
                         ))
                         print(f"✅ [REALTIME] DTMF phone sent as system event")
                     except Exception as e:
