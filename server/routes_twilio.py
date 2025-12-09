@@ -104,11 +104,11 @@ def _trigger_recording_for_call(call_sid):
                         print(f"⚠️ Could not get call details: {e}")
                     
                     # בנה form data כמו webhook של Twilio
-                    # ✅ FIX: Use correct MP3 URL construction
-                    recording_mp3_url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Recordings/{recording.sid}.mp3"
+                    # ✅ FIX: Use recording.uri as-is (יחסי, מסתיים ב-.json)
+                    # download_recording ידאג לנסות כמה וריאציות
                     form_data = {
                         'CallSid': call_sid,
-                        'RecordingUrl': recording_mp3_url,
+                        'RecordingUrl': recording.uri,
                         'RecordingDuration': str(recording.duration),
                         'RecordingStatus': recording.status,
                         'From': from_num,
