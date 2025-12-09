@@ -1242,8 +1242,7 @@ class MediaStreamHandler:
             AUDIO_GUARD_ENABLED, AUDIO_GUARD_INITIAL_NOISE_FLOOR,
             AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR, AUDIO_GUARD_MIN_ZCR_FOR_SPEECH,
             AUDIO_GUARD_MIN_RMS_DELTA, AUDIO_GUARD_MUSIC_ZCR_THRESHOLD,
-            AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER, AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES,
-            AUDIO_GUARD_MIN_SPEECH_FRAMES, AUDIO_GUARD_SILENCE_RESET_FRAMES
+            AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER, AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
         )
         self._audio_guard_enabled = AUDIO_GUARD_ENABLED
         self._audio_guard_noise_floor = AUDIO_GUARD_INITIAL_NOISE_FLOOR
@@ -1254,14 +1253,7 @@ class MediaStreamHandler:
         self._audio_guard_music_cooldown_frames = 0
         self._audio_guard_drop_count = 0  # Rate-limited logging
         self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
-        
-        # 🔥 NEW: Duration-based filtering - ignore short bursts
-        self._audio_guard_speech_frames = 0  # Consecutive speech frames counter
-        self._audio_guard_silence_frames = 0  # Consecutive silence frames counter
-        self._audio_guard_min_speech_frames = AUDIO_GUARD_MIN_SPEECH_FRAMES  # 15 frames = 300ms
-        self._audio_guard_silence_reset = AUDIO_GUARD_SILENCE_RESET_FRAMES  # 25 frames = 500ms
-        
-        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED} (noise floor, ZCR, duration gating, music filter)")
+        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED} (dynamic noise floor, speech gating, music_mode, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -1698,76 +1690,8 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             logger.info("[REALTIME] Connected")
             
-            # 🚀 FAST GREETING: Send initial greeting with minimal prompt BEFORE waiting for full business info
-            # This eliminates 2-3 second delay from DB queries
-            print(f"🎤 [FAST GREETING] Sending initial greeting config BEFORE business info...")
-            
-            # Configure with minimal generic prompt first
-            business_name_fast = getattr(self, 'business_name', None) or "העסק"
-            greeting_text_fast = getattr(self, 'greeting_text', None)
-            bot_speaks_first_fast = getattr(self, 'bot_speaks_first', True)
-            
-            # Build minimal greeting-only prompt
-            if greeting_text_fast and greeting_text_fast.strip():
-                minimal_greeting_prompt = f"""You are a professional service representative for {business_name_fast}.
-SPEAK HEBREW to customer.
-
-GREETING:
-Say this EXACT greeting in Hebrew: "{greeting_text_fast.strip()}"
-Then WAIT for customer response. Be patient."""
-            else:
-                minimal_greeting_prompt = f"""You are a professional service representative for {business_name_fast}.
-SPEAK HEBREW to customer.
-
-GREETING:
-Introduce yourself briefly in Hebrew and wait for customer."""
-            
-            # Configure session with minimal greeting prompt (FAST!)
-            await client.configure_session(
-                instructions=minimal_greeting_prompt,
-                voice="ash",
-                input_audio_format="g711_ulaw",
-                output_audio_format="g711_ulaw",
-                vad_threshold=0.85,
-                silence_duration_ms=450,
-                temperature=0.6,
-                max_tokens=4096,
-                transcription_prompt=""
-            )
-            print(f"✅ [FAST GREETING] Minimal session configured in {(time.time() - t_connected)*1000:.0f}ms")
-            
-            # 🚀 IMMEDIATE GREETING: Trigger greeting NOW if bot speaks first
-            if bot_speaks_first_fast:
-                print(f"🎤 [FAST GREETING] Bot speaks first - triggering IMMEDIATELY!")
-                self.greeting_sent = True
-                self.is_playing_greeting = True
-                self._greeting_start_ts = time.time()
-                
-                # 🔥 FIX: Send conversation item + response.create to actually trigger greeting
-                # Without a conversation item, response.create has nothing to respond to!
-                try:
-                    # Add a system message that instructs the AI to speak the greeting
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "message",
-                            "role": "user",
-                            "content": [{
-                                "type": "input_text",
-                                "text": "התחל את השיחה"
-                            }]
-                        }
-                    })
-                    # Now trigger the response
-                    await client.send_event({"type": "response.create"})
-                    print(f"✅ [FAST GREETING] Greeting triggered in {(time.time() - t_connected)*1000:.0f}ms from connect!")
-                except Exception as e:
-                    print(f"⚠️ [FAST GREETING] Failed to trigger: {e}")
-                    self.greeting_sent = False
-                    self.is_playing_greeting = False
-            
-            # 🚀 PARALLEL STEP 2: NOW wait for full business info (in background while greeting plays)
-            print(f"⏳ [PARALLEL] Waiting for full business info from DB query (greeting already sent)...")
+            # 🚀 PARALLEL STEP 2: Wait for business info from main thread (max 2s)
+            print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
             
             # Use asyncio to wait for the threading.Event
             loop = asyncio.get_event_loop()
@@ -1778,7 +1702,7 @@ Introduce yourself briefly in Hebrew and wait for customer."""
                 )
                 t_ready = time.time()
                 wait_ms = (t_ready - t_connected) * 1000
-                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms (greeting already playing)")
+                print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
             except asyncio.TimeoutError:
                 print(f"⚠️ [PARALLEL] Timeout waiting for business info - using defaults")
                 # Use helper with force_greeting=True to ensure greeting fires
@@ -1897,9 +1821,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
-            # 🔥 UPDATE SESSION: Now that we have full business info, update session with complete prompt
-            # Greeting is already playing with minimal prompt, this enhances AI's understanding mid-call
-            print(f"🔄 [UPDATE SESSION] Sending full business prompt (greeting already sent)...")
+            # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -1914,20 +1836,37 @@ SPEAK HEBREW to customer. Be brief and helpful.
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
             total_ms = (t_after_config - t_start) * 1000
-            print(f"⏱️ [UPDATE SESSION] Full prompt configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
-            print(f"✅ [REALTIME] FULL CONTEXT: AI now has complete business prompt, voice={call_voice}")
+            print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
+            print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
-            # 🚀 Start audio/text bridges
+            # 🚀 Start audio/text bridges FIRST (before CRM)
             logger.info(f"[REALTIME] Starting audio/text bridge tasks...")
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             logger.info(f"[REALTIME] Audio/text tasks created successfully")
             
-            # 🎯 GREETING ALREADY SENT: No need to trigger again if bot speaks first
-            # The greeting was triggered immediately after minimal config (above)
+            # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
+            # No waiting for CRM, no 0.2s delay - just speak!
             logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}")
-            if not self.bot_speaks_first:
+            if self.bot_speaks_first:
+                greeting_start_ts = time.time()
+                print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
+                self.greeting_sent = True  # Mark greeting as sent to allow audio through
+                self.is_playing_greeting = True
+                self._greeting_start_ts = greeting_start_ts  # Store for duration logging
+                # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
+                triggered = await self.trigger_response("GREETING", client, is_greeting=True)
+                if triggered:
+                    t_speak = time.time()
+                    total_openai_ms = (t_speak - t_start) * 1000
+                    print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                else:
+                    print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
+                    # Reset flags since greeting failed
+                    self.greeting_sent = False
+                    self.is_playing_greeting = False
+            else:
                 # Standard flow - AI waits for user speech first
                 print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
                 
@@ -1940,8 +1879,6 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         await self._start_silence_monitor()
                 
                 asyncio.create_task(warmup_to_active())
-            else:
-                print(f"✅ [GREETING] Already sent with fast greeting - no need to trigger again")
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
@@ -2111,21 +2048,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
                 # Solution: Don't send audio to OpenAI until greeting finishes playing.
                 if self.is_playing_greeting:
-                    # 🔥 TIMEOUT: Force greeting to end after 3 seconds to prevent infinite blocking
-                    greeting_elapsed = time.time() - getattr(self, '_greeting_start_ts', time.time())
-                    if greeting_elapsed > 3.0:
-                        print(f"⏱️ [GREETING TIMEOUT] Forcing is_playing_greeting=False after {greeting_elapsed:.1f}s")
-                        self.is_playing_greeting = False
-                        self.barge_in_enabled_after_greeting = True
-                        # Don't continue - allow this frame through
-                    else:
-                        if not _greeting_block_logged:
-                            print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
-                            _greeting_block_logged = True
-                        # 🔥 BUILD 200: Track blocked audio stats
-                        self._stats_audio_blocked += 1
-                        # Drop the audio chunk - don't send to OpenAI during greeting
-                        continue
+                    if not _greeting_block_logged:
+                        print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
+                        _greeting_block_logged = True
+                    # 🔥 BUILD 200: Track blocked audio stats
+                    self._stats_audio_blocked += 1
+                    # Drop the audio chunk - don't send to OpenAI during greeting
+                    continue
                 else:
                     # Greeting finished - resume sending audio
                     if _greeting_block_logged and not _greeting_resumed_logged:
@@ -2412,48 +2341,19 @@ SPEAK HEBREW to customer. Be brief and helpful.
         # Update previous RMS for next frame
         self._audio_guard_prev_rms = rms
         
-        # 🔥 NEW: DURATION-BASED FILTERING - Ignore short bursts (noise, breathing, single words)
-        # Speech must be sustained for at least 300ms (15 frames) to pass through
-        if is_speech:
-            self._audio_guard_speech_frames += 1
-            self._audio_guard_silence_frames = 0
-            
-            # Only pass speech after minimum duration threshold
-            if self._audio_guard_speech_frames >= self._audio_guard_min_speech_frames:
-                # Sustained speech - allow it through
-                should_send = True
-            else:
-                # Short burst - still accumulating, don't send yet
-                should_send = False
-                if self._audio_guard_speech_frames == 1:
-                    print(f"⏳ [AUDIO_GUARD] Speech detected - waiting for {self._audio_guard_min_speech_frames} frames (300ms) before sending...")
-        else:
-            # Silence detected
-            self._audio_guard_silence_frames += 1
-            
-            # Reset speech counter after sustained silence (500ms)
-            if self._audio_guard_silence_frames >= self._audio_guard_silence_reset:
-                if self._audio_guard_speech_frames > 0:
-                    print(f"🔇 [AUDIO_GUARD] Silence detected - resetting speech counter (was {self._audio_guard_speech_frames} frames)")
-                self._audio_guard_speech_frames = 0
-            
-            should_send = False
-        
         # Rate-limited logging for dropped frames
-        if not should_send:
+        if not is_speech:
             self._audio_guard_drop_count += 1
             if self._audio_guard_drop_count % 50 == 0:  # Log every 50 drops (~1 second)
-                reason = "short_burst" if is_speech else "noise/silence"
-                print(f"🔇 [AUDIO_GUARD] Dropped {self._audio_guard_drop_count} frames (reason={reason}, rms={rms:.1f}, zcr={zcr:.3f}, speech_frames={self._audio_guard_speech_frames})")
+                print(f"🔇 [AUDIO_GUARD] Dropped {self._audio_guard_drop_count} non-speech frames (rms={rms:.1f}, zcr={zcr:.3f}, threshold={effective_threshold:.1f})")
         
         # Periodic summary log every 5 seconds
         now = time.time()
         if now - self._audio_guard_last_summary_ts >= 5.0:
             self._audio_guard_last_summary_ts = now
-            print(f"📊 [AUDIO_GUARD] noise_floor={self._audio_guard_noise_floor:.1f}, threshold={effective_threshold:.1f}, " 
-                  f"speech_frames={self._audio_guard_speech_frames}, music_mode={self._audio_guard_music_mode}")
+            print(f"📊 [AUDIO_GUARD] noise_floor={self._audio_guard_noise_floor:.1f}, threshold={effective_threshold:.1f}, music_mode={self._audio_guard_music_mode}")
         
-        return should_send
+        return is_speech
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
@@ -2962,10 +2862,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
                         if self.greeting_sent and not self.user_has_spoken:
-                            # 🔥 FIX: Only log first greeting audio frame
-                            if not hasattr(self, '_greeting_audio_logged'):
-                                print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
-                                self._greeting_audio_logged = True
+                            print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
                             now = time.time()
@@ -2973,12 +2870,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
                             self.is_ai_speaking_event.set()
-                            # 🔥 FIX: Don't keep resetting is_playing_greeting - it should already be set from trigger
-                            # If it's not set, set it now (fallback for safety)
-                            if not self.is_playing_greeting:
-                                self.is_playing_greeting = True
-                                self._greeting_start_ts = time.time()
-                                print(f"🎤 [GREETING] First audio frame received - greeting playback started")
+                            self.is_playing_greeting = True
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
                             except queue.Full:
@@ -5831,19 +5723,11 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # OpenAI's server-side VAD detects incoming audio and cancels the greeting.
                         # Block audio until greeting finishes OR user has already spoken.
                         if self.is_playing_greeting and not self.user_has_spoken:
-                            # 🔥 TIMEOUT: Force greeting to end after 3 seconds to prevent infinite blocking
-                            greeting_elapsed = time.time() - getattr(self, '_greeting_start_ts', time.time())
-                            if greeting_elapsed > 3.0:
-                                print(f"⏱️ [GREETING TIMEOUT] Forcing is_playing_greeting=False after {greeting_elapsed:.1f}s (enqueue path)")
-                                self.is_playing_greeting = False
-                                self.barge_in_enabled_after_greeting = True
-                                # Don't continue - allow this frame to be enqueued
-                            else:
-                                # Log once
-                                if not hasattr(self, '_greeting_enqueue_block_logged'):
-                                    print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
-                                    self._greeting_enqueue_block_logged = True
-                                continue  # Don't enqueue audio during greeting
+                            # Log once
+                            if not hasattr(self, '_greeting_enqueue_block_logged'):
+                                print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
+                                self._greeting_enqueue_block_logged = True
+                            continue  # Don't enqueue audio during greeting
                         
                         if not self.barge_in_enabled_after_greeting:
                             # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
@@ -5968,33 +5852,22 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
-                                # 🔥 FIX: Enhanced logging with greeting state
                                 if self._twilio_audio_chunks_sent <= 3:
                                     first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                    print(f"✅ [VOICE] Frame accepted: chunk#{self._twilio_audio_chunks_sent}, rms={rms:.0f}, zcr={zcr if 'zcr' in locals() else 'N/A'}, playing_greeting={self.is_playing_greeting}, consec_frames={self._consecutive_voice_frames}")
+                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, consec_frames={self._consecutive_voice_frames}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
                                 pass
                         else:
-                            # 🔥 FIX: Log rejected frames with reason
-                            if not hasattr(self, '_voice_reject_count'):
-                                self._voice_reject_count = 0
-                            self._voice_reject_count += 1
-                            
-                            # Determine rejection reason
-                            if is_noise:
-                                reason = "noise"
-                            elif not has_sustained_speech:
-                                reason = f"short_burst(frames={self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
-                            elif getattr(self, '_audio_guard_enabled', False):
-                                reason = "audio_guard"
-                            else:
-                                reason = "threshold"
-                            
-                            # Log every 50th rejection
-                            if self._voice_reject_count % 50 == 0:
-                                print(f"❌ [VOICE] Frame rejected: reason={reason}, rms={rms:.0f}, zcr={zcr if 'zcr' in locals() else 'N/A'}, playing_greeting={self.is_playing_greeting}, total_rejected={self._voice_reject_count}")
+                            # 🔥 BUILD 171: Enhanced logging for debugging
+                            if not hasattr(self, '_noise_reject_count'):
+                                self._noise_reject_count = 0
+                            self._noise_reject_count += 1
+                            # Log every 100 rejected frames with more detail
+                            if self._noise_reject_count % 100 == 0:
+                                reason = "noise" if is_noise else f"insufficient_consec_frames({self._consecutive_voice_frames}/{MIN_CONSECUTIVE_VOICE_FRAMES})"
+                                print(f"🔇 [AUDIO GATE] Blocked {self._noise_reject_count} frames (rms={rms:.0f}, reason={reason})")
                     # ⚡ STREAMING STT: Feed audio to Google STT ONLY if NOT using Realtime API
                     elif not USE_REALTIME_API and self.call_sid and pcm16 and not is_noise:
                         session = _get_session(self.call_sid)
@@ -7725,12 +7598,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self.call_goal = self.call_config.call_goal  # "lead_only" or "appointment"
                         self.confirm_before_hangup = self.call_config.confirm_before_hangup  # Always confirm before disconnect
                     
-                    # 🔥 FIX: DON'T set is_playing_greeting here! Only set it when greeting is ACTUALLY triggered.
-                    # Setting it early causes all audio to be blocked even before greeting starts,
-                    # resulting in frames_sent=0 and "NO USER SPEECH" false positives.
-                    # The greeting trigger happens in the realtime connection handler (line ~1743)
+                    # 🛡️ BUILD 168.5 FIX: Set is_playing_greeting IMMEDIATELY when bot_speaks_first is True
                     if self.bot_speaks_first:
-                        print(f"🎤 [CONFIG] bot_speaks_first=True - greeting will be triggered when OpenAI connects")
+                        self.is_playing_greeting = True
+                        print(f"🛡️ [GREETING PROTECT] is_playing_greeting=True (early, blocking audio input)")
                     
                     # 🔥 CRITICAL: Mark settings as loaded to prevent duplicate loading
                     self._call_settings_loaded = True
@@ -7983,8 +7854,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         if goodbye_text:
                             await self._send_text_to_ai(f"[SYSTEM] השיחה מסתיימת. אמור: {goodbye_text}")
                         else:
-                            # No hardcoded goodbye - let AI close naturally based on the business prompt
-                            await self._send_text_to_ai("[SYSTEM] השיחה מסתיימת. אמור משפט סיום קצר ומנומס בעברית לפי הפרומפט של העסק.")
+                            await self._send_text_to_ai("[SYSTEM] השיחה מסתיימת. אמור משפט סיום קצר ומנומס בעברית, כמו 'תודה שהתקשרת, בעל המקצוע יחזור אליך בהקדם. להתראות!'")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -8176,11 +8046,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 print(f"🔇 [SILENCE] Can't give final chance - call ending")
                                 return
                             
-                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final request")
+                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final confirmation request")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
-                            # Let AI decide what to ask based on business prompt, not hardcoded
                             await self._send_text_to_ai(
-                                "[SYSTEM] הלקוח שותק. נסה לקבל תשובה פעם אחרונה בצורה נחמדה."
+                                "[SYSTEM] הלקוח שותק וטרם אישר את הפרטים. שאל בפעם אחרונה: 'אני רק צריך שתאשר את הפרטים - הכל נכון?'"
                             )
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
@@ -8419,17 +8288,34 @@ SPEAK HEBREW to customer. Be brief and helpful.
         """
         🎯 Check if AI said polite closing phrases (for graceful call ending)
         
-        NO HARDCODED PHRASES - Let AI close naturally based on business prompt.
-        This function is deprecated and should not trigger hardcoded behavior.
+        These phrases indicate AI is ending the conversation politely:
+        - "תודה שהתקשרת" - Thank you for calling
+        - "יום נפלא/נעים" - Have a great day
+        - "נשמח לעזור שוב" - Happy to help again
+        - "נציג יחזור אליך" - A rep will call you back
         
         Args:
             text: AI transcript to check
             
         Returns:
-            False - polite closing detection disabled (prompt-driven only)
+            True if polite closing phrase detected
         """
-        # 🔥 DISABLED: No hardcoded polite closing detection
-        # The AI should close based on the business prompt instructions only
+        text_lower = text.lower().strip()
+        
+        polite_closing_phrases = [
+            "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
+            "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
+            "נשמח לעזור", "נשמח לעמוד לשירותך",
+            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר",
+            "שמח שיכולתי לעזור", "שמחתי לעזור",
+            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות"
+        ]
+        
+        for phrase in polite_closing_phrases:
+            if phrase in text_lower:
+                print(f"[POLITE CLOSING] Detected: '{phrase}'")
+                return True
+        
         return False
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -8752,16 +8638,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _try_lock_service_from_utterance(self, text: str):
         """
-        🔥 DISABLED: No mid-call service extraction
+        🔥 BUILD 336: SERVICE LOCK MECHANISM
         
-        Service extraction happens ONLY from summary at end of call.
-        The AI collects information naturally based on the business prompt.
+        Locks service from ANY user utterance during discovery phase.
+        Triggers on: response to greeting, first few messages, or when AI asked for service.
+        
+        Takes what user said literally - no dictionaries or normalization.
         """
-        # 🔥 ALWAYS DISABLED: No mid-call extraction
-        if not ENABLE_LEGACY_CITY_LOGIC:
-            return
-        
-        # Legacy code below - disabled unless flag is explicitly enabled
         import re
         
         # Only lock if service is needed and not already locked
@@ -8852,16 +8735,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _try_lock_city_from_utterance(self, text: str):
         """
-        🔥 DISABLED: No mid-call city extraction
-        
-        City information is extracted ONLY from summary at end of call.
-        The AI collects information naturally based on the business prompt.
+        🔥 BUILD 326: CITY LOCK MECHANISM (enhanced)
         """
-        # 🔥 ALWAYS DISABLED: No mid-call extraction
-        if not ENABLE_LEGACY_CITY_LOGIC:
-            return
-        
-        # Legacy code below - disabled unless flag is explicitly enabled
         import re
         
         def _normalize_city_name(name: str) -> str:
@@ -9093,23 +8968,22 @@ SPEAK HEBREW to customer. Be brief and helpful.
     
     def _check_lead_captured(self) -> bool:
         """
-        🎯 PROMPT-ONLY MODE: Lead completion is determined by AI conversation flow, not hardcoded fields
+        🎯 SMART HANGUP: Check if all required lead information has been collected
         
-        This function is DEPRECATED and should always return False.
-        The AI decides when enough information has been collected based on the business prompt.
-        No hardcoded field requirements or branching logic.
+        Uses business-specific required_lead_fields if configured.
+        Checks BOTH lead_capture_state (dynamic) AND crm_context (legacy).
         
         Returns:
-            False - always, prompt drives conversation completion
+            True if all required lead fields are collected
         """
-        # 🔥 ALWAYS DISABLED: No hardcoded field checking
-        # The business prompt instructs the AI on what to collect and when to end
-        print(f"✅ [PROMPT-ONLY] Lead capture driven by AI prompt - no hardcoded field checking")
-        return False
-        
-        # Legacy code below is DISABLED - kept for reference only
+        # Get required fields from business settings
         required_fields = getattr(self, 'required_lead_fields', None)
+        print(f"🔍 [DEBUG] _check_lead_captured: required_fields from self = {required_fields}")
+        
+        # 🔥 PROMPT-ONLY MODE: If no required fields configured, never enforce anything
+        # The business prompt defines what "enough" means, not the Python code
         if not required_fields:
+            print(f"✅ [PROMPT-ONLY] No required_lead_fields configured - letting prompt handle conversation flow")
             return False
         
         # Get current capture state
@@ -9891,229 +9765,19 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
                         print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
                         
-                        # 🔥 BUILD 177 Enhanced: Send Generic Webhook with phone, city, service_category
-                        try:
-                            from server.services.generic_webhook_service import send_call_completed_webhook
-                            from server.models_sql import Lead
-                            
-                            lead_id = None
-                            city = None
-                            service_category = None
-                            
-                            # 🔥 BUILD 350+: PRIORITY 1: Use offline extracted fields from CallLog (if available)
-                            # These come from post-call SUMMARY extraction (not transcript!)
-                            # This is the PRIMARY and PREFERRED source - extracted from summary after call ends
-                            city_from_calllog = False
-                            service_from_calllog = False
-                            
-                            if call_log:
-                                if call_log.extracted_city:
-                                    city = call_log.extracted_city
-                                    city_from_calllog = True
-                                    print(f"✅ [WEBHOOK] Using offline extracted city from summary: '{city}' (confidence: {call_log.extraction_confidence or 'N/A'})")
-                                if call_log.extracted_service:
-                                    service_category = call_log.extracted_service
-                                    service_from_calllog = True
-                                    print(f"✅ [WEBHOOK] Using offline extracted service from summary: '{service_category}' (confidence: {call_log.extraction_confidence or 'N/A'})")
-                            
-                            # 📱 Phone extraction - fallback chain with detailed logging
-                            phone = None
-                            print(f"📱 [WEBHOOK] Phone extraction debug:")
-                            print(f"   - self.phone_number: {getattr(self, 'phone_number', 'NOT_SET')}")
-                            print(f"   - self.customer_phone_dtmf: {getattr(self, 'customer_phone_dtmf', 'NOT_SET')}")
-                            print(f"   - call_log.from_number: {call_log.from_number if call_log else 'NO_CALL_LOG'}")
-                            crm = getattr(self, 'crm_context', None)
-                            print(f"   - crm_context.customer_phone: {crm.customer_phone if crm else 'NO_CRM'}")
-                            
-                            # 1) From CRM context (collected during call)
-                            if hasattr(self, 'crm_context') and self.crm_context and getattr(self.crm_context, 'customer_phone', None):
-                                phone = self.crm_context.customer_phone
-                                print(f"   ✓ Using CRM phone: {phone}")
-                            # 2) From DTMF input (customer entered phone manually)
-                            elif getattr(self, 'customer_phone_dtmf', None):
-                                phone = self.customer_phone_dtmf
-                                print(f"   ✓ Using DTMF phone: {phone}")
-                            # 3) From handler phone_number (Twilio caller ID)
-                            elif getattr(self, 'phone_number', None):
-                                phone = self.phone_number
-                                print(f"   ✓ Using Twilio caller ID: {phone}")
-                            # 4) From CallLog (saved on call creation)
-                            elif call_log and call_log.from_number:
-                                phone = call_log.from_number
-                                print(f"   ✓ Using CallLog from_number: {phone}")
-                            else:
-                                print(f"   ⚠️ No phone found in any source!")
-                            
-                            # 🏠 Extract lead_id from CRM sources only
-                            # 🚫 BUILD 350+: NO TRANSCRIPT PARSING IN WEBHOOK!
-                            # All city/service extraction happens OFFLINE in tasks_recording.py from summary
-                            # Webhook ONLY uses call_log.extracted_city / call_log.extracted_service
-                            
-                            # If CallLog doesn't have city/service, we leave them as None/N/A
-                            # This ensures we wait for offline processing to complete before sending accurate data
-                            if not city_from_calllog and not city:
-                                print(f"ℹ️ [WEBHOOK] No city from CallLog - will send as N/A (offline extraction pending or failed)")
-                            
-                            if not service_from_calllog and not service_category:
-                                print(f"ℹ️ [WEBHOOK] No service from CallLog - will send as N/A (offline extraction pending or failed)")
-                            
-                            # ⭐ BUILD 350: DISABLED lead_capture_state - service/city come ONLY from summary!
-                            # All field extraction happens from transcript analysis above, NOT from mid-call tools.
-                            raw_city = None
-                            city_confidence = None
-                            
-                            if ENABLE_LEGACY_TOOLS:
-                                # LEGACY: Source 1: lead_capture_state (collected during conversation) - for city/phone only
-                                # 🔥 BUILD 350+: Skip if we already have from CallLog!
-                                lead_state = getattr(self, 'lead_capture_state', {}) or {}
-                                if lead_state:
-                                    print(f"📋 [LEGACY WEBHOOK] Lead capture state: {lead_state}")
-                                    if not city_from_calllog and not city:
-                                        city = lead_state.get('city') or lead_state.get('עיר')
-                                        print(f"ℹ️ [WEBHOOK] Using city from legacy lead_state (fallback): {city}")
-                                    # 🔥 BUILD 184: Get raw_city and confidence from city normalizer
-                                    raw_city = lead_state.get('raw_city')
-                                    city_confidence = lead_state.get('city_confidence')
-                                    # Only use service from lead_state if we didn't find from CallLog or transcript
-                                    if not service_from_calllog and not service_category:
-                                        raw_service = lead_state.get('service_category') or lead_state.get('service_type') or lead_state.get('professional') or lead_state.get('תחום') or lead_state.get('מקצוע')
-                                        # Filter out AI question fragments
-                                        if raw_service and raw_service not in ['תרצה עזרה', 'תרצו עזרה', 'אתה צריך', 'אתם צריכים']:
-                                            service_category = raw_service
-                                            print(f"ℹ️ [WEBHOOK] Using service from legacy lead_state (fallback): {service_category}")
-                                    if not phone:
-                                        phone = lead_state.get('phone') or lead_state.get('טלפון')
-                            else:
-                                print(f"✅ [BUILD 350] lead_capture_state IGNORED - using summary-only extraction")
-                            
-                            # Source 2: CRM context
-                            # 🔥 BUILD 350+: Only use CRM context if we don't have from CallLog!
-                            if hasattr(self, 'crm_context') and self.crm_context:
-                                lead_id = self.crm_context.lead_id
-                                
-                                # Try to get city/service from CRM context attributes (only if missing from CallLog)
-                                if not city_from_calllog and not city and hasattr(self.crm_context, 'city'):
-                                    city = self.crm_context.city
-                                    print(f"ℹ️ [WEBHOOK] Using city from CRM context (fallback): {city}")
-                                if not service_from_calllog and not service_category:
-                                    if hasattr(self.crm_context, 'service_category'):
-                                        service_category = self.crm_context.service_category
-                                        print(f"ℹ️ [WEBHOOK] Using service from CRM context (fallback): {service_category}")
-                                    elif hasattr(self.crm_context, 'professional'):
-                                        service_category = self.crm_context.professional
-                                        print(f"ℹ️ [WEBHOOK] Using professional from CRM context (fallback): {service_category}")
-                                
-                                # Fallback: Load from Lead model if we have lead_id
-                                if lead_id and (not city or not service_category or not phone):
-                                    try:
-                                        lead = Lead.query.get(lead_id)
-                                        if lead:
-                                            print(f"📋 [WEBHOOK] Enriching from Lead #{lead_id}")
-                                            # Phone fallback from Lead
-                                            if not phone and lead.phone_e164:
-                                                phone = lead.phone_e164
-                                                print(f"   └─ Phone from Lead: {phone}")
-                                            
-                                            # Try to extract city/service from Lead tags (JSON) - only if missing from CallLog
-                                            if lead.tags and isinstance(lead.tags, dict):
-                                                if not city_from_calllog and not city:
-                                                    city = lead.tags.get('city') or lead.tags.get('עיר')
-                                                    if city:
-                                                        print(f"   └─ City from Lead tags (fallback): {city}")
-                                                if not service_from_calllog and not service_category:
-                                                    service_category = lead.tags.get('service_category') or lead.tags.get('professional') or lead.tags.get('תחום') or lead.tags.get('מקצוע')
-                                                    if service_category:
-                                                        print(f"   └─ Service from Lead tags (fallback): {service_category}")
-                                        else:
-                                            print(f"⚠️ [WEBHOOK] Lead #{lead_id} not found in DB")
-                                    except Exception as lead_err:
-                                        import traceback
-                                        print(f"⚠️ [WEBHOOK] Could not load lead data: {lead_err}")
-                                        traceback.print_exc()
-                            
-                            # ⭐ BUILD 350: City and service extracted from summary/transcript ONLY!
-                            # No mid-call tools, no lead_capture_state - pure summary-based extraction.
-                            
-                            # 🔥 BUILD 340: Get customer_name and preferred_time
-                            # Note: These can still come from CRM context if available
-                            customer_name = None
-                            preferred_time = None
-                            
-                            if ENABLE_LEGACY_TOOLS:
-                                # LEGACY: Get from lead_state
-                                lead_state = getattr(self, 'lead_capture_state', {}) or {}
-                                customer_name = lead_state.get('name') or (self.crm_context.customer_name if hasattr(self, 'crm_context') and self.crm_context else None)
-                                preferred_time = lead_state.get('preferred_time')
-                            else:
-                                # NEW: Get from CRM context only (not from mid-call extraction)
-                                if hasattr(self, 'crm_context') and self.crm_context:
-                                    customer_name = self.crm_context.customer_name
-                                # preferred_time should come from summary analysis if needed
-                            
-                            # 🔁 CRITICAL: Wait for offline transcript with retry mechanism
-                            # The offline worker processes the recording after the call ends
-                            # We wait up to 10 seconds (2 attempts x 5 sec) for final_transcript to appear
-                            import time
-                            max_retries = 2
-                            retry_delay = 5  # seconds
-                            
-                            for attempt in range(max_retries):
-                                # Reload fresh from DB
-                                db.session.expire(call_log)  # Force SQLAlchemy to reload from DB
-                                call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                                
-                                if call_log and call_log.final_transcript:
-                                    print(f"✅ [WEBHOOK] Offline final_transcript found on attempt {attempt + 1}")
-                                    break
-                                elif attempt < max_retries - 1:
-                                    print(f"⏳ [WEBHOOK] Waiting {retry_delay}s for offline transcript (attempt {attempt + 1}/{max_retries})...")
-                                    time.sleep(retry_delay)
-                                else:
-                                    print(f"ℹ️ [WEBHOOK] No offline transcript after {max_retries} attempts, proceeding with realtime")
-                            
-                            # 🔍 DEBUG: Log fresh state
-                            if call_log:
-                                print(f"[DEBUG] CallLog FRESH state for {self.call_sid}:")
-                                print(f"  - final_transcript: {len(call_log.final_transcript) if call_log.final_transcript else 0} chars")
-                                print(f"  - extracted_city: {call_log.extracted_city}")
-                                print(f"  - extracted_service: {call_log.extracted_service}")
-                                print(f"  - extraction_confidence: {call_log.extraction_confidence}")
-                            
-                            # 🆕 OFFLINE TRANSCRIPT = PRIMARY SOURCE (no thresholds, no length checks)
-                            # Realtime is ONLY a fallback when offline is missing
-                            if call_log and call_log.final_transcript:
-                                final_transcript = call_log.final_transcript
-                                print(f"✅ [WEBHOOK] Using OFFLINE transcript ({len(final_transcript)} chars)")
-                            else:
-                                final_transcript = full_conversation
-                                print(f"ℹ️ [WEBHOOK] Offline transcript missing → using realtime ({len(full_conversation)} chars)")
-                            
-                            # 🔥 BUILD 350+: Log final extraction sources for debugging
-                            print(f"[WEBHOOK] 📦 Final extraction sources:")
-                            print(f"  - city: '{city or 'N/A'}' (from {'CallLog summary' if city_from_calllog else 'fallback'})")
-                            print(f"  - service: '{service_category or 'N/A'}' (from {'CallLog summary' if service_from_calllog else 'fallback'})")
-                            print(f"  - phone: '{phone or 'N/A'}'")
-                            
-                            send_call_completed_webhook(
-                                business_id=business_id,
-                                call_id=self.call_sid,
-                                lead_id=lead_id,
-                                phone=phone or '',
-                                started_at=call_log.created_at,
-                                ended_at=call_log.updated_at,
-                                duration_sec=call_log.duration or 0,
-                                transcript=final_transcript,
-                                summary=summary_data.get('summary', ''),
-                                agent_name=getattr(self, 'bot_name', 'Assistant'),
-                                direction=getattr(self, 'call_direction', 'inbound'),
-                                city=city,
-                                service_category=service_category,
-                                customer_name=customer_name,
-                                preferred_time=preferred_time
-                            )
-                            print(f"✅ [WEBHOOK] Call completed webhook queued: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}, name={customer_name or 'N/A'}, preferred_time={preferred_time or 'N/A'}")
-                        except Exception as webhook_err:
-                            print(f"⚠️ [WEBHOOK] Webhook error (non-blocking): {webhook_err}")
+                        # ✅ CLEAN PIPELINE: Webhook handled by offline worker ONLY
+                        # No webhook sending, no extraction, no waiting loops here
+                        # The worker (tasks_recording.py) handles everything after call ends:
+                        #   1. Download recording
+                        #   2. Whisper transcription
+                        #   3. GPT summary
+                        #   4. Extract city/service from summary
+                        #   5. Save to DB
+                        #   6. Send webhook
+                        print(f"✅ [CLEAN PIPELINE] Call ended - realtime handler done. Worker will handle offline processing + webhook.")
+                        print(f"   Call SID: {self.call_sid}")
+                        print(f"   Business ID: {business_id}")
+                        print(f"   Offline worker will process: transcription → summary → extraction → webhook")
                         
                 except Exception as e:
                     print(f"❌ Failed to finalize call: {e}")

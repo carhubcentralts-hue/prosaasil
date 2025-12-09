@@ -211,8 +211,9 @@ def process_recording_async(form_data):
             print(f"[SUMMARY] ⚠️ No valid transcript available for summary (final_transcript={len(final_transcript or '')} chars, transcription={len(transcription or '')} chars)")
             log.warning(f"[SUMMARY] No valid transcript for summary")
         
-        # 🆕 3.5. חילוץ עיר ושירות מהסיכום (אחרי שנוצר הסיכום!)
-        # זה הפיניש - חילוץ מדויק מהסיכום המלא, לא מטרנסקריפט גולמי
+        # 🆕 3.5. חילוץ עיר ושירות - חכם עם FALLBACK!
+        # עדיפות 1: סיכום (אם קיים ובאורך סביר)
+        # עדיפות 2: תמלול מלא (Whisper) אם סיכום ריק/קצר
         
         # 🔒 PROTECTION: Check if extraction already exists in DB (avoid duplicate processing)
         skip_extraction = False
@@ -234,42 +235,59 @@ def process_recording_async(form_data):
                 print(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
                 log.warning(f"[OFFLINE_EXTRACT] Could not check existing extraction: {e}")
         
-        if not skip_extraction and summary and len(summary) > 20:
-            try:
-                from server.services.lead_extraction_service import extract_city_and_service_from_summary
-                
-                print(f"[OFFLINE_EXTRACT] Starting extraction from summary for {call_sid}")
-                log.info(f"[OFFLINE_EXTRACT] Starting extraction from summary")
-                
-                extraction = extract_city_and_service_from_summary(summary)
-                
-                # עדכן את המשתנים שיישמרו ב-DB
-                if extraction.get("city"):
-                    extracted_city = extraction.get("city")
-                    print(f"[OFFLINE_EXTRACT] ✅ Extracted city from summary: '{extracted_city}'")
-                
-                if extraction.get("service_category"):
-                    extracted_service = extraction.get("service_category")
-                    print(f"[OFFLINE_EXTRACT] ✅ Extracted service from summary: '{extracted_service}'")
-                
-                if extraction.get("confidence") is not None:
-                    extraction_confidence = extraction.get("confidence")
-                    print(f"[OFFLINE_EXTRACT] ✅ Extraction confidence: {extraction_confidence:.2f}")
-                
-                # Log final extraction result
-                if extracted_city or extracted_service:
-                    print(f"[OFFLINE_EXTRACT] From summary: city='{extracted_city}', service='{extracted_service}', conf={extraction_confidence}")
-                else:
-                    print(f"[OFFLINE_EXTRACT] No city/service found in summary")
+        if not skip_extraction:
+            # 🔥 SMART FALLBACK: Choose best text for extraction
+            # Priority 1: summary (if exists and sufficient length)
+            # Priority 2: final_transcript (Whisper) as fallback
+            extraction_text = None
+            extraction_source = None
+            
+            if summary and len(summary) >= 30:
+                extraction_text = summary
+                extraction_source = "summary"
+            elif final_transcript and len(final_transcript) >= 30:
+                extraction_text = final_transcript
+                extraction_source = "transcript"
+            elif transcription and len(transcription) >= 30:
+                extraction_text = transcription
+                extraction_source = "realtime_transcript"
+            
+            if extraction_text:
+                try:
+                    from server.services.lead_extraction_service import extract_city_and_service_from_summary
                     
-            except Exception as e:
-                print(f"❌ [OFFLINE_EXTRACT] Failed to extract from summary: {e}")
-                log.error(f"[OFFLINE_EXTRACT] Failed to extract from summary: {e}")
-                import traceback
-                traceback.print_exc()
-        elif not skip_extraction:
-            print(f"[OFFLINE_EXTRACT] ⚠️ Summary too short for extraction ({len(summary or '')} chars)")
-            log.warning(f"[OFFLINE_EXTRACT] Summary too short for extraction")
+                    print(f"[OFFLINE_EXTRACT] Using {extraction_source} for city/service extraction ({len(extraction_text)} chars)")
+                    log.info(f"[OFFLINE_EXTRACT] Starting extraction from {extraction_source}")
+                    
+                    extraction = extract_city_and_service_from_summary(extraction_text)
+                    
+                    # עדכן את המשתנים שיישמרו ב-DB
+                    if extraction.get("city"):
+                        extracted_city = extraction.get("city")
+                        print(f"[OFFLINE_EXTRACT] ✅ Extracted city from {extraction_source}: '{extracted_city}'")
+                    
+                    if extraction.get("service_category"):
+                        extracted_service = extraction.get("service_category")
+                        print(f"[OFFLINE_EXTRACT] ✅ Extracted service from {extraction_source}: '{extracted_service}'")
+                    
+                    if extraction.get("confidence") is not None:
+                        extraction_confidence = extraction.get("confidence")
+                        print(f"[OFFLINE_EXTRACT] ✅ Extraction confidence: {extraction_confidence:.2f}")
+                    
+                    # Log final extraction result
+                    if extracted_city or extracted_service:
+                        print(f"[OFFLINE_EXTRACT] ✅ Extracted from {extraction_source}: city='{extracted_city}', service='{extracted_service}', conf={extraction_confidence}")
+                    else:
+                        print(f"[OFFLINE_EXTRACT] ⚠️ No city/service found in {extraction_source}")
+                        
+                except Exception as e:
+                    print(f"❌ [OFFLINE_EXTRACT] Failed to extract from {extraction_source}: {e}")
+                    log.error(f"[OFFLINE_EXTRACT] Failed to extract from {extraction_source}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"[OFFLINE_EXTRACT] ⚠️ No valid text for extraction (summary={len(summary or '')} chars, transcript={len(final_transcript or '')} chars)")
+                log.warning(f"[OFFLINE_EXTRACT] No valid text for extraction")
         
         # 4. שמור לDB עם תמלול + סיכום + 🆕 POST-CALL DATA
         to_number = form_data.get('To', '')
