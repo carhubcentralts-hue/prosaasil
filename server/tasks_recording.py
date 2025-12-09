@@ -95,15 +95,35 @@ def process_recording_async(form_data):
         recording_url = form_data.get("RecordingUrl")
         call_sid = form_data.get("CallSid")
         from_number = form_data.get("From", "")
+        to_number = form_data.get("To", "")
         
         log.info("Starting async processing for CallSid=%s", call_sid)
         
-        # 1. הורד קובץ הקלטה
-        audio_file = download_recording(recording_url, call_sid)
+        # ✅ NEW: Use unified recording service - same source as UI
+        from server.services.recording_service import get_recording_file_for_call
+        from server.app_factory import get_process_app
+        
+        # Get CallLog to access recording_url (single source of truth)
+        audio_file = None
+        try:
+            app = get_process_app()
+            with app.app_context():
+                from server.models_sql import CallLog
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                
+                if call_log:
+                    # ✅ Use the EXACT same recording that UI plays
+                    audio_file = get_recording_file_for_call(call_log)
+                else:
+                    log.warning(f"[OFFLINE_STT] CallLog not found for {call_sid}, cannot get recording")
+                    print(f"⚠️ [OFFLINE_STT] CallLog not found for {call_sid}")
+        except Exception as e:
+            log.error(f"[OFFLINE_STT] Error getting recording from service: {e}")
+            print(f"❌ [OFFLINE_STT] Error getting recording: {e}")
         
         if not audio_file:
-            print(f"⚠️ [OFFLINE_STT] Audio download failed for {call_sid} - skipping offline processing")
-            log.warning(f"[OFFLINE_STT] Audio download failed for {call_sid}")
+            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline processing")
+            log.warning(f"[OFFLINE_STT] Audio file not available for {call_sid}")
         
         # 2. תמלול עברית (Google STT v2 + Whisper fallback) - for summary
         # transcribe_hebrew handles None gracefully and returns ""
@@ -239,178 +259,14 @@ def process_recording_async(form_data):
 
 def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
     """
-    ✅ הורדת קובץ הקלטה מ-Twilio בצורה נכונה:
-    - משתמש באותה לוגיקה כמו ה-UI (multiple URL attempts)
-    - מטפל ב-duration=-1 (recording not ready) עם retry mechanism
-    - ממתין עד 5 ניסיונות עם backoff לפני ויתור
-    """
-    import time
-    import re
+    ⚠️ DEPRECATED - DO NOT USE
+    Use server.services.recording_service.get_recording_file_for_call() instead
     
-    try:
-        recording_url = recording_url or ""
-        log.info(f"[OFFLINE_STT] Original recording_url for {call_sid}: {recording_url}")
-        print(f"[OFFLINE_STT] Original recording_url for {call_sid}: {recording_url}")
-
-        # Get Twilio credentials
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        
-        if not account_sid or not auth_token:
-            print(f"❌ [OFFLINE_STT] Missing Twilio credentials for {call_sid}")
-            log.error("Missing Twilio credentials for download")
-            return None
-
-        # Extract Recording SID from URL
-        # URL format: "/2010-04-01/Accounts/AC.../Recordings/RE949ef4484c7c2e207a1fb4ef96aee4b1.json"
-        # We need the "RExxxxx" part
-        match = re.search(r'/Recordings/(RE[a-zA-Z0-9]+)', recording_url)
-        
-        if not match:
-            log.error(f"[OFFLINE_STT] Could not extract recording SID from URL: {recording_url}")
-            print(f"❌ [OFFLINE_STT] Could not extract recording SID from URL: {recording_url}")
-            return None
-        
-        recording_sid = match.group(1)
-        log.info(f"[OFFLINE_STT] Extracted recording SID: {recording_sid}")
-        print(f"[OFFLINE_STT] Extracted recording SID: {recording_sid}")
-
-        # ✅ Use Twilio SDK Client
-        from twilio.rest import Client
-        client = Client(account_sid, auth_token)
-        
-        # 🔄 RETRY MECHANISM: Wait for recording to be ready
-        max_retries = 5
-        retry_delays = [3, 5, 5, 10, 10]  # seconds - increasing backoff
-        
-        recording = None
-        duration = None
-        for attempt in range(max_retries):
-            try:
-                recording = client.recordings(recording_sid).fetch()
-                
-                # ✅ Safe conversion: duration can be string "-1" or int -1 or None
-                raw_duration = getattr(recording, "duration", None)
-                try:
-                    duration = int(raw_duration) if raw_duration is not None else None
-                except (TypeError, ValueError):
-                    duration = None
-                
-                log.info(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={raw_duration}s")
-                print(f"[OFFLINE_STT] Recording fetched: {recording.sid}, duration={raw_duration}s")
-                
-                # Check if recording is ready
-                # duration=-1 or None or <0 means Twilio is still processing
-                if duration is None or duration < 0:
-                    if attempt < max_retries - 1:
-                        wait_time = retry_delays[attempt]
-                        log.info(f"[OFFLINE_STT] Recording not ready yet (duration={raw_duration}), will retry in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                        print(f"[OFFLINE_STT] Recording not ready yet (duration={raw_duration}), will retry in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        log.error(f"[OFFLINE_STT] Recording {recording_sid} never became ready (duration={raw_duration})")
-                        print(f"❌ [OFFLINE_STT] Recording {recording_sid} never became ready (duration={raw_duration})")
-                        return None
-                else:
-                    # Recording is ready!
-                    log.info(f"[OFFLINE_STT] ✅ Recording ready: {recording.sid}, duration={duration}s")
-                    print(f"[OFFLINE_STT] ✅ Recording ready: {recording.sid}, duration={duration}s")
-                    break
-                    
-            except Exception as fetch_err:
-                if attempt < max_retries - 1:
-                    wait_time = retry_delays[attempt]
-                    log.warning(f"[OFFLINE_STT] Failed to fetch recording (attempt {attempt + 1}/{max_retries}): {fetch_err}, retrying in {wait_time}s")
-                    print(f"⚠️ [OFFLINE_STT] Failed to fetch recording (attempt {attempt + 1}/{max_retries}): {fetch_err}, retrying in {wait_time}s")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    log.error(f"[OFFLINE_STT] Failed to fetch recording {recording_sid} after {max_retries} attempts: {fetch_err}")
-                    print(f"❌ [OFFLINE_STT] Failed to fetch recording {recording_sid} after {max_retries} attempts: {fetch_err}")
-                    return None
-        
-        if not recording:
-            log.error(f"[OFFLINE_STT] Could not fetch recording {recording_sid}")
-            print(f"❌ [OFFLINE_STT] Could not fetch recording {recording_sid}")
-            return None
-        
-        # 🎯 Use the EXACT same download logic as the UI (routes_calls.py)
-        # Build base URL - handle .json URLs from Twilio properly
-        base_url = recording_url
-        if base_url.endswith(".json"):
-            base_url = base_url[:-5]
-        
-        # Convert relative URL to absolute
-        if not base_url.startswith("http"):
-            base_url = f"https://api.twilio.com{base_url}"
-        
-        # Try multiple formats (same as UI)
-        urls_to_try = [
-            base_url,  # No extension - Twilio's default format
-            f"{base_url}.mp3",
-            f"{base_url}.wav",
-        ]
-        
-        recording_content = None
-        last_error = None
-        auth = (account_sid, auth_token)
-        
-        for attempt, try_url in enumerate(urls_to_try):
-            try:
-                log.info(f"[OFFLINE_STT] Trying recording URL (format {attempt + 1}/{len(urls_to_try)}): {try_url[:80]}...")
-                print(f"[OFFLINE_STT] Trying recording URL (format {attempt + 1}/{len(urls_to_try)}): {try_url[:80]}...")
-                
-                response = requests.get(try_url, auth=auth, timeout=30)
-                
-                log.info(f"[OFFLINE_STT] Download status: {response.status_code}, bytes={len(response.content)}")
-                print(f"[OFFLINE_STT] Download status: {response.status_code}, bytes={len(response.content)}")
-                
-                # Check for 404 - recording might still be processing
-                if response.status_code == 404:
-                    if attempt == 0:  # First attempt failed with 404
-                        # Wait a bit and retry all formats again
-                        log.info(f"[OFFLINE_STT] Got 404, recording might still be processing. Waiting 5s before next format...")
-                        print(f"[OFFLINE_STT] Got 404, recording might still be processing. Waiting 5s before next format...")
-                        time.sleep(5)
-                    continue
-                    
-                if response.status_code == 200 and len(response.content) > 1000:
-                    recording_content = response.content
-                    log.info(f"[OFFLINE_STT] ✅ Successfully downloaded {len(recording_content)} bytes from {try_url[:50]}...")
-                    print(f"[OFFLINE_STT] ✅ Successfully downloaded {len(recording_content)} bytes")
-                    break
-                else:
-                    log.warning(f"[OFFLINE_STT] URL returned {response.status_code} or too small ({len(response.content)} bytes)")
-                    print(f"⚠️ [OFFLINE_STT] URL returned {response.status_code} or too small ({len(response.content)} bytes)")
-                    
-            except requests.RequestException as e:
-                log.warning(f"[OFFLINE_STT] Failed URL {try_url[:50]}: {e}")
-                print(f"⚠️ [OFFLINE_STT] Failed URL: {e}")
-                last_error = e
-                continue
-        
-        if not recording_content:
-            log.error(f"[OFFLINE_STT] Giving up on recording {call_sid} after trying all URL formats. Last error: {last_error}")
-            print(f"❌ [OFFLINE_STT] Giving up on recording {call_sid} after trying all URL formats")
-            return None
-        
-        # Save to disk
-        recordings_dir = "server/recordings"
-        os.makedirs(recordings_dir, exist_ok=True)
-        
-        file_path = f"{recordings_dir}/{call_sid}.mp3"
-        with open(file_path, "wb") as f:
-            f.write(recording_content)
-        
-        log.info(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(recording_content)} bytes)")
-        print(f"[OFFLINE_STT] ✅ Recording saved to disk: {file_path} ({len(recording_content)} bytes)")
-        return file_path
-
-    except Exception as e:
-        log.exception(f"[OFFLINE_STT] Fatal error in download_recording for {call_sid}: {e}")
-        print(f"❌ [OFFLINE_STT] Fatal error in download_recording for {call_sid}: {e}")
-        return None
+    This function is kept only for backward compatibility but should not be called.
+    The new unified recording service provides the single source of truth.
+    """
+    log.warning(f"[DEPRECATED] download_recording called for {call_sid} - should use recording_service instead")
+    return None
 
 def transcribe_hebrew(audio_file):
     """✨ תמלול עברית עם Google STT v2 (Primary) + Whisper (Fallback)"""
