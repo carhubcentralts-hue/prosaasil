@@ -1383,9 +1383,10 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 BUILD 181: Increased to 1500 frames (~30s buffer) to handle OpenAI delays
-        # OpenAI Realtime can delay 10-15+ seconds during long text generation
-        self.tx_q = queue.Queue(maxsize=1500)  # Support up to 30s without drops
+        # 🔥 BARGE-IN FIX: Reduced to 150 frames (~3s buffer) for responsive barge-in
+        # Large queues (1500 frames = 30s) cause old audio to continue playing after barge-in
+        # 150 frames = 3 seconds is enough for smooth playback while allowing quick interruption
+        self.tx_q = queue.Queue(maxsize=150)  # Support up to 3s - responsive barge-in
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -2709,24 +2710,39 @@ Greet briefly. Then WAIT for customer to speak."""
         print(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # 🔥 BUILD 302: FLUSH TX QUEUE - Stop old audio from playing on barge-in
+    # 🔥 BUILD 302 + BARGE-IN FIX: FLUSH ALL AUDIO QUEUES - Stop old audio on barge-in
     # ═══════════════════════════════════════════════════════════════════════════════
     def _flush_twilio_tx_queue(self, reason: str = ""):
         """
-        Flush all pending audio from the TX queue to Twilio.
+        Flush all pending audio from TX queue and OpenAI audio out queue.
         Called on barge-in to immediately stop AI audio playback.
+        
+        BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing:
+          - realtime_audio_out_queue: Audio from OpenAI waiting to be sent to TX queue
+          - tx_q: Audio waiting to be sent to Twilio
         """
-        queue_size_before = self.tx_q.qsize()
-        flushed = 0
+        # Flush OpenAI → TX queue (audio from OpenAI not yet in TX queue)
+        openai_queue_before = self.realtime_audio_out_queue.qsize()
+        openai_flushed = 0
         try:
-            while not self.tx_q.empty():
-                _ = self.tx_q.get_nowait()
-                flushed += 1
+            while not self.realtime_audio_out_queue.empty():
+                _ = self.realtime_audio_out_queue.get_nowait()
+                openai_flushed += 1
         except Exception:
             pass
         
-        print(f"🧹 [TX_FLUSH] Flushed {flushed} frames (was {queue_size_before}, reason={reason or 'UNKNOWN'})")
-        return flushed
+        # Flush TX → Twilio queue (audio waiting to be sent to caller)
+        tx_queue_before = self.tx_q.qsize()
+        tx_flushed = 0
+        try:
+            while not self.tx_q.empty():
+                _ = self.tx_q.get_nowait()
+                tx_flushed += 1
+        except Exception:
+            pass
+        
+        print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | reason={reason or 'UNKNOWN'}")
+        return tx_flushed + openai_flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
@@ -3411,6 +3427,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 FIX BUG 1: ALWAYS store response_id for barge-in cancellation
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+                        
+                        # 🔥 BARGE-IN FIX: Mark AI as speaking when response is created
+                        # This ensures is_ai_speaking flag is set BEFORE audio arrives
+                        self.is_ai_speaking_event.set()
+                        self.barge_in_active = False  # Reset barge-in flag for new response
+                        print(f"🔊 [BARGE-IN] AI starting to speak - response_id={response_id[:20]}... is_ai_speaking=True")
+                        
                         print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
                         # 🔥 BUILD 187: Response grace period - track when response started
                         # This prevents false turn_detected from echo/noise in first 500ms
@@ -3495,14 +3518,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🎯 Track AI speaking state for ALL AI audio (not just greeting)
                         now = time.time()
                         
-                        # 🔥 BUILD 165: ONLY set timestamps on FIRST chunk per utterance
-                        # This prevents grace period from constantly resetting
+                        # 🔥 BARGE-IN FIX: ALWAYS ensure is_ai_speaking is set on audio.delta
+                        # This guarantees the flag tracks actual audio playback
                         if not self.is_ai_speaking_event.is_set():
                             print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
-                            self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
                             # 🔥 FIX BUG 3: Track AI audio start time for echo suppression
                             self._last_ai_audio_start_ts = now
                             print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
@@ -3510,6 +3532,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
+                        
+                        # 🔥 BARGE-IN FIX: Ensure flag is ALWAYS set (safety redundancy)
+                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
                         # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
@@ -3555,7 +3580,10 @@ Greet briefly. Then WAIT for customer to speak."""
                             import base64
                             chunk_bytes = base64.b64decode(audio_b64)
                             first5_bytes = ' '.join([f'{b:02x}' for b in chunk_bytes[:5]])
-                            print(f"[REALTIME] got audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes}")
+                            
+                            # 🔥 BARGE-IN FIX: Better logging to distinguish greeting vs. regular AI talk
+                            audio_type = "[GREETING]" if self.is_playing_greeting else "[AI_TALK]"
+                            print(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         
                         try:
                             self.realtime_audio_out_queue.put_nowait(audio_b64)
