@@ -1896,6 +1896,11 @@ Then WAIT for response."""
 Greet briefly. Then WAIT for customer to speak."""
                     print(f"📞 [INBOUND] No greeting in DB - using fallback for {biz_name}")
             
+            # 🔥 CRITICAL: OUTBOUND calls - bot ALWAYS speaks first!
+            if call_direction == 'outbound':
+                self.bot_speaks_first = True
+                print(f"📤 [OUTBOUND] Forced bot_speaks_first=True (outbound calls always speak first)")
+            
             # 🔥 BUILD 329: Combine prompt + greeting instruction
             # Use compact prompt for fast greeting, will upgrade to full after
             greeting_prompt = f"""{greeting_prompt_to_use}
