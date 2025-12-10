@@ -1029,6 +1029,7 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 
 # 🎯 STT GUARD: Prevent hallucinated utterances from triggering barge-in
 # These parameters ensure we only accept real speech, not silence/noise
+# TODO: Consider making these configurable via environment variables or business settings
 MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
 MIN_RMS_DELTA = 20.0        # Minimum RMS above noise floor (prevents accepting silence as speech)
 
@@ -1058,7 +1059,7 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     # 2) Too short = likely hallucination
     if utterance_ms < MIN_UTTERANCE_MS:
         logger.info(
-            f"[STT_GUARD] Dropping too-short utterance: {utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms, text='{stt_text}'"
+            f"[STT_GUARD] Dropping too-short utterance: {utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms, text='{stt_text[:20]}...'"
         )
         return False
     
@@ -1067,7 +1068,7 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         logger.info(
             f"[STT_GUARD] Dropping low-RMS utterance: rms={rms_snapshot:.1f}, "
             f"noise_floor={noise_floor:.1f}, delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}, "
-            f"text='{stt_text}'"
+            f"text='{stt_text[:20]}...'"
         )
         return False
     
@@ -4181,7 +4182,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     if not accept_utterance:
                         # 🚫 Utterance failed validation - ignore it
-                        logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text}'")
+                        logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
                         # Clear candidate flag
                         self._candidate_user_speaking = False
                         self._utterance_start_ts = None
@@ -4191,7 +4192,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     logger.info(
                         f"[STT_GUARD] Accepted utterance: {utterance_duration_ms:.0f}ms, "
                         f"rms={current_rms:.1f}, noise_floor={current_noise_floor:.1f}, "
-                        f"text='{text[:50]}...'"
+                        f"text_len={len(text)}"
                     )
                     
                     # 🔥 BUILD 300: REMOVED POST_AI_COOLDOWN GATE
