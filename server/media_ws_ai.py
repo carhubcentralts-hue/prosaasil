@@ -1237,10 +1237,9 @@ class MediaStreamHandler:
         self._greeting_audio_first_ts = None  # When first greeting audio delta was received
         self._greeting_audio_received = False  # True after at least one greeting audio delta
         
-        # Timeout configuration
+        # Timeout configuration (optimized for fast response)
         self._twilio_start_timeout_sec = 1.5  # Max wait for Twilio START event
-        self._openai_connect_timeout_sec = 2.0  # Max wait for OpenAI connection
-        self._openai_connect_max_retries = 2  # Max retries for OpenAI connection
+        # NOTE: OpenAI connection uses client.connect() internal retry with 5s total timeout
         self._greeting_audio_timeout_sec = 3.0  # Max wait for first greeting audio from OpenAI
         
         # Timing metrics for diagnostics
@@ -1702,7 +1701,11 @@ class MediaStreamHandler:
             t_start = time.time()
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 REALTIME STABILITY: OpenAI connection with timeout and retry
+            # 🔥 REALTIME STABILITY: OpenAI connection with SINGLE timeout
+            # ═══════════════════════════════════════════════════════════════════════
+            # NOTE: client.connect() already has internal retry (3 attempts with exponential backoff)
+            # We only add a timeout wrapper to prevent infinite hangs - NO external retry loop!
+            # Total internal retry time: ~7s (1s + 2s + 4s backoff)
             # ═══════════════════════════════════════════════════════════════════════
             logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
@@ -1710,58 +1713,46 @@ class MediaStreamHandler:
             if DEBUG: print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
             t_connect_start = time.time()
-            connect_success = False
-            connect_ms = 0
+            _orig_print(f"🔌 [REALTIME] Connecting to OpenAI (internal retry: 3 attempts)...", flush=True)
             
-            # Try to connect with timeout and limited retries
-            for attempt in range(self._openai_connect_max_retries):
-                self._openai_connect_attempts = attempt + 1
-                attempt_start = time.time()
+            try:
+                # Single timeout of 8s covers internal retries (1s + 2s + 4s + margin)
+                # client.connect() handles its own retry logic with exponential backoff
+                await asyncio.wait_for(client.connect(max_retries=2, backoff_base=0.5), timeout=5.0)
+                connect_ms = (time.time() - t_connect_start) * 1000
+                self._openai_connect_attempts = 1
+                self._metrics_openai_connect_ms = int(connect_ms)
+                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms", flush=True)
                 
-                try:
-                    _orig_print(f"🔌 [REALTIME] OpenAI connect attempt {attempt + 1}/{self._openai_connect_max_retries}...", flush=True)
-                    await asyncio.wait_for(client.connect(), timeout=self._openai_connect_timeout_sec)
-                    connect_ms = (time.time() - t_connect_start) * 1000
-                    connect_success = True
-                    _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (attempt {attempt + 1})", flush=True)
-                    break
-                    
-                except asyncio.TimeoutError:
-                    attempt_ms = (time.time() - attempt_start) * 1000
-                    _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT attempt {attempt + 1} (>{self._openai_connect_timeout_sec * 1000:.0f}ms)", flush=True)
-                    
-                    # If this was the last attempt, mark as failed
-                    if attempt == self._openai_connect_max_retries - 1:
-                        total_ms = (time.time() - t_connect_start) * 1000
-                        _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT (>{total_ms:.0f}ms) - falling back", flush=True)
-                        logger.error(f"[REALTIME] OpenAI connection failed after {self._openai_connect_max_retries} attempts")
-                        
-                except Exception as connect_err:
-                    attempt_ms = (time.time() - attempt_start) * 1000
-                    _orig_print(f"❌ [REALTIME] OpenAI connect error attempt {attempt + 1}: {connect_err}", flush=True)
-                    
-                    # If this was the last attempt, mark as failed
-                    if attempt == self._openai_connect_max_retries - 1:
-                        logger.error(f"[REALTIME] OpenAI connection error after {self._openai_connect_max_retries} attempts: {connect_err}")
-            
-            # If connection failed, trigger fallback
-            if not connect_success:
+            except asyncio.TimeoutError:
+                connect_ms = (time.time() - t_connect_start) * 1000
+                self._metrics_openai_connect_ms = int(connect_ms)
+                _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT after {connect_ms:.0f}ms", flush=True)
+                logger.error(f"[REALTIME] OpenAI connection timeout after {connect_ms:.0f}ms")
+                
                 self.realtime_failed = True
                 self._realtime_failure_reason = "OPENAI_CONNECT_TIMEOUT"
-                self._metrics_openai_connect_ms = int((time.time() - t_connect_start) * 1000)
-                
                 _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT", flush=True)
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
+                return
                 
-                # Don't try to continue with Realtime - return to trigger fallback
+            except Exception as connect_err:
+                connect_ms = (time.time() - t_connect_start) * 1000
+                self._metrics_openai_connect_ms = int(connect_ms)
+                _orig_print(f"❌ [REALTIME] OpenAI connect error: {connect_err}", flush=True)
+                logger.error(f"[REALTIME] OpenAI connection error: {connect_err}")
+                
+                self.realtime_failed = True
+                self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
+                _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}", flush=True)
+                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
                 return
             
             t_connected = time.time()
-            self._metrics_openai_connect_ms = int(connect_ms)
             
-            # Warn if connection is slow (>1.5s is too slow)
+            # Warn if connection is slow (>1.5s is too slow for good UX)
             if connect_ms > 1500:
-                print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (should be <1000ms)")
+                print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (target: <1000ms)")
             if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
             
             self.realtime_client = client
