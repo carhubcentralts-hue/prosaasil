@@ -2712,11 +2712,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     self._server_error_retried = True
                                     _orig_print(f"🔄 [SERVER_ERROR] Retrying response (first attempt)...", flush=True)
                                     
-                                    # Send a system message and trigger retry
-                                    retry_msg = (
-                                        "היתה שגיאה זמנית ביצירת התשובה האחרונה. "
-                                        "אנא ענה שוב בקצרה, לפי ההוראות שלך, כאילו זה אותו תור."
-                                    )
+                                    # Send technical context (no scripted response)
+                                    retry_msg = "[SYSTEM] Technical error occurred. Please retry your last response."
                                     await self._send_text_to_ai(retry_msg)
                                     
                                     # Trigger new response
@@ -2730,12 +2727,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     # Already retried or call too long - graceful failure
                                     _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
                                     
-                                    # Send technical problem message in Hebrew
-                                    failure_msg = (
-                                        "יש בעיה טכנית זמנית במערכת. "
-                                        "אמור ללקוח בעברית שיש בעיה טכנית ושיצור קשר שוב מאוחר יותר, "
-                                        "ואז אמור שלום בצורה מנומסת וסיים את השיחה."
-                                    )
+                                    # Send technical context (AI decides how to handle based on Business Prompt)
+                                    failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
                                     await self._send_text_to_ai(failure_msg)
                                     
                                     # Trigger final response
@@ -4222,15 +4215,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             
                             print(f"   → Cleared verification state, lead candidate, and locked fields")
                             
-                            # 3) Inject system message to guide AI (generic, no hardcoded fields)
-                            system_msg = (
-                                "המשתמש דחה את ההבנה הקודמת שלך. "
-                                "אל תנחש פרטים חדשים. "
-                                "התנצל בקצרה ובקש מהמשתמש לחזור על כל הפרטים החשובים במשפט אחד קצר, "
-                                "לפי ההוראות של העסק שלך. "
-                                "אם המשתמש יספק רק חלק מהמידע, הבן איזה חלק חסר "
-                                "(לפי ההוראות שלך) ושאל רק על החלק החסר."
-                            )
+                            # 3) Inject system message to guide AI (context only, no script)
+                            system_msg = "[SYSTEM] User rejected previous understanding. Ask again per your instructions."
                             
                             # Queue system message for next processing cycle
                             asyncio.create_task(self._send_text_to_ai(system_msg))
@@ -8155,9 +8141,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     
                     async def do_goodbye():
                         if goodbye_text:
-                            await self._send_text_to_ai(f"[SYSTEM] השיחה מסתיימת. אמור: {goodbye_text}")
+                            await self._send_text_to_ai(f"[SYSTEM] Call ending. Say: {goodbye_text}")
                         else:
-                            await self._send_text_to_ai("[SYSTEM] call_ending_say_goodbye")
+                            await self._send_text_to_ai("[SYSTEM] Call ending. Say goodbye per your instructions.")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -8349,10 +8335,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 print(f"🔇 [SILENCE] Can't give final chance - call ending")
                                 return
                             
-                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final confirmation request")
+                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
                             await self._send_text_to_ai(
-                                "[SYSTEM] הלקוח שותק וטרם אישר את הפרטים. שאל בפעם אחרונה: 'אני רק צריך שתאשר את הפרטים - הכל נכון?'"
+                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
                             )
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
@@ -8382,9 +8368,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             closing_msg = self.call_config.greeting_text  # Use greeting as fallback
                         
                         if closing_msg:
-                            await self._send_text_to_ai(f"[SYSTEM] User has been silent for too long. Say goodbye: {closing_msg}")
+                            await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
                         else:
-                            await self._send_text_to_ai("[SYSTEM] User has been silent for too long. Say a brief goodbye in Hebrew.")
+                            await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
@@ -8428,8 +8414,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
             else:
                 # 🔥 BUILD 311.1: Dynamic - let AI continue naturally based on conversation context
-                # Don't hardcode "אתה עדיין איתי?" - let AI decide what makes sense
-                warning_prompt = "[SYSTEM] הלקוח שותק. המשך את השיחה בטבעיות - שאל שוב את השאלה האחרונה בניסוח אחר או בדוק אם הלקוח שם."
+                # Let AI decide based on context and Business Prompt
+                warning_prompt = "[SYSTEM] Customer is silent. Continue naturally per your instructions."
             await self._send_text_to_ai(warning_prompt)
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
