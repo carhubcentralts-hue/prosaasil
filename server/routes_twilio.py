@@ -470,8 +470,8 @@ def incoming_call():
     if business_id:
         stream.parameter(name="business_id", value=str(business_id))
     
-    # 🔥 PROMPT WIRING FIX: PRE-BUILD FULL inbound prompt in webhook (eliminates async DB query)
-    # This cuts 500-2000ms from greeting latency by having prompt ready when WS opens
+    # 🔥 PROMPT OPTIMIZATION: PRE-BUILD both COMPACT and FULL prompts in webhook
+    # COMPACT for ultra-fast greeting (<2s), FULL for post-greeting context
     if business_id:
         try:
             from server.services.realtime_prompt_builder import build_realtime_system_prompt
@@ -480,11 +480,11 @@ def incoming_call():
             # Store in stream_registry for MediaStreamHandler to use
             from server.stream_state import stream_registry
             if call_sid and full_prompt:
-                # Store FULL prompt (not compact!) - same prompt builder as used throughout call
+                # Store FULL prompt - will be used for upgrade after greeting
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-                print(f"✅ [PROMPT WIRING] Pre-built FULL inbound prompt for {call_sid}: {len(full_prompt)} chars")
+                print(f"✅ [PROMPT] Pre-built FULL inbound prompt: {len(full_prompt)} chars (for post-greeting upgrade)")
         except Exception as e:
-            print(f"⚠️ [PROMPT WIRING] Failed to pre-build full prompt: {e} - will fallback to async build")
+            print(f"⚠️ [PROMPT] Failed to pre-build prompt: {e} - will fallback to async build")
     
     # === יצירה אוטומטית של ליד (ברקע) ===
     if from_number:
@@ -588,18 +588,19 @@ def outbound_call():
     if template_id:
         stream.parameter(name="template_id", value=template_id)
     
-    # 🔥 PROMPT WIRING FIX: PRE-BUILD FULL outbound prompt for outbound calls
+    # 🔥 PROMPT OPTIMIZATION: PRE-BUILD FULL outbound prompt
+    # FULL prompt will be used throughout the call (outbound typically shorter)
     if business_id and call_sid:
         try:
             from server.services.realtime_prompt_builder import build_realtime_system_prompt
             from server.stream_state import stream_registry
             full_prompt = build_realtime_system_prompt(int(business_id), call_direction="outbound")
             if full_prompt:
-                # Store FULL prompt (not compact!) - same prompt builder as used throughout call
+                # Store FULL prompt - will be used for upgrade after greeting
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-                print(f"✅ [PROMPT WIRING] Pre-built FULL outbound prompt: {len(full_prompt)} chars")
+                print(f"✅ [PROMPT] Pre-built FULL outbound prompt: {len(full_prompt)} chars (for post-greeting upgrade)")
         except Exception as e:
-            print(f"⚠️ [PROMPT WIRING] Failed to pre-build outbound prompt: {e}")
+            print(f"⚠️ [PROMPT] Failed to pre-build outbound prompt: {e}")
     
     response_time_ms = int((time.time() - start_time) * 1000)
     logger.info(f"✅ outbound_call webhook: {response_time_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")

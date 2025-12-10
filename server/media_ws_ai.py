@@ -1809,34 +1809,59 @@ class MediaStreamHandler:
             # After greeting, we can send full prompt via session.update if needed
             # ═══════════════════════════════════════════════════════════════════════
             
-            # 🔥 PROMPT WIRING FIX: Always use FULL prompt with correct direction
-            # Priority 1: Use pre-built FULL prompt from main thread (FASTEST!)
+            # 🔥 PROMPT STRATEGY: COMPACT for fast greeting, FULL after first response
+            # Strategy: Start with compact ~800 char prompt → greeting in <2s
+            #           Then upgrade to full prompt with session.update after greeting starts
+            
+            # Step 1: Get COMPACT prompt for ultra-fast greeting (Priority order)
+            compact_prompt = None
+            full_prompt = None
+            
+            # Priority 1: Pre-built FULL prompt from main thread (use for compact extraction)
             if hasattr(self, '_prebuilt_prompt') and self._prebuilt_prompt:
                 full_prompt = self._prebuilt_prompt
-                print(f"✅ [PROMPT] Using MAIN THREAD pre-built FULL prompt: {len(full_prompt)} chars (direction={call_direction})")
-            else:
-                # Priority 2: Check registry for webhook pre-built full prompt
+                print(f"✅ [PROMPT] Pre-built FULL prompt available: {len(full_prompt)} chars (direction={call_direction})")
+            
+            # Priority 2: Check registry for webhook pre-built full prompt
+            if not full_prompt:
                 from server.stream_state import stream_registry
                 prebuilt_full = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
-                
                 if prebuilt_full:
                     full_prompt = prebuilt_full
-                    print(f"✅ [PROMPT] Using WEBHOOK PRE-BUILT FULL prompt: {len(full_prompt)} chars (direction={call_direction})")
+                    print(f"✅ [PROMPT] Webhook PRE-BUILT FULL prompt: {len(full_prompt)} chars (direction={call_direction})")
+            
+            # Priority 3: Build COMPACT prompt NOW for fast greeting (fallback)
+            if not compact_prompt:
+                try:
+                    from server.services.realtime_prompt_builder import build_compact_greeting_prompt
+                    app = _get_flask_app()
+                    with app.app_context():
+                        compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
+                        print(f"✅ [PROMPT] COMPACT greeting prompt built: {len(compact_prompt)} chars (FAST PATH)")
+                except Exception as prompt_err:
+                    print(f"❌ [PROMPT] Failed to build compact prompt: {prompt_err}")
+                    import traceback
+                    traceback.print_exc()
+                    compact_prompt = f"You are a professional service rep. SPEAK HEBREW to customer. Be helpful and brief."
+            
+            # Use compact for initial greeting (fast!)
+            greeting_prompt_to_use = compact_prompt if compact_prompt else full_prompt
+            print(f"🚀 [PROMPT STRATEGY] Using {'COMPACT' if compact_prompt else 'FULL'} prompt for greeting: {len(greeting_prompt_to_use)} chars")
+            logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source={'prebuilt' if full_prompt else 'fallback'} strategy={'COMPACT→FULL' if compact_prompt else 'FULL'}")
+            
+            # Store full prompt for session.update after greeting
+            self._full_prompt_for_upgrade = full_prompt
+            self._using_compact_greeting = bool(compact_prompt)
+            
+            # 🔥 CRITICAL LOGGING: Verify business isolation
+            if full_prompt:
+                # Extract business ID from prompt to verify it matches
+                if f"Business ID: {business_id_safe}" in full_prompt:
+                    print(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in prompt")
                 else:
-                    # Fallback: Build FULL prompt NOW using correct builder
-                    print(f"⚠️ [PROMPT] No pre-built prompt - building FULL prompt now (direction={call_direction})")
-                    try:
-                        from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                        app = _get_flask_app()
-                        with app.app_context():
-                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] FULL prompt built: {len(full_prompt)} chars (direction={call_direction})")
-                    except Exception as prompt_err:
-                        print(f"❌ [PROMPT] Failed to build full prompt: {prompt_err}")
-                        import traceback
-                        traceback.print_exc()
-                        # Last resort: minimal fallback
-                        full_prompt = f"You are a professional service rep. SPEAK HEBREW to customer. Be helpful and brief."
+                    logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in prompt! Check for contamination.")
+            
+            print(f"📊 [PROMPT STATS] compact={len(compact_prompt) if compact_prompt else 0} chars, full={len(full_prompt) if full_prompt else 0} chars")
             
             # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
             # AI just speaks the exact greeting text, ensuring consistency
@@ -1878,24 +1903,14 @@ Then WAIT for response."""
 Greet briefly. Then WAIT for customer to speak."""
                     print(f"📞 [BUILD 324] No DB greeting - using English fallback for {biz_name}")
             
-            # 🔥 BUILD 329: Combine FULL prompt FIRST + greeting instruction LAST
-            # AI gets complete business context from database
-            if full_prompt:
-                greeting_prompt = f"""{full_prompt}
+            # 🔥 BUILD 329: Combine prompt + greeting instruction
+            # Use compact prompt for fast greeting, will upgrade to full after
+            greeting_prompt = f"""{greeting_prompt_to_use}
 
 ---
 
 {greeting_instruction}"""
-                has_custom_greeting = True
-            else:
-                # 🔥 BUILD 324: English fallback - minimal context
-                greeting_prompt = f"""You are a professional service rep for {biz_name}.
-SPEAK HEBREW to customer. Be brief and helpful.
-
----
-
-{greeting_instruction}"""
-                has_custom_greeting = bool(greeting_text and greeting_text.strip())
+            has_custom_greeting = True
             
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
@@ -2717,6 +2732,30 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             content = item.get("content", [])
                             content_types = [c.get("type", "?") for c in content] if content else []
                             _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        
+                        # 🔥 PROMPT UPGRADE: After first response, upgrade from compact to full prompt
+                        if (hasattr(self, '_using_compact_greeting') and self._using_compact_greeting and 
+                            hasattr(self, '_full_prompt_for_upgrade') and self._full_prompt_for_upgrade and
+                            not getattr(self, '_prompt_upgraded_to_full', False)):
+                            
+                            try:
+                                full_prompt = self._full_prompt_for_upgrade
+                                print(f"🔄 [PROMPT UPGRADE] Upgrading from COMPACT to FULL prompt ({len(full_prompt)} chars)")
+                                
+                                # Send session.update with full prompt
+                                await client.send_event({
+                                    "type": "session.update",
+                                    "session": {
+                                        "instructions": full_prompt
+                                    }
+                                })
+                                
+                                self._prompt_upgraded_to_full = True
+                                print(f"✅ [PROMPT UPGRADE] Successfully upgraded to FULL prompt - AI now has complete business context")
+                            except Exception as upgrade_err:
+                                logger.error(f"❌ [PROMPT UPGRADE] Failed to upgrade prompt: {upgrade_err}")
+                                import traceback
+                                traceback.print_exc()
                         
                         # 🔥 PROMPT-ONLY: Handle OpenAI server_error with retry + graceful failure
                         if status == "failed":

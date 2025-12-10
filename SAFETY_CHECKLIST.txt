@@ -1,0 +1,282 @@
+═══════════════════════════════════════════════════════════════════════════════
+PROMPT SYSTEM SAFETY CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
+
+Date: December 10, 2025
+Purpose: Verify prompt system upgrade is working correctly with zero issues
+
+Instructions: Run through this checklist after deployment. Check [✓] or [✗]
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 1: BUSINESS ISOLATION (CRITICAL!)
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 1.1: Call Business A (inbound)
+    - Check log: [PROMPT-LOADING] business_id=A direction=inbound
+    - Check log: [BUSINESS ISOLATION] Verified business_id=A in prompt
+    - Verify AI uses Business A's greeting and style
+    - Record business_id from logs: _______
+
+[ ] Test 1.2: Immediately call Business B (inbound)
+    - Check log: [PROMPT-LOADING] business_id=B direction=inbound
+    - Check log: [BUSINESS ISOLATION] Verified business_id=B in prompt
+    - Verify AI uses Business B's greeting (NOT Business A's)
+    - Verify NO mention of Business A's services or details
+    - Record business_id from logs: _______
+
+[ ] Test 1.3: Call Business A again
+    - Verify Business A's prompt loads again (not cached from B)
+    - No contamination from Business B call
+    - Record business_id from logs: _______
+
+[ ] Test 1.4: Outbound call for Business A
+    - Check log: [PROMPT-LOADING] business_id=A direction=outbound
+    - Verify uses outbound_ai_prompt (not regular ai_prompt)
+    - Verify correct greeting for outbound style
+    - Record direction from logs: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 2: GREETING LATENCY (CRITICAL!)
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 2.1: Measure greeting latency (inbound)
+    - Start timer when call connects
+    - Stop timer when first audio plays
+    - Expected: < 2 seconds
+    - Actual time: _______s
+
+[ ] Test 2.2: Check COMPACT strategy
+    - Check log: [PROMPT STRATEGY] Using COMPACT prompt for greeting
+    - Check log: [PROMPT STATS] compact=XXX chars, full=XXX chars
+    - Compact should be ~800 chars, full should be ~3000 chars
+    - Compact chars: _______, Full chars: _______
+
+[ ] Test 2.3: Verify prompt upgrade
+    - After first AI response completes
+    - Check log: [PROMPT UPGRADE] Upgrading from COMPACT to FULL prompt
+    - Check log: [PROMPT UPGRADE] Successfully upgraded to FULL prompt
+    - Upgrade should happen within 5 seconds of greeting
+    - Time to upgrade: _______s
+
+[ ] Test 2.4: Verify no performance degradation after upgrade
+    - Continue conversation after prompt upgrade
+    - AI responses should remain fast (<2s)
+    - No stuttering or delays
+    - Response quality: _______ (Good/Fair/Poor)
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 3: INBOUND/OUTBOUND SEPARATION
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 3.1: Inbound call behavior
+    - AI should wait for customer to speak after greeting
+    - AI should NOT proactively explain why calling
+    - Should use inbound_prompt or ai_prompt field
+    - Check log confirms: direction=inbound
+    - Direction verified: _______
+
+[ ] Test 3.2: Outbound call behavior
+    - AI should proactively explain why calling
+    - Should greet with lead name if available
+    - Should use outbound_ai_prompt field
+    - Check log confirms: direction=outbound
+    - Direction verified: _______
+
+[ ] Test 3.3: No cross-contamination
+    - Inbound call should NEVER use outbound style
+    - Outbound call should NEVER use inbound style
+    - Verify by checking conversation flow and logs
+    - No contamination: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 4: REALTIME API BEHAVIOR
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 4.1: Barge-in (user interruption)
+    - Start speaking while AI is talking
+    - AI should STOP IMMEDIATELY (within 300ms)
+    - No "response_cancel_not_active" errors in logs
+    - Check log: [BARGE-IN] User started talking while AI speaking
+    - Barge-in works: _______
+
+[ ] Test 4.2: Pauses and pacing
+    - AI should pause briefly after each sentence (200-400ms)
+    - Should not rush through responses
+    - Should wait for user to respond
+    - Pacing natural: _______
+
+[ ] Test 4.3: Noise handling
+    - Test with background noise (music, traffic, etc.)
+    - AI should ignore noise and not respond to it
+    - Should only respond to clear speech
+    - Noise ignored correctly: _______
+
+[ ] Test 4.4: Unclear audio handling
+    - Mumble or speak unclearly
+    - AI should ask for clarification (e.g., "לא שמעתי ברור, אפשר לחזור?")
+    - AI should NOT guess or make up information
+    - Clarification requested: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 5: LANGUAGE SWITCHING
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 5.1: Default Hebrew
+    - Call should start in Hebrew (default)
+    - First greeting should be in Hebrew
+    - Language: _______
+
+[ ] Test 5.2: Switch to English
+    - Speak in English during call
+    - AI should immediately switch to English
+    - Should continue in English for rest of call
+    - Language switched: _______
+
+[ ] Test 5.3: Switch to Arabic
+    - Speak in Arabic during call
+    - AI should immediately switch to Arabic
+    - Should continue in Arabic for rest of call
+    - Language switched: _______
+
+[ ] Test 5.4: No mixing
+    - AI should NOT mix languages unless user does
+    - Each response should be in one language only
+    - No mixing observed: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 6: TRANSCRIPTION TRUST
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 6.1: City names (Hebrew)
+    - Say a city name: "קריית גת"
+    - AI should use EXACT name, not substitute
+    - Check logs for transcription: _______
+
+[ ] Test 6.2: Business-specific terms
+    - Say a service name from the business prompt
+    - AI should use EXACT term, not rephrase
+    - Term used correctly: _______
+
+[ ] Test 6.3: No inventions
+    - AI should NEVER invent facts, services, or details
+    - Should only use what customer explicitly said
+    - No inventions: _______
+
+[ ] Test 6.4: No corrections
+    - Say something slightly incorrect (e.g., wrong date format)
+    - AI should use EXACT words customer said
+    - Should clarify if needed, but not "correct"
+    - No unwanted corrections: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 7: LOGGING & MONITORING
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 7.1: Prompt loading logs present
+    - [PROMPT-LOADING] business_id=X direction=inbound/outbound source=...
+    - [PROMPT_DEBUG] direction=X business_id=X final_system_prompt(lead)=...
+    - Logs found: _______
+
+[ ] Test 7.2: Business isolation logs present
+    - [BUSINESS ISOLATION] Verified business_id=X in prompt
+    - Logs found: _______
+
+[ ] Test 7.3: Performance logs present
+    - [PROMPT STRATEGY] Using COMPACT/FULL prompt
+    - [PROMPT STATS] compact=XXX chars, full=XXX chars
+    - [PROMPT UPGRADE] Upgrading from COMPACT to FULL
+    - Logs found: _______
+
+[ ] Test 7.4: Error logs absent
+    - No "Failed to build prompt" errors
+    - No "Business ID marker not found" warnings
+    - No unexpected errors: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 8: EDGE CASES
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 8.1: Unknown business_id
+    - Call with invalid business_id
+    - Should fall back to first active business
+    - Should log: "שימוש בעסק fallback"
+    - No crash: _______
+
+[ ] Test 8.2: Missing business prompt
+    - Business with no ai_prompt in DB
+    - Should use minimal fallback
+    - Call should still work (greeting might be generic)
+    - No crash: _______
+
+[ ] Test 8.3: Very long conversation
+    - Continue conversation for 5+ minutes
+    - Prompt should remain stable
+    - No degradation or confusion
+    - Stable: _______
+
+[ ] Test 8.4: Rapid calls (stress test)
+    - Make 10 calls in rapid succession to different businesses
+    - Each should get correct prompt
+    - No mixing or contamination
+    - All correct: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+SECTION 9: REGRESSION TESTING
+═══════════════════════════════════════════════════════════════════════════════
+
+[ ] Test 9.1: Appointment scheduling still works
+    - For business with calendar enabled
+    - Book an appointment
+    - Should complete successfully
+    - Appointment booked: _______
+
+[ ] Test 9.2: Lead extraction still works
+    - Provide name, phone, service request
+    - Check DB: Lead should be created
+    - Lead ID: _______
+
+[ ] Test 9.3: CRM integration still works
+    - Check that call log created
+    - Check that lead enriched with call data
+    - CRM working: _______
+
+[ ] Test 9.4: Recording still works
+    - Make a call
+    - Check recording created in DB
+    - Recording URL: _______
+
+═══════════════════════════════════════════════════════════════════════════════
+FINAL CHECKLIST SUMMARY
+═══════════════════════════════════════════════════════════════════════════════
+
+Total tests: 40
+Tests passed: _____ / 40
+Tests failed: _____ / 40
+Critical failures: _____ (Section 1, 2, 3)
+
+PASS CRITERIA:
+- ALL Section 1 tests pass (Business Isolation)
+- ALL Section 2 tests pass (Greeting Latency <2s)
+- ALL Section 3 tests pass (Inbound/Outbound Separation)
+- At least 36/40 total tests pass
+
+STATUS: [ ] PASS  [ ] FAIL  [ ] NEEDS REVIEW
+
+═══════════════════════════════════════════════════════════════════════════════
+NOTES & OBSERVATIONS:
+═══════════════════════════════════════════════════════════════════════════════
+
+[Add any notes, observations, or issues discovered during testing]
+
+═══════════════════════════════════════════════════════════════════════════════
+SIGN-OFF
+═══════════════════════════════════════════════════════════════════════════════
+
+Tested by: _______________________
+Date: _______________________
+Status: PASS / FAIL
+Next steps: _______________________
+
+═══════════════════════════════════════════════════════════════════════════════
+END OF CHECKLIST
+═══════════════════════════════════════════════════════════════════════════════
