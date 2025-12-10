@@ -2717,9 +2717,9 @@ Greet briefly. Then WAIT for customer to speak."""
         Flush all pending audio from TX queue and OpenAI audio out queue.
         Called on barge-in to immediately stop AI audio playback.
         
-        🔥 BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing:
-        1. realtime_audio_out_queue - Audio from OpenAI waiting to be sent to TX queue
-        2. tx_q - Audio waiting to be sent to Twilio
+        BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing:
+          - realtime_audio_out_queue: Audio from OpenAI waiting to be sent to TX queue
+          - tx_q: Audio waiting to be sent to Twilio
         """
         # Flush OpenAI → TX queue (audio from OpenAI not yet in TX queue)
         openai_queue_before = self.realtime_audio_out_queue.qsize()
@@ -3583,8 +3583,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             # 🔥 BARGE-IN FIX: Better logging to distinguish greeting vs. regular AI talk
                             audio_type = "[GREETING]" if self.is_playing_greeting else "[AI_TALK]"
-                            print(f"[REALTIME] got audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes}, type={audio_type}")
-                            print(f"{audio_type} Passing AI audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()})")
+                            print(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         
                         try:
                             self.realtime_audio_out_queue.put_nowait(audio_b64)
