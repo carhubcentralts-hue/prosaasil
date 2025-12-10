@@ -1789,18 +1789,26 @@ class MediaStreamHandler:
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
-            # 🔥 BUILD 329: FULL prompt from start - user requested ALL database prompt be sent!
-            # Compact prompt was only 600 chars - not enough for AI to understand business fully
-            full_prompt = None
-            try:
-                from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                app = _get_flask_app()
-                with app.app_context():
-                    full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                    print(f"✅ [BUILD 329] FULL prompt built: {len(full_prompt)} chars")
-            except Exception as prompt_err:
-                print(f"⚠️ [BUILD 329] Failed to build full prompt: {prompt_err}")
-                full_prompt = None
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 PART D OPTIMIZATION: Use PRE-BUILT prompt from main thread (eliminates DB round-trip!)
+            # Previously: Async loop did ANOTHER DB query here, adding 500-2000ms latency
+            # Now: Main thread pre-builds prompt, async loop uses it directly
+            # ═══════════════════════════════════════════════════════════════════════
+            full_prompt = getattr(self, '_prebuilt_prompt', None)
+            if full_prompt:
+                print(f"✅ [PART D] Using PRE-BUILT prompt from main thread: {len(full_prompt)} chars (FAST PATH)")
+            else:
+                # Fallback: Build prompt if main thread didn't pre-build it
+                print(f"⚠️ [PART D] No pre-built prompt - building now (SLOW PATH, adds latency)")
+                try:
+                    from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                    app = _get_flask_app()
+                    with app.app_context():
+                        full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                        print(f"✅ [BUILD 329] FULL prompt built: {len(full_prompt)} chars (fallback)")
+                except Exception as prompt_err:
+                    print(f"⚠️ [BUILD 329] Failed to build full prompt: {prompt_err}")
+                    full_prompt = None
             
             # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
             # AI just speaks the exact greeting text, ensuring consistency
@@ -1931,6 +1939,20 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 if triggered:
                     t_speak = time.time()
                     total_openai_ms = (t_speak - t_start) * 1000
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 PART D: Detailed timing breakdown for latency analysis
+                    # ═══════════════════════════════════════════════════════════════════════
+                    t0 = getattr(self, 't0_connected', t_start)  # WS open time
+                    connect_delta = int((t_connected - t_start) * 1000)
+                    try:
+                        wait_delta = int((t_ready - t_connected) * 1000)
+                    except NameError:
+                        wait_delta = 0  # t_ready not defined (timeout case)
+                    config_delta = int((t_after_config - t_before_config) * 1000)
+                    total_from_t0 = int((t_speak - t0) * 1000)
+                    
+                    _orig_print(f"⏱️ [LATENCY BREAKDOWN] connect={connect_delta}ms, wait_biz={wait_delta}ms, config={config_delta}ms, total={total_openai_ms:.0f}ms (T0→greeting={total_from_t0}ms)", flush=True)
                     print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
                     
                     # ═══════════════════════════════════════════════════════════════════════
@@ -2690,11 +2712,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     self._server_error_retried = True
                                     _orig_print(f"🔄 [SERVER_ERROR] Retrying response (first attempt)...", flush=True)
                                     
-                                    # Send a system message and trigger retry
-                                    retry_msg = (
-                                        "היתה שגיאה זמנית ביצירת התשובה האחרונה. "
-                                        "אנא ענה שוב בקצרה, לפי ההוראות שלך, כאילו זה אותו תור."
-                                    )
+                                    # Send technical context (no scripted response)
+                                    retry_msg = "[SYSTEM] Technical error occurred. Please retry your last response."
                                     await self._send_text_to_ai(retry_msg)
                                     
                                     # Trigger new response
@@ -2708,12 +2727,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                     # Already retried or call too long - graceful failure
                                     _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
                                     
-                                    # Send technical problem message in Hebrew
-                                    failure_msg = (
-                                        "יש בעיה טכנית זמנית במערכת. "
-                                        "אמור ללקוח בעברית שיש בעיה טכנית ושיצור קשר שוב מאוחר יותר, "
-                                        "ואז אמור שלום בצורה מנומסת וסיים את השיחה."
-                                    )
+                                    # Send technical context (AI decides how to handle based on Business Prompt)
+                                    failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
                                     await self._send_text_to_ai(failure_msg)
                                     
                                     # Trigger final response
@@ -4200,15 +4215,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             
                             print(f"   → Cleared verification state, lead candidate, and locked fields")
                             
-                            # 3) Inject system message to guide AI (generic, no hardcoded fields)
-                            system_msg = (
-                                "המשתמש דחה את ההבנה הקודמת שלך. "
-                                "אל תנחש פרטים חדשים. "
-                                "התנצל בקצרה ובקש מהמשתמש לחזור על כל הפרטים החשובים במשפט אחד קצר, "
-                                "לפי ההוראות של העסק שלך. "
-                                "אם המשתמש יספק רק חלק מהמידע, הבן איזה חלק חסר "
-                                "(לפי ההוראות שלך) ושאל רק על החלק החסר."
-                            )
+                            # 3) Inject system message to guide AI (context only, no script)
+                            system_msg = "[SYSTEM] User rejected previous understanding. Ask again per your instructions."
                             
                             # Queue system message for next processing cycle
                             asyncio.create_task(self._send_text_to_ai(system_msg))
@@ -5393,26 +5401,44 @@ SPEAK HEBREW to customer. Be brief and helpful.
         thread.start()
     
     def _realtime_audio_out_loop(self):
-        """⚡ BUILD 168.2: Optimized audio bridge - minimal logging"""
+        """⚡ BUILD 168.2: Optimized audio bridge - minimal logging
+        
+        🔥 PART C DEBUG: Added logging to trace tx=0 issues
+        """
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
         if not hasattr(self, 'realtime_tx_bytes'):
             self.realtime_tx_bytes = 0
         
+        # 🔥 PART C: Track first frame for diagnostics
+        _first_frame_logged = False
+        _frames_skipped_no_stream_sid = 0
+        
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
         audio_buffer = b''  # Rolling buffer for incomplete frames
+        
+        _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
         while not self.realtime_stop_flag:
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
                 if audio_b64 is None:
+                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - exiting loop (frames_enqueued={self.realtime_tx_frames})", flush=True)
                     break
                 
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
+                # 🔥 PART C: Log first frame and stream_sid state
+                if not _first_frame_logged:
+                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
+                    _first_frame_logged = True
+                
                 if not self.stream_sid:
+                    _frames_skipped_no_stream_sid += 1
+                    if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
+                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping frame - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
                     continue
                 
                 audio_buffer += chunk_bytes
@@ -5749,16 +5775,33 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     else:
                         logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                     
-                    # 🔥 STEP 2: DB query runs IN PARALLEL with OpenAI connection
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 PART D OPTIMIZATION: DB query + prompt building runs IN PARALLEL with OpenAI connection
+                    # Previously: Main thread did DB query, async loop did ANOTHER DB query to build prompt
+                    # Now: Main thread builds prompt ONCE, async loop uses pre-built prompt
+                    # Expected savings: 500-2000ms (eliminates redundant DB query)
+                    # ═══════════════════════════════════════════════════════════════════════
                     t_biz_start = time.time()
                     try:
                         app = _get_flask_app()
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
                             
+                            # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
+                            # This eliminates redundant DB query in async loop
+                            call_direction = getattr(self, 'call_direction', 'inbound')
+                            business_id_safe = self.business_id if self.business_id is not None else (business_id or 1)
+                            try:
+                                from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                                self._prebuilt_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                                print(f"✅ [PART D] Pre-built prompt: {len(self._prebuilt_prompt)} chars (saved DB round-trip for async loop)")
+                            except Exception as prompt_err:
+                                print(f"⚠️ [PART D] Failed to pre-build prompt: {prompt_err}")
+                                self._prebuilt_prompt = None  # Async loop will build it as fallback
+                            
                         t_biz_end = time.time()
-                        print(f"⚡ DB QUERY: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
-                        logger.info(f"[CALL DEBUG] Business ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        print(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
                         # 🔥 SAFETY: Only set defaults if fields are truly None (preserve valid 0 or empty)
                         if self.business_id is None:
@@ -5774,6 +5817,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         # Use helper with force_greeting=True to ensure greeting fires
                         self._set_safe_business_defaults(force_greeting=True)
                         greet = None  # AI will improvise
+                        self._prebuilt_prompt = None  # Async loop will build it
                     
                     # ⚡ STREAMING STT: Initialize ONLY if NOT using Realtime API
                     if not USE_REALTIME_API:
@@ -6527,12 +6571,41 @@ SPEAK HEBREW to customer. Be brief and helpful.
             realtime_failed = getattr(self, 'realtime_failed', False)
             failure_reason = getattr(self, '_realtime_failure_reason', None) or 'N/A'
             
-            # Check for silent failure (tx=0 but no marked failure)
-            if self.tx == 0 and not realtime_failed:
-                _orig_print(f"⚠️ [REALTIME] SILENT_FAILURE_DETECTED: tx=0 but realtime_failed=False!", flush=True)
-                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} had tx=0 (potential silent failure)", flush=True)
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 PART B FIX: Distinguish GHOST SESSION from REAL CALL
+            # ═══════════════════════════════════════════════════════════════════════
+            # Ghost session criteria:
+            #   - call_sid is None (no START event received)
+            #   - rx == 0 and tx == 0 (no audio traffic)
+            #   - openai_connect_ms == 0 (never connected to OpenAI)
+            # These are Twilio preflight/probe connections - NOT actual failures!
+            # ═══════════════════════════════════════════════════════════════════════
+            is_ghost_session = (
+                self.call_sid is None and 
+                self.rx == 0 and 
+                self.tx == 0 and
+                openai_connect_ms == 0 and
+                first_greeting_audio_ms == 0
+            )
             
-            _orig_print(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}", flush=True)
+            if self.tx == 0 and not realtime_failed:
+                if is_ghost_session:
+                    # GHOST SESSION: WS opened but Twilio never sent START event
+                    # This is NOT a bug - just a preflight/probe connection
+                    # Do NOT log as failure, do NOT set realtime_failed
+                    _orig_print(f"📭 [REALTIME] Ghost WS session (no START, no traffic) – ignoring", flush=True)
+                else:
+                    # REAL CALL: START received (call_sid set) but tx=0 - this IS a bug!
+                    _orig_print(f"⚠️ [REALTIME] SILENT_FAILURE_DETECTED: tx=0 but realtime_failed=False!", flush=True)
+                    _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} had tx=0 (potential silent failure)", flush=True)
+                    # Mark as failed with clear reason for diagnostics
+                    realtime_failed = True
+                    failure_reason = "TX_ZERO_REAL_CALL"
+                    self.realtime_failed = True
+                    self._realtime_failure_reason = failure_reason
+            
+            # Log metrics - include is_ghost flag for monitoring
+            _orig_print(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}, is_ghost={is_ghost_session}", flush=True)
             
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
@@ -8068,9 +8141,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     
                     async def do_goodbye():
                         if goodbye_text:
-                            await self._send_text_to_ai(f"[SYSTEM] השיחה מסתיימת. אמור: {goodbye_text}")
+                            await self._send_text_to_ai(f"[SYSTEM] Call ending. Say: {goodbye_text}")
                         else:
-                            await self._send_text_to_ai("[SYSTEM] call_ending_say_goodbye")
+                            await self._send_text_to_ai("[SYSTEM] Call ending. Say goodbye per your instructions.")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -8262,10 +8335,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                                 print(f"🔇 [SILENCE] Can't give final chance - call ending")
                                 return
                             
-                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final confirmation request")
+                            print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
                             await self._send_text_to_ai(
-                                "[SYSTEM] הלקוח שותק וטרם אישר את הפרטים. שאל בפעם אחרונה: 'אני רק צריך שתאשר את הפרטים - הכל נכון?'"
+                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
                             )
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
@@ -8295,9 +8368,9 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             closing_msg = self.call_config.greeting_text  # Use greeting as fallback
                         
                         if closing_msg:
-                            await self._send_text_to_ai(f"[SYSTEM] User has been silent for too long. Say goodbye: {closing_msg}")
+                            await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
                         else:
-                            await self._send_text_to_ai("[SYSTEM] User has been silent for too long. Say a brief goodbye in Hebrew.")
+                            await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
@@ -8341,8 +8414,8 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
             else:
                 # 🔥 BUILD 311.1: Dynamic - let AI continue naturally based on conversation context
-                # Don't hardcode "אתה עדיין איתי?" - let AI decide what makes sense
-                warning_prompt = "[SYSTEM] הלקוח שותק. המשך את השיחה בטבעיות - שאל שוב את השאלה האחרונה בניסוח אחר או בדוק אם הלקוח שם."
+                # Let AI decide based on context and Business Prompt
+                warning_prompt = "[SYSTEM] Customer is silent. Continue naturally per your instructions."
             await self._send_text_to_ai(warning_prompt)
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
@@ -9969,12 +10042,17 @@ SPEAK HEBREW to customer. Be brief and helpful.
         - Precise 20ms/frame timing with next_deadline
         - Back-pressure at 90% threshold
         - Real-time telemetry (fps/q/drops)
+        
+        🔥 PART C DEBUG: Added logging to trace first frame sent to Twilio
         """
-        print("🔊 TX_LOOP_START: Audio transmission thread started")
+        _orig_print(f"🔊 [TX_LOOP] STARTED - ready to send audio to Twilio (tx_running={self.tx_running})", flush=True)
         
         FRAME_INTERVAL = 0.02  # 20 ms per frame expected by Twilio
         next_deadline = time.monotonic()
         tx_count = 0
+        
+        # 🔥 PART C: Track first frame for tx=0 diagnostics
+        _first_frame_sent = False
         
         # Telemetry
         frames_sent_last_sec = 0
@@ -10015,6 +10093,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         print(f"[TX_LOOP] Sent Realtime format: success={success}")
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
+                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                        if not _first_frame_sent:
+                            _first_frame_sent = True
+                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 else:
                     # Old format - convert
                     success = self._ws_send(json.dumps({
@@ -10026,6 +10108,10 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         print(f"[TX_LOOP] Sent old format (converted): success={success}")
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
+                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                        if not _first_frame_sent:
+                            _first_frame_sent = True
+                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 
                 tx_count += 1
                 frames_sent_last_sec += 1
