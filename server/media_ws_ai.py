@@ -841,8 +841,8 @@ RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
 RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
-# BARGE-IN - Responsive interruption detection
-BARGE_IN_VOICE_FRAMES = 25     # 25 frames = 500ms continuous speech to trigger barge-in
+# BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
+BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
 
 # STT MERGING - Hebrew segment handling
 STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
@@ -1171,6 +1171,7 @@ class MediaStreamHandler:
         self.current_user_voice_start_ts = None  # When current user voice started
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
+        self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
         
         # 🧘 BUILD 345: Post-greeting breathing window state
@@ -4616,7 +4617,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting still playing")
             return
         
-        print("[REALTIME] BARGE-IN triggered – user started speaking, CANCELING AI response")
+        print("🔍 [BARGE-IN] Stopping AI response and audio playback...")
         
         # 🔥 CRITICAL: Cancel active AI response generation (not just playback!)
         if self.active_response_id and self.realtime_client:
@@ -6143,13 +6144,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # Only allow barge-in if AI is speaking
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
-                            # 🎯 FIX: Allow barge-in if user has spoken OR greeting finished
-                            can_barge = self.user_has_spoken or self.barge_in_enabled_after_greeting
-                            if not can_barge:
+                            # 🔥 BARGE-IN: Always enabled (unless explicitly disabled or waiting for DTMF)
+                            # Allow user to interrupt at ANY time during AI speech
+                            if not self.barge_in_enabled:
                                 self.barge_in_voice_frames = 0
                                 continue
                             
-                            # 🛡️ PROTECT GREETING: Never barge-in during greeting!
+                            # 🛡️ PROTECT GREETING: Never barge-in during greeting playback!
+                            # (Allow barge-in AFTER greeting starts, just not during the audio file playback)
                             if self.is_playing_greeting:
                                 self.barge_in_voice_frames = 0
                                 continue
@@ -6166,13 +6168,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # 🔥 BUILD 325: Use MIN_SPEECH_RMS (60) for barge-in detection
                             speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
                             
-                            # 🔥 BUILD 169: Require 700ms continuous speech (35 frames @ 20ms)
-                            # Per architect: Increased from 220ms to prevent AI cutoff on background noise
+                            # 🔥 BARGE-IN: Require continuous speech to trigger interruption
+                            # Fast response time: 300ms (15 frames @ 20ms each) for natural interruption
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
                                 # 🔥 ARCHITECT FIX: Use BARGE_IN_VOICE_FRAMES constant, not hardcoded 11
                                 if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
-                                    print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= {speech_threshold:.0f}, "
+                                    print(f"🔍 [BARGE-IN] User interrupted AI - stopping TTS and switching to user speech")
+                                    print(f"    └─ Detection: rms={rms:.0f} >= {speech_threshold:.0f}, "
                                           f"continuous={self.barge_in_voice_frames} frames ({BARGE_IN_VOICE_FRAMES*20}ms)")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
                                               f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
@@ -7129,6 +7132,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 pass  # Allow clear commands through
             else:
                 return  # Silently drop all other audio
+        
+        # 🔥 BARGE-IN: Block AI audio when user is speaking (allow "clear" and "mark" commands)
+        if self.barge_in_active:
+            if isinstance(item, dict) and item.get("type") in ("clear", "mark"):
+                pass  # Allow clear/mark commands through
+            else:
+                return  # Silently drop AI audio during barge-in
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
