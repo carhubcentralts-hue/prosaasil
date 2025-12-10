@@ -325,6 +325,12 @@ class AudioState:
     consecutive_silence_frames: int = 0
     voice_started_ts: Optional[float] = None
     
+    # 🔥 FIX: Track AI audio start time for echo suppression window
+    last_ai_audio_start_ts: Optional[float] = None
+    
+    # 🔥 FIX: Track last hallucination to prevent repeats
+    last_hallucination: str = ""
+    
     # Safety tracking
     _lock: threading.RLock = None  # Thread-safe state access
     
@@ -1032,9 +1038,23 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 # TODO: Consider making these configurable via environment variables or business settings
 MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
 MIN_RMS_DELTA = 20.0        # Minimum RMS above noise floor (prevents accepting silence as speech)
+MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
+ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
+ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
+
+# Valid short Hebrew phrases that should ALWAYS pass (even if 1 word when RMS is high)
+VALID_SHORT_HEBREW_PHRASES = {
+    "כן", "לא", "רגע", "שניה", "שנייה", "תן לי", "אני פה", "שומע",
+    "טוב", "בסדר", "תודה", "סליחה", "יופי", "נכון", "מעולה", "בדיוק",
+    "יאללה", "סבבה", "אוקיי", "אה", "אהה", "מה", "איפה", "מתי", "למה",
+    "איך", "כמה", "מי", "איזה", "זה", "אני", "היי", "הלו", "שלום", "ביי"
+}
 
 def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
-                                     rms_snapshot: float, noise_floor: float) -> bool:
+                                     rms_snapshot: float, noise_floor: float,
+                                     ai_speaking: bool = False, 
+                                     last_ai_audio_start_ms: float = 0,
+                                     last_hallucination: str = "") -> bool:
     """
     🎯 STT GUARD: Validate if a Realtime API utterance should be accepted
     
@@ -1047,32 +1067,78 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         utterance_ms: Duration of the utterance in milliseconds
         rms_snapshot: Current audio RMS level
         noise_floor: Baseline noise floor
+        ai_speaking: Whether AI is currently speaking
+        last_ai_audio_start_ms: Time since AI audio started (ms)
+        last_hallucination: Last rejected hallucination text (to prevent repeats)
         
     Returns:
         True if utterance should be accepted, False if it should be rejected
     """
     # 1) No text = reject
     if not stt_text or not stt_text.strip():
-        logger.info("[STT_GUARD] Dropping empty utterance")
+        logger.info("[STT_GUARD] Rejected: empty utterance")
         return False
     
     # 2) Too short = likely hallucination
     if utterance_ms < MIN_UTTERANCE_MS:
         logger.info(
-            f"[STT_GUARD] Dropping too-short utterance: {utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms, text='{stt_text[:20]}...'"
+            f"[STT_GUARD] Rejected: too-short utterance ({utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms), text='{stt_text[:20]}...'"
         )
         return False
     
     # 3) RMS too low = not real speech
     if rms_snapshot < noise_floor + MIN_RMS_DELTA:
         logger.info(
-            f"[STT_GUARD] Dropping low-RMS utterance: rms={rms_snapshot:.1f}, "
-            f"noise_floor={noise_floor:.1f}, delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}, "
+            f"[STT_GUARD] Rejected: low RMS (rms={rms_snapshot:.1f}, "
+            f"noise_floor={noise_floor:.1f}, delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}), "
             f"text='{stt_text[:20]}...'"
         )
         return False
     
+    # 4) NEW: Echo suppression window - reject if AI is speaking AND <200ms since audio started
+    if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
+        logger.info(
+            f"[STT_GUARD] Rejected: echo window (AI speaking, only {last_ai_audio_start_ms:.0f}ms since audio start), "
+            f"text='{stt_text[:20]}...'"
+        )
+        return False
+    
+    # 5) NEW: Minimum word count - reject single words (prevents "היי", "מה", "למה" hallucinations)
+    # BUT: Allow valid short Hebrew phrases when RMS is high (real human speech)
+    word_count = len(stt_text.strip().split())
+    if word_count < MIN_WORD_COUNT:
+        # Check if this is a valid short Hebrew phrase
+        normalized_text = stt_text.strip().lower()
+        is_valid_short_phrase = normalized_text in VALID_SHORT_HEBREW_PHRASES
+        
+        # Allow short phrases ONLY when RMS is significantly above noise floor (real speech)
+        rms_is_high = rms_snapshot >= noise_floor + (MIN_RMS_DELTA * 2)  # Double the normal threshold
+        
+        if is_valid_short_phrase and rms_is_high:
+            logger.info(
+                f"[STT_GUARD] Accepted short phrase: '{stt_text}' (valid Hebrew, high RMS={rms_snapshot:.1f})"
+            )
+            # Continue to final acceptance check
+        else:
+            logger.info(
+                f"[STT_GUARD] Rejected: too few words ({word_count} < {MIN_WORD_COUNT}), "
+                f"text='{stt_text[:20]}...', valid_phrase={is_valid_short_phrase}, high_rms={rms_is_high}"
+            )
+            return False
+    
+    # 6) NEW: Prevent repeat hallucinations - reject if identical to last rejected utterance
+    if last_hallucination and stt_text.strip() == last_hallucination.strip():
+        logger.info(
+            f"[STT_GUARD] Rejected: duplicate hallucination '{stt_text[:20]}...'"
+        )
+        return False
+    
     # ✅ Passed all checks
+    logger.info(
+        f"[STT_GUARD] Accepted utterance: {utterance_ms:.0f}ms, "
+        f"rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, "
+        f"words={word_count}, text='{stt_text[:40]}...'"
+    )
     return True
 
 # מכונת מצבים
@@ -1403,6 +1469,15 @@ class MediaStreamHandler:
         self._post_greeting_window_finished = False
         self._post_greeting_heard_user = False
         self._post_greeting_speech_cycle_complete = False
+        
+        # 🔥 FIX BUG 2: User turn timeout tracking (prevents stuck silence)
+        self._last_user_audio_ts = None  # Last time user audio was received
+        self._user_turn_timeout_ms = 1800  # 1.8s timeout for user turn finalization
+        
+        # 🔥 FIX BUG 3: Enhanced STT guard tracking
+        self._last_hallucination = ""  # Last rejected hallucination (to prevent repeats)
+        self._last_ai_audio_start_ts = None  # When AI audio started (for echo suppression)
+        self._last_ai_audio_ts = None  # Track last AI audio sent (for ECHO_GUARD at speech_started level)
         
         # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
         self._consecutive_ai_responses = 0
@@ -3100,6 +3175,20 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 ECHO_GUARD: Reject speech_started if it's likely echo from AI audio
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # This runs BEFORE any other processing to prevent echo from triggering barge-in
+                    now_ms = time.time() * 1000
+                    if self.is_ai_speaking_event.is_set() and hasattr(self, '_last_ai_audio_ts'):
+                        time_since_ai_audio_ms = now_ms - (self._last_ai_audio_ts * 1000)
+                        if time_since_ai_audio_ms <= ECHO_WINDOW_MS:
+                            logger.info(
+                                f"[ECHO_GUARD] Ignoring speech_started - probable echo (Δ{time_since_ai_audio_ms:.1f}ms since AI audio)"
+                            )
+                            # Do NOT mark candidate_user_speaking, do NOT start utterance, do NOT trigger barge-in
+                            continue
+                    
                     # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
                     # Instead of ignoring, treat this as valid input and stop the greeting
                     if self.is_playing_greeting:
@@ -3171,7 +3260,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._loop_guard_engaged = False
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BUILD 302: HARD BARGE-IN - If AI is speaking, KILL the response NOW!
+                    # 🔥 BUILD 302 + FIX BUG 1: HARD BARGE-IN - If AI is speaking, KILL the response NOW!
                     # ═══════════════════════════════════════════════════════════════════════
                     # Goal: Any time user starts speaking while AI is speaking, we do a hard barge-in:
                     #   1. Cancel the current OpenAI response
@@ -3179,6 +3268,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     #   3. Clear guards/flags
                     #   4. Let the new user utterance lead the next response
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                        # Track barge-in latency for performance monitoring
+                        barge_in_latency_start = time.time()
+                        
                         print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
                         print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
                         print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
@@ -3188,27 +3280,33 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._barge_in_started_ts = time.time()  # Track for failsafe timeout
                         
                         # 1) Cancel response on OpenAI side (with timeout protection)
-                        try:
-                            cancelled_id = self.active_response_id
-                            if self.realtime_client and cancelled_id:
+                        cancelled_id = self.active_response_id
+                        if cancelled_id and self.realtime_client:
+                            try:
                                 # Use asyncio.wait_for with 0.5s timeout to avoid blocking
                                 await asyncio.wait_for(
                                     self.realtime_client.cancel_response(cancelled_id),
                                     timeout=0.5
                                 )
                                 self._mark_response_cancelled_locally(cancelled_id, "speech_started")
-                                print(f"   ✅ Sent response.cancel to OpenAI")
-                        except asyncio.TimeoutError:
-                            print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
-                        except Exception as e:
-                            print(f"   ⚠️ Error cancelling response: {e}")
+                                print(f"[BARGE_IN] Cancelled AI response: response_id={cancelled_id[:20]}...")
+                            except asyncio.TimeoutError:
+                                print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
+                            except Exception as e:
+                                print(f"   ⚠️ Error cancelling response: {e}")
+                        elif not cancelled_id:
+                            print(f"[BARGE_IN] ⚠️ No active_response_id to cancel (may have been cleared)")
+                        elif not self.realtime_client:
+                            print(f"[BARGE_IN] ⚠️ No realtime_client available for cancellation")
                         
                         # 2) Clear local guards (ALWAYS, even if cancel failed)
+                        # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
                         self.active_response_id = None
                         self.response_pending_event.clear()
                         self.is_ai_speaking_event.clear()
                         self.speaking = False
                         self.has_pending_ai_response = False
+                        print(f"[BARGE_IN] Cleared ai_speaking flag and response guards")
                         
                         # 3) Flush TX audio queue so Twilio stops playing old audio
                         try:
@@ -3216,6 +3314,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         except Exception as e:
                             print(f"   ⚠️ Error flushing TX queue: {e}")
                         
+                        # Calculate and log barge-in latency
+                        barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
+                        print(f"[BARGE_IN_LATENCY] ms={barge_in_latency_ms:.1f}")
                         print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, queue flushed")
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
@@ -3227,6 +3328,29 @@ Greet briefly. Then WAIT for customer to speak."""
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    # 🔥 FIX BUG 2: Start timeout for user turn finalization
+                    # If no transcription arrives within 1.8s, finalize the turn anyway
+                    async def _user_turn_timeout_check():
+                        try:
+                            await asyncio.sleep(self._user_turn_timeout_ms / 1000.0)
+                            # Check if we're still waiting for transcription
+                            if self._candidate_user_speaking and not self.user_has_spoken:
+                                # Timeout expired - force turn finalization
+                                print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
+                                self._finalize_user_turn_on_timeout()
+                        except asyncio.CancelledError:
+                            # Task was cancelled (connection closed or transcription received)
+                            print(f"[TURN_END] Timeout check cancelled")
+                        except Exception as e:
+                            # Log but don't crash
+                            print(f"[TURN_END] Error in timeout check: {e}")
+                    
+                    # Schedule timeout check and track it for cleanup
+                    timeout_task = asyncio.create_task(_user_turn_timeout_check())
+                    if not hasattr(self, '_timeout_tasks'):
+                        self._timeout_tasks = []
+                    self._timeout_tasks.append(timeout_task)
                     
                     if self._post_greeting_window_active and self._post_greeting_heard_user and not self._post_greeting_speech_cycle_complete:
                         self._post_greeting_speech_cycle_complete = True
@@ -3284,8 +3408,10 @@ Greet briefly. Then WAIT for customer to speak."""
                     status = response.get("status", "?")
                     _orig_print(f"🎯 [RESPONSE.CREATED] id={response_id[:20] if response_id else '?'}... status={status} modalities={modalities} output_format={output_audio_format}", flush=True)
                     if response_id:
+                        # 🔥 FIX BUG 1: ALWAYS store response_id for barge-in cancellation
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+                        print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
                         # 🔥 BUILD 187: Response grace period - track when response started
                         # This prevents false turn_detected from echo/noise in first 500ms
                         self._response_created_ts = time.time()
@@ -3377,6 +3503,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
                             self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                            # 🔥 FIX BUG 3: Track AI audio start time for echo suppression
+                            self._last_ai_audio_start_ts = now
+                            print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
@@ -3384,6 +3513,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
+                        # 🔥 ECHO_GUARD: Track timestamp for echo detection
+                        self._last_ai_audio_ts = now
                         
                         # 💰 COST TRACKING: Count AI audio chunks
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
@@ -4172,17 +4303,28 @@ Greet briefly. Then WAIT for customer to speak."""
                     current_rms = getattr(self, '_recent_audio_rms', 0)
                     current_noise_floor = getattr(self, 'noise_floor', 50.0)
                     
-                    # Run validation
+                    # 🔥 FIX BUG 3: Calculate time since AI audio started (for echo suppression)
+                    ai_speaking = self.is_ai_speaking_event.is_set()
+                    time_since_ai_audio_start_ms = 0
+                    if ai_speaking and self._last_ai_audio_start_ts:
+                        time_since_ai_audio_start_ms = (now_sec - self._last_ai_audio_start_ts) * 1000
+                    
+                    # Run enhanced validation with all new parameters
                     accept_utterance = should_accept_realtime_utterance(
                         stt_text=text,
                         utterance_ms=utterance_duration_ms,
                         rms_snapshot=current_rms,
-                        noise_floor=current_noise_floor
+                        noise_floor=current_noise_floor,
+                        ai_speaking=ai_speaking,
+                        last_ai_audio_start_ms=time_since_ai_audio_start_ms,
+                        last_hallucination=self._last_hallucination
                     )
                     
                     if not accept_utterance:
-                        # 🚫 Utterance failed validation - ignore it
+                        # 🚫 Utterance failed validation - save as hallucination and ignore
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
+                        # 🔥 FIX BUG 3: Save as last hallucination to prevent repeats
+                        self._last_hallucination = text.strip()
                         # Clear candidate flag
                         self._candidate_user_speaking = False
                         self._utterance_start_ts = None
@@ -4194,6 +4336,24 @@ Greet briefly. Then WAIT for customer to speak."""
                         f"rms={current_rms:.1f}, noise_floor={current_noise_floor:.1f}, "
                         f"text_len={len(text)}"
                     )
+                    
+                    # 🔥 FIX BUG 4: Set user_has_spoken ONLY after validated transcription
+                    # This ensures all guards pass before we mark user as having spoken
+                    # Additional check: Only set if we have meaningful content (passed all STT guards)
+                    if not self.user_has_spoken and text and len(text.strip()) > 0:
+                        self.user_has_spoken = True
+                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
+                    
+                    # Clear candidate flag - transcription received and validated
+                    self._candidate_user_speaking = False
+                    self._utterance_start_ts = None
+                    
+                    # 🔥 FIX BUG 2: Cancel any pending timeout tasks (transcription received)
+                    if hasattr(self, '_timeout_tasks'):
+                        for task in self._timeout_tasks:
+                            if not task.done():
+                                task.cancel()
+                        self._timeout_tasks.clear()
                     
                     # 🔥 BUILD 300: REMOVED POST_AI_COOLDOWN GATE
                     # The guide says: "אסור לזרוק טקסט בגלל pause ארוך" and "המודל תמיד יודע טוב יותר"
@@ -4936,6 +5096,44 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"❌ [SERVER_EVENT] Failed to send: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _finalize_user_turn_on_timeout(self):
+        """
+        🔥 FIX BUG 2: Finalize user turn when timeout expires without transcription
+        
+        This prevents the system from getting stuck in silence when:
+        - speech_started fired
+        - speech_stopped fired
+        - But no transcription.completed was received
+        
+        The AI should always reply, even if transcription failed.
+        """
+        print(f"[TURN_END] Timeout finalization triggered")
+        
+        # Clear candidate flag
+        self._candidate_user_speaking = False
+        self._utterance_start_ts = None
+        
+        # Check if we're truly stuck (no response in progress)
+        if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
+            # No AI response in progress - this means we're stuck
+            # The transcription probably failed or was rejected
+            print(f"[TURN_END] No AI response in progress - system was stuck in silence")
+            
+            # CORRECTIVE ACTION: Clear any stale state that might block response
+            if self.active_response_id:
+                print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
+                self.active_response_id = None
+            
+            if self.has_pending_ai_response:
+                print(f"[TURN_END] Clearing stale has_pending_ai_response flag")
+                self.has_pending_ai_response = False
+            
+            # The silence monitor will detect this and trigger a prompt for user to speak
+            # We don't force a response here to avoid AI hallucinations
+            print(f"[TURN_END] State cleared - silence monitor will handle next action")
+        else:
+            print(f"[TURN_END] AI response already in progress - no action needed")
     
     def _handle_realtime_barge_in(self):
         """
