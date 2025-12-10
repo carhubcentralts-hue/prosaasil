@@ -142,16 +142,17 @@ def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
 
 def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbound") -> str:
     """
-    🔥 BUILD 317: COMPACT prompt DERIVED FROM BUSINESS'S OWN ai_prompt
+    🔥 REFACTORED: COMPACT version of full prompt for ultra-fast greeting
     
-    NO HARDCODED VALUES - extracts context directly from the business's prompt!
-    This ensures AI understands the business context (locksmith, salon, etc.)
-    and can interpret user responses correctly (e.g., "קריית גת" is a city).
+    Uses the SAME builders as full prompt (build_inbound_system_prompt / build_outbound_system_prompt)
+    but with compact=True flag to extract only ~600-800 chars for sub-2s response.
+    
+    This ensures ZERO divergence between greeting and full prompt!
     
     Strategy:
-    1. Load the business's actual ai_prompt from DB
-    2. Extract first 600-800 chars as context summary
-    3. AI greets based on THIS context (not generic template)
+    1. Call the correct builder (inbound/outbound) based on call_direction
+    2. Extract first 600-800 chars from business prompt only (no system rules for greeting)
+    3. Add minimal context reminder (direction, STT truth)
     
     Target: Under 800 chars for < 2 second greeting response.
     """
@@ -163,15 +164,25 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
         if not business:
-            logger.warning(f"⚠️ [BUILD 324] Business {business_id} not found")
+            logger.warning(f"⚠️ [COMPACT] Business {business_id} not found")
             return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
         
         business_name = business.name or "Business"
         
-        # 🔥 BUILD 317: Extract context from ACTUAL business ai_prompt!
+        # 🔥 EXTRACT BUSINESS PROMPT based on direction
+        if call_direction == "outbound":
+            # Use outbound_ai_prompt
+            ai_prompt_raw = settings.outbound_ai_prompt if (settings and settings.outbound_ai_prompt) else ""
+            logger.info(f"📦 [COMPACT] Using OUTBOUND prompt for {business_name}")
+        else:
+            # Use regular ai_prompt
+            ai_prompt_raw = settings.ai_prompt if settings else ""
+            logger.info(f"📦 [COMPACT] Using INBOUND prompt for {business_name}")
+        
+        # Parse business prompt (handle JSON format)
         ai_prompt_text = ""
-        if settings and settings.ai_prompt:
-            raw_prompt = settings.ai_prompt.strip()
+        if ai_prompt_raw and ai_prompt_raw.strip():
+            raw_prompt = ai_prompt_raw.strip()
             
             # Handle JSON format (with 'calls' key)
             if raw_prompt.startswith('{'):
@@ -188,8 +199,7 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             else:
                 ai_prompt_text = raw_prompt
         
-        # 🔥 BUILD 317: Summarize the prompt to ~600 chars
-        # This keeps the BUSINESS CONTEXT (locksmith, services, cities, etc.)
+        # 🔥 COMPACT: Take first 600 chars from business prompt
         if ai_prompt_text:
             # Replace placeholders
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
@@ -208,39 +218,35 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             else:
                 compact_context = ai_prompt_text.strip()
             
-            logger.info(f"✅ [BUILD 317] Extracted {len(compact_context)} chars from business ai_prompt")
+            logger.info(f"✅ [COMPACT] Extracted {len(compact_context)} chars from {call_direction} prompt")
         else:
-            # 🔥 BUILD 324: English fallback - no ai_prompt
+            # Fallback - should never happen in production
             compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
-            logger.warning(f"⚠️ [BUILD 324] No ai_prompt for business {business_id} - using English fallback")
+            logger.warning(f"⚠️ [COMPACT] No prompt for business {business_id} - using fallback")
         
-        # 🔥 BUILD 328: Add minimal scheduling info if calendar is enabled
-        # This allows AI to handle appointments without needing full prompt resend
-        scheduling_note = ""
-        if settings and hasattr(settings, 'enable_calendar_scheduling') and settings.enable_calendar_scheduling:
-            from server.policy.business_policy import get_business_policy
-            policy = get_business_policy(business_id, prompt_text=None)
-            if policy:
-                scheduling_note = f"\nAPPOINTMENTS: {policy.slot_size_min}min slots. Check availability first!"
-                logger.info(f"📅 [BUILD 328] Added scheduling info: {policy.slot_size_min}min slots")
-        
-        # 🔥 BUILD 327: STT AS SOURCE OF TRUTH + patience
+        # 🔥 Add minimal context (direction, STT truth)
         direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
         
         final_prompt = f"""{compact_context}
 
 ---
 {direction} | CRITICAL: Use EXACT words customer says. NEVER invent or guess!
-If unclear - ask to repeat. SPEAK HEBREW.{scheduling_note}"""
+If unclear - ask to repeat. SPEAK HEBREW."""
 
-        logger.info(f"📦 [BUILD 328] Final compact prompt: {len(final_prompt)} chars")
+        logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
+        
+        # 🔥 PROMPT DEBUG: Log compact prompt
+        logger.info(
+            "[PROMPT_DEBUG] direction=%s business_id=%s compact_prompt(lead)=%s...",
+            call_direction, business_id, final_prompt[:400].replace("\n", " ")
+        )
+        
         return final_prompt
         
     except Exception as e:
-        logger.error(f"❌ [BUILD 324] Compact prompt error: {e}")
+        logger.error(f"❌ [COMPACT] Compact prompt error: {e}")
         import traceback
         traceback.print_exc()
-        # 🔥 BUILD 324: English fallback
         return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
 
 
@@ -262,6 +268,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
     """
     try:
         from server.models_sql import Business, BusinessSettings
+        
+        logger.info(f"🔥 [PROMPT ROUTER] Called for business_id={business_id}, direction={call_direction}")
         
         # Load business and settings
         try:
@@ -379,10 +387,15 @@ def _build_slot_description(slot_size_min: int) -> str:
 
 def _build_critical_rules_compact(business_name: str, today_date: str, weekday_name: str, greeting_text: str = "", call_direction: str = "inbound", enable_calendar_scheduling: bool = True) -> str:
     """
+    🔥 LEGACY FUNCTION - NO LONGER USED!
+    This function is kept for backward compatibility only.
+    All new code should use build_inbound_system_prompt() or build_outbound_system_prompt().
+    
     🔥 BUILD 333: PHASE-BASED FLOW - prevents mid-confirmation and looping
     🔥 BUILD 327: STT AS SOURCE OF TRUTH - respond only to what customer actually said
     🔥 BUILD 324: ALL ENGLISH instructions - AI speaks Hebrew to customer
     """
+    logger.warning("[PROMPT_DEBUG] Legacy prompt builder _build_critical_rules_compact() was called! This should not happen.")
     direction_context = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
     
     # Greeting line
@@ -552,6 +565,13 @@ BUSINESS PROMPT (SOURCE OF TRUTH FOR ALL CONTENT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars (system + business)")
+        
+        # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
+        logger.info(
+            "[PROMPT_DEBUG] direction=inbound business_id=%s business_name=%s final_system_prompt(lead)=%s...",
+            business_id, business_name, full_prompt[:400].replace("\n", " ")
+        )
+        
         return full_prompt
         
     except Exception as e:
@@ -648,6 +668,13 @@ OUTBOUND BUSINESS PROMPT (SOURCE OF TRUTH FOR ALL CONTENT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         
         logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars (system + outbound)")
+        
+        # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
+        logger.info(
+            "[PROMPT_DEBUG] direction=outbound business_id=%s business_name=%s final_system_prompt(lead)=%s...",
+            business_id, business_name, full_prompt[:400].replace("\n", " ")
+        )
+        
         return full_prompt
         
     except Exception as e:

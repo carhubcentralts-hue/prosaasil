@@ -1809,30 +1809,34 @@ class MediaStreamHandler:
             # After greeting, we can send full prompt via session.update if needed
             # ═══════════════════════════════════════════════════════════════════════
             
-            # Priority 1: Check registry for webhook pre-built compact prompt (FASTEST!)
-            from server.stream_state import stream_registry
-            compact_prompt = stream_registry.get_metadata(self.call_sid, 'prebuilt_compact_prompt') if self.call_sid else None
-            
-            if compact_prompt:
-                print(f"🚀 [FIX #2] Using WEBHOOK PRE-BUILT compact prompt: {len(compact_prompt)} chars (ULTRA FAST PATH)")
-                full_prompt = compact_prompt
-            # Priority 2: Use pre-built prompt from main thread (if available)
-            elif hasattr(self, '_prebuilt_prompt') and self._prebuilt_prompt:
+            # 🔥 PROMPT WIRING FIX: Always use FULL prompt with correct direction
+            # Priority 1: Use pre-built FULL prompt from main thread (FASTEST!)
+            if hasattr(self, '_prebuilt_prompt') and self._prebuilt_prompt:
                 full_prompt = self._prebuilt_prompt
-                print(f"✅ [PART D] Using MAIN THREAD pre-built prompt: {len(full_prompt)} chars (FAST PATH)")
+                print(f"✅ [PROMPT] Using MAIN THREAD pre-built FULL prompt: {len(full_prompt)} chars (direction={call_direction})")
             else:
-                # Fallback: Build compact prompt NOW (adds latency but better than nothing)
-                print(f"⚠️ [FIX #2] No pre-built prompt - building COMPACT greeting prompt now (SLOW PATH)")
-                try:
-                    from server.services.realtime_prompt_builder import build_compact_greeting_prompt
-                    app = _get_flask_app()
-                    with app.app_context():
-                        full_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                        print(f"✅ [FIX #2] COMPACT prompt built: {len(full_prompt)} chars (fallback)")
-                except Exception as prompt_err:
-                    print(f"⚠️ [FIX #2] Failed to build compact prompt: {prompt_err}")
-                    # Last resort: minimal English fallback
-                    full_prompt = f"You are a service rep. SPEAK HEBREW. Be brief and helpful."
+                # Priority 2: Check registry for webhook pre-built full prompt
+                from server.stream_state import stream_registry
+                prebuilt_full = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
+                
+                if prebuilt_full:
+                    full_prompt = prebuilt_full
+                    print(f"✅ [PROMPT] Using WEBHOOK PRE-BUILT FULL prompt: {len(full_prompt)} chars (direction={call_direction})")
+                else:
+                    # Fallback: Build FULL prompt NOW using correct builder
+                    print(f"⚠️ [PROMPT] No pre-built prompt - building FULL prompt now (direction={call_direction})")
+                    try:
+                        from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                        app = _get_flask_app()
+                        with app.app_context():
+                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                            print(f"✅ [PROMPT] FULL prompt built: {len(full_prompt)} chars (direction={call_direction})")
+                    except Exception as prompt_err:
+                        print(f"❌ [PROMPT] Failed to build full prompt: {prompt_err}")
+                        import traceback
+                        traceback.print_exc()
+                        # Last resort: minimal fallback
+                        full_prompt = f"You are a professional service rep. SPEAK HEBREW to customer. Be helpful and brief."
             
             # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
             # AI just speaks the exact greeting text, ensuring consistency
