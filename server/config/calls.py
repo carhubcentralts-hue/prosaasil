@@ -19,21 +19,41 @@ COST_MAX_FPS = 50            # 50 FPS = 100% of audio (perfect STT quality)
 MAX_REALTIME_SECONDS_PER_CALL = 600  # Max 10 minutes per call
 MAX_AUDIO_FRAMES_PER_CALL = 30000    # 50 fps × 600s = 30000 frames maximum
 
-# AUDIO GUARD: DISABLED - was blocking real speech!
-# Analysis showed rms=8 frames being blocked while user was speaking.
-AUDIO_GUARD_ENABLED = False  # OFF - trust OpenAI VAD
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 MASTER FIX: SERVER-SIDE VAD THRESHOLDS for OpenAI Realtime API
+# ═══════════════════════════════════════════════════════════════════════════════
+SERVER_VAD_THRESHOLD = 0.72  # Balanced threshold for Hebrew speech detection
+SERVER_VAD_SILENCE_MS = 380  # Silence duration to detect end of speech (ms)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 MASTER FIX: AUDIO GUARD - Local smoothing and duration guards
+# ═══════════════════════════════════════════════════════════════════════════════
+AUDIO_GUARD_ENABLED = True  # Enable local filtering on top of OpenAI VAD
+AUDIO_GUARD_MIN_SPEECH_FRAMES = 12  # Min consecutive frames to start sending (240ms)
+AUDIO_GUARD_SILENCE_RESET_FRAMES = 20  # Silence frames to reset utterance (400ms)
+AUDIO_GUARD_EMA_ALPHA = 0.12  # EMA alpha for noise floor smoothing
+AUDIO_GUARD_MIN_VOICE_MS = 220  # Minimum voice duration before commit (ms)
+AUDIO_GUARD_MIN_SILENCE_MS = 320  # Minimum silence duration to reset (ms)
 
 # VAD CALIBRATION THRESHOLDS (used in media_ws_ai.py)
 VAD_BASELINE_TIMEOUT = 80.0     # Baseline when calibration times out
 VAD_ADAPTIVE_CAP = 120.0        # Maximum adaptive threshold
-VAD_ADAPTIVE_OFFSET = 60.0      # noise_floor + this = threshold
-
-# ECHO GATE (protects against AI echo triggering barge-in)
-ECHO_GATE_MIN_RMS = 300.0       # Minimum RMS to trigger barge-in during AI speech
-ECHO_GATE_MIN_FRAMES = 5        # Consecutive frames needed (100ms)
+VAD_ADAPTIVE_OFFSET = 55.0      # noise_floor + this = dynamic threshold
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Legacy Audio Guard parameters (not used when AUDIO_GUARD_ENABLED = False)
+# 🔥 MASTER FIX: ECHO GATE - Protect against AI echo during greeting
+# ═══════════════════════════════════════════════════════════════════════════════
+ECHO_GATE_MIN_RMS = 320.0       # Minimum RMS to trigger barge-in during AI speech
+ECHO_GATE_MIN_FRAMES = 6        # Consecutive frames needed (120ms)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 MASTER FIX: BARGE-IN CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
+BARGE_IN_VOICE_FRAMES = 12  # Consecutive voice frames to trigger barge-in (240ms)
+BARGE_IN_DEBOUNCE_MS = 400  # Debounce period to prevent double triggers (ms)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Legacy Audio Guard parameters (kept for compatibility)
 # ═══════════════════════════════════════════════════════════════════════════════
 AUDIO_GUARD_INITIAL_NOISE_FLOOR = 20.0
 AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR = 4.0

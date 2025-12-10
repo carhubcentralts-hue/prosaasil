@@ -292,8 +292,8 @@ class OpenAIRealtimeClient:
         voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.85,  # 🔥 BUILD 206: 0.85 - balanced for Hebrew telephony
-        silence_duration_ms: int = 450,  # 🔥 BUILD 206: 450ms - telephony sweet spot (300-500ms range)
+        vad_threshold: float = None,  # 🔥 MASTER FIX: Default from config
+        silence_duration_ms: int = None,  # 🔥 MASTER FIX: Default from config
         temperature: float = 0.18,
         max_tokens: int = 300,
         transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
@@ -308,12 +308,28 @@ class OpenAIRealtimeClient:
             voice: Voice to use (coral, sage, verse, ash, ballad, alloy, shimmer, echo)
             input_audio_format: Audio format from Twilio (g711_ulaw, pcm16)
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
-            vad_threshold: Voice activity detection threshold (0-1)
-            silence_duration_ms: Silence duration to detect end of speech
+            vad_threshold: Voice activity detection threshold (0-1), defaults to SERVER_VAD_THRESHOLD from config
+            silence_duration_ms: Silence duration to detect end of speech, defaults to SERVER_VAD_SILENCE_MS from config
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
         """
+        # 🔥 MASTER FIX: Use tuned defaults from config
+        if vad_threshold is None or silence_duration_ms is None:
+            try:
+                from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
+                if vad_threshold is None:
+                    vad_threshold = SERVER_VAD_THRESHOLD
+                if silence_duration_ms is None:
+                    silence_duration_ms = SERVER_VAD_SILENCE_MS
+                logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms")
+            except ImportError:
+                # Fallback if config not available
+                if vad_threshold is None:
+                    vad_threshold = 0.72
+                if silence_duration_ms is None:
+                    silence_duration_ms = 380
+                logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms")
         # 🔥 BUILD 202: TRANSCRIPTION IMPROVEMENTS FOR HEBREW
         # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
         # - Add dynamic prompt with business vocabulary (names, cities, services)
