@@ -57,5 +57,33 @@ class StreamRegistry:
         with self._lock:
             state = self._st.get(call_sid, {})
             return dict(state.get("perf_stamps", {}))
+    
+    # 🔥 MASTER FIX: Helper methods for greeting SLA metrics
+    def set_metric(self, call_sid, metric_name, value_ms):
+        """
+        Store a performance metric in milliseconds
+        
+        Args:
+            call_sid: Call session ID
+            metric_name: Metric name (e.g., 'openai_connect_ms', 'first_greeting_audio_ms')
+            value_ms: Value in milliseconds
+        """
+        with self._lock:
+            state = self._st.setdefault(call_sid, {})
+            metrics = state.setdefault("metrics", {})
+            metrics[metric_name] = int(value_ms)
+    
+    def get_metric(self, call_sid, metric_name, default=0):
+        """Retrieve a performance metric"""
+        with self._lock:
+            state = self._st.get(call_sid, {})
+            metrics = state.get("metrics", {})
+            return metrics.get(metric_name, default)
+    
+    def get_all_metrics(self, call_sid):
+        """Get all performance metrics for a call"""
+        with self._lock:
+            state = self._st.get(call_sid, {})
+            return dict(state.get("metrics", {}))
 
 stream_registry = StreamRegistry()

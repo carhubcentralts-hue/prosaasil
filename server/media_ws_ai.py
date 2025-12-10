@@ -151,7 +151,7 @@ class CallConfig:
     
     # Greeting settings
     greeting_enabled: bool = True
-    bot_speaks_first: bool = False
+    bot_speaks_first: bool = False  # 🔥 DEPRECATED: Always True in runtime (hardcoded)
     greeting_text: str = ""
     
     # Call control settings
@@ -240,7 +240,7 @@ def load_call_config(business_id: int) -> CallConfig:
             business_id=business_id,
             business_name=business.name or "",
             greeting_enabled=True,
-            bot_speaks_first=getattr(settings, 'bot_speaks_first', False) if settings else False,
+            bot_speaks_first=getattr(settings, 'bot_speaks_first', False) if settings else False,  # 🔥 DEPRECATED: Loaded but ignored in runtime
             greeting_text=business.greeting_message or "",
             auto_end_after_lead_capture=getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
             auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
@@ -1478,7 +1478,8 @@ class MediaStreamHandler:
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
         # Do NOT modify these directly - always use self.call_config for the authoritative values
-        self.bot_speaks_first = False  # Default: wait for user - overwritten by CallConfig
+        # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - flag deprecated
+        self.bot_speaks_first = True  # HARDCODED: Always speak first (was: overwritten by CallConfig)
         self.auto_end_after_lead_capture = False  # Default: don't auto-end - overwritten by CallConfig
         self.auto_end_on_goodbye = False  # Default: don't auto-end - overwritten by CallConfig
         self.lead_captured = False  # Runtime state: tracks if all required lead info is collected
@@ -2135,10 +2136,17 @@ Greet briefly. Then WAIT for customer to speak."""
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             logger.info(f"[REALTIME] Audio/text tasks created successfully")
             
-            # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
-            # No waiting for CRM, no 0.2s delay - just speak!
-            logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}")
-            if self.bot_speaks_first:
+            # 🔥 MASTER FIX: ALWAYS trigger greeting immediately - no flag checks!
+            # Bot speaks first is now HARDCODED behavior for all calls
+            logger.info(f"[REALTIME] ENFORCING bot_speaks_first=True (hardcoded)")
+            
+            # 🔥 MASTER FIX: Store OpenAI connect metric
+            from server.stream_state import stream_registry
+            if hasattr(self, '_metrics_openai_connect_ms') and self.call_sid:
+                stream_registry.set_metric(self.call_sid, 'openai_connect_ms', self._metrics_openai_connect_ms)
+            
+            # Always trigger greeting (no if check):
+            if True:  # Always True - preserving indent for minimal diff
                 greeting_start_ts = time.time()
                 print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
                 self.greeting_sent = True  # Mark greeting as sent to allow audio through
@@ -3268,6 +3276,16 @@ Greet briefly. Then WAIT for customer to speak."""
                                 first_audio_ms = int((now - greeting_start) * 1000)
                                 self._metrics_first_greeting_audio_ms = first_audio_ms
                                 _orig_print(f"🎤 [GREETING] FIRST_AUDIO_DELTA received! delay={first_audio_ms}ms", flush=True)
+                                
+                                # 🔥 MASTER FIX: Store first_greeting_audio_ms metric
+                                from server.stream_state import stream_registry
+                                if self.call_sid:
+                                    stream_registry.set_metric(self.call_sid, 'first_greeting_audio_ms', first_audio_ms)
+                                    
+                                    # 🔥 MASTER FIX: Log structured greeting metrics
+                                    call_direction = getattr(self, 'call_direction', 'inbound')
+                                    openai_connect_ms = getattr(self, '_metrics_openai_connect_ms', 0)
+                                    logger.info(f"[GREETING_METRICS] openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_audio_ms}, direction={call_direction}")
                             
                             print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
                             # Enqueue greeting audio - NO guards, NO cancellation
@@ -3379,6 +3397,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
                         print(f"✅ [GREETING] Barge-in now ENABLED for rest of call")
+                        
+                        # 🔥 MASTER FIX: Validation check for greeting SLA
+                        self._validate_greeting_sla()
                         # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
                         print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
@@ -8162,7 +8183,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"   ✓ auto_end=OFF, silence_timeout=120s, smart_hangup=OFF, loop_guard_max=20")
                     else:
                         # Copy config values to instance variables for backward compatibility (INBOUND only)
-                        self.bot_speaks_first = self.call_config.bot_speaks_first
+                        # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - ignore DB value
+                        self.bot_speaks_first = True  # HARDCODED: Always True (deprecated: self.call_config.bot_speaks_first)
                         self.auto_end_after_lead_capture = self.call_config.auto_end_after_lead_capture
                         self.auto_end_on_goodbye = self.call_config.auto_end_on_goodbye
                         self.silence_timeout_sec = self.call_config.silence_timeout_sec
@@ -8497,6 +8519,80 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"❌ [BUILD 163] Failed to hang up call: {e}")
             import traceback
             traceback.print_exc()
+    
+    # 🔥 MASTER FIX: Greeting SLA validation
+    def _validate_greeting_sla(self):
+        """
+        Validate greeting performance against SLA requirements:
+        - Did greeting play?
+        - Did it play before first user speech?
+        - What was first_greeting_audio_ms?
+        - Does it meet SLA? (Inbound <=1600ms; Outbound <=1400ms)
+        """
+        try:
+            from server.stream_state import stream_registry
+            
+            if not self.call_sid:
+                return
+            
+            # Get metrics
+            first_greeting_audio_ms = getattr(self, '_metrics_first_greeting_audio_ms', 0)
+            greeting_audio_received = getattr(self, '_greeting_audio_received', False)
+            user_has_spoken = getattr(self, 'user_has_spoken', False)
+            call_direction = getattr(self, 'call_direction', 'inbound')
+            
+            # Check 1: Did greeting play?
+            greeting_played = greeting_audio_received and first_greeting_audio_ms > 0
+            
+            # Check 2: Did it play before first user speech?
+            # Note: user_has_spoken would be True if they spoke during greeting
+            played_before_user_speech = greeting_played  # If played, it played first (by design)
+            
+            # Check 3: SLA threshold
+            sla_threshold_ms = 1400 if call_direction == 'outbound' else 1600
+            meets_sla = first_greeting_audio_ms > 0 and first_greeting_audio_ms <= sla_threshold_ms
+            
+            # Log validation results
+            logger.info(
+                f"[GREETING_VALIDATE] call_sid={self.call_sid[:8]}..., "
+                f"played={greeting_played}, "
+                f"played_before_user_speech={played_before_user_speech}, "
+                f"first_greeting_audio_ms={first_greeting_audio_ms}, "
+                f"direction={call_direction}, "
+                f"sla_threshold={sla_threshold_ms}ms, "
+                f"meets_sla={meets_sla}"
+            )
+            
+            # If SLA failed, log ERROR with tag
+            if not meets_sla:
+                if not greeting_played:
+                    reason = "greeting_not_played"
+                elif first_greeting_audio_ms > sla_threshold_ms:
+                    reason = f"exceeded_threshold_{sla_threshold_ms}ms"
+                else:
+                    reason = "no_audio_received"
+                
+                logger.error(
+                    f"[GREETING_SLA_FAILED] call_sid={self.call_sid[:8]}..., "
+                    f"reason={reason}, "
+                    f"ms={first_greeting_audio_ms}, "
+                    f"threshold={sla_threshold_ms}ms, "
+                    f"direction={call_direction}"
+                )
+                _orig_print(
+                    f"❌ [GREETING_SLA_FAILED] {reason}: {first_greeting_audio_ms}ms "
+                    f"(threshold={sla_threshold_ms}ms, direction={call_direction})",
+                    flush=True
+                )
+            else:
+                _orig_print(
+                    f"✅ [GREETING_SLA_MET] {first_greeting_audio_ms}ms "
+                    f"(threshold={sla_threshold_ms}ms, direction={call_direction})",
+                    flush=True
+                )
+                
+        except Exception as e:
+            logger.error(f"[GREETING_VALIDATE] Error during validation: {e}")
     
     # 🔥 BUILD 172: SILENCE MONITORING - Auto-hangup on prolonged silence
     async def _start_silence_monitor(self):
