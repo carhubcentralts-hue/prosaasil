@@ -291,6 +291,180 @@ class CallCrmContext:
     pending_slot: Optional[dict] = None  # 🔥 {"date": "2025-11-17", "time": "18:00", "available": True}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 MASTER FIX: AUDIO STATE MACHINE - Central control for all audio state
+# ═══════════════════════════════════════════════════════════════════════════════
+@dataclass
+class AudioState:
+    """
+    Unified audio state machine for reliable turn-taking and barge-in.
+    
+    Controls:
+    - is_ai_speaking: Flips only on response.audio.start/response.audio.done
+    - active_response_id: Synchronized with OpenAI response lifecycle
+    - is_playing_greeting: Set only on first response.audio.delta, cleared on done
+    - user_has_spoken: Per-utterance tracking
+    - barge_in_active: Debounced barge-in state (one trigger per utterance)
+    
+    Thread-safe via _lock.
+    """
+    # Core state flags
+    is_ai_speaking: bool = False
+    active_response_id: Optional[str] = None
+    is_playing_greeting: bool = False
+    user_has_spoken: bool = False
+    barge_in_active: bool = False
+    
+    # Debouncing
+    last_barge_in_ts: Optional[float] = None
+    barge_in_debounce_ms: int = 400  # From config
+    
+    # VAD smoothing state
+    ema_noise_floor: float = 20.0  # EMA of noise floor
+    consecutive_voice_frames: int = 0
+    consecutive_silence_frames: int = 0
+    voice_started_ts: Optional[float] = None
+    
+    # Safety tracking
+    _lock: threading.RLock = None  # Thread-safe state access
+    
+    def __post_init__(self):
+        """Initialize lock after dataclass creation"""
+        if self._lock is None:
+            self._lock = threading.RLock()
+    
+    def set_ai_speaking(self, speaking: bool, response_id: Optional[str] = None):
+        """
+        Set AI speaking state (thread-safe)
+        
+        Args:
+            speaking: True if AI is speaking
+            response_id: Response ID if starting, None if stopping
+        """
+        with self._lock:
+            self.is_ai_speaking = speaking
+            if speaking and response_id:
+                self.active_response_id = response_id
+                logger.debug(f"[AUDIO_STATE] AI speaking started: response_id={response_id}")
+            elif not speaking:
+                logger.debug(f"[AUDIO_STATE] AI speaking stopped: response_id={self.active_response_id}")
+                self.active_response_id = None
+    
+    def set_greeting_playing(self, playing: bool):
+        """Set greeting playing state (thread-safe)"""
+        with self._lock:
+            self.is_playing_greeting = playing
+            logger.debug(f"[AUDIO_STATE] Greeting playing: {playing}")
+    
+    def mark_user_spoken(self):
+        """Mark that user has spoken (thread-safe)"""
+        with self._lock:
+            self.user_has_spoken = True
+            logger.debug(f"[AUDIO_STATE] User has spoken")
+    
+    def try_trigger_barge_in(self) -> bool:
+        """
+        Try to trigger barge-in with debouncing
+        
+        Returns:
+            True if barge-in triggered, False if debounced
+        """
+        with self._lock:
+            now = time.time()
+            
+            # Check debounce
+            if self.last_barge_in_ts:
+                elapsed_ms = (now - self.last_barge_in_ts) * 1000
+                if elapsed_ms < self.barge_in_debounce_ms:
+                    logger.debug(f"[AUDIO_STATE] Barge-in debounced ({elapsed_ms:.0f}ms < {self.barge_in_debounce_ms}ms)")
+                    return False
+            
+            # Trigger barge-in
+            self.barge_in_active = True
+            self.last_barge_in_ts = now
+            logger.info(f"[AUDIO_STATE] Barge-in triggered! response_id={self.active_response_id}")
+            return True
+    
+    def clear_barge_in(self):
+        """Clear barge-in state after utterance completes"""
+        with self._lock:
+            self.barge_in_active = False
+            logger.debug(f"[AUDIO_STATE] Barge-in cleared")
+    
+    def update_vad_smoothing(self, rms: float, is_voice: bool, frame_duration_ms: int = 20):
+        """
+        Update VAD smoothing state with EMA noise floor
+        
+        Args:
+            rms: Current frame RMS
+            is_voice: Whether frame is classified as voice
+            frame_duration_ms: Frame duration in milliseconds
+        """
+        with self._lock:
+            # Import config here to avoid circular imports
+            try:
+                from server.config.calls import (
+                    AUDIO_GUARD_EMA_ALPHA,
+                    AUDIO_GUARD_MIN_SPEECH_FRAMES,
+                    AUDIO_GUARD_SILENCE_RESET_FRAMES
+                )
+            except ImportError:
+                AUDIO_GUARD_EMA_ALPHA = 0.12
+                AUDIO_GUARD_MIN_SPEECH_FRAMES = 12
+                AUDIO_GUARD_SILENCE_RESET_FRAMES = 20
+            
+            # Update EMA noise floor
+            if not is_voice:
+                self.ema_noise_floor = (AUDIO_GUARD_EMA_ALPHA * rms + 
+                                       (1 - AUDIO_GUARD_EMA_ALPHA) * self.ema_noise_floor)
+            
+            # Track consecutive frames
+            if is_voice:
+                self.consecutive_voice_frames += 1
+                self.consecutive_silence_frames = 0
+                if self.voice_started_ts is None:
+                    self.voice_started_ts = time.time()
+            else:
+                self.consecutive_silence_frames += 1
+                self.consecutive_voice_frames = 0
+                
+                # Reset on long silence
+                if self.consecutive_silence_frames >= AUDIO_GUARD_SILENCE_RESET_FRAMES:
+                    self.voice_started_ts = None
+    
+    def should_send_audio(self) -> bool:
+        """
+        Check if audio should be sent based on VAD smoothing
+        
+        Returns:
+            True if audio meets quality criteria
+        """
+        with self._lock:
+            # Import config
+            try:
+                from server.config.calls import AUDIO_GUARD_MIN_SPEECH_FRAMES
+            except ImportError:
+                AUDIO_GUARD_MIN_SPEECH_FRAMES = 12
+            
+            # Require minimum consecutive voice frames
+            return self.consecutive_voice_frames >= AUDIO_GUARD_MIN_SPEECH_FRAMES
+    
+    def get_dynamic_threshold(self) -> float:
+        """
+        Calculate dynamic VAD threshold based on EMA noise floor
+        
+        Returns:
+            Dynamic threshold value
+        """
+        with self._lock:
+            try:
+                from server.config.calls import VAD_ADAPTIVE_OFFSET
+            except ImportError:
+                VAD_ADAPTIVE_OFFSET = 55.0
+            
+            return self.ema_noise_floor + VAD_ADAPTIVE_OFFSET
+
+
 # 🔧 APPOINTMENT VALIDATION HELPER
 def validate_appointment_slot(business_id: int, requested_dt) -> bool:
     """
