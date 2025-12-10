@@ -349,8 +349,10 @@ def incoming_call():
     """
     ✅ BUILD 89: צור call_log מיד + TwiML with Twilio SDK + Parameter (CRITICAL!)
     ✅ BUILD 155: Support both GET and POST (Twilio may use either)
+    🔥 GREETING OPTIMIZATION: Profile full greeting path for latency analysis
     """
-    start_time = time.time()
+    t0 = time.time()
+    logger.info(f"[GREETING_PROFILER] incoming_call START at {t0}")
     
     # ✅ BUILD 155: Support both GET (query params) and POST (form data)
     if request.method == "GET":
@@ -492,23 +494,32 @@ def incoming_call():
             import traceback
             traceback.print_exc()
     
-    # === יצירה אוטומטית של ליד (ברקע) ===
+    # === יצירה אוטומטית של ליד (ברקע) - Non-blocking ===
+    # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
     if from_number:
-        print(f"🟢 INCOMING_CALL - Starting thread to create lead for {from_number}, call_sid={call_sid}")
         threading.Thread(
             target=_create_lead_from_call,
             args=(call_sid, from_number, to_number, business_id),
             daemon=True,
             name=f"LeadCreation-{call_sid[:8]}"
         ).start()
-        print(f"🟢 INCOMING_CALL - Thread started successfully")
-    else:
-        print(f"⚠️ INCOMING_CALL - No from_number, skipping lead creation")
     
     # ⏱️ מדידה
-    response_time_ms = int((time.time() - start_time) * 1000)
-    status_emoji = "✅" if response_time_ms < 1500 else "⚠️"
-    print(f"{status_emoji} incoming_call: {response_time_ms}ms - {call_sid[:16]}")
+    t1 = time.time()
+    twiml_ms = int((t1 - t0) * 1000)
+    
+    # 🔥 GREETING PROFILER: Save TwiML ready timestamp for timeline analysis
+    if call_sid:
+        stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
+    
+    # 🔥 GREETING SLA: Assert TwiML generation is fast enough
+    if twiml_ms > 200:
+        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > 200ms for {call_sid[:16]}")
+    
+    logger.info(f"[GREETING_PROFILER] incoming_call TwiML ready in {twiml_ms}ms")
+    
+    status_emoji = "✅" if twiml_ms < 200 else "⚠️"
+    print(f"{status_emoji} incoming_call: {twiml_ms}ms - {call_sid[:16]}")
     
     # 🔥 DEBUG: Log exact TwiML being sent
     twiml_str = str(vr)
@@ -527,8 +538,10 @@ def outbound_call():
     Similar to incoming_call but with outbound-specific handling:
     - Sets direction=outbound
     - Uses lead name and template prompt
+    🔥 GREETING OPTIMIZATION: Profile full greeting path for latency analysis
     """
-    start_time = time.time()
+    t0 = time.time()
+    logger.info(f"[GREETING_PROFILER] outbound_call START at {t0}")
     
     if request.method == "GET":
         call_sid = request.args.get("CallSid", "")
@@ -616,8 +629,19 @@ def outbound_call():
             import traceback
             traceback.print_exc()
     
-    response_time_ms = int((time.time() - start_time) * 1000)
-    logger.info(f"✅ outbound_call webhook: {response_time_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
+    t1 = time.time()
+    twiml_ms = int((t1 - t0) * 1000)
+    
+    # 🔥 GREETING PROFILER: Save TwiML ready timestamp for timeline analysis
+    if call_sid:
+        stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
+    
+    # 🔥 GREETING SLA: Assert TwiML generation is fast enough
+    if twiml_ms > 200:
+        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > 200ms for {call_sid[:16] if call_sid else 'N/A'}")
+    
+    logger.info(f"[GREETING_PROFILER] outbound_call TwiML ready in {twiml_ms}ms")
+    logger.info(f"✅ outbound_call webhook: {twiml_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
     
     return _twiml(vr)
 
