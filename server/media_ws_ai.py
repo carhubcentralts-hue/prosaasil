@@ -3288,15 +3288,25 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🔥 FIX BUG 2: Start timeout for user turn finalization
                     # If no transcription arrives within 1.8s, finalize the turn anyway
                     async def _user_turn_timeout_check():
-                        await asyncio.sleep(self._user_turn_timeout_ms / 1000.0)
-                        # Check if we're still waiting for transcription
-                        if self._candidate_user_speaking and not self.user_has_spoken:
-                            # Timeout expired - force turn finalization
-                            print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
-                            self._finalize_user_turn_on_timeout()
+                        try:
+                            await asyncio.sleep(self._user_turn_timeout_ms / 1000.0)
+                            # Check if we're still waiting for transcription
+                            if self._candidate_user_speaking and not self.user_has_spoken:
+                                # Timeout expired - force turn finalization
+                                print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
+                                self._finalize_user_turn_on_timeout()
+                        except asyncio.CancelledError:
+                            # Task was cancelled (connection closed or transcription received)
+                            print(f"[TURN_END] Timeout check cancelled")
+                        except Exception as e:
+                            # Log but don't crash
+                            print(f"[TURN_END] Error in timeout check: {e}")
                     
-                    # Schedule timeout check
-                    asyncio.create_task(_user_turn_timeout_check())
+                    # Schedule timeout check and track it for cleanup
+                    timeout_task = asyncio.create_task(_user_turn_timeout_check())
+                    if not hasattr(self, '_timeout_tasks'):
+                        self._timeout_tasks = []
+                    self._timeout_tasks.append(timeout_task)
                     
                     if self._post_greeting_window_active and self._post_greeting_heard_user and not self._post_greeting_speech_cycle_complete:
                         self._post_greeting_speech_cycle_complete = True
@@ -4283,13 +4293,21 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🔥 FIX BUG 4: Set user_has_spoken ONLY after validated transcription
                     # This ensures all guards pass before we mark user as having spoken
-                    if not self.user_has_spoken:
+                    # Additional check: Only set if we have meaningful content (passed all STT guards)
+                    if not self.user_has_spoken and text and len(text.strip()) > 0:
                         self.user_has_spoken = True
-                        print(f"[STT_GUARD] user_has_spoken set to True after validation")
+                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
+                    
+                    # 🔥 FIX BUG 2: Cancel any pending timeout tasks (transcription received)
+                    if hasattr(self, '_timeout_tasks'):
+                        for task in self._timeout_tasks:
+                            if not task.done():
+                                task.cancel()
+                        self._timeout_tasks.clear()
                     
                     # 🔥 BUILD 300: REMOVED POST_AI_COOLDOWN GATE
                     # The guide says: "אסור לזרוק טקסט בגלל pause ארוך" and "המודל תמיד יודע טוב יותר"
@@ -5050,16 +5068,24 @@ Greet briefly. Then WAIT for customer to speak."""
         self._candidate_user_speaking = False
         self._utterance_start_ts = None
         
-        # If we have no active response pending, we might need to trigger one
+        # Check if we're truly stuck (no response in progress)
         if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
             # No AI response in progress - this means we're stuck
             # The transcription probably failed or was rejected
             print(f"[TURN_END] No AI response in progress - system was stuck in silence")
             
-            # Option 1: We could try to trigger a response with empty input
-            # Option 2: We could wait for the next user input
-            # For now, just log - the silence monitor will handle this
-            print(f"[TURN_END] Waiting for next user input or silence monitor to act")
+            # CORRECTIVE ACTION: Clear any stale state that might block response
+            if self.active_response_id:
+                print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
+                self.active_response_id = None
+            
+            if self.has_pending_ai_response:
+                print(f"[TURN_END] Clearing stale has_pending_ai_response flag")
+                self.has_pending_ai_response = False
+            
+            # The silence monitor will detect this and trigger a prompt for user to speak
+            # We don't force a response here to avoid AI hallucinations
+            print(f"[TURN_END] State cleared - silence monitor will handle next action")
         else:
             print(f"[TURN_END] AI response already in progress - no action needed")
     
