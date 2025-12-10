@@ -1027,6 +1027,54 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# 🎯 STT GUARD: Prevent hallucinated utterances from triggering barge-in
+# These parameters ensure we only accept real speech, not silence/noise
+# TODO: Consider making these configurable via environment variables or business settings
+MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
+MIN_RMS_DELTA = 20.0        # Minimum RMS above noise floor (prevents accepting silence as speech)
+
+def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
+                                     rms_snapshot: float, noise_floor: float) -> bool:
+    """
+    🎯 STT GUARD: Validate if a Realtime API utterance should be accepted
+    
+    This prevents the system from accepting hallucinated transcriptions that occur
+    during silence or very short noise bursts. OpenAI's Realtime API sometimes
+    transcribes during quiet periods, which can trigger false barge-ins.
+    
+    Args:
+        stt_text: The transcribed text from OpenAI
+        utterance_ms: Duration of the utterance in milliseconds
+        rms_snapshot: Current audio RMS level
+        noise_floor: Baseline noise floor
+        
+    Returns:
+        True if utterance should be accepted, False if it should be rejected
+    """
+    # 1) No text = reject
+    if not stt_text or not stt_text.strip():
+        logger.info("[STT_GUARD] Dropping empty utterance")
+        return False
+    
+    # 2) Too short = likely hallucination
+    if utterance_ms < MIN_UTTERANCE_MS:
+        logger.info(
+            f"[STT_GUARD] Dropping too-short utterance: {utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms, text='{stt_text[:20]}...'"
+        )
+        return False
+    
+    # 3) RMS too low = not real speech
+    if rms_snapshot < noise_floor + MIN_RMS_DELTA:
+        logger.info(
+            f"[STT_GUARD] Dropping low-RMS utterance: rms={rms_snapshot:.1f}, "
+            f"noise_floor={noise_floor:.1f}, delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}, "
+            f"text='{stt_text[:20]}...'"
+        )
+        return False
+    
+    # ✅ Passed all checks
+    return True
+
 # מכונת מצבים
 STATE_LISTEN = "LISTENING"
 STATE_THINK  = "THINKING"
@@ -1392,6 +1440,13 @@ class MediaStreamHandler:
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
         self.barge_in_active = False
         self._barge_in_started_ts = None  # When barge-in started (for timeout)
+        
+        # 🎯 STT GUARD: Track utterance metadata for validation
+        # Prevents hallucinated transcriptions during silence from triggering barge-in
+        self._candidate_user_speaking = False  # Set on speech_started, validated on transcription.completed
+        self._utterance_start_ts = None  # When speech_started was received (for duration calculation)
+        self._utterance_start_rms = 0  # RMS level when speech started
+        self._utterance_start_noise_floor = 50.0  # Noise floor when speech started
         
         # 🔥 BUILD 303: GREETING FLOW MANAGEMENT - Wait for user answer to greeting question
         # Ensures we don't skip to next question before processing user's response to greeting
@@ -3095,8 +3150,15 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Don't mark user_has_spoken, don't bypass noise gate - just ignore this event
                         continue
                     
-                    print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
-                    self.user_has_spoken = True
+                    # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
+                    # Don't immediately set user_has_spoken - wait for validated transcription
+                    print(f"🎤 [REALTIME] Speech started - marking as candidate (will validate on transcription)")
+                    self._candidate_user_speaking = True
+                    self._utterance_start_ts = time.time()
+                    self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
+                    self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
+                    
+                    # Note: user_has_spoken will be set in transcription.completed after validation
                     if self._post_greeting_window_active:
                         self._post_greeting_heard_user = True
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
@@ -4098,6 +4160,41 @@ Greet briefly. Then WAIT for customer to speak."""
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
                     
+                    # 🎯 STT GUARD: Validate utterance before accepting
+                    # This prevents hallucinated transcriptions during silence from triggering barge-in
+                    utterance_start_ts = getattr(self, '_utterance_start_ts', None)
+                    if utterance_start_ts:
+                        utterance_duration_ms = (now_sec - utterance_start_ts) * 1000
+                    else:
+                        # Fallback: estimate from speech_stopped event
+                        utterance_duration_ms = 1000  # Assume 1s if we don't have timing
+                    
+                    current_rms = getattr(self, '_recent_audio_rms', 0)
+                    current_noise_floor = getattr(self, 'noise_floor', 50.0)
+                    
+                    # Run validation
+                    accept_utterance = should_accept_realtime_utterance(
+                        stt_text=text,
+                        utterance_ms=utterance_duration_ms,
+                        rms_snapshot=current_rms,
+                        noise_floor=current_noise_floor
+                    )
+                    
+                    if not accept_utterance:
+                        # 🚫 Utterance failed validation - ignore it
+                        logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
+                        # Clear candidate flag
+                        self._candidate_user_speaking = False
+                        self._utterance_start_ts = None
+                        continue
+                    
+                    # ✅ Utterance passed validation
+                    logger.info(
+                        f"[STT_GUARD] Accepted utterance: {utterance_duration_ms:.0f}ms, "
+                        f"rms={current_rms:.1f}, noise_floor={current_noise_floor:.1f}, "
+                        f"text_len={len(text)}"
+                    )
+                    
                     # 🔥 BUILD 300: REMOVED POST_AI_COOLDOWN GATE
                     # The guide says: "אסור לזרוק טקסט בגלל pause ארוך" and "המודל תמיד יודע טוב יותר"
                     # OpenAI's VAD/STT is authoritative - if it transcribed something, it's valid
@@ -4107,25 +4204,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 BUILD 300: Only LOG, don't reject! OpenAI knows better than local timing
                         if time_since_ai_finished < 500:  # Very fast response - just log for debugging
                             print(f"⚡ [BUILD 300] Fast response: {time_since_ai_finished:.0f}ms after AI (trusting OpenAI)")
-                    
-                    # 🔥 BUILD 202 FIX: TRUST OPENAI STT OVER LOCAL RMS
-                    # If OpenAI Realtime API transcribed the speech, it detected valid audio.
-                    # Our local RMS measurement can be stale or wrong (race condition).
-                    # Only apply silence gate to very short/empty transcriptions.
-                    recent_rms = getattr(self, '_recent_audio_rms', 0)
-                    consec_frames = getattr(self, '_consecutive_voice_frames', 0)
-                    ABSOLUTE_SILENCE_RMS = 30
-                    
-                    # 🔥 BUILD 202: Only reject if BOTH conditions are met:
-                    # 1. Very low RMS (< 10, not 30 - true silence)
-                    # 2. Very short text (< 3 chars - likely noise artifact)
-                    # OpenAI's VAD is more reliable than our local measurement!
-                    if recent_rms < 10 and len(text.strip()) < 3:
-                        print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < 10, text too short): '{text}'")
-                        continue
-                    elif recent_rms < ABSOLUTE_SILENCE_RMS and len(text.strip()) >= 3:
-                        # 🔥 BUILD 202: Trust OpenAI - it heard something valid!
-                        print(f"[SILENCE GATE] ✅ TRUSTED (OpenAI heard '{text[:30]}...' despite low RMS={recent_rms:.0f})")
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
@@ -4395,8 +4473,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     except Exception as log_err:
                         pass  # Don't let logging errors break STT
                     
-                    # Mark that the user really spoke at least once
+                    # 🎯 STT GUARD: Only NOW (after validation) mark user as having spoken
+                    # This prevents hallucinated utterances from setting user_has_spoken flag
                     self.user_has_spoken = True
+                    self._candidate_user_speaking = False  # Clear candidate flag
+                    print(f"✅ [STT_GUARD] Validated utterance - user_has_spoken=True")
                     
                     # 🔥 BUILD 170.3: LOOP PREVENTION - Reset counter when user speaks
                     self._consecutive_ai_responses = 0
