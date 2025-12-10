@@ -240,7 +240,8 @@ def load_call_config(business_id: int) -> CallConfig:
             business_id=business_id,
             business_name=business.name or "",
             greeting_enabled=True,
-            bot_speaks_first=getattr(settings, 'bot_speaks_first', False) if settings else False,
+            # 🔥 BUILD 350: Bot ALWAYS speaks first (default True if not set)
+            bot_speaks_first=getattr(settings, 'bot_speaks_first', True) if settings else True,
             greeting_text=business.greeting_message or "",
             auto_end_after_lead_capture=getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
             auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
@@ -1237,12 +1238,12 @@ class MediaStreamHandler:
         self._openai_connect_attempts = 0  # Count OpenAI connection attempts
         self._greeting_audio_first_ts = None  # When first greeting audio delta was received
         self._greeting_audio_received = False  # True after at least one greeting audio delta
+        self._greeting_audio_timeout_sec = 5.0  # 🔥 BUILD 350: Increased to 5s for outbound reliability
         
         # Timeout configuration (optimized for fast response + stability)
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
         self._twilio_start_timeout_sec = 2.5  # Max wait for Twilio START event
         # NOTE: OpenAI connection uses client.connect() internal retry with 5s total timeout
-        self._greeting_audio_timeout_sec = 3.5  # Max wait for first greeting audio from OpenAI (increased for stability)
         
         # Timing metrics for diagnostics
         self._metrics_openai_connect_ms = 0  # Time to connect to OpenAI
@@ -1304,7 +1305,8 @@ class MediaStreamHandler:
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
         # Do NOT modify these directly - always use self.call_config for the authoritative values
-        self.bot_speaks_first = False  # Default: wait for user - overwritten by CallConfig
+        # 🔥 BUILD 350: Bot ALWAYS speaks first for faster, better UX
+        self.bot_speaks_first = True  # Default: bot speaks first - can be overwritten by CallConfig
         self.auto_end_after_lead_capture = False  # Default: don't auto-end - overwritten by CallConfig
         self.auto_end_on_goodbye = False  # Default: don't auto-end - overwritten by CallConfig
         self.lead_captured = False  # Runtime state: tracks if all required lead info is collected
@@ -1865,39 +1867,30 @@ class MediaStreamHandler:
             
             print(f"📊 [PROMPT STATS] compact={len(compact_prompt)} chars, full={len(full_prompt)} chars")
             
-            # 🔥 OPTIMIZATION: Greeting instructions built WITHOUT DB queries
-            # All data should already be loaded in self.greeting_text, outbound_lead_name, etc.
-            if call_direction == 'outbound' and outbound_lead_name:
-                # OUTBOUND: Use pre-loaded greeting if exists
-                outbound_greeting = getattr(self, 'outbound_greeting_text', None)
-                
-                if outbound_greeting:
-                    greeting_instruction = f"""FIRST: Say this EXACT greeting (word-for-word, in Hebrew):
-"{outbound_greeting}"
-Then WAIT for customer response. This greeting IS your first question."""
-                else:
-                    greeting_instruction = f"""FIRST: Greet {outbound_lead_name} briefly in Hebrew.
-Introduce yourself as rep from {biz_name}, explain why you're calling.
-Then WAIT for response."""
-                print(f"📤 [OUTBOUND] Greeting for: {outbound_lead_name}")
-            else:
-                # 🔥 INBOUND: Use pre-loaded greeting from self.greeting_text
-                if greeting_text and greeting_text.strip():
-                    greeting_instruction = f"""CRITICAL - GREETING:
-1. Say this EXACT sentence in Hebrew (word-for-word, no changes):
-"{greeting_text.strip()}"
-
-2. This greeting IS your first question. Customer's response answers it.
-3. After greeting: WAIT. Let customer speak. Don't ask more questions yet.
-4. Don't jump to next question until you understand the answer."""
-                    print(f"📞 [INBOUND] Using pre-loaded Hebrew greeting: '{greeting_text[:50]}...'")
-                else:
-                    greeting_instruction = f"""FIRST: Introduce yourself as rep from {biz_name} in Hebrew.
-Greet briefly. Then WAIT for customer to speak."""
-                    print(f"📞 [INBOUND] No greeting in DB - using fallback for {biz_name}")
+            # 🔥 BUILD 350: SIMPLIFIED GREETING - Fast path, no branching
+            # All greeting data pre-loaded in webhook, just use it directly!
+            greeting_instruction = ""
             
-            # 🔥 BUILD 329: Combine prompt + greeting instruction
-            # Use compact prompt for fast greeting, will upgrade to full after
+            if call_direction == 'outbound':
+                # OUTBOUND: Use pre-loaded greeting or default
+                outbound_greeting = getattr(self, 'outbound_greeting_text', None)
+                if outbound_greeting:
+                    greeting_instruction = f'FIRST: Say exactly: "{outbound_greeting}" then WAIT.'
+                    print(f"📤 [OUTBOUND] Using template greeting")
+                else:
+                    lead_name = getattr(self, 'outbound_lead_name', 'הלקוח')
+                    greeting_instruction = f'FIRST: Greet {lead_name} briefly, introduce from {biz_name}, WAIT.'
+                    print(f"📤 [OUTBOUND] Using default greeting for {lead_name}")
+            else:
+                # INBOUND: Use pre-loaded greeting or default
+                if greeting_text and greeting_text.strip():
+                    greeting_instruction = f'FIRST: Say exactly: "{greeting_text.strip()}" then WAIT.'
+                    print(f"📞 [INBOUND] Using DB greeting: '{greeting_text[:40]}...'")
+                else:
+                    greeting_instruction = f'FIRST: Introduce from {biz_name} in Hebrew, WAIT.'
+                    print(f"📞 [INBOUND] Using default greeting")
+            
+            # 🔥 BUILD 350: SINGLE GREETING PATH - Compact prompt + simple instruction
             greeting_prompt = f"""{greeting_prompt_to_use}
 
 ---
@@ -1963,7 +1956,11 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
             # No waiting for CRM, no 0.2s delay - just speak!
-            logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}")
+            # 🔥 BUILD 350: OUTBOUND CALLS - Bot ALWAYS speaks first!
+            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}, direction={call_direction}, is_outbound={is_outbound}")
+            if is_outbound:
+                print(f"📤📤📤 [OUTBOUND] Bot will speak FIRST - NO WAITING for customer!")
             if self.bot_speaks_first:
                 greeting_start_ts = time.time()
                 print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
@@ -2877,9 +2874,18 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
+                    # 🔥 BUILD 350: OUTBOUND CALLS - NEVER cancel greeting on speech_started!
+                    # For outbound calls, bot ALWAYS speaks first regardless of customer noise
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    
                     # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
                     # Instead of ignoring, treat this as valid input and stop the greeting
                     if self.is_playing_greeting:
+                        # 🔥 BUILD 350: OUTBOUND - IGNORE speech_started during greeting!
+                        if is_outbound:
+                            print(f"📤 [OUTBOUND] IGNORING speech_started during greeting - bot speaks first!")
+                            continue  # Skip all speech_started processing during outbound greeting
+                        
                         print(f"⛔ [BARGE-IN GREETING] User started talking during greeting - stopping greeting!")
                         self.is_playing_greeting = False
                         self.barge_in_active = True
@@ -6060,12 +6066,21 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🛡️ BUILD 168.5 FIX: Block audio enqueue during greeting!
                         # OpenAI's server-side VAD detects incoming audio and cancels the greeting.
                         # Block audio until greeting finishes OR user has already spoken.
-                        if self.is_playing_greeting and not self.user_has_spoken:
-                            # Log once
-                            if not hasattr(self, '_greeting_enqueue_block_logged'):
-                                print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
-                                self._greeting_enqueue_block_logged = True
-                            continue  # Don't enqueue audio during greeting
+                        # 🔥 BUILD 350: OUTBOUND - ALWAYS block during greeting (even if user spoke)
+                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                        if self.is_playing_greeting:
+                            if is_outbound:
+                                # 🔥 OUTBOUND: ALWAYS block audio during greeting
+                                if not hasattr(self, '_greeting_enqueue_block_logged_outbound'):
+                                    print(f"📤 [OUTBOUND] BLOCKING all audio during greeting - bot speaks first!")
+                                    self._greeting_enqueue_block_logged_outbound = True
+                                continue  # Don't enqueue any audio during outbound greeting
+                            elif not self.user_has_spoken:
+                                # INBOUND: Block only if user hasn't spoken
+                                if not hasattr(self, '_greeting_enqueue_block_logged'):
+                                    print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
+                                    self._greeting_enqueue_block_logged = True
+                                continue  # Don't enqueue audio during greeting
                         
                         if not self.barge_in_enabled_after_greeting:
                             # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
