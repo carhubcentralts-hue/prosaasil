@@ -2145,16 +2145,15 @@ Greet briefly. Then WAIT for customer to speak."""
             if hasattr(self, '_metrics_openai_connect_ms') and self.call_sid:
                 stream_registry.set_metric(self.call_sid, 'openai_connect_ms', self._metrics_openai_connect_ms)
             
-            # Always trigger greeting (no if check):
-            if True:  # Always True - preserving indent for minimal diff
-                greeting_start_ts = time.time()
-                print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
-                self.greeting_sent = True  # Mark greeting as sent to allow audio through
-                self.is_playing_greeting = True
-                self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-                # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
-                triggered = await self.trigger_response("GREETING", client, is_greeting=True)
-                if triggered:
+            # 🔥 MASTER FIX: Always trigger greeting (hardcoded bot-first behavior)
+            greeting_start_ts = time.time()
+            print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
+            self.greeting_sent = True  # Mark greeting as sent to allow audio through
+            self.is_playing_greeting = True
+            self._greeting_start_ts = greeting_start_ts  # Store for duration logging
+            # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
+            triggered = await self.trigger_response("GREETING", client, is_greeting=True)
+            if triggered:
                     t_speak = time.time()
                     total_openai_ms = (t_speak - t_start) * 1000
                     
@@ -2216,24 +2215,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Start the watchdog
                     asyncio.create_task(_greeting_audio_timeout_watchdog())
                     
-                else:
-                    print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
-                    # Reset flags since greeting failed
-                    self.greeting_sent = False
-                    self.is_playing_greeting = False
             else:
-                # Standard flow - AI waits for user speech first
-                print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
-                
-                # 🔥 BUILD 172: Start warmup timer - transition to ACTIVE after 800ms
-                async def warmup_to_active():
-                    await asyncio.sleep(0.8)  # 800ms warmup
-                    if self.call_state == CallState.WARMUP and not self.hangup_triggered:
-                        self.call_state = CallState.ACTIVE
-                        print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (800ms timer)")
-                        await self._start_silence_monitor()
-                
-                asyncio.create_task(warmup_to_active())
+                print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
+                # Reset flags since greeting failed
+                self.greeting_sent = False
+                self.is_playing_greeting = False
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled

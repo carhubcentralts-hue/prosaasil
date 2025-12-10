@@ -160,7 +160,7 @@ async def ws_twilio_media(websocket: WebSocket):
     
     # 🔥 FIX: START event watchdog to close ghost sessions
     start_event_received = asyncio.Event()
-    ghost_session_closed = False
+    ghost_session_timeout = False  # Set to True when ghost session detected
     
     print("[REALTIME] SyncWebSocketWrapper created - about to enter try block", flush=True)
     
@@ -174,12 +174,12 @@ async def ws_twilio_media(websocket: WebSocket):
         
         # Task 1: Receive from Starlette WS → put in queue for sync handler
         async def receive_loop():
-            nonlocal ghost_session_closed
+            nonlocal ghost_session_timeout
             msg_count = 0
             try:
                 print("[REALTIME] receive_loop: STARTED", flush=True)
                 twilio_log.info("[WS] receive_loop started")
-                while ws_wrapper.running and not ghost_session_closed:
+                while ws_wrapper.running and not ghost_session_timeout:
                     try:
                         msg = await websocket.receive_json()
                         msg_count += 1
@@ -248,7 +248,7 @@ async def ws_twilio_media(websocket: WebSocket):
             🔥 FIX: Ghost session protection
             Closes WebSocket if no START event is received within 3 seconds
             """
-            nonlocal ghost_session_closed
+            nonlocal ghost_session_timeout
             try:
                 # Wait up to 3 seconds for START event
                 await asyncio.wait_for(start_event_received.wait(), timeout=3.0)
@@ -256,7 +256,7 @@ async def ws_twilio_media(websocket: WebSocket):
                 twilio_log.info("[WS] START watchdog: START event received in time")
             except asyncio.TimeoutError:
                 # No START event after 3 seconds - close as ghost session
-                ghost_session_closed = True
+                ghost_session_timeout = True
                 print("[WS] No START event – closing ghost session", flush=True)
                 twilio_log.warning("[WS] No START event after 3s – closing ghost session")
                 ws_wrapper.stop()
