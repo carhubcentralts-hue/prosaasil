@@ -1809,45 +1809,67 @@ class MediaStreamHandler:
             # After greeting, we can send full prompt via session.update if needed
             # ═══════════════════════════════════════════════════════════════════════
             
-            # Priority 1: Check registry for webhook pre-built compact prompt (FASTEST!)
-            from server.stream_state import stream_registry
-            compact_prompt = stream_registry.get_metadata(self.call_sid, 'prebuilt_compact_prompt') if self.call_sid else None
+            # 🔥 PROMPT STRATEGY: COMPACT for fast greeting, FULL after first response
+            # Strategy: Use pre-built COMPACT from registry → greeting in <2s
+            #           Then upgrade to pre-built FULL after first response completes
             
-            if compact_prompt:
-                print(f"🚀 [FIX #2] Using WEBHOOK PRE-BUILT compact prompt: {len(compact_prompt)} chars (ULTRA FAST PATH)")
-                full_prompt = compact_prompt
-            # Priority 2: Use pre-built prompt from main thread (if available)
-            elif hasattr(self, '_prebuilt_prompt') and self._prebuilt_prompt:
-                full_prompt = self._prebuilt_prompt
-                print(f"✅ [PART D] Using MAIN THREAD pre-built prompt: {len(full_prompt)} chars (FAST PATH)")
-            else:
-                # Fallback: Build compact prompt NOW (adds latency but better than nothing)
-                print(f"⚠️ [FIX #2] No pre-built prompt - building COMPACT greeting prompt now (SLOW PATH)")
+            from server.stream_state import stream_registry
+            
+            # Step 1: Load COMPACT prompt from registry (built in webhook - ZERO latency!)
+            compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
+            
+            # Step 2: Load FULL prompt from registry (for post-greeting upgrade)
+            full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
+            
+            # Step 3: Fallback - build if not in registry (should rarely happen)
+            if not compact_prompt or not full_prompt:
+                print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
                 try:
-                    from server.services.realtime_prompt_builder import build_compact_greeting_prompt
+                    from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
                     app = _get_flask_app()
                     with app.app_context():
-                        full_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                        print(f"✅ [FIX #2] COMPACT prompt built: {len(full_prompt)} chars (fallback)")
+                        if not compact_prompt:
+                            compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
+                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars")
+                        if not full_prompt:
+                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars")
                 except Exception as prompt_err:
-                    print(f"⚠️ [FIX #2] Failed to build compact prompt: {prompt_err}")
-                    # Last resort: minimal English fallback
-                    full_prompt = f"You are a service rep. SPEAK HEBREW. Be brief and helpful."
+                    print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
+                    import traceback
+                    traceback.print_exc()
+                    # Last resort fallback
+                    if not compact_prompt:
+                        compact_prompt = f"You are a professional service rep. SPEAK HEBREW to customer. Be helpful and brief."
+                    if not full_prompt:
+                        full_prompt = compact_prompt
+            else:
+                print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
+                print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
+                print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
             
-            # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
-            # AI just speaks the exact greeting text, ensuring consistency
+            # Use compact for initial greeting (fast!)
+            greeting_prompt_to_use = compact_prompt
+            print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
+            logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
+            
+            # Store full prompt for session.update after greeting
+            self._full_prompt_for_upgrade = full_prompt
+            self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
+            
+            # 🔥 CRITICAL LOGGING: Verify business isolation
+            if full_prompt and f"Business ID: {business_id_safe}" in full_prompt:
+                print(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in FULL prompt")
+            elif full_prompt:
+                logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in FULL prompt! Check for contamination.")
+            
+            print(f"📊 [PROMPT STATS] compact={len(compact_prompt)} chars, full={len(full_prompt)} chars")
+            
+            # 🔥 OPTIMIZATION: Greeting instructions built WITHOUT DB queries
+            # All data should already be loaded in self.greeting_text, outbound_lead_name, etc.
             if call_direction == 'outbound' and outbound_lead_name:
-                # OUTBOUND: Use template greeting if exists
-                outbound_greeting = None
-                outbound_template_id = getattr(self, 'outbound_template_id', None)
-                if outbound_template_id:
-                    try:
-                        from server.models_sql import OutboundTemplate
-                        template = OutboundTemplate.query.get(outbound_template_id)
-                        if template and template.greeting_template:
-                            outbound_greeting = template.greeting_template.replace("{{lead_name}}", outbound_lead_name).replace("{{business_name}}", biz_name)
-                    except:
-                        pass
+                # OUTBOUND: Use pre-loaded greeting if exists
+                outbound_greeting = getattr(self, 'outbound_greeting_text', None)
                 
                 if outbound_greeting:
                     greeting_instruction = f"""FIRST: Say this EXACT greeting (word-for-word, in Hebrew):
@@ -1859,7 +1881,7 @@ Introduce yourself as rep from {biz_name}, explain why you're calling.
 Then WAIT for response."""
                 print(f"📤 [OUTBOUND] Greeting for: {outbound_lead_name}")
             else:
-                # 🔥 BUILD 324: INBOUND - ENGLISH instructions, Hebrew speech
+                # 🔥 INBOUND: Use pre-loaded greeting from self.greeting_text
                 if greeting_text and greeting_text.strip():
                     greeting_instruction = f"""CRITICAL - GREETING:
 1. Say this EXACT sentence in Hebrew (word-for-word, no changes):
@@ -1868,30 +1890,20 @@ Then WAIT for response."""
 2. This greeting IS your first question. Customer's response answers it.
 3. After greeting: WAIT. Let customer speak. Don't ask more questions yet.
 4. Don't jump to next question until you understand the answer."""
-                    print(f"📞 [BUILD 324] ENGLISH instruction, Hebrew greeting: '{greeting_text[:50]}...'")
+                    print(f"📞 [INBOUND] Using pre-loaded Hebrew greeting: '{greeting_text[:50]}...'")
                 else:
                     greeting_instruction = f"""FIRST: Introduce yourself as rep from {biz_name} in Hebrew.
 Greet briefly. Then WAIT for customer to speak."""
-                    print(f"📞 [BUILD 324] No DB greeting - using English fallback for {biz_name}")
+                    print(f"📞 [INBOUND] No greeting in DB - using fallback for {biz_name}")
             
-            # 🔥 BUILD 329: Combine FULL prompt FIRST + greeting instruction LAST
-            # AI gets complete business context from database
-            if full_prompt:
-                greeting_prompt = f"""{full_prompt}
+            # 🔥 BUILD 329: Combine prompt + greeting instruction
+            # Use compact prompt for fast greeting, will upgrade to full after
+            greeting_prompt = f"""{greeting_prompt_to_use}
 
 ---
 
 {greeting_instruction}"""
-                has_custom_greeting = True
-            else:
-                # 🔥 BUILD 324: English fallback - minimal context
-                greeting_prompt = f"""You are a professional service rep for {biz_name}.
-SPEAK HEBREW to customer. Be brief and helpful.
-
----
-
-{greeting_instruction}"""
-                has_custom_greeting = bool(greeting_text and greeting_text.strip())
+            has_custom_greeting = True
             
             t_before_config = time.time()
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
@@ -2713,6 +2725,39 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             content = item.get("content", [])
                             content_types = [c.get("type", "?") for c in content] if content else []
                             _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        
+                        # 🔥 PROMPT UPGRADE: After first response, upgrade from COMPACT to FULL prompt
+                        # This happens automatically after greeting completes, giving AI full context
+                        if (self._using_compact_greeting and 
+                            self._full_prompt_for_upgrade and
+                            not getattr(self, '_prompt_upgraded_to_full', False)):
+                            
+                            try:
+                                full_prompt = self._full_prompt_for_upgrade
+                                upgrade_time = time.time()
+                                
+                                print(f"🔄 [PROMPT UPGRADE] Upgrading from COMPACT ({len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else '~800'} chars) to FULL ({len(full_prompt)} chars)")
+                                
+                                # Send session.update with full prompt (non-blocking, AI continues working)
+                                await client.send_event({
+                                    "type": "session.update",
+                                    "session": {
+                                        "instructions": full_prompt
+                                    }
+                                })
+                                
+                                self._prompt_upgraded_to_full = True
+                                upgrade_duration = int((time.time() - upgrade_time) * 1000)
+                                
+                                print(f"✅ [PROMPT UPGRADE] Successfully upgraded to FULL prompt in {upgrade_duration}ms")
+                                print(f"   └─ AI now has complete business context for rest of conversation")
+                                logger.info(f"[PROMPT UPGRADE] Upgraded business_id={self.business_id} in {upgrade_duration}ms")
+                                
+                            except Exception as upgrade_err:
+                                logger.error(f"❌ [PROMPT UPGRADE] Failed to upgrade prompt: {upgrade_err}")
+                                import traceback
+                                traceback.print_exc()
+                                # Don't fail the call if upgrade fails - compact prompt is still functional
                         
                         # 🔥 PROMPT-ONLY: Handle OpenAI server_error with retry + graceful failure
                         if status == "failed":
@@ -5732,6 +5777,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self.outbound_business_id = custom_params.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = custom_params.get("business_name")
                         
+                        # 🔥 OPTIMIZATION: Pre-load outbound greeting to avoid DB query in async loop
+                        if self.call_direction == "outbound" and self.outbound_template_id and self.outbound_lead_name:
+                            try:
+                                from server.models_sql import OutboundTemplate
+                                template = OutboundTemplate.query.get(self.outbound_template_id)
+                                if template and template.greeting_template:
+                                    biz_name = self.outbound_business_name or "העסק"
+                                    self.outbound_greeting_text = template.greeting_template.replace("{{lead_name}}", self.outbound_lead_name).replace("{{business_name}}", biz_name)
+                                    print(f"✅ [OUTBOUND] Pre-loaded greeting: '{self.outbound_greeting_text[:50]}...'")
+                            except Exception as e:
+                                print(f"⚠️ [OUTBOUND] Failed to pre-load greeting: {e}")
+                        
                         # 🔍 DEBUG: Log phone numbers and outbound params
                         print(f"\n📞 START EVENT (customParameters path):")
                         print(f"   customParams.From: {custom_params.get('From')}")
@@ -5758,6 +5815,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self.outbound_template_id = evt.get("template_id")
                         self.outbound_business_id = evt.get("business_id")  # 🔒 SECURITY: Explicit business_id for outbound
                         self.outbound_business_name = evt.get("business_name")
+                        
+                        # 🔥 OPTIMIZATION: Pre-load outbound greeting to avoid DB query in async loop
+                        if self.call_direction == "outbound" and self.outbound_template_id and self.outbound_lead_name:
+                            try:
+                                from server.models_sql import OutboundTemplate
+                                template = OutboundTemplate.query.get(self.outbound_template_id)
+                                if template and template.greeting_template:
+                                    biz_name = self.outbound_business_name or "העסק"
+                                    self.outbound_greeting_text = template.greeting_template.replace("{{lead_name}}", self.outbound_lead_name).replace("{{business_name}}", biz_name)
+                                    print(f"✅ [OUTBOUND] Pre-loaded greeting: '{self.outbound_greeting_text[:50]}...'")
+                            except Exception as e:
+                                print(f"⚠️ [OUTBOUND] Failed to pre-load greeting: {e}")
                         
                         # 🔍 DEBUG: Log phone number on start
                         print(f"\n📞 START EVENT - Phone numbers:")
