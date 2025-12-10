@@ -104,6 +104,8 @@ async def ws_twilio_media(websocket: WebSocket):
     """
     WebSocket handler for Twilio Media Streams
     Bridges async Starlette WS to sync MediaStreamHandler
+    
+    🔥 FIX: Conditional subprotocol negotiation to prevent Twilio error 31924
     """
     # 🔥 CRITICAL: Log at the VERY TOP before any operations - use BOTH print and logger
     print(f"[REALTIME] WS handler ENTERED: path=/ws/twilio-media", flush=True)
@@ -111,12 +113,37 @@ async def ws_twilio_media(websocket: WebSocket):
     twilio_log.info("[REALTIME] WS handler ENTERED: path=/ws/twilio-media")
     twilio_log.info(f"[REALTIME] Query params: {websocket.scope.get('query_string')}")
     
-    # Accept with Twilio subprotocol
+    # 🔥 FIX: Conditional subprotocol acceptance - only if Twilio requested one
     try:
-        print("[REALTIME] About to accept WebSocket...", flush=True)
-        await websocket.accept(subprotocol="audio.twilio.com")
-        print("[REALTIME] WebSocket accepted with subprotocol: audio.twilio.com", flush=True)
-        twilio_log.info("[REALTIME] WebSocket accepted with subprotocol: audio.twilio.com")
+        # Get requested subprotocols from headers
+        headers_dict = dict(websocket.headers)
+        requested_subprotocols = headers_dict.get(b'sec-websocket-protocol', b'').decode('utf-8')
+        requested_list = [s.strip() for s in requested_subprotocols.split(',') if s.strip()]
+        
+        # Log what Twilio requested for debugging
+        print(f"[WS-HANDSHAKE] Requested subprotocols: {requested_list}", flush=True)
+        twilio_log.info(f"[WS-HANDSHAKE] Requested subprotocols: {requested_list}")
+        
+        # Decide how to accept
+        if not requested_list:
+            # Twilio sent no subprotocol - accept without one
+            print("[REALTIME] About to accept WebSocket WITHOUT subprotocol...", flush=True)
+            await websocket.accept()
+            print("[REALTIME] WebSocket accepted without subprotocol", flush=True)
+            twilio_log.info("[REALTIME] WebSocket accepted without subprotocol")
+        elif 'audio.twilio.com' in requested_list:
+            # Twilio requested audio.twilio.com - accept with it
+            print("[REALTIME] About to accept WebSocket WITH subprotocol: audio.twilio.com...", flush=True)
+            await websocket.accept(subprotocol="audio.twilio.com")
+            print("[REALTIME] WebSocket accepted with subprotocol: audio.twilio.com", flush=True)
+            twilio_log.info("[REALTIME] WebSocket accepted with subprotocol: audio.twilio.com")
+        else:
+            # Unknown subprotocol requested - reject
+            print(f"[WS] Unknown subprotocol from client – rejecting: {requested_list}", flush=True)
+            twilio_log.warning(f"[WS] Unknown subprotocol from client – rejecting: {requested_list}")
+            await websocket.close(code=1002, reason="Unsupported subprotocol")
+            return
+            
     except Exception as e:
         print(f"[REALTIME] WebSocket accept FAILED: {e}", flush=True)
         twilio_log.exception(f"[REALTIME] WebSocket accept failed: {e}")
@@ -131,6 +158,10 @@ async def ws_twilio_media(websocket: WebSocket):
     ws_wrapper = SyncWebSocketWrapper()
     handler_thread = None
     
+    # 🔥 FIX: START event watchdog to close ghost sessions
+    start_event_received = asyncio.Event()
+    ghost_session_closed = False
+    
     print("[REALTIME] SyncWebSocketWrapper created - about to enter try block", flush=True)
     
     try:
@@ -143,17 +174,20 @@ async def ws_twilio_media(websocket: WebSocket):
         
         # Task 1: Receive from Starlette WS → put in queue for sync handler
         async def receive_loop():
+            nonlocal ghost_session_closed
             msg_count = 0
             try:
                 print("[REALTIME] receive_loop: STARTED", flush=True)
                 twilio_log.info("[WS] receive_loop started")
-                while ws_wrapper.running:
+                while ws_wrapper.running and not ghost_session_closed:
                     try:
                         msg = await websocket.receive_json()
                         msg_count += 1
                         event_type = msg.get("event", "unknown")
                         if event_type == "start":
-                            twilio_log.info(f"[WS] START event received! Forwarding to handler")
+                            print("[WS] START EVENT RECEIVED!", flush=True)
+                            twilio_log.info(f"[WS] START EVENT RECEIVED! Forwarding to handler")
+                            start_event_received.set()  # Signal that START was received
                         ws_wrapper.recv_queue.put(json.dumps(msg))
                     except json.JSONDecodeError:
                         try:
@@ -208,7 +242,30 @@ async def ws_twilio_media(websocket: WebSocket):
             finally:
                 ws_wrapper.stop()
         
-        # Task 3: MediaStreamHandler in background thread
+        # Task 3: START event watchdog - closes ghost sessions after 3 seconds
+        async def start_watchdog():
+            """
+            🔥 FIX: Ghost session protection
+            Closes WebSocket if no START event is received within 3 seconds
+            """
+            nonlocal ghost_session_closed
+            try:
+                # Wait up to 3 seconds for START event
+                await asyncio.wait_for(start_event_received.wait(), timeout=3.0)
+                # START received - no action needed
+                twilio_log.info("[WS] START watchdog: START event received in time")
+            except asyncio.TimeoutError:
+                # No START event after 3 seconds - close as ghost session
+                ghost_session_closed = True
+                print("[WS] No START event – closing ghost session", flush=True)
+                twilio_log.warning("[WS] No START event after 3s – closing ghost session")
+                ws_wrapper.stop()
+                try:
+                    await websocket.close(code=1000, reason="No START event")
+                except Exception:
+                    pass
+        
+        # Task 4: MediaStreamHandler in background thread
         def run_handler():
             try:
                 print("[REALTIME] run_handler: STARTED - Getting Flask app...", flush=True)
@@ -235,14 +292,15 @@ async def ws_twilio_media(websocket: WebSocket):
             nonlocal handler_thread
             print("[REALTIME] run_all: STARTING async loops and handler thread...", flush=True)
             twilio_log.info("[REALTIME] run_all: STARTING async loops and handler thread...")
-            # Start async loops
-            print("[REALTIME] run_all: Creating asyncio.gather for receive_loop and send_loop...", flush=True)
+            # Start async loops and watchdog
+            print("[REALTIME] run_all: Creating asyncio.gather for receive_loop, send_loop, and watchdog...", flush=True)
             loops_task = asyncio.gather(
                 receive_loop(),
                 send_loop(),
+                start_watchdog(),  # 🔥 FIX: Add START event watchdog
                 return_exceptions=True
             )
-            print("[REALTIME] run_all: Async loops started - sleeping 0.1s...", flush=True)
+            print("[REALTIME] run_all: Async loops and watchdog started - sleeping 0.1s...", flush=True)
             
             # Give loops time to start
             await asyncio.sleep(0.1)
