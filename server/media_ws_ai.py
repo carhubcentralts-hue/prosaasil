@@ -6332,6 +6332,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
+                        # 🔥 GREETING PROFILER: Track WS connect time
+                        stream_registry.set_metric(self.call_sid, 'ws_connect_ts', self.t0_connected)
                     
                     # 🚀 PARALLEL STARTUP: Start OpenAI connection AND DB query simultaneously!
                     logger.info(f"[REALTIME] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
@@ -7199,6 +7201,40 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Log metrics - include is_ghost flag for monitoring
             _orig_print(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}, is_ghost={is_ghost_session}", flush=True)
+            
+            # 🔥 GREETING OPTIMIZATION: Log complete timeline for latency analysis
+            # Get TwiML timing from stream registry (set by webhook)
+            twiml_ms = 0
+            ws_start_offset_ms = 0
+            call_direction = getattr(self, 'call_direction', 'unknown')
+            
+            if self.call_sid:
+                try:
+                    # Try to get webhook timing from stream registry
+                    twiml_ts = stream_registry.get_metric(self.call_sid, 'twiml_ready_ts')
+                    ws_connect_ts = stream_registry.get_metric(self.call_sid, 'ws_connect_ts')
+                    
+                    if twiml_ts and ws_connect_ts:
+                        ws_start_offset_ms = int((ws_connect_ts - twiml_ts) * 1000)
+                except Exception as e:
+                    pass
+            
+            # Calculate greeting SLA result
+            is_inbound = (call_direction == 'inbound')
+            greeting_threshold = 1600 if is_inbound else 2000
+            total_greeting_ms = openai_connect_ms + first_greeting_audio_ms
+            sla_met = total_greeting_ms <= greeting_threshold and total_greeting_ms > 0
+            
+            if not is_ghost_session and total_greeting_ms > 0:
+                # Log complete greeting timeline (only for real calls with greeting)
+                if sla_met:
+                    _orig_print(f"[GREETING_SLA_MET] {total_greeting_ms}ms (threshold={greeting_threshold}ms, direction={call_direction})", flush=True)
+                else:
+                    _orig_print(f"[GREETING_SLA_FAILED] inbound={is_inbound} twiml_ms={twiml_ms} openai_ms={openai_connect_ms} greet_ms={first_greeting_audio_ms} total={total_greeting_ms}ms > {greeting_threshold}ms", flush=True)
+                
+                # Unified timeline log for analysis
+                _orig_print(f"[GREETING_TIMELINE] inbound={is_inbound} twiml_ms={twiml_ms} ws_start_offset_ms={ws_start_offset_ms} openai_connect_ms={openai_connect_ms} first_greeting_audio_ms={first_greeting_audio_ms} total={total_greeting_ms}ms sla_met={sla_met}", flush=True)
+                logger.info(f"[GREETING_TIMELINE] inbound={is_inbound} total={total_greeting_ms}ms sla_met={sla_met}")
             
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()

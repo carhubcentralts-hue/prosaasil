@@ -291,7 +291,7 @@ If unclear - ask to repeat. SPEAK HEBREW."""
         return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
 
 
-def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
+def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound", use_cache: bool = True) -> str:
     """
     🔥 ROUTER: Routes to correct prompt builder based on call direction
     
@@ -299,16 +299,28 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
     - build_inbound_system_prompt() for inbound calls
     - build_outbound_system_prompt() for outbound calls
     
+    🔥 GREETING OPTIMIZATION: Uses prompt cache to eliminate DB/prompt building latency
+    
     Args:
         business_id: Business ID
         db_session: Optional SQLAlchemy session (for transaction safety)
         call_direction: "inbound" or "outbound" - determines which prompt to use
+        use_cache: Whether to use prompt cache (default: True)
     
     Returns:
         Complete system prompt for the AI assistant
     """
     try:
         from server.models_sql import Business, BusinessSettings
+        
+        # 🔥 CACHE CHECK: Try to get cached prompt first
+        if use_cache:
+            from server.services.prompt_cache import get_prompt_cache
+            cache = get_prompt_cache()
+            cached = cache.get(business_id)
+            if cached:
+                logger.info(f"✅ [PROMPT CACHE HIT] Returning cached prompt for business {business_id} ({call_direction})")
+                return cached.system_prompt
         
         logger.info(f"🔥 [PROMPT ROUTER] Called for business_id={business_id}, direction={call_direction}")
         
@@ -341,9 +353,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         }
         
         # 🔥 ROUTE TO CORRECT BUILDER
+        final_prompt = None
         if call_direction == "outbound":
             # 🔥 OUTBOUND: Use pure prompt mode (no call control settings)
-            return build_outbound_system_prompt(
+            final_prompt = build_outbound_system_prompt(
                 business_settings=business_settings_dict,
                 db_session=db_session
             )
@@ -358,11 +371,26 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 "silence_max_warnings": settings.silence_max_warnings if (settings and hasattr(settings, 'silence_max_warnings')) else 2,
             }
             
-            return build_inbound_system_prompt(
+            final_prompt = build_inbound_system_prompt(
                 business_settings=business_settings_dict,
                 call_control_settings=call_control_settings_dict,
                 db_session=db_session
             )
+        
+        # 🔥 CACHE STORE: Save to cache for future use
+        if use_cache and final_prompt:
+            from server.services.prompt_cache import get_prompt_cache
+            cache = get_prompt_cache()
+            greeting_text = business_settings_dict.get("greeting_message", "")
+            cache.set(
+                business_id=business_id,
+                system_prompt=final_prompt,
+                greeting_text=greeting_text,
+                language_config={}  # Can be extended later
+            )
+            logger.info(f"💾 [PROMPT CACHE STORE] Cached prompt for business {business_id}")
+        
+        return final_prompt
         
     except Exception as e:
         logger.error(f"❌ Error building Realtime prompt: {e}")
