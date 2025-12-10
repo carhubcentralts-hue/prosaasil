@@ -1855,7 +1855,7 @@ class MediaStreamHandler:
             
             # Store full prompt for session.update after greeting
             self._full_prompt_for_upgrade = full_prompt
-            self._using_compact_greeting = True  # Always true now (we always use compact first)
+            self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
             
             # 🔥 CRITICAL LOGGING: Verify business isolation
             if full_prompt and f"Business ID: {business_id_safe}" in full_prompt:
