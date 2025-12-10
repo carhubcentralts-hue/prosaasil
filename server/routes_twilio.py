@@ -472,9 +472,10 @@ def incoming_call():
     if business_id:
         stream.parameter(name="business_id", value=str(business_id))
     
-    # 🔥 PROMPT OPTIMIZATION: PRE-BUILD both COMPACT and FULL prompts in webhook
-    # COMPACT for ultra-fast greeting (<2s), FULL for post-greeting upgrade
-    if business_id and call_sid:
+    # 🔥 CRITICAL: Move prompt building to background thread - DO NOT block TwiML response!
+    # WebSocket connection depends on fast TwiML response
+    def _prebuild_prompts_async(call_sid, business_id):
+        """Background thread to pre-build prompts - doesn't block webhook response"""
         try:
             from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
             from server.stream_state import stream_registry
@@ -482,17 +483,23 @@ def incoming_call():
             # Build COMPACT prompt (800 chars) - for INSTANT greeting
             compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
             stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-            print(f"✅ [PROMPT] Pre-built COMPACT inbound prompt: {len(compact_prompt)} chars (for instant greeting)")
             
             # Build FULL prompt (3000+ chars) - for post-greeting upgrade
             full_prompt = build_realtime_system_prompt(business_id, call_direction="inbound")
             stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-            print(f"✅ [PROMPT] Pre-built FULL inbound prompt: {len(full_prompt)} chars (for post-greeting upgrade)")
             
+            print(f"✅ [PROMPT] Pre-built prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
         except Exception as e:
-            print(f"⚠️ [PROMPT] Failed to pre-build prompts: {e} - will fallback to async build")
-            import traceback
-            traceback.print_exc()
+            print(f"⚠️ [PROMPT] Background prompt build failed: {e} - will fallback to async build")
+    
+    # Start prompt building in background (non-blocking)
+    if business_id and call_sid:
+        threading.Thread(
+            target=_prebuild_prompts_async,
+            args=(call_sid, business_id),
+            daemon=True,
+            name=f"PromptBuild-{call_sid[:8]}"
+        ).start()
     
     # === יצירה אוטומטית של ליד (ברקע) - Non-blocking ===
     # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
@@ -607,9 +614,10 @@ def outbound_call():
     if template_id:
         stream.parameter(name="template_id", value=template_id)
     
-    # 🔥 PROMPT OPTIMIZATION: PRE-BUILD both COMPACT and FULL prompts in webhook
-    # COMPACT for ultra-fast greeting (<2s), FULL for post-greeting upgrade
-    if business_id and call_sid:
+    # 🔥 CRITICAL: Move prompt building to background thread - DO NOT block TwiML response!
+    # WebSocket connection depends on fast TwiML response
+    def _prebuild_prompts_async_outbound(call_sid, business_id):
+        """Background thread to pre-build outbound prompts - doesn't block webhook response"""
         try:
             from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
             from server.stream_state import stream_registry
@@ -617,17 +625,23 @@ def outbound_call():
             # Build COMPACT prompt (800 chars) - for INSTANT greeting
             compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
             stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-            print(f"✅ [PROMPT] Pre-built COMPACT outbound prompt: {len(compact_prompt)} chars (for instant greeting)")
             
             # Build FULL prompt (3000+ chars) - for post-greeting upgrade
             full_prompt = build_realtime_system_prompt(int(business_id), call_direction="outbound")
             stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-            print(f"✅ [PROMPT] Pre-built FULL outbound prompt: {len(full_prompt)} chars (for post-greeting upgrade)")
             
+            print(f"✅ [PROMPT] Pre-built outbound prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
         except Exception as e:
-            print(f"⚠️ [PROMPT] Failed to pre-build outbound prompts: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"⚠️ [PROMPT] Background outbound prompt build failed: {e}")
+    
+    # Start prompt building in background (non-blocking)
+    if business_id and call_sid:
+        threading.Thread(
+            target=_prebuild_prompts_async_outbound,
+            args=(call_sid, business_id),
+            daemon=True,
+            name=f"PromptBuildOut-{call_sid[:8]}"
+        ).start()
     
     t1 = time.time()
     twiml_ms = int((t1 - t0) * 1000)
