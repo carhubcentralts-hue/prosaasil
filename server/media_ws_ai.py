@@ -1040,6 +1040,15 @@ MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms preven
 MIN_RMS_DELTA = 20.0        # Minimum RMS above noise floor (prevents accepting silence as speech)
 MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
 ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
+ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
+
+# Valid short Hebrew phrases that should ALWAYS pass (even if 1 word when RMS is high)
+VALID_SHORT_HEBREW_PHRASES = {
+    "כן", "לא", "רגע", "שניה", "שנייה", "תן לי", "אני פה", "שומע",
+    "טוב", "בסדר", "תודה", "סליחה", "יופי", "נכון", "מעולה", "בדיוק",
+    "יאללה", "סבבה", "אוקיי", "אה", "אהה", "מה", "איפה", "מתי", "למה",
+    "איך", "כמה", "מי", "איזה", "זה", "אני", "היי", "הלו", "שלום", "ביי"
+}
 
 def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
                                      rms_snapshot: float, noise_floor: float,
@@ -1095,13 +1104,27 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         return False
     
     # 5) NEW: Minimum word count - reject single words (prevents "היי", "מה", "למה" hallucinations)
+    # BUT: Allow valid short Hebrew phrases when RMS is high (real human speech)
     word_count = len(stt_text.strip().split())
     if word_count < MIN_WORD_COUNT:
-        logger.info(
-            f"[STT_GUARD] Rejected: too few words ({word_count} < {MIN_WORD_COUNT}), "
-            f"text='{stt_text[:20]}...'"
-        )
-        return False
+        # Check if this is a valid short Hebrew phrase
+        normalized_text = stt_text.strip().lower()
+        is_valid_short_phrase = normalized_text in VALID_SHORT_HEBREW_PHRASES
+        
+        # Allow short phrases ONLY when RMS is significantly above noise floor (real speech)
+        rms_is_high = rms_snapshot >= noise_floor + (MIN_RMS_DELTA * 2)  # Double the normal threshold
+        
+        if is_valid_short_phrase and rms_is_high:
+            logger.info(
+                f"[STT_GUARD] Accepted short phrase: '{stt_text}' (valid Hebrew, high RMS={rms_snapshot:.1f})"
+            )
+            # Continue to final acceptance check
+        else:
+            logger.info(
+                f"[STT_GUARD] Rejected: too few words ({word_count} < {MIN_WORD_COUNT}), "
+                f"text='{stt_text[:20]}...', valid_phrase={is_valid_short_phrase}, high_rms={rms_is_high}"
+            )
+            return False
     
     # 6) NEW: Prevent repeat hallucinations - reject if identical to last rejected utterance
     if last_hallucination and stt_text.strip() == last_hallucination.strip():
@@ -1454,6 +1477,7 @@ class MediaStreamHandler:
         # 🔥 FIX BUG 3: Enhanced STT guard tracking
         self._last_hallucination = ""  # Last rejected hallucination (to prevent repeats)
         self._last_ai_audio_start_ts = None  # When AI audio started (for echo suppression)
+        self._last_ai_audio_ts = None  # Track last AI audio sent (for ECHO_GUARD at speech_started level)
         
         # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
         self._consecutive_ai_responses = 0
@@ -3151,6 +3175,20 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 ECHO_GUARD: Reject speech_started if it's likely echo from AI audio
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # This runs BEFORE any other processing to prevent echo from triggering barge-in
+                    now_ms = time.time() * 1000
+                    if self.is_ai_speaking_event.is_set() and hasattr(self, '_last_ai_audio_ts'):
+                        time_since_ai_audio_ms = now_ms - (self._last_ai_audio_ts * 1000)
+                        if time_since_ai_audio_ms <= ECHO_WINDOW_MS:
+                            logger.info(
+                                f"[ECHO_GUARD] Ignoring speech_started - probable echo (Δ{time_since_ai_audio_ms:.1f}ms since AI audio)"
+                            )
+                            # Do NOT mark candidate_user_speaking, do NOT start utterance, do NOT trigger barge-in
+                            continue
+                    
                     # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
                     # Instead of ignoring, treat this as valid input and stop the greeting
                     if self.is_playing_greeting:
@@ -3230,6 +3268,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     #   3. Clear guards/flags
                     #   4. Let the new user utterance lead the next response
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                        # Track barge-in latency for performance monitoring
+                        barge_in_latency_start = time.time()
+                        
                         print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
                         print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
                         print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
@@ -3273,6 +3314,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         except Exception as e:
                             print(f"   ⚠️ Error flushing TX queue: {e}")
                         
+                        # Calculate and log barge-in latency
+                        barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
+                        print(f"[BARGE_IN_LATENCY] ms={barge_in_latency_ms:.1f}")
                         print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, queue flushed")
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
@@ -3469,6 +3513,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
+                        # 🔥 ECHO_GUARD: Track timestamp for echo detection
+                        self._last_ai_audio_ts = now
                         
                         # 💰 COST TRACKING: Count AI audio chunks
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
