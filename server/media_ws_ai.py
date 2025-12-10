@@ -1237,12 +1237,12 @@ class MediaStreamHandler:
         self._openai_connect_attempts = 0  # Count OpenAI connection attempts
         self._greeting_audio_first_ts = None  # When first greeting audio delta was received
         self._greeting_audio_received = False  # True after at least one greeting audio delta
+        self._greeting_audio_timeout_sec = 5.0  # 🔥 BUILD 350: Increased to 5s for outbound reliability
         
         # Timeout configuration (optimized for fast response + stability)
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
         self._twilio_start_timeout_sec = 2.5  # Max wait for Twilio START event
         # NOTE: OpenAI connection uses client.connect() internal retry with 5s total timeout
-        self._greeting_audio_timeout_sec = 3.5  # Max wait for first greeting audio from OpenAI (increased for stability)
         
         # Timing metrics for diagnostics
         self._metrics_openai_connect_ms = 0  # Time to connect to OpenAI
@@ -1963,7 +1963,11 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
             # No waiting for CRM, no 0.2s delay - just speak!
-            logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}")
+            # 🔥 BUILD 350: OUTBOUND CALLS - Bot ALWAYS speaks first!
+            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+            logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}, direction={call_direction}, is_outbound={is_outbound}")
+            if is_outbound:
+                print(f"📤📤📤 [OUTBOUND] Bot will speak FIRST - NO WAITING for customer!")
             if self.bot_speaks_first:
                 greeting_start_ts = time.time()
                 print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
@@ -2877,9 +2881,18 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
+                    # 🔥 BUILD 350: OUTBOUND CALLS - NEVER cancel greeting on speech_started!
+                    # For outbound calls, bot ALWAYS speaks first regardless of customer noise
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    
                     # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
                     # Instead of ignoring, treat this as valid input and stop the greeting
                     if self.is_playing_greeting:
+                        # 🔥 BUILD 350: OUTBOUND - IGNORE speech_started during greeting!
+                        if is_outbound:
+                            print(f"📤 [OUTBOUND] IGNORING speech_started during greeting - bot speaks first!")
+                            continue  # Skip all speech_started processing during outbound greeting
+                        
                         print(f"⛔ [BARGE-IN GREETING] User started talking during greeting - stopping greeting!")
                         self.is_playing_greeting = False
                         self.barge_in_active = True
@@ -6060,12 +6073,21 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🛡️ BUILD 168.5 FIX: Block audio enqueue during greeting!
                         # OpenAI's server-side VAD detects incoming audio and cancels the greeting.
                         # Block audio until greeting finishes OR user has already spoken.
-                        if self.is_playing_greeting and not self.user_has_spoken:
-                            # Log once
-                            if not hasattr(self, '_greeting_enqueue_block_logged'):
-                                print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
-                                self._greeting_enqueue_block_logged = True
-                            continue  # Don't enqueue audio during greeting
+                        # 🔥 BUILD 350: OUTBOUND - ALWAYS block during greeting (even if user spoke)
+                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                        if self.is_playing_greeting:
+                            if is_outbound:
+                                # 🔥 OUTBOUND: ALWAYS block audio during greeting
+                                if not hasattr(self, '_greeting_enqueue_block_logged_outbound'):
+                                    print(f"📤 [OUTBOUND] BLOCKING all audio during greeting - bot speaks first!")
+                                    self._greeting_enqueue_block_logged_outbound = True
+                                continue  # Don't enqueue any audio during outbound greeting
+                            elif not self.user_has_spoken:
+                                # INBOUND: Block only if user hasn't spoken
+                                if not hasattr(self, '_greeting_enqueue_block_logged'):
+                                    print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
+                                    self._greeting_enqueue_block_logged = True
+                                continue  # Don't enqueue audio during greeting
                         
                         if not self.barge_in_enabled_after_greeting:
                             # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
