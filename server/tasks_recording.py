@@ -302,6 +302,63 @@ def process_recording_async(form_data):
         
         log.info("✅ Recording processed successfully: CallSid=%s", call_sid)
         
+        # 🔥 5. Send call_completed webhook - CRITICAL FIX!
+        # This was missing - webhook should always be sent after offline processing completes
+        try:
+            from server.services.generic_webhook_service import send_call_completed_webhook
+            from server.app_factory import get_process_app
+            from server.models_sql import CallLog, Business
+            
+            app = get_process_app()
+            with app.app_context():
+                # Get call details from DB
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if not call_log:
+                    log.warning(f"[WEBHOOK] CallLog not found for {call_sid} - cannot send webhook")
+                    print(f"⚠️ [WEBHOOK] CallLog not found for {call_sid} - skipping webhook")
+                else:
+                    business = Business.query.filter_by(id=call_log.business_id).first()
+                    if not business:
+                        log.warning(f"[WEBHOOK] Business not found for call {call_sid} - cannot send webhook")
+                        print(f"⚠️ [WEBHOOK] Business not found - skipping webhook")
+                    else:
+                        # Determine call direction
+                        direction = call_log.direction or "inbound"
+                        
+                        print(f"[WEBHOOK] Preparing call_completed webhook: call={call_sid}, business={business.id}, direction={direction}")
+                        log.info(f"[WEBHOOK] Preparing webhook for call {call_sid}: direction={direction}, business={business.id}")
+                        
+                        # Build payload with all available data
+                        webhook_sent = send_call_completed_webhook(
+                            business_id=business.id,
+                            call_id=call_sid,
+                            lead_id=call_log.lead_id if hasattr(call_log, 'lead_id') else None,
+                            phone=call_log.from_number or from_number,
+                            started_at=call_log.created_at,
+                            ended_at=call_log.updated_at,
+                            duration_sec=call_log.duration or 0,
+                            transcript=final_transcript or transcription or "",
+                            summary=summary or "",
+                            agent_name=business.name or "Assistant",
+                            direction=direction,
+                            city=extracted_city,
+                            service_category=extracted_service
+                        )
+                        
+                        if webhook_sent:
+                            print(f"[WEBHOOK] ✅ Webhook queued for call {call_sid} (direction={direction})")
+                            log.info(f"[WEBHOOK] Webhook queued successfully for {call_sid}")
+                        else:
+                            print(f"[WEBHOOK] ⚠️ Webhook not sent for call {call_sid} (no URL configured for direction={direction})")
+                            log.warning(f"[WEBHOOK] Webhook not sent - no URL configured for direction={direction}")
+                            
+        except Exception as webhook_err:
+            # Don't fail the entire pipeline if webhook fails - just log it
+            print(f"❌ [WEBHOOK] Failed to send webhook for {call_sid}: {webhook_err}")
+            log.error(f"[WEBHOOK] Failed to send webhook for {call_sid}: {webhook_err}")
+            import traceback
+            traceback.print_exc()
+        
     except Exception as e:
         log.error("❌ Recording processing failed: %s", e)
         import traceback

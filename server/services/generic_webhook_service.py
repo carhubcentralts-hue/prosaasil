@@ -73,20 +73,32 @@ def send_generic_webhook(
                 # Outbound calls: ONLY use outbound_webhook_url - no fallback
                 webhook_url = getattr(settings, 'outbound_webhook_url', None)
                 if not webhook_url:
-                    print(f"[WEBHOOK] No outbound webhook URL configured for business {business_id} - skipping")
+                    print(f"[WEBHOOK] ⚠️ No outbound webhook URL configured for business {business_id} - skipping webhook send")
+                    print(f"[WEBHOOK]    Direction: {direction}, Event: {event_type}")
                     return False
+                print(f"[WEBHOOK] ✅ Using outbound_webhook_url for business {business_id}: {webhook_url[:60]}...")
             elif direction == "inbound":
                 # Inbound calls: Use inbound_webhook_url, fallback to generic
-                webhook_url = getattr(settings, 'inbound_webhook_url', None) or settings.generic_webhook_url
+                inbound_url = getattr(settings, 'inbound_webhook_url', None)
+                generic_url = settings.generic_webhook_url
+                
+                webhook_url = inbound_url or generic_url
                 if not webhook_url:
-                    print(f"[WEBHOOK] No inbound/generic webhook URL configured for business {business_id}")
+                    print(f"[WEBHOOK] ⚠️ No inbound/generic webhook URL configured for business {business_id}")
+                    print(f"[WEBHOOK]    Direction: {direction}, Event: {event_type}")
                     return False
+                
+                if inbound_url:
+                    print(f"[WEBHOOK] ✅ Using inbound_webhook_url for business {business_id}: {webhook_url[:60]}...")
+                else:
+                    print(f"[WEBHOOK] ✅ Using generic_webhook_url (fallback) for business {business_id}: {webhook_url[:60]}...")
             else:
                 # Non-call events or unspecified: Use generic webhook
                 if not settings.generic_webhook_url:
-                    print(f"[WEBHOOK] No webhook URL configured for business {business_id}")
+                    print(f"[WEBHOOK] ⚠️ No webhook URL configured for business {business_id}")
                     return False
                 webhook_url = settings.generic_webhook_url
+                print(f"[WEBHOOK] ✅ Using generic_webhook_url for business {business_id}: {webhook_url[:60]}...")
         
         if not webhook_url:
             return False
@@ -100,6 +112,10 @@ def send_generic_webhook(
         
         payload_json = json.dumps(payload, ensure_ascii=False, default=str)
         signature = generate_signature(payload_json)
+        
+        # 🔍 Enhanced logging: Show payload preview (first 300 chars for debugging)
+        payload_preview = payload_json[:300] + "..." if len(payload_json) > 300 else payload_json
+        print(f"[WEBHOOK] 📦 Payload preview ({len(payload_json)} bytes): {payload_preview}")
         
         headers = {
             "Content-Type": "application/json; charset=utf-8",
@@ -134,10 +150,12 @@ def send_generic_webhook(
                             continue  # Retry with new URL
                     
                     if response.status_code >= 200 and response.status_code < 300:
-                        print(f"[WEBHOOK] ✅ Success: {event_type} sent to webhook (status {response.status_code})")
+                        print(f"[WEBHOOK] ✅ Success: {event_type} sent to webhook")
+                        print(f"[WEBHOOK]    Status: {response.status_code}, Response: {response.text[:100]}")
                         return True
                     else:
-                        print(f"[WEBHOOK] ⚠️ Response {response.status_code}: {response.text[:200]}")
+                        print(f"[WEBHOOK] ⚠️ Webhook returned error status {response.status_code}")
+                        print(f"[WEBHOOK]    Response body: {response.text[:200]}")
                         
                 except requests.exceptions.Timeout:
                     print(f"[WEBHOOK] ⏱️ Timeout on attempt {attempt + 1}")
@@ -205,6 +223,12 @@ def send_call_completed_webhook(
         city_autocorrected: Whether majority voting was used to correct STT
         name_raw_attempts: List of all raw STT attempts for name (for debugging)
     """
+    # 🔍 Enhanced logging: Show all key parameters for debugging
+    print(f"[WEBHOOK] 📞 send_call_completed_webhook called:")
+    print(f"[WEBHOOK]    call_id={call_id}, business_id={business_id}, direction={direction}")
+    print(f"[WEBHOOK]    phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
+    print(f"[WEBHOOK]    duration={duration_sec}s, transcript={len(transcript or '')} chars, summary={len(summary or '')} chars")
+    
     data = {
         "call_id": str(call_id) if call_id else "",
         "lead_id": str(lead_id) if lead_id else "",
@@ -227,8 +251,6 @@ def send_call_completed_webhook(
         "direction": direction,
         "metadata": metadata or {}
     }
-    
-    print(f"[WEBHOOK] 📦 Payload built: call_id={call_id}, phone={phone or 'N/A'}, city={city or 'N/A'}, direction={direction}")
     
     # 🔥 BUILD 183: Pass direction for webhook routing
     return send_generic_webhook(business_id, "call.completed", data, direction=direction)

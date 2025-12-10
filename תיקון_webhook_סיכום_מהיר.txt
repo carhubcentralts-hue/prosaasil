@@ -1,0 +1,78 @@
+🔥 תיקון Webhook סיום שיחה - סיכום מהיר
+=============================================
+
+✅ מה תוקן:
+-----------
+1. הוספנו קריאה ל-send_call_completed_webhook() בסוף הפייפליין האופליין
+   → הקובץ: server/tasks_recording.py (שורה ~303)
+
+2. שיפרנו את ה-logging כדי לראות מה קורה:
+   → [WEBHOOK] 📞 send_call_completed_webhook called
+   → [WEBHOOK] ✅ Using inbound_webhook_url
+   → [WEBHOOK] ✅ Success: call.completed sent
+
+3. ודאנו שההפרדה בין inbound/outbound webhooks עובדת נכון:
+   → שיחות נכנסות → inbound_webhook_url (או generic_webhook_url)
+   → שיחות יוצאות → רק outbound_webhook_url (ללא fallback)
+
+
+🎯 מה עושים עכשיו:
+------------------
+1. הפעל מחדש את השרver:
+   ./start_dev.sh
+
+2. בצע שיחת בדיקה (נכנסת או יוצאת)
+
+3. בדוק בלוגים שיש:
+   [WEBHOOK] 📞 send_call_completed_webhook called:
+   [WEBHOOK]    call_id=CA..., direction=inbound
+   [WEBHOOK] ✅ Success
+
+4. בדוק ב-n8n/Zapier שה-webhook הגיע עם כל הדאטה:
+   - call_id
+   - phone
+   - direction
+   - transcript
+   - summary
+   - city
+   - service_category
+   - duration_sec
+
+
+📊 מה ה-webhook כולל:
+---------------------
+{
+  "event_type": "call.completed",
+  "business_id": "10",
+  "call_id": "CA...",
+  "direction": "inbound",
+  "phone": "+972...",
+  "city": "בית שאן",
+  "service_category": "שיווק נכס",
+  "transcript": "...",
+  "summary": "...",
+  "duration_sec": 26
+}
+
+
+⚙️ הגדרות נדרשות ב-BusinessSettings:
+------------------------------------
+- inbound_webhook_url: עבור שיחות נכנסות (fallback ל-generic_webhook_url)
+- outbound_webhook_url: עבור שיחות יוצאות (ללא fallback!)
+
+
+⚠️ חשוב לדעת:
+--------------
+- Webhook נשלח רק אחרי שכל העיבוד הסתיים (תמלול + סיכום + חילוץ)
+- עיכוב טיפוסי: 5-30 שניות אחרי סיום השיחה
+- שיחות שנכשלו (no-answer, busy) לא שולחות webhook (אין להן דאטה)
+
+
+📄 תיעוד מלא:
+-------------
+- WEBHOOK_COMPLETION_FIX.md (אנגלית)
+- סיכום_תיקון_webhook.md (עברית)
+
+
+✅ סטטוס: מוכן לבדיקה!
+תאריך: 10 בדצמבר 2025
