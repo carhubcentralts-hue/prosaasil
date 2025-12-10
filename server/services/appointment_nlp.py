@@ -1,5 +1,11 @@
 """
-Appointment NLP Parser - Compact & Dynamic
+Appointment NLP Parser - EXTRACTION ONLY
+=========================================
+
+🎯 PURPOSE: Extract appointment data from conversation history
+✅ Contains: Entity extraction rules only
+❌ Does NOT contain: Conversation behavior, greetings, flow logic
+
 BUILD 182: Optimized for speed with minimal prompt + phone extraction
 """
 import os
@@ -47,24 +53,35 @@ def _extract_phone_from_text(text: str) -> Optional[str]:
 
 
 def _build_compact_prompt(today_str: str, weekday_hebrew: str, tomorrow_str: str) -> str:
-    """Build minimal system prompt - no business-specific data leaked"""
-    return f"""מנתח שיחות עברית לקביעת תורים. היום: {today_str} ({weekday_hebrew})
+    """
+    🎯 NLP EXTRACTION PROMPT - Technical extraction rules ONLY
+    
+    ✅ Contains: Entity extraction rules
+    ❌ Does NOT contain: How to speak, greetings, conversation flow
+    
+    This prompt is for DATA EXTRACTION, not conversation behavior.
+    """
+    return f"""Extract appointment data from Hebrew conversation.
+Today: {today_str} ({weekday_hebrew})
 
-החזר JSON:
+Return JSON:
 {{"action":"hours_info|ask|confirm|none","date":"YYYY-MM-DD|null","time":"HH:MM|null","name":"שם|null","phone":"05X...|null","confidence":0.0-1.0}}
 
-actions:
-- hours_info: שאלה על שעות פעילות (לא תור!)
-- ask: בקשת זמינות לתאריך/שעה
-- confirm: לקוח אישר (כן/בסדר/מושלם) + יש שם + יש תאריך+שעה
-- none: אין בקשה
+Action Detection Rules:
+- hours_info: Customer asking about opening hours (NOT booking appointment)
+- ask: Customer requesting availability for specific date/time
+- confirm: Customer explicitly confirmed (כן/בסדר/מושלם/אוקיי/מתאים) AND name + date + time exist
+- none: No appointment-related action detected
 
-כללים:
-1. חפש תאריך/שעה/שם/טלפון בכל השיחה
-2. "מחר"={tomorrow_str}, שעות: "בשש"=18:00, "בשבע וחצי"=19:30
-3. שם כללי (לקוח/אדון/גברת)=null
-4. confirm רק אחרי אישור מפורש (כן/בסדר/מושלם/אוקיי/מתאים)
-5. טלפון: חפש 05X או +972 בשיחה"""
+Entity Extraction Rules:
+1. Search entire conversation for: date, time, name, phone
+2. Date mapping: "מחר"={tomorrow_str}
+3. Time mapping: "בשש"=18:00, "בשבע וחצי"=19:30, "בשמונה"=20:00
+4. Name: Generic names (לקוח/אדון/גברת) = null (wait for actual name)
+5. Phone: Extract Israeli format (05X... or +972-5X...)
+6. Confidence: >80% if all required fields present
+
+CRITICAL: This is pure extraction. Never guess if confidence <80%."""
 
 
 async def extract_appointment_request(conversation_history: list, business_id: int) -> Optional[Dict]:

@@ -1,6 +1,14 @@
 """
-Realtime Prompt Builder
-Build dynamic system prompts for OpenAI Realtime API based on business settings
+Realtime Prompt Builder - REFACTORED FOR PERFECT LAYER SEPARATION
+=================================================================
+
+🎯 MISSION: Zero collisions, zero duplicated rules, perfect dynamic flow
+
+LAYER ARCHITECTURE:
+1. SYSTEM PROMPT → Behavior rules only (universal, no content)
+2. BUSINESS PROMPT → All flow, script, and domain content
+3. TRANSCRIPT PROMPT → Recognition enhancement only
+4. NLP PROMPT → Data extraction only (handled separately)
 
 🔥 BUILD: PERFECT INBOUND & OUTBOUND SEPARATION
 - build_inbound_system_prompt(): Full control settings + appointment scheduling
@@ -14,6 +22,91 @@ import pytz
 import json
 
 logger = logging.getLogger(__name__)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 PART 1: SYSTEM PROMPT - UNIVERSAL BEHAVIOR RULES ONLY
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _build_universal_system_prompt() -> str:
+    """
+    🎯 UNIVERSAL SYSTEM PROMPT - Behavior rules ONLY
+    
+    ✅ MUST CONTAIN:
+    - Language rules (Hebrew default, auto-switch)
+    - Truth & safety rules (transcription is truth)
+    - Conversation rules (one question at a time, warm tone)
+    - Clarity rules (ask if unclear)
+    - Behavior hierarchy (Business Prompt overrides system)
+    
+    ❌ MUST NOT CONTAIN:
+    - Service names
+    - City names
+    - Business flow
+    - Appointment flow
+    - Hardcoded scripts
+    - Domain-specific examples
+    
+    This prompt is IDENTICAL for all businesses - only behavior, no content.
+    """
+    return """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SYSTEM RULES (Universal Behavior)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. LANGUAGE RULES
+─────────────────
+You ALWAYS speak Hebrew unless the caller speaks a different language.
+If the caller speaks English, Arabic, Russian, or any other language, 
+seamlessly switch to that language for the entire conversation.
+NEVER mix languages unless the caller does so explicitly.
+
+2. TRUTH & SAFETY RULES
+────────────────────────
+TRANSCRIPTION IS TRUTH.
+The realtime transcription is your single source of truth.
+- NEVER invent facts, services, cities, or details
+- NEVER substitute or "correct" what the caller said
+- NEVER assume or guess information
+- Use EXACTLY what the caller says, word-for-word
+
+3. CONVERSATION RULES
+──────────────────────
+- Stay warm, calm, human, short, and clear
+- Ask ONE question at a time
+- NEVER rush the caller
+- Wait until the caller finishes speaking before responding
+- NEVER repeat the same question more than twice
+- If the caller is unsure, offer alternatives gently
+
+4. CLARITY RULES
+────────────────
+If you don't understand something:
+- Ask politely for clarification
+- Do NOT guess or make assumptions
+- Wait for the caller to provide the information
+
+5. LANGUAGE SWITCHING RULES
+────────────────────────────
+Monitor the caller's language throughout the conversation.
+If they switch languages mid-call, immediately switch to match them.
+This includes Hebrew ↔ English, Hebrew ↔ Arabic, or any other combination.
+
+6. BEHAVIOR HIERARCHY
+──────────────────────
+Business Prompt > System Prompt > Model Defaults
+
+If there is ANY conflict between instructions:
+→ ALWAYS follow the Business Prompt below
+→ The Business Prompt is the source of truth for what to say and do
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""".strip()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🔥 PART 2: LEGACY FUNCTIONS (for backward compatibility)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
 def get_greeting_prompt_fast(business_id: int) -> Tuple[str, str]:
@@ -348,13 +441,16 @@ def build_inbound_system_prompt(
     db_session=None
 ) -> str:
     """
-    🔥 REBUILT: Perfect Inbound System Prompt (100% Prompt-Driven)
+    🔥 REFACTORED: Perfect Separation - System + Business Prompts
     
-    - Bilingual adaptive (auto-detect & switch)
-    - Zero hardcoded conversational logic
-    - Dynamic appointment flow based on settings
-    - Strict anti-hallucination
-    - Optimized for GPT-4o Realtime
+    STRUCTURE:
+    1. Universal System Prompt (behavior only)
+    2. Appointment Instructions (if enabled)
+    3. Business Prompt (all content and flow)
+    
+    ✅ NO hardcoded flow
+    ✅ NO hardcoded greetings
+    ✅ NO domain-specific content in system layer
     
     Args:
         business_settings: Dict with business info (id, name, ai_prompt)
@@ -375,50 +471,15 @@ def build_inbound_system_prompt(
         
         logger.info(f"📋 [INBOUND] Building prompt: {business_name} (scheduling={enable_calendar_scheduling}, goal={call_goal})")
         
-        # 🔥 PARSE BUSINESS PROMPT (handle JSON format)
-        core_instructions = ""
-        if ai_prompt_raw and ai_prompt_raw.strip():
-            try:
-                if ai_prompt_raw.strip().startswith('{'):
-                    prompt_obj = json.loads(ai_prompt_raw)
-                    core_instructions = prompt_obj.get('calls') or prompt_obj.get('whatsapp') or ai_prompt_raw
-                else:
-                    core_instructions = ai_prompt_raw
-            except json.JSONDecodeError:
-                core_instructions = ai_prompt_raw
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        system_rules = _build_universal_system_prompt()
         
-        # Replace placeholders
-        if core_instructions:
-            core_instructions = core_instructions.replace("{{business_name}}", business_name)
-            core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
-        
-        # 🔥 A. LANGUAGE & TRANSCRIPTION RULES
-        language_rules = f"""You are a virtual assistant for "{business_name}".
-
-LANGUAGE (AUTO-ADAPTIVE):
-Default = Hebrew. If caller speaks another language (English/Arabic/Russian/etc) → seamlessly switch to that language for the entire call. Never mix languages unless requested.
-
-TRANSCRIPTION IS TRUTH:
-The realtime transcription is the single source of truth. Never invent facts. Never assume. If unclear, ask politely for clarification. Use EXACTLY what the caller says."""
-
-        # 🔥 B. BEHAVIOR HIERARCHY
-        hierarchy = """
-BEHAVIOR HIERARCHY:
-Business Prompt > System Rules > Model Defaults
-If any conflict → ALWAYS follow Business Prompt."""
-
-        # 🔥 C. CONVERSATION RULES
-        conversation = """
-CONVERSATION:
-- Stay natural, warm, human
-- ONE question at a time
-- NEVER rush the customer
-- NEVER repeat same question more than twice
-- If customer unsure → offer alternatives calmly
-- Never improvise facts or services
-- Never ask for phone number (already available from call metadata)"""
-
-        # 🔥 D. APPOINTMENT LOGIC (dynamic)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 2: APPOINTMENT INSTRUCTIONS (dynamic, technical only)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        appointment_instructions = ""
         if call_goal == 'appointment' and enable_calendar_scheduling:
             from server.policy.business_policy import get_business_policy
             policy = get_business_policy(business_id, prompt_text=None, db_session=db_session)
@@ -429,78 +490,68 @@ CONVERSATION:
             weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             weekday_name = weekday_names[today.weekday()]
             
-            appointment_logic = f"""
-APPOINTMENT SCHEDULING:
-Today: {weekday_name}, {today_date}
-
-Required info to collect:
-1) Customer name
-2) Date and time (natural language → convert to YYYY-MM-DD HH:MM format)
-
-Tool usage:
-- Call schedule_appointment ONLY ONCE after you have all required info
-- NEVER ask for phone (use call metadata)
-- If server returns success=false → ask for different time
-- If success=true → confirm appointment is successfully scheduled
-- Slot size: {policy.slot_size_min} minutes
-
-CRITICAL: Never say "I scheduled" unless server tool returns success=true."""
-        elif call_goal == 'lead_only' or not enable_calendar_scheduling:
-            appointment_logic = """
-APPOINTMENT SCHEDULING: DISABLED
-NEVER attempt to schedule or suggest an appointment. Respond conversationally only. If customer asks about appointments, follow Business Prompt instructions."""
-        else:
-            appointment_logic = """APPOINTMENT SCHEDULING: DISABLED"""
-
-        # 🔥 E. ERROR RECOVERY
-        error_recovery = """
-ERROR RECOVERY:
-- Unclear audio → ask to repeat politely
-- Misunderstood → apologize briefly and correct"""
-
-        # 🔥 F. ANTI-HALLUCINATION
-        anti_hallucination = """
-ANTI-HALLUCINATION (CRITICAL):
-- Never create or assume details
-- Never say "I scheduled" unless server returns success=true
-- Never say "representative will contact you" unless Business Prompt instructs it"""
-
-        # 🔥 G. HANGUP LOGIC
-        if call_goal == 'lead_only':
-            hangup = """
-CALL END:
-If all required info collected → politely end conversation. Follow Business Prompt for goodbye."""
-        elif call_goal == 'appointment' and enable_calendar_scheduling:
-            hangup = """
-CALL END:
-If appointment successfully scheduled → politely end conversation. Follow Business Prompt for goodbye."""
-        else:
-            hangup = """CALL END: Follow Business Prompt."""
-
-        # 🔥 COMBINE ALL
-        full_prompt = f"""{language_rules}
-
-{hierarchy}
-
-{conversation}
-
-{appointment_logic}
-
-{error_recovery}
-
-{anti_hallucination}
-
-{hangup}
+            appointment_instructions = f"""
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BUSINESS PROMPT (SOURCE OF TRUTH):
+APPOINTMENT SCHEDULING TECHNICAL INSTRUCTIONS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-{core_instructions if core_instructions else f"Professional service representative for {business_name}. Be helpful and collect customer information."}
+Context: Today is {weekday_name}, {today_date}
+Slot Size: {policy.slot_size_min} minutes
+
+Required Information:
+1. Customer name
+2. Preferred date and time (convert natural language → YYYY-MM-DD HH:MM)
+
+Tool Usage:
+- Call schedule_appointment ONLY ONCE after collecting all required info
+- Phone number is already available from call metadata (never ask for it)
+- If server returns success=false → politely offer alternative times
+- If server returns success=true → confirm appointment is scheduled
+- NEVER say "appointment is scheduled" unless server confirms success=true
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 3: BUSINESS PROMPT (all content and flow)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        # Parse business prompt (handle JSON format)
+        business_prompt = ""
+        if ai_prompt_raw and ai_prompt_raw.strip():
+            try:
+                if ai_prompt_raw.strip().startswith('{'):
+                    prompt_obj = json.loads(ai_prompt_raw)
+                    business_prompt = prompt_obj.get('calls') or prompt_obj.get('whatsapp') or ai_prompt_raw
+                else:
+                    business_prompt = ai_prompt_raw
+            except json.JSONDecodeError:
+                business_prompt = ai_prompt_raw
+        
+        # Replace placeholders
+        if business_prompt:
+            business_prompt = business_prompt.replace("{{business_name}}", business_name)
+            business_prompt = business_prompt.replace("{{BUSINESS_NAME}}", business_name)
+        else:
+            # Minimal fallback (should never happen in production)
+            business_prompt = f"You are a professional service representative for {business_name}. Be helpful and collect customer information."
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 COMBINE ALL LAYERS
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        full_prompt = f"""{system_rules}{appointment_instructions}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BUSINESS PROMPT (SOURCE OF TRUTH FOR ALL CONTENT)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{business_prompt}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         
-        logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars")
+        logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars (system + business)")
         return full_prompt
         
     except Exception as e:
@@ -515,13 +566,16 @@ def build_outbound_system_prompt(
     db_session=None
 ) -> str:
     """
-    🔥 REBUILT: Perfect Outbound System Prompt (100% Prompt-Driven)
+    🔥 REFACTORED: Perfect Separation - System + Outbound Business Prompt
     
-    - Bilingual adaptive (auto-detect & switch)
-    - Direct, purpose-driven outbound behavior
-    - Identity verification reminder
-    - Same anti-hallucination rules as inbound
-    - Optimized for GPT-4o Realtime
+    STRUCTURE:
+    1. Universal System Prompt (behavior only)
+    2. Outbound-specific note (identity reminder)
+    3. Outbound Business Prompt (all content and flow)
+    
+    ✅ NO hardcoded flow
+    ✅ NO hardcoded greetings
+    ✅ NO domain-specific content in system layer
     
     Args:
         business_settings: Dict with business info (id, name, outbound_ai_prompt)
@@ -533,110 +587,67 @@ def build_outbound_system_prompt(
     try:
         business_id = business_settings.get("id")
         business_name = business_settings.get("name", "Business")
-        outbound_prompt = business_settings.get("outbound_ai_prompt", "")
+        outbound_prompt_raw = business_settings.get("outbound_ai_prompt", "")
         
         logger.info(f"📋 [OUTBOUND] Building prompt: {business_name} (id={business_id})")
         
-        # 🔥 USE OUTBOUND PROMPT
-        core_instructions = ""
-        if outbound_prompt and outbound_prompt.strip():
-            core_instructions = outbound_prompt.strip()
-            logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ({len(core_instructions)} chars)")
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        system_rules = _build_universal_system_prompt()
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 2: OUTBOUND-SPECIFIC CONTEXT (minimal, identity only)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        outbound_context = f"""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTBOUND CALL CONTEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This is an OUTBOUND call from "{business_name}".
+
+If the customer seems confused about who is calling:
+→ Politely remind them: "שלום, אני העוזרת הדיגיטלית של {business_name}."
+   (or in their language if they speak differently)
+
+Follow the Outbound Prompt below for all content, flow, and instructions.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 LAYER 3: OUTBOUND BUSINESS PROMPT (all content and flow)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        outbound_prompt = ""
+        if outbound_prompt_raw and outbound_prompt_raw.strip():
+            outbound_prompt = outbound_prompt_raw.strip()
+            logger.info(f"✅ [OUTBOUND] Using outbound_ai_prompt ({len(outbound_prompt)} chars)")
         else:
-            core_instructions = f"You are a professional representative for {business_name}. Be brief and helpful."
+            # Minimal fallback (should never happen in production)
+            outbound_prompt = f"You are a professional outbound representative for {business_name}. Be brief, polite, and helpful."
             logger.warning(f"⚠️ [OUTBOUND] No outbound_ai_prompt - using fallback")
         
         # Replace placeholders
-        core_instructions = core_instructions.replace("{{business_name}}", business_name)
-        core_instructions = core_instructions.replace("{{BUSINESS_NAME}}", business_name)
+        outbound_prompt = outbound_prompt.replace("{{business_name}}", business_name)
+        outbound_prompt = outbound_prompt.replace("{{BUSINESS_NAME}}", business_name)
         
-        # 🔥 A. LANGUAGE & TRANSCRIPTION
-        language_rules = f"""You are a virtual outbound assistant for "{business_name}".
-
-LANGUAGE (AUTO-ADAPTIVE):
-Default = Hebrew. If customer speaks another language (English/Arabic/Russian/etc) → seamlessly switch to that language for the entire call. Never mix languages unless requested.
-
-TRANSCRIPTION IS TRUTH:
-The realtime transcription is the single source of truth. Never invent facts. Never assume. If unclear, ask politely. Use EXACTLY what the caller says."""
-
-        # 🔥 B. IDENTITY VERIFICATION
-        identity = f"""
-IDENTITY VERIFICATION:
-If customer sounds unsure who you are, remind them gently:
-"שלום, אני העוזרת הדיגיטלית של {business_name}." (or in their language)"""
-
-        # 🔥 C. OUTBOUND BEHAVIOR
-        outbound_behavior = """
-OUTBOUND BEHAVIOR:
-- Be more direct than inbound calls
-- State purpose early: "I'm calling from [business] regarding..." (follow Outbound Prompt)
-- Push gently toward appointment/lead goal if specified
-- ONE question at a time
-- NEVER rush the customer
-- NEVER repeat same question more than twice
-- If customer unsure → offer alternatives calmly
-- If customer objects → acknowledge and follow Outbound Prompt instructions
-- Never improvise facts or offers
-- Never ask for phone (already available from call metadata)
-
-CONVERSATION FLOW:
-1. Greet and identify yourself (follow Outbound Prompt)
-2. State purpose clearly
-3. Engage with customer needs
-4. Collect required information
-5. Close appropriately (follow Outbound Prompt)"""
-
-        # 🔥 D. ANTI-HALLUCINATION (same as inbound)
-        anti_hallucination = """
-ANTI-HALLUCINATION (CRITICAL):
-- Never create or assume details about products, services, or pricing
-- Never promise anything not explicitly stated in Outbound Prompt
-- Never say "I scheduled" unless server tool returns success=true
-- Never say "representative will contact you" unless Outbound Prompt instructs it
-- If customer asks something not covered in Outbound Prompt → politely defer or ask for clarification"""
-
-        # 🔥 E. ERROR RECOVERY
-        error_recovery = """
-ERROR RECOVERY:
-- If unclear audio → ask customer to repeat politely
-- If misunderstood → apologize briefly and correct
-- If technical issue → acknowledge calmly and continue"""
-
-        # 🔥 F. CALL END
-        call_end = """
-CALL END:
-Follow Outbound Prompt for goodbye. Be warm but professional. Stay quiet after saying goodbye."""
-
-        # 🔥 F. HIERARCHY
-        hierarchy = """
-BEHAVIOR HIERARCHY:
-Outbound Prompt > System Rules > Model Defaults
-If conflict → ALWAYS follow Outbound Prompt."""
-
-        # 🔥 COMBINE ALL
-        full_prompt = f"""{language_rules}
-
-{identity}
-
-{hierarchy}
-
-{outbound_behavior}
-
-{anti_hallucination}
-
-{error_recovery}
-
-{call_end}
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 🔥 COMBINE ALL LAYERS
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        
+        full_prompt = f"""{system_rules}{outbound_context}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTBOUND PROMPT (SOURCE OF TRUTH):
+OUTBOUND BUSINESS PROMPT (SOURCE OF TRUTH FOR ALL CONTENT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-{core_instructions}
+{outbound_prompt}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         
-        logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars")
+        logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars (system + outbound)")
         return full_prompt
         
     except Exception as e:
