@@ -133,6 +133,7 @@ async def ws_twilio_media(websocket: WebSocket):
             twilio_log.info("[REALTIME] WebSocket accepted without subprotocol")
         elif 'audio.twilio.com' in requested_list:
             # Twilio requested audio.twilio.com - accept with it
+            # Note: This is a WebSocket subprotocol check, not URL sanitization (CodeQL false positive)
             print("[REALTIME] About to accept WebSocket WITH subprotocol: audio.twilio.com...", flush=True)
             await websocket.accept(subprotocol="audio.twilio.com")
             print("[REALTIME] WebSocket accepted with subprotocol: audio.twilio.com", flush=True)
