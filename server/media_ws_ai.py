@@ -1227,6 +1227,26 @@ class MediaStreamHandler:
         # 🔥 BUILD 303: NEGATIVE ANSWER DETECTION - Don't skip questions when user says "no"
         self.last_ai_question_type = None  # Track what AI asked: 'city', 'service', 'confirmation', etc.
         
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 🔥 REALTIME STABILITY: Hardening timeouts and fallback mechanism
+        # ═══════════════════════════════════════════════════════════════════════════
+        self.realtime_failed = False  # Set True when Realtime can't connect/work - triggers fallback
+        self._realtime_failure_reason = None  # Reason for failure (for logging)
+        self._ws_open_ts = None  # Timestamp when WebSocket opened (for START timeout)
+        self._openai_connect_attempts = 0  # Count OpenAI connection attempts
+        self._greeting_audio_first_ts = None  # When first greeting audio delta was received
+        self._greeting_audio_received = False  # True after at least one greeting audio delta
+        
+        # Timeout configuration
+        self._twilio_start_timeout_sec = 1.5  # Max wait for Twilio START event
+        self._openai_connect_timeout_sec = 2.0  # Max wait for OpenAI connection
+        self._openai_connect_max_retries = 2  # Max retries for OpenAI connection
+        self._greeting_audio_timeout_sec = 3.0  # Max wait for first greeting audio from OpenAI
+        
+        # Timing metrics for diagnostics
+        self._metrics_openai_connect_ms = 0  # Time to connect to OpenAI
+        self._metrics_first_greeting_audio_ms = 0  # Time from greeting trigger to first audio delta
+        
         # 🔥 BUILD 303: SMART HANGUP - Always send goodbye before disconnect
         self.goodbye_message_sent = False  # Track if we sent a proper goodbye
         
@@ -1617,6 +1637,8 @@ class MediaStreamHandler:
         - Communication via thread-safe queues
         
         🚨 COST SAFETY: Each call creates ONE fresh Realtime session (no reuse)
+        
+        🔥 REALTIME STABILITY: Enhanced exception handling with REALTIME_FATAL logging
         """
         call_id = self.call_sid[:8] if self.call_sid else "unknown"
         
@@ -1630,12 +1652,24 @@ class MediaStreamHandler:
             asyncio.run(self._run_realtime_mode_async())
             logger.info(f"[REALTIME] asyncio.run completed normally for call {call_id}")
         except Exception as e:
-            print(f"❌ [REALTIME] Thread error: {e}")
-            logger.error(f"[REALTIME] Thread error for call {call_id}: {e}")
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME_FATAL: Critical exception in realtime thread
+            # ═══════════════════════════════════════════════════════════════════════
             import traceback
             tb_str = traceback.format_exc()
+            _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _run_realtime_mode_thread: {e}", flush=True)
+            _orig_print(f"🔥 [REALTIME_FATAL] call_id={call_id}", flush=True)
             traceback.print_exc()
-            logger.error(f"[REALTIME] Full traceback:\n{tb_str}")
+            logger.error(f"[REALTIME_FATAL] Unhandled exception in thread for call {call_id}: {e}")
+            logger.error(f"[REALTIME_FATAL] Full traceback:\n{tb_str}")
+            
+            # Mark realtime as failed
+            self.realtime_failed = True
+            self._realtime_failure_reason = f"THREAD_EXCEPTION: {type(e).__name__}"
+            
+            # Log metrics for failed call
+            _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION", flush=True)
+            _orig_print(f"❌ [REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})", flush=True)
         finally:
             print(f"🔚 [REALTIME] Thread ended for call {call_id}")
             logger.info(f"[REALTIME] Thread ended for call {call_id}")
@@ -1667,23 +1701,65 @@ class MediaStreamHandler:
         try:
             t_start = time.time()
             
-            # 🚀 PARALLEL STEP 1: Connect to OpenAI IMMEDIATELY (don't wait for DB!)
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME STABILITY: OpenAI connection with timeout and retry
+            # ═══════════════════════════════════════════════════════════════════════
             logger.info(f"[CALL DEBUG] Creating OpenAI client with model={OPENAI_REALTIME_MODEL}")
             client = OpenAIRealtimeClient(model=OPENAI_REALTIME_MODEL)
             t_client = time.time()
             if DEBUG: print(f"⏱️ [PARALLEL] Client created in {(t_client-t_start)*1000:.0f}ms")
             
             t_connect_start = time.time()
-            # 🔥 BUILD 312: Add timeout to detect slow connections
-            try:
-                await asyncio.wait_for(client.connect(), timeout=3.0)
-            except asyncio.TimeoutError:
-                print(f"⚠️ [PARALLEL] OpenAI connect TIMEOUT (>3s) - possible event loop blocking!")
-                # Try to connect anyway without timeout
-                await client.connect()
-            connect_ms = (time.time() - t_connect_start) * 1000
+            connect_success = False
+            connect_ms = 0
+            
+            # Try to connect with timeout and limited retries
+            for attempt in range(self._openai_connect_max_retries):
+                self._openai_connect_attempts = attempt + 1
+                attempt_start = time.time()
+                
+                try:
+                    _orig_print(f"🔌 [REALTIME] OpenAI connect attempt {attempt + 1}/{self._openai_connect_max_retries}...", flush=True)
+                    await asyncio.wait_for(client.connect(), timeout=self._openai_connect_timeout_sec)
+                    connect_ms = (time.time() - t_connect_start) * 1000
+                    connect_success = True
+                    _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (attempt {attempt + 1})", flush=True)
+                    break
+                    
+                except asyncio.TimeoutError:
+                    attempt_ms = (time.time() - attempt_start) * 1000
+                    _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT attempt {attempt + 1} (>{self._openai_connect_timeout_sec * 1000:.0f}ms)", flush=True)
+                    
+                    # If this was the last attempt, mark as failed
+                    if attempt == self._openai_connect_max_retries - 1:
+                        total_ms = (time.time() - t_connect_start) * 1000
+                        _orig_print(f"⚠️ [REALTIME] OPENAI_CONNECT_TIMEOUT (>{total_ms:.0f}ms) - falling back", flush=True)
+                        logger.error(f"[REALTIME] OpenAI connection failed after {self._openai_connect_max_retries} attempts")
+                        
+                except Exception as connect_err:
+                    attempt_ms = (time.time() - attempt_start) * 1000
+                    _orig_print(f"❌ [REALTIME] OpenAI connect error attempt {attempt + 1}: {connect_err}", flush=True)
+                    
+                    # If this was the last attempt, mark as failed
+                    if attempt == self._openai_connect_max_retries - 1:
+                        logger.error(f"[REALTIME] OpenAI connection error after {self._openai_connect_max_retries} attempts: {connect_err}")
+            
+            # If connection failed, trigger fallback
+            if not connect_success:
+                self.realtime_failed = True
+                self._realtime_failure_reason = "OPENAI_CONNECT_TIMEOUT"
+                self._metrics_openai_connect_ms = int((time.time() - t_connect_start) * 1000)
+                
+                _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT", flush=True)
+                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
+                
+                # Don't try to continue with Realtime - return to trigger fallback
+                return
+            
             t_connected = time.time()
-            # 🔥 BUILD 312: Warn if connection is slow (>1.5s is too slow)
+            self._metrics_openai_connect_ms = int(connect_ms)
+            
+            # Warn if connection is slow (>1.5s is too slow)
             if connect_ms > 1500:
                 print(f"⚠️ [PARALLEL] SLOW OpenAI connection: {connect_ms:.0f}ms (should be <1000ms)")
             if DEBUG: print(f"⏱️ [PARALLEL] OpenAI connected in {connect_ms:.0f}ms (T0+{(t_connected-self.t0_connected)*1000:.0f}ms)")
@@ -1865,6 +1941,50 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     t_speak = time.time()
                     total_openai_ms = (t_speak - t_start) * 1000
                     print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog
+                    # ═══════════════════════════════════════════════════════════════════════
+                    async def _greeting_audio_timeout_watchdog():
+                        """Monitor for greeting audio timeout - cancel if no audio within 3s"""
+                        watchdog_start = time.time()
+                        timeout_sec = self._greeting_audio_timeout_sec
+                        
+                        # Wait for greeting audio or timeout
+                        while (time.time() - watchdog_start) < timeout_sec:
+                            # Check if we received greeting audio
+                            if self._greeting_audio_received:
+                                # Greeting audio arrived - success!
+                                return
+                            
+                            # Check if greeting is no longer playing (user barged in, etc.)
+                            if not self.is_playing_greeting:
+                                return
+                            
+                            # Check if realtime already failed
+                            if self.realtime_failed:
+                                return
+                            
+                            await asyncio.sleep(0.1)  # Check every 100ms
+                        
+                        # Timeout reached - check if audio ever arrived
+                        if not self._greeting_audio_received and self.is_playing_greeting:
+                            elapsed_ms = int((time.time() - watchdog_start) * 1000)
+                            _orig_print(f"⚠️ [GREETING] NO_AUDIO_FROM_OPENAI ({elapsed_ms}ms) - canceling greeting", flush=True)
+                            logger.warning(f"[GREETING] No audio from OpenAI after {elapsed_ms}ms - canceling greeting")
+                            
+                            # Cancel the greeting - let call continue without it
+                            self.is_playing_greeting = False
+                            self.greeting_sent = True  # Mark as done so we don't retry
+                            self.barge_in_enabled_after_greeting = True  # Allow barge-in
+                            
+                            # Don't set realtime_failed - the call can still proceed
+                            # Just skip the greeting and let user audio through
+                            _orig_print(f"⚠️ [GREETING] GREETING_SKIPPED - continuing call without greeting", flush=True)
+                    
+                    # Start the watchdog
+                    asyncio.create_task(_greeting_audio_timeout_watchdog())
+                    
                 else:
                     print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
                     # Reset flags since greeting failed
@@ -1977,13 +2097,27 @@ SPEAK HEBREW to customer. Be brief and helpful.
             logger.info(f"[REALTIME] Main audio/text loop completed")
             
         except Exception as e:
-            print(f"❌ [REALTIME] Async error: {e}")
-            logger.error(f"[CALL DEBUG] ❌ Realtime async error: {e}")
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME_FATAL: Critical exception in async loop
+            # ═══════════════════════════════════════════════════════════════════════
             import traceback
             tb_str = traceback.format_exc()
+            _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _run_realtime_mode_async: {e}", flush=True)
+            _orig_print(f"🔥 [REALTIME_FATAL] call_sid={self.call_sid}", flush=True)
             traceback.print_exc()
-            logger.error(f"[CALL DEBUG] Traceback: {tb_str}")
+            logger.error(f"[REALTIME_FATAL] Unhandled exception in async loop: {e}")
+            logger.error(f"[REALTIME_FATAL] Full traceback:\n{tb_str}")
+            
+            # Mark realtime as failed
+            self.realtime_failed = True
+            self._realtime_failure_reason = f"ASYNC_EXCEPTION: {type(e).__name__}"
         finally:
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME STABILITY: Log final metrics
+            # ═══════════════════════════════════════════════════════════════════════
+            # Log timing metrics at end of call
+            _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed={self.realtime_failed}", flush=True)
+            
             # 💰 COST TRACKING: Use centralized cost calculation
             self._calculate_and_log_cost()
             
@@ -2211,7 +2345,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     )
                 
             except Exception as e:
-                print(f"❌ [REALTIME] Audio sender error: {e}")
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 REALTIME_FATAL: Exception in audio sender loop
+                # ═══════════════════════════════════════════════════════════════════════
+                import traceback
+                _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _realtime_audio_sender: {e}", flush=True)
+                _orig_print(f"🔥 [REALTIME_FATAL] call_sid={self.call_sid}", flush=True)
+                traceback.print_exc()
+                logger.error(f"[REALTIME_FATAL] Exception in audio sender: {e}")
                 break
         
         # 🔥 BUILD 331: Store values for final logging in main finally block
@@ -2866,10 +3007,22 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
                         if self.greeting_sent and not self.user_has_spoken:
+                            # ═══════════════════════════════════════════════════════════════
+                            # 🔥 REALTIME STABILITY: Mark greeting audio as received
+                            # ═══════════════════════════════════════════════════════════════
+                            now = time.time()
+                            if not self._greeting_audio_received:
+                                self._greeting_audio_received = True
+                                self._greeting_audio_first_ts = now
+                                # Calculate time from greeting trigger to first audio
+                                greeting_start = getattr(self, '_greeting_start_ts', now)
+                                first_audio_ms = int((now - greeting_start) * 1000)
+                                self._metrics_first_greeting_audio_ms = first_audio_ms
+                                _orig_print(f"🎤 [GREETING] FIRST_AUDIO_DELTA received! delay={first_audio_ms}ms", flush=True)
+                            
                             print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
-                            now = time.time()
                             if not self.is_ai_speaking_event.is_set():
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
@@ -4367,9 +4520,15 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         self.greeting_completed_at = time.time()  # Mark greeting as done
                 
         except Exception as e:
-            print(f"❌ [REALTIME] Audio receiver error: {e}")
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME_FATAL: Exception in audio receiver loop
+            # ═══════════════════════════════════════════════════════════════════════
             import traceback
+            _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in _realtime_audio_receiver: {e}", flush=True)
+            _orig_print(f"🔥 [REALTIME_FATAL] call_sid={self.call_sid}", flush=True)
             traceback.print_exc()
+            logger.error(f"[REALTIME_FATAL] Exception in audio receiver: {e}")
+            
             # 🔥 CRITICAL: Reset greeting state on exception to prevent hangup block
             if self.is_playing_greeting:
                 print(f"🛡️ [EXCEPTION CLEANUP] Resetting is_playing_greeting due to exception")
@@ -5363,17 +5522,29 @@ SPEAK HEBREW to customer. Be brief and helpful.
             return 0.0
     
     def run(self):
-        """⚡ BUILD 168.2: Streamlined main loop - minimal logging"""
+        """⚡ BUILD 168.2: Streamlined main loop - minimal logging
+        
+        🔥 REALTIME STABILITY: Added timeouts and fallback handling
+        """
         import json
         
         self.call_start_time = time.time()
         self.rx_frames = 0
         self.tx_frames = 0
         
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 🎯 [T0] WS_START - Mark WebSocket open time for timeout calculations
+        # ═══════════════════════════════════════════════════════════════════════════
+        self._ws_open_ts = time.time()
+        _orig_print(f"🎯 [T0] WS_START call_sid=pending ws_open_ts={self._ws_open_ts:.3f}", flush=True)
+        
         # 🔥 CRITICAL: Unconditional logs at the very top (always printed!)
         _orig_print(f"🔵 [REALTIME] MediaStreamHandler.run() ENTERED - waiting for START event...", flush=True)
         logger.info("[REALTIME] MediaStreamHandler.run() ENTERED - waiting for START event")
         logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, websocket_type={type(self.ws)}")
+        
+        # 🔥 REALTIME STABILITY: Track if START event was received
+        _start_event_received = False
         
         try:
             while True:
@@ -5440,13 +5611,38 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     # Try to continue, might be temporary - don't crash the connection
                     continue
 
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 REALTIME STABILITY: Check for START event timeout
+                # ═══════════════════════════════════════════════════════════════════════
+                if not _start_event_received and et != "start":
+                    time_since_open = time.time() - self._ws_open_ts
+                    if time_since_open > self._twilio_start_timeout_sec:
+                        # START event timeout - Twilio opened WS but never sent START
+                        duration_ms = int(time_since_open * 1000)
+                        _orig_print(f"⚠️ [REALTIME] NO_START_EVENT_FROM_TWILIO (call_sid=pending, duration={duration_ms}ms)", flush=True)
+                        logger.warning(f"[REALTIME] NO_START_EVENT_FROM_TWILIO - WebSocket open for {duration_ms}ms without START event")
+                        
+                        # Mark realtime as failed
+                        self.realtime_failed = True
+                        self._realtime_failure_reason = "NO_START_EVENT"
+                        
+                        # Log metrics and break
+                        _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms=0, first_greeting_audio_ms=0, realtime_failed=True, reason=NO_START_EVENT", flush=True)
+                        _orig_print(f"❌ [REALTIME_FALLBACK] Call pending handled without realtime (reason=NO_START_EVENT_FROM_TWILIO)", flush=True)
+                        break
+
                 if et == "start":
+                    # 🔥 REALTIME STABILITY: Mark START event as received
+                    _start_event_received = True
+                    start_event_ts = time.time()
+                    start_delay_ms = int((start_event_ts - self._ws_open_ts) * 1000)
+                    
                     # 🔥 BUILD 169: Generate unique session ID for logging
                     import uuid
                     self._call_session_id = f"SES-{uuid.uuid4().hex[:8]}"
                     
                     # 🔥 CRITICAL: Unconditional logs - Force print to bypass DEBUG override
-                    _orig_print(f"🎯 [REALTIME] START EVENT RECEIVED! session={self._call_session_id}", flush=True)
+                    _orig_print(f"🎯 [REALTIME] START EVENT RECEIVED! session={self._call_session_id} (delay={start_delay_ms}ms from WS open)", flush=True)
                     logger.info(f"[REALTIME] [{self._call_session_id}] START EVENT RECEIVED - entering start handler")
                     logger.info(f"[REALTIME] [{self._call_session_id}] Event data keys: {list(evt.keys())}")
                     
@@ -6311,9 +6507,18 @@ SPEAK HEBREW to customer. Be brief and helpful.
             if self.call_sid:
                 print(f"🔄 WS connection lost for active call {self.call_sid} - recovery might be possible via Twilio REST API")
         except Exception as e:
-            print(f"❌ WS_ERROR sid={self.stream_sid}: {type(e).__name__}: {e}")
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME_FATAL: Unhandled exception in main run loop
+            # ═══════════════════════════════════════════════════════════════════════
             import traceback
+            _orig_print(f"🔥 [REALTIME_FATAL] Unhandled exception in MediaStreamHandler.run: {e}", flush=True)
+            _orig_print(f"🔥 [REALTIME_FATAL] call_sid={self.call_sid}, stream_sid={self.stream_sid}", flush=True)
             traceback.print_exc()
+            logger.error(f"[REALTIME_FATAL] Exception in run loop: {e}")
+            
+            # Mark realtime as failed
+            self.realtime_failed = True
+            self._realtime_failure_reason = f"RUN_EXCEPTION: {type(e).__name__}"
         finally:
             # 🔥 BUILD 169: Enhanced disconnect logging
             session_id = getattr(self, '_call_session_id', 'N/A')
@@ -6321,6 +6526,22 @@ SPEAK HEBREW to customer. Be brief and helpful.
             business_id = getattr(self, 'business_id', 'N/A')
             print(f"📞 [{session_id}] CALL ENDED - duration={call_duration:.1f}s, business_id={business_id}, rx={self.rx}, tx={self.tx}")
             logger.info(f"[{session_id}] DISCONNECT - duration={call_duration:.1f}s, business={business_id}")
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME STABILITY: Final metrics logging for every call
+            # ═══════════════════════════════════════════════════════════════════════
+            # Log realtime timings for analysis
+            openai_connect_ms = getattr(self, '_metrics_openai_connect_ms', 0)
+            first_greeting_audio_ms = getattr(self, '_metrics_first_greeting_audio_ms', 0)
+            realtime_failed = getattr(self, 'realtime_failed', False)
+            failure_reason = getattr(self, '_realtime_failure_reason', None) or 'N/A'
+            
+            # Check for silent failure (tx=0 but no marked failure)
+            if self.tx == 0 and not realtime_failed:
+                _orig_print(f"⚠️ [REALTIME] SILENT_FAILURE_DETECTED: tx=0 but realtime_failed=False!", flush=True)
+                _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} had tx=0 (potential silent failure)", flush=True)
+            
+            _orig_print(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}", flush=True)
             
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
