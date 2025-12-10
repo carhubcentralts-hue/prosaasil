@@ -463,9 +463,28 @@ def incoming_call():
         track="inbound_track"  # 🎧 Only send user audio to stream, prevents feedback
     )
     
-    # ✅ CRITICAL: Parameters with CallSid + To
+    # ✅ CRITICAL: Parameters with CallSid + To + business_id
     stream.parameter(name="CallSid", value=call_sid)
     stream.parameter(name="To", value=to_number or "unknown")
+    # 🔥 FIX #2: Pass business_id as parameter for FAST prompt loading
+    if business_id:
+        stream.parameter(name="business_id", value=str(business_id))
+    
+    # 🔥 FIX #2: PRE-BUILD compact greeting prompt in webhook (eliminates async DB query)
+    # This cuts 500-2000ms from greeting latency by having prompt ready when WS opens
+    if business_id:
+        try:
+            from server.services.realtime_prompt_builder import build_compact_greeting_prompt
+            compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
+            
+            # Store in stream_registry for MediaStreamHandler to use
+            from server.stream_state import stream_registry
+            if call_sid and compact_prompt:
+                # Store compact prompt for fast greeting
+                stream_registry.set_metadata(call_sid, 'prebuilt_compact_prompt', compact_prompt)
+                print(f"✅ [FIX #2] Pre-built compact prompt for {call_sid}: {len(compact_prompt)} chars")
+        except Exception as e:
+            print(f"⚠️ [FIX #2] Failed to pre-build compact prompt: {e} - will fallback to async build")
     
     # === יצירה אוטומטית של ליד (ברקע) ===
     if from_number:
@@ -568,6 +587,18 @@ def outbound_call():
     stream.parameter(name="business_name", value=business_name)
     if template_id:
         stream.parameter(name="template_id", value=template_id)
+    
+    # 🔥 FIX #2: PRE-BUILD compact greeting prompt for outbound calls too
+    if business_id and call_sid:
+        try:
+            from server.services.realtime_prompt_builder import build_compact_greeting_prompt
+            from server.stream_state import stream_registry
+            compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
+            if compact_prompt:
+                stream_registry.set_metadata(call_sid, 'prebuilt_compact_prompt', compact_prompt)
+                print(f"✅ [FIX #2 OUTBOUND] Pre-built compact prompt: {len(compact_prompt)} chars")
+        except Exception as e:
+            print(f"⚠️ [FIX #2 OUTBOUND] Failed to pre-build: {e}")
     
     response_time_ms = int((time.time() - start_time) * 1000)
     logger.info(f"✅ outbound_call webhook: {response_time_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")

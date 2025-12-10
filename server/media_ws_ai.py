@@ -841,8 +841,8 @@ RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
 RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
-# BARGE-IN - Responsive interruption detection
-BARGE_IN_VOICE_FRAMES = 25     # 25 frames = 500ms continuous speech to trigger barge-in
+# BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
+BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
 
 # STT MERGING - Hebrew segment handling
 STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
@@ -1171,6 +1171,7 @@ class MediaStreamHandler:
         self.current_user_voice_start_ts = None  # When current user voice started
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
+        self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
         
         # 🧘 BUILD 345: Post-greeting breathing window state
@@ -1237,10 +1238,11 @@ class MediaStreamHandler:
         self._greeting_audio_first_ts = None  # When first greeting audio delta was received
         self._greeting_audio_received = False  # True after at least one greeting audio delta
         
-        # Timeout configuration (optimized for fast response)
-        self._twilio_start_timeout_sec = 1.5  # Max wait for Twilio START event
+        # Timeout configuration (optimized for fast response + stability)
+        # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
+        self._twilio_start_timeout_sec = 2.5  # Max wait for Twilio START event
         # NOTE: OpenAI connection uses client.connect() internal retry with 5s total timeout
-        self._greeting_audio_timeout_sec = 3.0  # Max wait for first greeting audio from OpenAI
+        self._greeting_audio_timeout_sec = 3.5  # Max wait for first greeting audio from OpenAI (increased for stability)
         
         # Timing metrics for diagnostics
         self._metrics_openai_connect_ms = 0  # Time to connect to OpenAI
@@ -1716,13 +1718,14 @@ class MediaStreamHandler:
             _orig_print(f"🔌 [REALTIME] Connecting to OpenAI (internal retry: 3 attempts)...", flush=True)
             
             try:
-                # Single timeout of 8s covers internal retries (1s + 2s + 4s + margin)
-                # client.connect() handles its own retry logic with exponential backoff
-                await asyncio.wait_for(client.connect(max_retries=2, backoff_base=0.5), timeout=5.0)
+                # 🔥 FIX #3: Increased timeout to 8s and max_retries to 3 for better reliability
+                # Timeout: 8s covers internal retries (1s + 2s + 4s + margin)
+                # max_retries=3 gives more chances to connect (was 2)
+                await asyncio.wait_for(client.connect(max_retries=3, backoff_base=0.5), timeout=8.0)
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._openai_connect_attempts = 1
                 self._metrics_openai_connect_ms = int(connect_ms)
-                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms", flush=True)
+                _orig_print(f"✅ [REALTIME] OpenAI connected in {connect_ms:.0f}ms (max_retries=3)", flush=True)
                 
             except asyncio.TimeoutError:
                 connect_ms = (time.time() - t_connect_start) * 1000
@@ -1739,13 +1742,23 @@ class MediaStreamHandler:
             except Exception as connect_err:
                 connect_ms = (time.time() - t_connect_start) * 1000
                 self._metrics_openai_connect_ms = int(connect_ms)
+                
+                # 🔥 FIX #3: Enhanced error logging with full traceback for diagnostics
+                import traceback
+                error_details = traceback.format_exc()
                 _orig_print(f"❌ [REALTIME] OpenAI connect error: {connect_err}", flush=True)
+                _orig_print(f"❌ [REALTIME] Error type: {type(connect_err).__name__}", flush=True)
+                _orig_print(f"❌ [REALTIME] Full traceback:\n{error_details}", flush=True)
                 logger.error(f"[REALTIME] OpenAI connection error: {connect_err}")
+                logger.error(f"[REALTIME] Full error details:\n{error_details}")
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
                 _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}", flush=True)
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
+                
+                # 🔥 FIX #3: Log call context for debugging
+                _orig_print(f"📊 [REALTIME] Call context: business_id={business_id_safe}, direction={call_direction}, call_sid={self.call_sid}", flush=True)
                 return
             
             t_connected = time.time()
@@ -1790,25 +1803,36 @@ class MediaStreamHandler:
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
             # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 PART D OPTIMIZATION: Use PRE-BUILT prompt from main thread (eliminates DB round-trip!)
-            # Previously: Async loop did ANOTHER DB query here, adding 500-2000ms latency
-            # Now: Main thread pre-builds prompt, async loop uses it directly
+            # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
+            # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
+            # This eliminates 500-2000ms DB query latency from async loop!
+            # After greeting, we can send full prompt via session.update if needed
             # ═══════════════════════════════════════════════════════════════════════
-            full_prompt = getattr(self, '_prebuilt_prompt', None)
-            if full_prompt:
-                print(f"✅ [PART D] Using PRE-BUILT prompt from main thread: {len(full_prompt)} chars (FAST PATH)")
+            
+            # Priority 1: Check registry for webhook pre-built compact prompt (FASTEST!)
+            from server.stream_state import stream_registry
+            compact_prompt = stream_registry.get_metadata(self.call_sid, 'prebuilt_compact_prompt') if self.call_sid else None
+            
+            if compact_prompt:
+                print(f"🚀 [FIX #2] Using WEBHOOK PRE-BUILT compact prompt: {len(compact_prompt)} chars (ULTRA FAST PATH)")
+                full_prompt = compact_prompt
+            # Priority 2: Use pre-built prompt from main thread (if available)
+            elif hasattr(self, '_prebuilt_prompt') and self._prebuilt_prompt:
+                full_prompt = self._prebuilt_prompt
+                print(f"✅ [PART D] Using MAIN THREAD pre-built prompt: {len(full_prompt)} chars (FAST PATH)")
             else:
-                # Fallback: Build prompt if main thread didn't pre-build it
-                print(f"⚠️ [PART D] No pre-built prompt - building now (SLOW PATH, adds latency)")
+                # Fallback: Build compact prompt NOW (adds latency but better than nothing)
+                print(f"⚠️ [FIX #2] No pre-built prompt - building COMPACT greeting prompt now (SLOW PATH)")
                 try:
-                    from server.services.realtime_prompt_builder import build_realtime_system_prompt
+                    from server.services.realtime_prompt_builder import build_compact_greeting_prompt
                     app = _get_flask_app()
                     with app.app_context():
-                        full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                        print(f"✅ [BUILD 329] FULL prompt built: {len(full_prompt)} chars (fallback)")
+                        full_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
+                        print(f"✅ [FIX #2] COMPACT prompt built: {len(full_prompt)} chars (fallback)")
                 except Exception as prompt_err:
-                    print(f"⚠️ [BUILD 329] Failed to build full prompt: {prompt_err}")
-                    full_prompt = None
+                    print(f"⚠️ [FIX #2] Failed to build compact prompt: {prompt_err}")
+                    # Last resort: minimal English fallback
+                    full_prompt = f"You are a service rep. SPEAK HEBREW. Be brief and helpful."
             
             # 🔥 BUILD 319: Use PRE-WARMED greeting from DB - NOT AI-generated!
             # AI just speaks the exact greeting text, ensuring consistency
@@ -4616,7 +4640,7 @@ SPEAK HEBREW to customer. Be brief and helpful.
             print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting still playing")
             return
         
-        print("[REALTIME] BARGE-IN triggered – user started speaking, CANCELING AI response")
+        print("🔍 [BARGE-IN] Stopping AI response and audio playback...")
         
         # 🔥 CRITICAL: Cancel active AI response generation (not just playback!)
         if self.active_response_id and self.realtime_client:
@@ -5629,15 +5653,25 @@ SPEAK HEBREW to customer. Be brief and helpful.
                     continue
 
                 # ═══════════════════════════════════════════════════════════════════════
-                # 🔥 REALTIME STABILITY: Check for START event timeout
+                # 🔥 FIX #1: IMPROVED START TIMEOUT HANDLING - Don't break too early!
                 # ═══════════════════════════════════════════════════════════════════════
+                # Strategy: Warn at timeout, but only break after 2x timeout (5 seconds total)
+                # This handles cases where START is delayed but arrives soon after
                 if not _start_event_received and et != "start":
                     time_since_open = time.time() - self._ws_open_ts
-                    if time_since_open > self._twilio_start_timeout_sec:
-                        # START event timeout - Twilio opened WS but never sent START
+                    
+                    # First timeout: Log warning but CONTINUE waiting
+                    if time_since_open > self._twilio_start_timeout_sec and not hasattr(self, '_start_timeout_warning_logged'):
                         duration_ms = int(time_since_open * 1000)
-                        _orig_print(f"⚠️ [REALTIME] NO_START_EVENT_FROM_TWILIO (call_sid=pending, duration={duration_ms}ms)", flush=True)
-                        logger.warning(f"[REALTIME] NO_START_EVENT_FROM_TWILIO - WebSocket open for {duration_ms}ms without START event")
+                        _orig_print(f"⚠️ [REALTIME] SLOW_START_EVENT - no START after {duration_ms}ms (continuing to wait...)", flush=True)
+                        logger.warning(f"[REALTIME] SLOW_START_EVENT - WebSocket open for {duration_ms}ms without START event (continuing)")
+                        self._start_timeout_warning_logged = True
+                    
+                    # Hard timeout: Only break if START really never arrives (2x timeout = 5s)
+                    if time_since_open > (self._twilio_start_timeout_sec * 2.0):
+                        duration_ms = int(time_since_open * 1000)
+                        _orig_print(f"❌ [REALTIME] NO_START_EVENT_FROM_TWILIO (call_sid=pending, duration={duration_ms}ms) - giving up", flush=True)
+                        logger.warning(f"[REALTIME] NO_START_EVENT_FROM_TWILIO - WebSocket open for {duration_ms}ms without START event - giving up")
                         
                         # Mark realtime as failed
                         self.realtime_failed = True
@@ -6143,13 +6177,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                         
                         # Only allow barge-in if AI is speaking
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
-                            # 🎯 FIX: Allow barge-in if user has spoken OR greeting finished
-                            can_barge = self.user_has_spoken or self.barge_in_enabled_after_greeting
-                            if not can_barge:
+                            # 🔥 BARGE-IN: Always enabled (unless explicitly disabled or waiting for DTMF)
+                            # Allow user to interrupt at ANY time during AI speech
+                            if not self.barge_in_enabled:
                                 self.barge_in_voice_frames = 0
                                 continue
                             
-                            # 🛡️ PROTECT GREETING: Never barge-in during greeting!
+                            # 🛡️ PROTECT GREETING: Never barge-in during greeting playback!
+                            # (Allow barge-in AFTER greeting starts, just not during the audio file playback)
                             if self.is_playing_greeting:
                                 self.barge_in_voice_frames = 0
                                 continue
@@ -6166,13 +6201,14 @@ SPEAK HEBREW to customer. Be brief and helpful.
                             # 🔥 BUILD 325: Use MIN_SPEECH_RMS (60) for barge-in detection
                             speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
                             
-                            # 🔥 BUILD 169: Require 700ms continuous speech (35 frames @ 20ms)
-                            # Per architect: Increased from 220ms to prevent AI cutoff on background noise
+                            # 🔥 BARGE-IN: Require continuous speech to trigger interruption
+                            # Fast response time: 300ms (15 frames @ 20ms each) for natural interruption
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
                                 # 🔥 ARCHITECT FIX: Use BARGE_IN_VOICE_FRAMES constant, not hardcoded 11
                                 if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
-                                    print(f"🔥 [BARGE-IN] TRIGGERED! rms={rms:.0f} >= {speech_threshold:.0f}, "
+                                    print(f"🔍 [BARGE-IN] User interrupted AI - stopping TTS and switching to user speech")
+                                    print(f"    └─ Detection: rms={rms:.0f} >= {speech_threshold:.0f}, "
                                           f"continuous={self.barge_in_voice_frames} frames ({BARGE_IN_VOICE_FRAMES*20}ms)")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
                                               f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
@@ -7129,6 +7165,13 @@ SPEAK HEBREW to customer. Be brief and helpful.
                 pass  # Allow clear commands through
             else:
                 return  # Silently drop all other audio
+        
+        # 🔥 BARGE-IN: Block AI audio when user is speaking (allow "clear" and "mark" commands)
+        if self.barge_in_active:
+            if isinstance(item, dict) and item.get("type") in ("clear", "mark"):
+                pass  # Allow clear/mark commands through
+            else:
+                return  # Silently drop AI audio during barge-in
         try:
             self.tx_q.put_nowait(item)
         except queue.Full:
