@@ -55,18 +55,28 @@ fi
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TEST 2: Check for NO_START_EVENT_FROM_TWILIO errors
+# TEST 2: Check for START event timeouts + slow START warnings
 # ═══════════════════════════════════════════════════════════════════════════════
 echo "═══════════════════════════════════════════════════════════════════════════════"
 echo "TEST 2: Check for START event timeouts"
 echo "═══════════════════════════════════════════════════════════════════════════════"
 
-NO_START_COUNT=$(grep -c "NO_START_EVENT_FROM_TWILIO" "$LOGFILE" 2>/dev/null || echo "0")
+# 🔥 FIX #1: Check for slow START warnings (expected, not errors)
+SLOW_START_COUNT=$(grep -c "SLOW_START_EVENT - no START after" "$LOGFILE" 2>/dev/null || echo "0")
+if [ "$SLOW_START_COUNT" -gt 0 ]; then
+    echo "ℹ️  Found $SLOW_START_COUNT slow START warnings (2.5s+ delay but recovered):"
+    grep "SLOW_START_EVENT" "$LOGFILE" | head -3
+    echo "   → These are OK - the system waited and recovered successfully"
+    echo ""
+fi
+
+# Check for actual timeouts (giving up after 5s)
+NO_START_COUNT=$(grep -c "NO_START_EVENT_FROM_TWILIO.*giving up" "$LOGFILE" 2>/dev/null || echo "0")
 if [ "$NO_START_COUNT" -gt 0 ]; then
-    echo "⚠️  Found $NO_START_COUNT NO_START_EVENT_FROM_TWILIO errors:"
-    grep "NO_START_EVENT_FROM_TWILIO" "$LOGFILE" | head -5
+    echo "⚠️  Found $NO_START_COUNT hard START timeouts (gave up after 5s):"
+    grep "NO_START_EVENT_FROM_TWILIO.*giving up" "$LOGFILE" | head -5
 else
-    echo "✅ No START event timeouts found"
+    echo "✅ No hard START timeouts found (good - 5s grace period is working)"
 fi
 echo ""
 
@@ -231,10 +241,10 @@ fi
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TEST 8: Check T0 WS_START logs (WebSocket open tracking)
+# TEST 8: Check T0 WS_START logs + FIX #2 compact prompt usage
 # ═══════════════════════════════════════════════════════════════════════════════
 echo "═══════════════════════════════════════════════════════════════════════════════"
-echo "TEST 8: Check T0 WS_START tracking"
+echo "TEST 8: Check T0 WS_START tracking + Compact Prompt Pre-building (FIX #2)"
 echo "═══════════════════════════════════════════════════════════════════════════════"
 
 T0_COUNT=$(grep -c "\[T0\] WS_START" "$LOGFILE" 2>/dev/null || echo "0")
@@ -242,6 +252,34 @@ if [ "$T0_COUNT" -gt 0 ]; then
     echo "✅ Found $T0_COUNT calls with T0 tracking (WebSocket open timestamp)"
 else
     echo "⚠️  No T0 WS_START logs found - new code may not be deployed"
+fi
+echo ""
+
+# 🔥 FIX #2: Check for compact prompt pre-building in webhook
+PREBUILD_COUNT=$(grep -c "FIX #2.*Pre-built compact prompt" "$LOGFILE" 2>/dev/null || echo "0")
+if [ "$PREBUILD_COUNT" -gt 0 ]; then
+    echo "✅ Found $PREBUILD_COUNT calls with pre-built compact prompts (webhook optimization)"
+    # Show a sample
+    echo "   Sample:"
+    grep "FIX #2.*Pre-built compact prompt" "$LOGFILE" | head -1
+else
+    echo "⚠️  No compact prompt pre-building found - FIX #2 may not be deployed"
+fi
+echo ""
+
+# 🔥 FIX #2: Check for ULTRA FAST PATH usage in async loop
+ULTRA_FAST_COUNT=$(grep -c "ULTRA FAST PATH" "$LOGFILE" 2>/dev/null || echo "0")
+if [ "$ULTRA_FAST_COUNT" -gt 0 ]; then
+    echo "✅ Found $ULTRA_FAST_COUNT calls using ULTRA FAST PATH (registry lookup)"
+    # Calculate fast path percentage
+    TOTAL_PROMPT_BUILDS=$(grep -c "Using.*prompt:" "$LOGFILE" 2>/dev/null || echo "1")
+    FAST_PERCENTAGE=$(echo "scale=1; $ULTRA_FAST_COUNT * 100 / $TOTAL_PROMPT_BUILDS" | bc 2>/dev/null || echo "N/A")
+    echo "   → Fast path usage: $ULTRA_FAST_COUNT / $TOTAL_PROMPT_BUILDS ($FAST_PERCENTAGE%)"
+    if [ "$ULTRA_FAST_COUNT" -lt "$TOTAL_PROMPT_BUILDS" ]; then
+        echo "   ⚠️  Some calls still using SLOW PATH - check why"
+    fi
+else
+    echo "⚠️  No ULTRA FAST PATH usage found - prompt optimization may not be working"
 fi
 echo ""
 
