@@ -1074,6 +1074,55 @@ VALID_SHORT_HEBREW_PHRASES = {
     "איך", "כמה", "מי", "איזה", "זה", "אני", "היי", "הלו", "שלום", "ביי"
 }
 
+# 🎯 TASK 4.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
+HEBREW_FILLER_WORDS = {
+    "אמ", "אם", "אממ", "אמממ", "אה", "אהה", "אההה", "הממ", "אהם", "אהממ",
+    "אם", "אמ", "ממ", "הם", "אהה", "אההה", "אההההה"
+}
+
+def is_valid_transcript(text: str) -> bool:
+    """
+    🎯 TASK 4.2: Two-Phase Barge-in - Transcription-Based Confirmation
+    
+    Check if transcript is valid (contains meaningful content).
+    Returns False for:
+    - Empty/whitespace
+    - < 3 characters
+    - Filler-only utterances ("אממ", "אההה", etc.)
+    
+    Returns True for:
+    - Filler + real text ("אממ כן", "אהה טוב")
+    - Any meaningful speech
+    
+    Args:
+        text: Transcribed text from STT
+        
+    Returns:
+        True if transcript is valid, False if filler-only
+    """
+    if not text or not text.strip():
+        return False
+    
+    normalized = text.strip().lower()
+    
+    # Too short
+    if len(normalized) < 3:
+        return False
+    
+    # Split into tokens
+    tokens = normalized.split()
+    
+    # Check if ALL tokens are fillers
+    non_filler_tokens = [t for t in tokens if t not in HEBREW_FILLER_WORDS]
+    
+    if not non_filler_tokens:
+        # All filler - reject
+        logger.info(f"[FILLER_DETECT] Rejected filler-only: '{text}'")
+        return False
+    
+    # Has at least one meaningful word - accept
+    return True
+
 def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
                                      rms_snapshot: float, noise_floor: float,
                                      ai_speaking: bool = False, 
@@ -3616,7 +3665,12 @@ Greet briefly. Then WAIT for customer to speak."""
                                     openai_connect_ms = getattr(self, '_metrics_openai_connect_ms', 0)
                                     logger.info(f"[GREETING_METRICS] openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_audio_ms}, direction={call_direction}")
                             
-                            print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                            # 🔥 TASK 0.4: THROTTLED GREETING LOG - Log only first chunk, not all chunks
+                            if not hasattr(self, '_greeting_audio_started_logged'):
+                                self._greeting_audio_started_logged = False
+                            if not self._greeting_audio_started_logged:
+                                print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                                self._greeting_audio_started_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
                             if not self.is_ai_speaking_event.is_set():
@@ -10975,13 +11029,17 @@ Greet briefly. Then WAIT for customer to speak."""
         - Real-time telemetry (fps/q/drops)
         
         🔥 PART C DEBUG: Added logging to trace first frame sent to Twilio
+        🎯 TASK 0.4: Enhanced logging for Master BUG HUNT
         """
-        _orig_print(f"🔊 [TX_LOOP] STARTED - ready to send audio to Twilio (tx_running={self.tx_running})", flush=True)
+        call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
+        _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
         # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
         FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
         next_deadline = time.monotonic()
         tx_count = 0
+        frames_sent_total = 0
+        frames_blocked_total = 0
         
         # 🔥 PART C: Track first frame for tx=0 diagnostics
         _first_frame_sent = False
@@ -11029,6 +11087,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"[TX_LOOP] Sent Realtime format: success={success}")
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
+                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11044,6 +11103,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"[TX_LOOP] Sent old format (converted): success={success}")
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
+                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11093,7 +11153,8 @@ Greet briefly. Then WAIT for customer to speak."""
                 }))
                 print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
         
-        # ⚡ Removed flooding log - TX loop ended naturally
+        # 🎯 TASK 0.4: Log TX loop exit with totals
+        _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
