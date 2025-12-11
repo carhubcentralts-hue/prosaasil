@@ -137,11 +137,11 @@ def render_contract_html(deal, signer_name=None, signature_png=None):
         
         <div class="contract-body">
             <h3>פרטי החוזה:</h3>
-            <p><strong>נושא:</strong> {deal.title or 'שירות נדל"ן'}</p>
+            <p><strong>נושא:</strong> {deal.title or 'שירותים מקצועיים'}</p>
             <p><strong>סכום:</strong> {(deal.amount or 0) / 100:.2f} ש"ח</p>
             
             <h3>תנאי השירות:</h3>
-            <p>החברה מתחייבת לספק שירותי נדל"ן מקצועיים בהתאם לדרישות הלקוח.</p>
+            <p>החברה מתחייבת לספק שירותים מקצועיים בהתאם לדרישות הלקוח.</p>
             <p>התשלום יבוצע בהתאם להסכמה.</p>
             
             <h3>תנאים כלליים:</h3>

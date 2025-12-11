@@ -22,7 +22,7 @@ def summarize_conversation(
     BUILD 183 - CRITICAL FIX: Don't hallucinate summaries when no user spoke!
     
     GPT מזהה בעצמו:
-    - סוג העסק (נדל"ן, רפואי, דינוזאורים, כל דבר!)
+    - סוג העסק (כל תחום - המערכת מזהה אוטומטית!)
     - מטרת השיחה
     - פרטים רלוונטיים
     - פעולות נדרשות
