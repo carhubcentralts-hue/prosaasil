@@ -339,10 +339,11 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         from server.models_sql import Business, BusinessSettings
         
         # 🔥 CACHE CHECK: Try to get cached prompt first
+        # 🔥 FIX: Include direction in cache key to prevent inbound/outbound prompt mixing
         if use_cache:
             from server.services.prompt_cache import get_prompt_cache
             cache = get_prompt_cache()
-            cached = cache.get(business_id)
+            cached = cache.get(business_id, direction=call_direction)
             if cached:
                 logger.info(f"✅ [PROMPT CACHE HIT] Returning cached prompt for business {business_id} ({call_direction})")
                 return cached.system_prompt
@@ -403,6 +404,7 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             )
         
         # 🔥 CACHE STORE: Save to cache for future use
+        # 🔥 FIX: Include direction in cache key to prevent inbound/outbound prompt mixing
         if use_cache and final_prompt:
             from server.services.prompt_cache import get_prompt_cache
             cache = get_prompt_cache()
@@ -411,9 +413,10 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 business_id=business_id,
                 system_prompt=final_prompt,
                 greeting_text=greeting_text,
+                direction=call_direction,
                 language_config={}  # Can be extended later
             )
-            logger.info(f"💾 [PROMPT CACHE STORE] Cached prompt for business {business_id}")
+            logger.info(f"💾 [PROMPT CACHE STORE] Cached prompt for business {business_id} ({call_direction})")
         
         return final_prompt
         

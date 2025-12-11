@@ -4489,10 +4489,38 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
                         # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
-                        # 🔥 PROMPT-ONLY MODE: When no required_lead_fields, rely only on goodbye + user interaction
+                        # 🔥 FIX: In SIMPLE_MODE, respect call_goal and auto_end_on_goodbye toggle
                         elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
+                            call_goal = getattr(self, 'call_goal', 'lead_only')
+                            
+                            # 🔥 FIX: In SIMPLE_MODE, behavior depends on call_goal
+                            if SIMPLE_MODE:
+                                print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured}")
+                                if call_goal in ('lead_only', 'collect_details_only'):
+                                    # For lead collection only: allow goodbye hangup without checking lead schema
+                                    # AI prompt defines what "enough" means, not hard Python guards
+                                    hangup_reason = "ai_goodbye_simple_mode_lead_only"
+                                    should_hangup = True
+                                    print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal} (no hard lead guards)")
+                                elif call_goal == 'appointment':
+                                    # For appointments: only hangup if required lead fields are captured
+                                    if self.required_lead_fields and not self.lead_captured:
+                                        # Lead incomplete - block hangup, AI should ask for missing info
+                                        print(f"🔒 [GOODBYE] will_hangup=False - goal=appointment, lead incomplete")
+                                        print(f"   required_lead_fields={self.required_lead_fields}, lead_captured={self.lead_captured}")
+                                        pass  # Don't hangup
+                                    else:
+                                        # Lead complete or no required fields - allow hangup
+                                        hangup_reason = "ai_goodbye_simple_mode_appointment"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, lead complete")
+                                else:
+                                    # Unknown goal - default to allowing goodbye
+                                    hangup_reason = "ai_goodbye_simple_mode_unknown"
+                                    should_hangup = True
+                                    print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}")
                             # Prompt-only mode: If no required fields configured, allow hangup on goodbye alone
-                            if not self.required_lead_fields:
+                            elif not self.required_lead_fields:
                                 hangup_reason = "ai_goodbye_prompt_only"
                                 should_hangup = True
                                 print(f"✅ [HANGUP PROMPT-ONLY] AI said goodbye with auto_end_on_goodbye=True + user has spoken - disconnecting")
@@ -8879,6 +8907,10 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"🔍 [CONFIG] smart_hangup_enabled={self.smart_hangup_enabled}")
                     print(f"🔍 [BUILD 309] call_goal={getattr(self, 'call_goal', 'lead_only')}, confirm_before_hangup={getattr(self, 'confirm_before_hangup', True)}")
                     
+                    # 🔥 COMPREHENSIVE LOGGING: Show SIMPLE_MODE, direction, and goal at call start
+                    call_direction = getattr(self, 'call_direction', 'inbound')
+                    print(f"📞 [BUILD] SIMPLE_MODE={SIMPLE_MODE} direction={call_direction} goal={getattr(self, 'call_goal', 'lead_only')}")
+                    
                     return (self.business_id, greeting)
                 else:
                     logger.error(f"[CALL-ERROR] No business for {to_number}")
@@ -9329,8 +9361,9 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 SILENCE FAILSAFE: Hard 10s timeout for total silence in ACTIVE state
                 # If absolutely no audio activity (no user, no AI) for 10s, trigger polite closing
                 # This prevents getting stuck in 10-20s silent gaps
+                # 🔥 FIX: In SIMPLE_MODE, skip hard timeout but allow regular silence monitoring below
                 silence_duration = time.time() - self._last_speech_time
-                if self.user_has_spoken and silence_duration >= 10.0:
+                if self.user_has_spoken and silence_duration >= 10.0 and not SIMPLE_MODE:
                     # Hard timeout - 10s of total silence after user spoke
                     if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
                         logger.warning(
@@ -9387,6 +9420,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Send "are you there?" warning
                         self._silence_warning_count += 1
                         print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
+                        print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
                         
                         # 🔥 BUILD 338 COST FIX: Only send AI prompt on LAST warning (not all warnings)
                         # This reduces response.create calls by ~50% in silence scenarios
@@ -9436,6 +9470,17 @@ Greet briefly. Then WAIT for customer to speak."""
                         if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
                             print(f"🔇 [SILENCE] State changed before hangup - exiting")
                             return
+                        
+                        # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
+                        # Just stay idle and let the call continue or let Twilio disconnect
+                        if SIMPLE_MODE:
+                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
+                            print(f"   Keeping line open - user may return or Twilio will disconnect")
+                            # Optionally send a final message
+                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+                            # Reset timer to avoid immediate re-triggering, but don't close
+                            self._last_speech_time = time.time()
+                            continue  # Stay in monitor loop
                         
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
