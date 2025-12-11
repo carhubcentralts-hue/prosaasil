@@ -1076,8 +1076,9 @@ VALID_SHORT_HEBREW_PHRASES = {
 
 # 🎯 TASK 4.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
 HEBREW_FILLER_WORDS = {
-    "אמ", "אם", "אממ", "אמממ", "אה", "אהה", "אההה", "הממ", "אהם", "אהממ",
-    "אם", "אמ", "ממ", "הם", "אהה", "אההה", "אההההה"
+    "אמ", "אם", "אממ", "אמממ", 
+    "אה", "אהה", "אההה", "אההההה",
+    "הממ", "אהם", "אהממ", "ממ", "הם"
 }
 
 def is_valid_transcript(text: str) -> bool:
@@ -4597,13 +4598,15 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
                         # Don't cancel AI, don't flush queue, just ignore
                         # Save to conversation history for context but mark as filler
-                        if hasattr(self, 'conversation_history'):
-                            self.conversation_history.append({
-                                "speaker": "user",
-                                "text": f"[FILLER: {text}]",
-                                "ts": time.time(),
-                                "filler_only": True
-                            })
+                        # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
+                        if not hasattr(self, 'conversation_history'):
+                            self.conversation_history = []
+                        self.conversation_history.append({
+                            "speaker": "user",
+                            "text": f"[FILLER: {text}]",
+                            "ts": time.time(),
+                            "filler_only": True
+                        })
                         # Increment filler counter for metrics
                         if not hasattr(self, '_stt_filler_only_count'):
                             self._stt_filler_only_count = 0
@@ -11817,12 +11820,20 @@ Greet briefly. Then WAIT for customer to speak."""
             stt_hallucinations_dropped = getattr(self, '_stt_hallucinations_dropped', 0)
             
             # 🎯 TASK 6.1: STT QUALITY METRICS
-            # Count total user utterances
-            stt_utterances_total = len([m for m in conversation_history if m.get('speaker') == 'user'])
+            # 🔧 CODE REVIEW FIX: Optimize - single pass instead of multiple list comprehensions
+            stt_utterances_total = 0
+            stt_empty_count = 0
+            stt_very_short_count = 0
             
-            # Count empty/very short utterances (marked as filtered)
-            stt_empty_count = len([m for m in conversation_history if m.get('speaker') == 'user' and m.get('filtered', False) and len(m.get('text', '').strip()) == 0])
-            stt_very_short_count = len([m for m in conversation_history if m.get('speaker') == 'user' and m.get('filtered', False) and 0 < len(m.get('text', '').strip()) < 5])
+            for msg in conversation_history:
+                if msg.get('speaker') == 'user':
+                    stt_utterances_total += 1
+                    if msg.get('filtered', False):
+                        text_len = len(msg.get('text', '').strip())
+                        if text_len == 0:
+                            stt_empty_count += 1
+                        elif text_len < 5:
+                            stt_very_short_count += 1
             
             # Count filler-only utterances
             stt_filler_only_count = getattr(self, '_stt_filler_only_count', 0)
