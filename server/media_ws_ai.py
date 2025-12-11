@@ -72,7 +72,8 @@ try:
         SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
-        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL
+        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
+        NOISE_GATE_MIN_FRAMES
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -86,6 +87,7 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
     MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
+    NOISE_GATE_MIN_FRAMES = 3  # Fallback if config not available
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -1010,8 +1012,8 @@ RMS_SILENCE_THRESHOLD = 30     # Pure silence threshold: LOWERED from 40 to 30
 MIN_SPEECH_RMS = 40            # Minimum speech RMS: LOWERED from 60 to 40 - capture quiet Hebrew speakers
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
-# CONSECUTIVE FRAMES - CRITICAL HOTFIX: Reduced to 1 frame for minimal gating
-MIN_CONSECUTIVE_VOICE_FRAMES = 1   # 1 frame = 20ms - allow speech through micro-pauses
+# CONSECUTIVE FRAMES - CRITICAL HOTFIX: Use NOISE_GATE_MIN_FRAMES from config
+MIN_CONSECUTIVE_VOICE_FRAMES = NOISE_GATE_MIN_FRAMES  # From config (1 frame = 20ms) - allow speech through micro-pauses
 
 # TIMING - Fast Hebrew response
 POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
