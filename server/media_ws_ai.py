@@ -1066,6 +1066,9 @@ ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (e
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
 ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
 
+# 🔥 SIMPLE_MODE: Early user_has_spoken detection threshold
+SIMPLE_MODE_RMS_MULTIPLIER = 1.5  # Use 1.5x MIN_RMS_DELTA for confident speech detection in SIMPLE_MODE
+
 # Valid short Hebrew phrases that should ALWAYS pass (even if 1 word when RMS is high)
 VALID_SHORT_HEBREW_PHRASES = {
     "כן", "לא", "רגע", "שניה", "שנייה", "תן לי", "אני פה", "שומע",
@@ -3434,8 +3437,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         rms_delta = utterance_rms - utterance_noise_floor
                         
                         # If RMS is significantly above noise floor, mark as user speaking
-                        # Use lower threshold than normal since this is just to open the conversation
-                        if rms_delta >= MIN_RMS_DELTA * 1.5:  # 1.5x threshold for confidence
+                        # Use higher threshold than normal since this is just to open the conversation
+                        if rms_delta >= MIN_RMS_DELTA * SIMPLE_MODE_RMS_MULTIPLIER:
                             print(f"[STT_DECISION] Speech detected with high RMS - marking user_has_spoken=True early")
                             print(f"               rms={utterance_rms:.1f}, noise_floor={utterance_noise_floor:.1f}, delta={rms_delta:.1f}")
                             self.user_has_spoken = True
@@ -4588,8 +4591,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                         # Log detailed decision with before/after state
                         user_has_spoken_before = self.user_has_spoken
+                        # Compute actual filler status (check if it would pass is_valid_transcript)
+                        is_filler = not is_valid_transcript(text)
                         print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                        print(f"               is_filler_only=False")
+                        print(f"               is_filler_only={is_filler}")
                         print(f"               is_hallucination=True (failed validation)")
                         print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
                         print(f"               will_generate_response=False (hallucination dropped)")
@@ -4619,11 +4624,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                    # Check if filler before we continue processing (will be checked again below)
+                    is_filler = not is_valid_transcript(text)
                     print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                    print(f"               is_filler_only=False")
+                    print(f"               is_filler_only={is_filler}")
                     print(f"               is_hallucination=False (passed validation)")
                     print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
-                    print(f"               will_generate_response=True")
+                    print(f"               will_generate_response={not is_filler}")
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
@@ -4635,9 +4642,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
                         
                         # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                        # This block only runs when is_valid_transcript returned False
                         print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                        print(f"               is_filler_only=True")
-                        print(f"               is_hallucination=False")
+                        print(f"               is_filler_only=True (confirmed by is_valid_transcript)")
+                        print(f"               is_hallucination=False (passed validation)")
                         print(f"               user_has_spoken_before={self.user_has_spoken} → after={self.user_has_spoken}")
                         print(f"               will_generate_response=False (filler-only)")
                         
