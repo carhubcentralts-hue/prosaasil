@@ -1037,10 +1037,11 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 # These parameters ensure we only accept real speech, not silence/noise
 # TODO: Consider making these configurable via environment variables or business settings
 MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
-MIN_RMS_DELTA = 20.0        # Minimum RMS above noise floor (prevents accepting silence as speech)
+MIN_RMS_DELTA = 25.0        # Minimum RMS above noise floor (increased from 20.0 for stronger validation)
 MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
 ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
+ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
 
 # Valid short Hebrew phrases that should ALWAYS pass (even if 1 word when RMS is high)
 VALID_SHORT_HEBREW_PHRASES = {
@@ -1076,22 +1077,24 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     """
     # 1) No text = reject
     if not stt_text or not stt_text.strip():
-        logger.info("[STT_GUARD] Rejected: empty utterance")
+        logger.info("[STT_GUARD] Dropping hallucinated utterance: empty text")
         return False
     
     # 2) Too short = likely hallucination
     if utterance_ms < MIN_UTTERANCE_MS:
         logger.info(
-            f"[STT_GUARD] Rejected: too-short utterance ({utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms), text='{stt_text[:20]}...'"
+            f"[STT_GUARD] Dropping hallucinated utterance: {utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms, "
+            f"rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, text='{stt_text[:30]}...'"
         )
         return False
     
     # 3) RMS too low = not real speech
     if rms_snapshot < noise_floor + MIN_RMS_DELTA:
         logger.info(
-            f"[STT_GUARD] Rejected: low RMS (rms={rms_snapshot:.1f}, "
-            f"noise_floor={noise_floor:.1f}, delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}), "
-            f"text='{stt_text[:20]}...'"
+            f"[STT_GUARD] Dropping hallucinated utterance: low RMS "
+            f"(rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, "
+            f"delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}), "
+            f"text='{stt_text[:30]}...'"
         )
         return False
     
@@ -1137,6 +1140,7 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     logger.info(
         f"[STT_GUARD] Accepted utterance: {utterance_ms:.0f}ms, "
         f"rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, "
+        f"delta={rms_snapshot - noise_floor:.1f}, "
         f"words={word_count}, text='{stt_text[:40]}...'"
     )
     return True
@@ -1676,6 +1680,12 @@ class MediaStreamHandler:
         self._post_greeting_grace_period_sec = 5.0  # 5 seconds after greeting to let user respond
         self._is_silence_handler_response = False  # Track if current response is from SILENCE_HANDLER (shouldn't count)
         self._user_responded_after_greeting = False  # Track if user has responded after greeting (end grace early)
+        
+        # 🔥 CALL METRICS: Performance tracking counters
+        self._barge_in_event_count = 0  # Count of barge-in events during call
+        self._silence_10s_count = 0  # Count of 10s+ silence gaps during call
+        self._stt_hallucinations_dropped = 0  # Count of STT hallucinations rejected by STT_GUARD
+        self.connection_start_time = time.time()  # Track connection start for metrics
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -3192,18 +3202,42 @@ Greet briefly. Then WAIT for customer to speak."""
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 ECHO_GUARD: Reject speech_started if it's likely echo from AI audio
+                    # 🔥 ECHO_GUARD: Smart echo detection - differentiate real speech from echo
                     # ═══════════════════════════════════════════════════════════════════════
                     # This runs BEFORE any other processing to prevent echo from triggering barge-in
                     now_ms = time.time() * 1000
                     if self.is_ai_speaking_event.is_set() and hasattr(self, '_last_ai_audio_ts'):
-                        time_since_ai_audio_ms = now_ms - (self._last_ai_audio_ts * 1000)
+                        # 🔥 BUG FIX: Handle None case - if no AI audio yet, skip echo guard
+                        if self._last_ai_audio_ts is None:
+                            # No AI audio yet - treat as very old, disable echo guard for this event
+                            time_since_ai_audio_ms = 9999.0
+                        else:
+                            time_since_ai_audio_ms = now_ms - (self._last_ai_audio_ts * 1000)
+                        
                         if time_since_ai_audio_ms <= ECHO_WINDOW_MS:
-                            logger.info(
-                                f"[ECHO_GUARD] Ignoring speech_started - probable echo (Δ{time_since_ai_audio_ms:.1f}ms since AI audio)"
-                            )
-                            # Do NOT mark candidate_user_speaking, do NOT start utterance, do NOT trigger barge-in
-                            continue
+                            # 🔥 SMART ECHO DETECTION: Check RMS to differentiate echo from real speech
+                            # - Low RMS within echo window = likely echo (reject)
+                            # - High RMS within echo window = likely real loud user speech (allow)
+                            current_rms = getattr(self, '_recent_audio_rms', 0)
+                            current_noise_floor = getattr(self, 'noise_floor', 50.0)
+                            
+                            # If RMS is very high (loud user), allow it through as real speech
+                            if current_rms >= current_noise_floor + ECHO_HIGH_RMS_THRESHOLD:
+                                logger.info(
+                                    f"[ECHO_GUARD] Allowing speech - looks like real user, not echo "
+                                    f"(Δ{time_since_ai_audio_ms:.1f}ms since AI audio, rms={current_rms:.1f}, "
+                                    f"noise_floor={current_noise_floor:.1f}, delta={current_rms - current_noise_floor:.1f})"
+                                )
+                                # Allow through - real loud user speech
+                            else:
+                                # Low RMS - likely echo, reject
+                                logger.info(
+                                    f"[ECHO_GUARD] Dropping probable echo "
+                                    f"(Δ{time_since_ai_audio_ms:.1f}ms since AI audio, rms={current_rms:.1f}, "
+                                    f"noise_floor={current_noise_floor:.1f})"
+                                )
+                                # Do NOT mark candidate_user_speaking, do NOT start utterance, do NOT trigger barge-in
+                                continue
                     
                     # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
                     # Instead of ignoring, treat this as valid input and stop the greeting
@@ -3284,8 +3318,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     #   3. Clear guards/flags
                     #   4. Let the new user utterance lead the next response
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                        # Track barge-in latency for performance monitoring
+                        # Track barge-in latency and timing metrics for comprehensive logging
                         barge_in_latency_start = time.time()
+                        ai_speaking_start_ts = getattr(self, '_last_ai_audio_start_ts', None)
+                        time_since_ai_start_ms = 0
+                        if ai_speaking_start_ts:
+                            time_since_ai_start_ms = (barge_in_latency_start - ai_speaking_start_ts) * 1000
                         
                         print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
                         print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
@@ -3311,9 +3349,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             except Exception as e:
                                 print(f"   ⚠️ Error cancelling response: {e}")
                         elif not cancelled_id:
-                            print(f"[BARGE_IN] ⚠️ No active_response_id to cancel (may have been cleared)")
+                            print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
                         elif not self.realtime_client:
-                            print(f"[BARGE_IN] ⚠️ No realtime_client available for cancellation")
+                            print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
                         
                         # 2) Clear local guards (ALWAYS, even if cancel failed)
                         # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
@@ -3322,18 +3360,33 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.is_ai_speaking_event.clear()
                         self.speaking = False
                         self.has_pending_ai_response = False
-                        print(f"[BARGE_IN] Cleared ai_speaking flag and response guards")
+                        print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
                         
-                        # 3) Flush TX audio queue so Twilio stops playing old audio
+                        # 3) Flush both audio queues so NO old audio reaches Twilio
+                        openai_q_before = self.realtime_audio_out_queue.qsize()
+                        tx_q_before = self.tx_q.qsize()
                         try:
-                            self._flush_twilio_tx_queue(reason="BARGE_IN")
+                            flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
                         except Exception as e:
                             print(f"   ⚠️ Error flushing TX queue: {e}")
+                            flushed_count = 0
                         
-                        # Calculate and log barge-in latency
+                        # Calculate and log comprehensive barge-in metrics
                         barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
-                        print(f"[BARGE_IN_LATENCY] ms={barge_in_latency_ms:.1f}")
-                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, queue flushed")
+                        
+                        # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
+                        # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
+                        logger.info(
+                            f"[BARGE-IN] Real user interrupt detected – "
+                            f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
+                            f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
+                            f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
+                            f"latency={barge_in_latency_ms:.1f}ms"
+                        )
+                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, {flushed_count} frames flushed")
+                        
+                        # 🔥 METRICS: Increment barge-in counter
+                        self._barge_in_event_count += 1
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
@@ -3446,6 +3499,14 @@ Greet briefly. Then WAIT for customer to speak."""
                         # This prevents false "AUDIO GAP" warnings between responses
                         self._last_audio_chunk_ts = time.time()
                         self._openai_audio_chunks_received = 0
+                        
+                        # 🔥 SILENCE FAILSAFE: Cancel any pending response timeout
+                        # Response was created, so we're not stuck in silence
+                        if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
+                            if not self._response_timeout_task.done():
+                                self._response_timeout_task.cancel()
+                            self._response_timeout_task = None
+                            logger.info("[SILENCE_FAILSAFE] Response created - cancelled pending timeout")
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
@@ -4353,6 +4414,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
                         # 🔥 FIX BUG 3: Save as last hallucination to prevent repeats
                         self._last_hallucination = text.strip()
+                        # 🔥 METRICS: Increment STT hallucinations counter
+                        self._stt_hallucinations_dropped += 1
                         # Clear candidate flag
                         self._candidate_user_speaking = False
                         self._utterance_start_ts = None
@@ -4902,6 +4965,43 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
+                        
+                        # 🔥 SILENCE FAILSAFE: Start timeout waiting for AI response
+                        # If no response.created within 3 seconds, trigger fallback
+                        # Only trigger in ACTIVE state (not WARMUP or CLOSING)
+                        if self.call_state == CallState.ACTIVE:
+                            async def _response_timeout_check():
+                                """Wait for AI response - trigger fallback if no response"""
+                                try:
+                                    await asyncio.sleep(3.0)  # 3 second timeout
+                                    
+                                    # Check if response was created
+                                    if not self.active_response_id and not self.is_ai_speaking_event.is_set():
+                                        logger.warning(
+                                            "[SILENCE_FAILSAFE] No AI response within 3000ms – triggering fallback"
+                                        )
+                                        
+                                        # Send polite fallback message
+                                        fallback_msg = "סליחה, יש לי קושי טכני רגעי. אשמח אם תוכל לחזור על מה שאמרת?"
+                                        await self._send_server_event_to_ai(f"[SERVER] {fallback_msg}")
+                                        
+                                        # Trigger response
+                                        await self.trigger_response("SILENCE_FAILSAFE_3S")
+                                        
+                                except asyncio.CancelledError:
+                                    # Normal cancellation when response arrives
+                                    logger.debug("[SILENCE_FAILSAFE] Cancelled - response arrived")
+                                except Exception as e:
+                                    logger.error(f"[SILENCE_FAILSAFE] Error in timeout check: {e}")
+                            
+                            # Cancel any previous timeout task
+                            if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
+                                if not self._response_timeout_task.done():
+                                    self._response_timeout_task.cancel()
+                            
+                            # Start new timeout task
+                            self._response_timeout_task = asyncio.create_task(_response_timeout_check())
+                            logger.debug("[SILENCE_FAILSAFE] Started 3s response timeout")
                         
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
@@ -8987,6 +9087,36 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"🔇 [SILENCE] Monitor exiting - pending_hangup=True")
                     return
                 
+                # 🔥 SILENCE FAILSAFE: Hard 10s timeout for total silence in ACTIVE state
+                # If absolutely no audio activity (no user, no AI) for 10s, trigger polite closing
+                # This prevents getting stuck in 10-20s silent gaps
+                silence_duration = time.time() - self._last_speech_time
+                if self.user_has_spoken and silence_duration >= 10.0:
+                    # Hard timeout - 10s of total silence after user spoke
+                    if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
+                        logger.warning(
+                            f"[SILENCE_FAILSAFE] Hard timeout – ending call politely after 10s of silence"
+                        )
+                        print(f"🔇 [SILENCE_FAILSAFE] 10s total silence - triggering polite closing")
+                        
+                        # 🔥 METRICS: Increment 10s silence counter
+                        self._silence_10s_count += 1
+                        
+                        # Transition to CLOSING state
+                        self.call_state = CallState.CLOSING
+                        
+                        # Send polite closing message
+                        closing_msg = "תודה שהתקשרת. נשמח לעזור לך בפעם הבאה. יום נעים!"
+                        if self.call_config and self.call_config.closing_sentence:
+                            closing_msg = self.call_config.closing_sentence
+                        
+                        await self._send_text_to_ai(f"[SYSTEM] 10s silence detected. Say: {closing_msg}")
+                        
+                        # Schedule hangup after TTS
+                        await asyncio.sleep(3.0)
+                        self._trigger_auto_hangup("hard_silence_timeout_10s")
+                        return
+                
                 # 🔥 BUILD 312: NEVER count silence until user has spoken at least once!
                 # This prevents AI from responding "are you there?" before user says anything
                 if not self.user_has_spoken:
@@ -10954,6 +11084,9 @@ Greet briefly. Then WAIT for customer to speak."""
         🔥 BUILD 183: Only generate summary if USER actually spoke!
         """
         try:
+            # 🔥 CALL METRICS: Log comprehensive metrics before finalizing
+            self._log_call_metrics()
+            
             from server.models_sql import CallLog
             from server.services.customer_intelligence import CustomerIntelligence
             from server.app_factory import create_app
@@ -11411,3 +11544,106 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception as e:
             print(f"❌ Customer Intelligence setup failed: {e}")
             # אל תקריס את השיחה - המשך רגיל
+    
+    def _log_call_metrics(self):
+        """
+        🔥 CALL METRICS: Log comprehensive metrics for each call
+        
+        Called at call end to log key performance indicators:
+        - Greeting latency
+        - First user utterance timing
+        - Average turn durations
+        - Barge-in events count
+        - Silence events count
+        - STT hallucinations dropped count
+        
+        This helps identify patterns and tune thresholds per business.
+        """
+        try:
+            # Calculate greeting latency
+            greeting_ms = 0
+            if hasattr(self, 'greeting_completed_at') and hasattr(self, 'connection_start_time'):
+                if self.greeting_completed_at and self.connection_start_time:
+                    greeting_ms = int((self.greeting_completed_at - self.connection_start_time) * 1000)
+            
+            # Calculate first user utterance timing
+            first_user_utterance_ms = 0
+            if hasattr(self, 'conversation_history') and self.conversation_history:
+                for msg in self.conversation_history:
+                    if msg.get('speaker') == 'user' and msg.get('ts'):
+                        if hasattr(self, 'connection_start_time') and self.connection_start_time:
+                            first_user_utterance_ms = int((msg['ts'] - self.connection_start_time) * 1000)
+                        break
+            
+            # Helper to avoid code duplication
+            conversation_history = self.conversation_history if hasattr(self, 'conversation_history') else []
+            
+            # Calculate average AI turn duration
+            ai_turn_durations = []
+            for i, msg in enumerate(conversation_history):
+                if msg.get('speaker') == 'ai' and msg.get('ts'):
+                    # Find next message to calculate duration
+                    if i + 1 < len(conversation_history):
+                        next_msg = conversation_history[i + 1]
+                        if next_msg.get('ts'):
+                            duration_ms = int((next_msg['ts'] - msg['ts']) * 1000)
+                            ai_turn_durations.append(duration_ms)
+            
+            avg_ai_turn_ms = int(sum(ai_turn_durations) / len(ai_turn_durations)) if ai_turn_durations else 0
+            
+            # Calculate average user turn duration
+            user_turn_durations = []
+            for i, msg in enumerate(conversation_history):
+                if msg.get('speaker') == 'user' and msg.get('ts'):
+                    # Find next message to calculate duration
+                    if i + 1 < len(conversation_history):
+                        next_msg = conversation_history[i + 1]
+                        if next_msg.get('ts'):
+                            duration_ms = int((next_msg['ts'] - msg['ts']) * 1000)
+                            user_turn_durations.append(duration_ms)
+            
+            avg_user_turn_ms = int(sum(user_turn_durations) / len(user_turn_durations)) if user_turn_durations else 0
+            
+            # Count barge-in events
+            barge_in_events = getattr(self, '_barge_in_event_count', 0)
+            
+            # Count silence events (10s+ gaps)
+            silences_10s = getattr(self, '_silence_10s_count', 0)
+            
+            # Count STT hallucinations dropped
+            stt_hallucinations_dropped = getattr(self, '_stt_hallucinations_dropped', 0)
+            
+            # Log comprehensive metrics
+            logger.info(
+                "[CALL_METRICS] greeting_ms=%(greeting_ms)d, "
+                "first_user_utterance_ms=%(first_user_utterance_ms)d, "
+                "avg_ai_turn_ms=%(avg_ai_turn_ms)d, "
+                "avg_user_turn_ms=%(avg_user_turn_ms)d, "
+                "barge_in_events=%(barge_in_events)d, "
+                "silences_10s=%(silences_10s)d, "
+                "stt_hallucinations_dropped=%(stt_hallucinations_dropped)d",
+                {
+                    'greeting_ms': greeting_ms,
+                    'first_user_utterance_ms': first_user_utterance_ms,
+                    'avg_ai_turn_ms': avg_ai_turn_ms,
+                    'avg_user_turn_ms': avg_user_turn_ms,
+                    'barge_in_events': barge_in_events,
+                    'silences_10s': silences_10s,
+                    'stt_hallucinations_dropped': stt_hallucinations_dropped
+                }
+            )
+            
+            # Also print for visibility
+            print(f"📊 [CALL_METRICS] Call {self.call_sid[:16] if hasattr(self, 'call_sid') else 'N/A'}")
+            print(f"   Greeting: {greeting_ms}ms")
+            print(f"   First user utterance: {first_user_utterance_ms}ms")
+            print(f"   Avg AI turn: {avg_ai_turn_ms}ms")
+            print(f"   Avg user turn: {avg_user_turn_ms}ms")
+            print(f"   Barge-in events: {barge_in_events}")
+            print(f"   Silences (10s+): {silences_10s}")
+            print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
+            
+        except Exception as e:
+            logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
+            import traceback
+            traceback.print_exc()
