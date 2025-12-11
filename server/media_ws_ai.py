@@ -4623,31 +4623,25 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.user_has_spoken = True
                         print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
                     
+                    # 🎯 TASK 4.2: TWO-PHASE BARGE-IN - Filler Detection
+                    # Check if transcript is filler-only (should NOT trigger bot response)
+                    # Store result to avoid duplicate function call
+                    is_filler_only = not is_valid_transcript(text)
+                    
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
-                    # Check if filler before we continue processing (will be checked again below)
-                    is_filler = not is_valid_transcript(text)
                     print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                    print(f"               is_filler_only={is_filler}")
+                    print(f"               is_filler_only={is_filler_only}")
                     print(f"               is_hallucination=False (passed validation)")
                     print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
-                    print(f"               will_generate_response={not is_filler}")
+                    print(f"               will_generate_response={not is_filler_only}")
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
                     
-                    # 🎯 TASK 4.2: TWO-PHASE BARGE-IN - Filler Detection
-                    # Check if transcript is filler-only (should NOT trigger bot response)
-                    if not is_valid_transcript(text):
+                    # Skip filler-only utterances
+                    if is_filler_only:
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
-                        
-                        # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
-                        # This block only runs when is_valid_transcript returned False
-                        print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                        print(f"               is_filler_only=True (confirmed by is_valid_transcript)")
-                        print(f"               is_hallucination=False (passed validation)")
-                        print(f"               user_has_spoken_before={self.user_has_spoken} → after={self.user_has_spoken}")
-                        print(f"               will_generate_response=False (filler-only)")
                         
                         # Don't cancel AI, don't flush queue, just ignore
                         # Save to conversation history for context but mark as filler
