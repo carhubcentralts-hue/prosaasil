@@ -1067,7 +1067,12 @@ ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is li
 ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
 
 # 🔥 SIMPLE_MODE: Early user_has_spoken detection threshold
-SIMPLE_MODE_RMS_MULTIPLIER = 1.5  # Use 1.5x MIN_RMS_DELTA for confident speech detection in SIMPLE_MODE
+# 1.5x multiplier provides confident speech detection: 
+# - Below 1x: Too sensitive, may trigger on noise
+# - At 1x: Matches normal validation, defeats purpose of early detection
+# - At 1.5x: Clear speech signal, confident real user input (not echo/noise)
+# - Above 2x: Too strict, may miss quiet speakers
+SIMPLE_MODE_RMS_MULTIPLIER = 1.5  # Sweet spot: confident speech without missing quiet users
 
 # Valid short Hebrew phrases that should ALWAYS pass (even if 1 word when RMS is high)
 VALID_SHORT_HEBREW_PHRASES = {
@@ -3439,8 +3444,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         # If RMS is significantly above noise floor, mark as user speaking
                         # Use higher threshold than normal since this is just to open the conversation
                         if rms_delta >= MIN_RMS_DELTA * SIMPLE_MODE_RMS_MULTIPLIER:
-                            print(f"[STT_DECISION] Speech detected with high RMS - marking user_has_spoken=True early")
-                            print(f"               rms={utterance_rms:.1f}, noise_floor={utterance_noise_floor:.1f}, delta={rms_delta:.1f}")
+                            logger.info(
+                                f"[STT_DECISION] Speech detected with high RMS - marking user_has_spoken=True early | "
+                                f"rms={utterance_rms:.1f}, noise_floor={utterance_noise_floor:.1f}, delta={rms_delta:.1f}"
+                            )
                             self.user_has_spoken = True
                     
                     # Note: user_has_spoken may be set here (SIMPLE_MODE) or in transcription.completed after validation
@@ -4595,11 +4602,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
                         
                         # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
-                        print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                        print(f"               is_filler_only={is_filler_only}")
-                        print(f"               is_hallucination=True (failed validation)")
-                        print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
-                        print(f"               will_generate_response=False (hallucination dropped)")
+                        logger.info(
+                            f"[STT_DECISION] raw='{raw_text}' normalized='{text}' | "
+                            f"is_filler_only={is_filler_only} | "
+                            f"is_hallucination=True (failed validation) | "
+                            f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
+                            f"will_generate_response=False (hallucination dropped)"
+                        )
                         
                         # 🔥 FIX BUG 3: Save as last hallucination to prevent repeats
                         self._last_hallucination = text.strip()
@@ -4626,11 +4635,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call
-                    print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                    print(f"               is_filler_only={is_filler_only}")
-                    print(f"               is_hallucination=False (passed validation)")
-                    print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
-                    print(f"               will_generate_response={not is_filler_only}")
+                    logger.info(
+                        f"[STT_DECISION] raw='{raw_text}' normalized='{text}' | "
+                        f"is_filler_only={is_filler_only} | "
+                        f"is_hallucination=False (passed validation) | "
+                        f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
+                        f"will_generate_response={not is_filler_only}"
+                    )
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
