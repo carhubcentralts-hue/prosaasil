@@ -95,6 +95,10 @@ except ImportError:
         "noise_gate_min_frames": 0,
         "echo_guard_enabled": True,
         "frame_pacing_ms": 20,
+        "vad_rms": 60,
+        "rms_silence_threshold": 30,
+        "min_speech_rms": 40,
+        "min_rms_delta": 5.0,
     }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
@@ -1021,12 +1025,12 @@ SR = 8000
 # Trust OpenAI's Realtime API VAD - minimal local filtering
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# SPEECH DETECTION - CRITICAL HOTFIX: Lowered thresholds for better sensitivity
+# SPEECH DETECTION - Use values from centralized AUDIO_CONFIG
 MIN_UTT_SEC = 0.35              # Minimum utterance: 350ms - allows short Hebrew words like "כן", "לא"
 MAX_UTT_SEC = 12.0              # Maximum utterance: 12s - enough for detailed Hebrew descriptions
-VAD_RMS = 60                    # VAD RMS threshold: LOWERED from 80 to 60 for quiet speakers
-RMS_SILENCE_THRESHOLD = 30     # Pure silence threshold: LOWERED from 40 to 30
-MIN_SPEECH_RMS = 40            # Minimum speech RMS: LOWERED from 60 to 40 - capture quiet Hebrew speakers
+VAD_RMS = AUDIO_CONFIG.get("vad_rms", 60)                       # From AUDIO_CONFIG
+RMS_SILENCE_THRESHOLD = AUDIO_CONFIG.get("rms_silence_threshold", 30)  # From AUDIO_CONFIG
+MIN_SPEECH_RMS = AUDIO_CONFIG.get("min_speech_rms", 40)        # From AUDIO_CONFIG
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
 # CONSECUTIVE FRAMES - SIMPLE MODE: Use NOISE_GATE_MIN_FRAMES from AUDIO_CONFIG
@@ -1053,11 +1057,10 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# 🎯 STT GUARD: CRITICAL HOTFIX - Lowered thresholds to prevent blocking real speech
+# 🎯 STT GUARD: Use values from centralized AUDIO_CONFIG
 # These parameters ensure we only accept real speech, not silence/noise
-# TODO: Consider making these configurable via environment variables or business settings
 MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
-MIN_RMS_DELTA = 5.0         # LOWERED from 25.0 to 5.0 - microphone sensitivity increased
+MIN_RMS_DELTA = AUDIO_CONFIG.get("min_rms_delta", 5.0)  # From AUDIO_CONFIG - microphone sensitivity
 MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
 ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)

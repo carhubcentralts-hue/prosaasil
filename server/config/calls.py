@@ -12,6 +12,11 @@ AUDIO_CONFIG = {
     "noise_gate_min_frames": 0,    # DISABLED: No consecutive frame requirements
     "echo_guard_enabled": True,    # Minimal, conservative echo control only
     "frame_pacing_ms": 20,         # Standard telephony frame interval (20ms)
+    # RMS Thresholds - Lowered for better microphone sensitivity (telephony)
+    "vad_rms": 60,                 # VAD RMS threshold (lowered from 80 for quiet speakers)
+    "rms_silence_threshold": 30,   # Pure silence threshold (lowered from 40)
+    "min_speech_rms": 40,          # Minimum speech RMS (lowered from 60 for quiet callers)
+    "min_rms_delta": 5.0,          # Min RMS above noise floor (lowered from 25.0)
 }
 
 # SIMPLE_MODE: Trust Twilio + OpenAI VAD completely
