@@ -628,7 +628,7 @@ class Appointment(db.Model):
     
     # Status and type
     status = db.Column(db.String(32), default="scheduled")  # scheduled/confirmed/completed/cancelled/no_show
-    appointment_type = db.Column(db.String(64), default="viewing")  # viewing/meeting/signing/call_followup
+    appointment_type = db.Column(db.String(64), default="appointment")  # Generic: appointment/meeting/consultation/service
     priority = db.Column(db.String(16), default="medium")  # low/medium/high/urgent
     
     # Contact info (for cases without customer record)

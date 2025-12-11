@@ -306,7 +306,7 @@ def create_appointment():
         appointment.end_time = end_time      # Now naive datetime (local Israel time)
         appointment.location = data.get('location')
         appointment.status = data.get('status', 'scheduled')
-        appointment.appointment_type = data.get('appointment_type', 'viewing')
+        appointment.appointment_type = data.get('appointment_type', 'appointment')  # Generic default
         appointment.priority = data.get('priority', 'medium')
         appointment.contact_name = data.get('contact_name')
         appointment.contact_phone = data.get('contact_phone')

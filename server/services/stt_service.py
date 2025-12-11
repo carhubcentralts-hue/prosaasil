@@ -68,7 +68,7 @@ def _transcribe_with_google_v2(audio_file_path: str) -> str:
         with open(audio_file_path, "rb") as f:
             audio_content = f.read()
         
-        # הגדרות תמלול עברית מותאמות לנדל"ן
+        # הגדרות תמלול עברית אוניברסליות
         config = speech.RecognitionConfig(
             auto_decoding_config=speech.AutoDetectDecodingConfig(),  # זיהוי פורמט אוטומטי
             language_codes=["he-IL"],  # עברית

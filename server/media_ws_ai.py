@@ -2248,7 +2248,7 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
             # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
-            # Vocabulary prompts were causing hallucinations like "קליבר" 
+            # Vocabulary prompts were causing hallucinations with business names
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
@@ -11074,10 +11074,10 @@ Greet briefly. Then WAIT for customer to speak."""
         return ""
     
     # 🔥 BUILD 200: REMOVED _analyze_lead_completeness() function
-    # It contained hardcoded real estate terms (דירה, חדרים, נכס, תקציב)
+    # It contained hardcoded business-specific field requirements
     # Lead completeness is now handled 100% by AI prompt - each business defines
     # their own required fields and logic in their custom prompts.
-    # This ensures the system works for ANY business type, not just real estate.
+    # This ensures the system works for ANY business type dynamically.
     
     def _finalize_call_on_stop(self):
         """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות
