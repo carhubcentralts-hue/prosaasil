@@ -1089,6 +1089,10 @@ HEBREW_FILLER_WORDS = {
     "הממ", "אהם", "אהממ", "ממ", "הם"
 }
 
+# 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
+GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
+GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
+
 def is_valid_transcript(text: str) -> bool:
     """
     🎯 TASK 4.2: Two-Phase Barge-in - Transcription-Based Confirmation
@@ -9695,14 +9699,12 @@ Greet briefly. Then WAIT for customer to speak."""
             return False
         
         # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
-        ignore_phrases = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
-        for ignore in ignore_phrases:
+        for ignore in GOODBYE_IGNORE_PHRASES:
             if ignore in text_lower:
                 return False
         
         # 🛡️ FILTER: Exclude greetings that sound like goodbye
-        greeting_words = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
-        for greeting in greeting_words:
+        for greeting in GOODBYE_GREETING_WORDS:
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
                 return False
         
@@ -9724,14 +9726,20 @@ Greet briefly. Then WAIT for customer to speak."""
             "תודה וביי", "תודה להתראות", "תודה רבה וביי", "תודה רבה להתראות"
         ]
         
-        # Check if any polite ending is the main content (not just mentioned in passing)
+        # Check if any polite ending is present and is a significant portion of the text
         words_in_text = text_lower.split()
+        text_length = len(words_in_text)
+        
         for phrase in polite_endings:
-            phrase_words = phrase.split()
-            # If the phrase is a significant portion of the utterance (>50%), it's a goodbye
-            if phrase in text_lower and len(phrase_words) >= len(words_in_text) * 0.5:
-                print(f"[USER GOODBYE] Polite ending: '{phrase}' in '{text_lower[:30]}...'")
-                return True
+            if phrase in text_lower:
+                phrase_words = phrase.split()
+                phrase_length = len(phrase_words)
+                
+                # If the utterance is very short (≤3 words) and contains the phrase, it's likely a goodbye
+                # For longer utterances, the phrase should be at least 50% of the content
+                if text_length <= 3 or phrase_length >= text_length * 0.5:
+                    print(f"[USER GOODBYE] Polite ending: '{phrase}' in '{text_lower[:30]}...'")
+                    return True
         
         return False
     
@@ -9754,15 +9762,13 @@ Greet briefly. Then WAIT for customer to speak."""
         text_lower = text.lower().strip()
         
         # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
-        ignore_phrases = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
-        for ignore in ignore_phrases:
+        for ignore in GOODBYE_IGNORE_PHRASES:
             if ignore in text_lower:
                 print(f"[GOODBYE CHECK] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
                 return False
         
         # 🛡️ FILTER: Exclude greetings that sound like goodbye
-        greeting_words = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
-        for greeting in greeting_words:
+        for greeting in GOODBYE_GREETING_WORDS:
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
                 print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
