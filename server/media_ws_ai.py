@@ -2225,10 +2225,12 @@ Greet briefly. Then WAIT for customer to speak."""
             logger.info(f"[CALL DEBUG] PHASE 1: Configure with greeting prompt...")
             
             # 🎯 VOICE CONSISTENCY: Set voice once at call start, use same voice throughout
-            # 🔥 BUILD 304: Changed to 'ash' - conversational male, lower pitch, no jumps
-            # User reported coral was too high-pitched and had voice jumps
-            # 'ash' = calm conversational male, better for professional calls
-            call_voice = "ash"
+            # 🔥 BUILD 340: Changed to 'alloy' - natural, smooth, best for Hebrew phone calls
+            # Previous attempts:
+            # - 'coral' was too high-pitched with voice jumps
+            # - 'ash' was reported as robotic/choppy by users
+            # 'alloy' = balanced, natural voice with best quality for Hebrew conversations
+            call_voice = "alloy"
             self._call_voice = call_voice  # Store for session.update reuse
             print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
             
@@ -2252,15 +2254,18 @@ Greet briefly. Then WAIT for customer to speak."""
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
-            # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
+            # 🔥 BUILD 340: Optimized settings for natural Hebrew conversations
+            # - Lower VAD threshold (0.65) to catch softer speech and prevent cutoffs
+            # - Longer silence duration (700ms) to let user finish sentences naturally
+            # - Higher temperature (0.8) for more natural, less robotic responses
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.85,
-                silence_duration_ms=450,
-                temperature=0.6,
+                vad_threshold=0.65,
+                silence_duration_ms=700,
+                temperature=0.8,
                 max_tokens=greeting_max_tokens,
                 transcription_prompt=""  # 🔥 BUILD 316: EMPTY - no vocabulary hints!
             )

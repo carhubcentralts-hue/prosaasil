@@ -289,12 +289,12 @@ class OpenAIRealtimeClient:
     async def configure_session(
         self,
         instructions: str,
-        voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
+        voice: str = "alloy",  # 🔥 BUILD 340: 'alloy' - natural, smooth voice for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
         vad_threshold: float = None,  # 🔥 MASTER FIX: Default from config
         silence_duration_ms: int = None,  # 🔥 MASTER FIX: Default from config
-        temperature: float = 0.18,
+        temperature: float = 0.8,  # 🔥 BUILD 340: Higher temperature for natural responses
         max_tokens: int = 300,
         transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
     ):
@@ -305,16 +305,17 @@ class OpenAIRealtimeClient:
         
         Args:
             instructions: System prompt for the AI
-            voice: Voice to use (coral, sage, verse, ash, ballad, alloy, shimmer, echo)
+            voice: Voice to use - 'alloy' recommended for Hebrew (natural, smooth quality)
+                   Other options: coral, sage, verse, ash, ballad, shimmer, echo
             input_audio_format: Audio format from Twilio (g711_ulaw, pcm16)
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
-            vad_threshold: Voice activity detection threshold (0-1), defaults to SERVER_VAD_THRESHOLD from config
-            silence_duration_ms: Silence duration to detect end of speech, defaults to SERVER_VAD_SILENCE_MS from config
-            temperature: AI temperature (0.18-0.25 for Agent 3 spec)
-            max_tokens: Maximum tokens (280-320 for Agent 3 spec)
+            vad_threshold: Voice activity detection threshold (0-1), defaults to 0.65 for better Hebrew detection
+            silence_duration_ms: Silence duration to detect end of speech, defaults to 700ms for natural pauses
+            temperature: AI temperature (0.8 for natural conversations, lower for deterministic)
+            max_tokens: Maximum tokens per response
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
         """
-        # 🔥 MASTER FIX: Use tuned defaults from config
+        # 🔥 BUILD 340: Use optimized defaults for natural Hebrew conversations
         if vad_threshold is None or silence_duration_ms is None:
             try:
                 from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
@@ -324,12 +325,12 @@ class OpenAIRealtimeClient:
                     silence_duration_ms = SERVER_VAD_SILENCE_MS
                 logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms")
             except ImportError:
-                # Fallback if config not available
+                # Fallback if config not available - use BUILD 340 optimized values
                 if vad_threshold is None:
-                    vad_threshold = 0.72
+                    vad_threshold = 0.65  # Lower threshold to catch softer speech
                 if silence_duration_ms is None:
-                    silence_duration_ms = 380
-                logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms")
+                    silence_duration_ms = 700  # Longer silence to prevent choppy cutoffs
+                logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using BUILD 340 fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms")
         # 🔥 BUILD 202: TRANSCRIPTION IMPROVEMENTS FOR HEBREW
         # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
         # - Add dynamic prompt with business vocabulary (names, cities, services)
