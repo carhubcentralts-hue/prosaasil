@@ -4573,6 +4573,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     if ai_speaking and self._last_ai_audio_start_ts:
                         time_since_ai_audio_start_ms = (now_sec - self._last_ai_audio_start_ts) * 1000
                     
+                    # 🔥 PRE-COMPUTE: Check filler status once (used in both hallucination and success paths)
+                    is_filler_only = not is_valid_transcript(text)
+                    
+                    # 🔥 PRE-COMPUTE: Save state before any modifications (used in all logging paths)
+                    user_has_spoken_before = self.user_has_spoken
+                    
                     # Run enhanced validation with all new parameters
                     accept_utterance = should_accept_realtime_utterance(
                         stt_text=text,
@@ -4589,12 +4595,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
                         
                         # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
-                        # Log detailed decision with before/after state
-                        user_has_spoken_before = self.user_has_spoken
-                        # Compute actual filler status (check if it would pass is_valid_transcript)
-                        is_filler = not is_valid_transcript(text)
                         print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
-                        print(f"               is_filler_only={is_filler}")
+                        print(f"               is_filler_only={is_filler_only}")
                         print(f"               is_hallucination=True (failed validation)")
                         print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
                         print(f"               will_generate_response=False (hallucination dropped)")
@@ -4618,17 +4620,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🔥 FIX BUG 4: Set user_has_spoken ONLY after validated transcription
                     # This ensures all guards pass before we mark user as having spoken
                     # Additional check: Only set if we have meaningful content (passed all STT guards)
-                    user_has_spoken_before = self.user_has_spoken
                     if not self.user_has_spoken and text and len(text.strip()) > 0:
                         self.user_has_spoken = True
                         print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
                     
-                    # 🎯 TASK 4.2: TWO-PHASE BARGE-IN - Filler Detection
-                    # Check if transcript is filler-only (should NOT trigger bot response)
-                    # Store result to avoid duplicate function call
-                    is_filler_only = not is_valid_transcript(text)
-                    
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                    # is_filler_only already computed above, no duplicate function call
                     print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
                     print(f"               is_filler_only={is_filler_only}")
                     print(f"               is_hallucination=False (passed validation)")
