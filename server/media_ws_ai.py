@@ -3429,6 +3429,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.has_pending_ai_response = False
                         print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
                         
+                        # ═══════════════════════════════════════════════════════════════════
+                        # 🎯 TASK C.1: Flush TX queue ONLY on confirmed barge-in (Master QA)
+                        # This only runs when actual user speech is detected during AI speech
+                        # ═══════════════════════════════════════════════════════════════════
                         # 3) Flush both audio queues so NO old audio reaches Twilio
                         openai_q_before = self.realtime_audio_out_queue.qsize()
                         tx_q_before = self.tx_q.qsize()
@@ -6185,16 +6189,22 @@ Greet briefly. Then WAIT for customer to speak."""
                     }
                     
                     try:
-                        # 🔥 BUILD 181: Queue overflow protection
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 TASK B.1: Queue overflow protection with correct maxsize
+                        # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
-                        if queue_size >= 1400:  # Near max (1500)
+                        queue_maxsize = self.tx_q.maxsize  # Use actual maxsize (150)
+                        overflow_threshold = int(queue_maxsize * 0.9)  # 90% full
+                        
+                        if queue_size >= overflow_threshold:
                             # Log overflow warning (throttled)
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO OVERFLOW] TX queue at {queue_size}/1500 - dropping oldest frames")
+                                print(f"⚠️ [AUDIO OVERFLOW] TX queue at {queue_size}/{queue_maxsize} - dropping oldest frames")
                                 self._last_overflow_warning = now
-                            # Drop 100 oldest frames to make room
-                            for _ in range(100):
+                            # Drop 10% of queue to make room
+                            frames_to_drop = max(10, int(queue_maxsize * 0.1))
+                            for _ in range(frames_to_drop):
                                 try:
                                     self.tx_q.get_nowait()
                                 except queue.Empty:
@@ -6811,6 +6821,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 BUILD 302/303: ALWAYS send during barge-in, even if noise/low RMS!
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
                         
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 TASK A.2: Confirm SIMPLE MODE behavior (Master QA)
+                        # ═══════════════════════════════════════════════════════════════════════
                         # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
                         # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
                         # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
@@ -6853,9 +6866,13 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
+                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation
                                 if self._twilio_audio_chunks_sent <= 3:
                                     first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, consec_frames={self._consecutive_voice_frames}")
+                                    mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
+                                    guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
+                                    print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
+                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
@@ -11054,10 +11071,12 @@ Greet briefly. Then WAIT for customer to speak."""
                 # ⚡ Telemetry: Print stats every second with max_gap_ms
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
+                    queue_maxsize = self.tx_q.maxsize
                     actual_fps = frames_sent_last_sec  # Frames sent in last second
                     # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
-                    if queue_size > 750 or max_gap_ms > 40:  # Log if queue high or gaps detected
-                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/150", flush=True)
+                    queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
+                    if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
+                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window
