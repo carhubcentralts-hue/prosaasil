@@ -3416,14 +3416,31 @@ Greet briefly. Then WAIT for customer to speak."""
                         continue
                     
                     # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
-                    # Don't immediately set user_has_spoken - wait for validated transcription
+                    # 🔥 FIX: In SIMPLE_MODE, mark user_has_spoken=True on speech_started if RMS is high
+                    # This prevents the guard from blocking responses when first utterance is hallucinated
                     print(f"🎤 [REALTIME] Speech started - marking as candidate (will validate on transcription)")
                     self._candidate_user_speaking = True
                     self._utterance_start_ts = time.time()
                     self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
                     self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
                     
-                    # Note: user_has_spoken will be set in transcription.completed after validation
+                    # 🔥 FIX: Set user_has_spoken=True early when real speech is detected
+                    # Even if STT later produces hallucination, we know user is trying to speak
+                    # This prevents the guard from blocking legitimate responses
+                    if SIMPLE_MODE and not self.user_has_spoken:
+                        # Check if this is real speech (high RMS + sufficient duration)
+                        utterance_rms = self._utterance_start_rms
+                        utterance_noise_floor = self._utterance_start_noise_floor
+                        rms_delta = utterance_rms - utterance_noise_floor
+                        
+                        # If RMS is significantly above noise floor, mark as user speaking
+                        # Use lower threshold than normal since this is just to open the conversation
+                        if rms_delta >= MIN_RMS_DELTA * 1.5:  # 1.5x threshold for confidence
+                            print(f"[STT_DECISION] Speech detected with high RMS - marking user_has_spoken=True early")
+                            print(f"               rms={utterance_rms:.1f}, noise_floor={utterance_noise_floor:.1f}, delta={rms_delta:.1f}")
+                            self.user_has_spoken = True
+                    
+                    # Note: user_has_spoken may be set here (SIMPLE_MODE) or in transcription.completed after validation
                     if self._post_greeting_window_active:
                         self._post_greeting_heard_user = True
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
@@ -3697,7 +3714,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             continue
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
-                        if not self.user_has_spoken:
+                        # 🔥 FIX: Disabled in SIMPLE_MODE to prevent blocking legitimate responses
+                        # In SIMPLE_MODE, we trust speech_started event + RMS to detect real user speech
+                        if not SIMPLE_MODE and not self.user_has_spoken:
                             # User never spoke, and greeting not sent yet – block it
                             print(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
                             # If there is a response_id in the event, send response.cancel once
@@ -4565,6 +4584,16 @@ Greet briefly. Then WAIT for customer to speak."""
                     if not accept_utterance:
                         # 🚫 Utterance failed validation - save as hallucination and ignore
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
+                        
+                        # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                        # Log detailed decision with before/after state
+                        user_has_spoken_before = self.user_has_spoken
+                        print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
+                        print(f"               is_filler_only=False")
+                        print(f"               is_hallucination=True (failed validation)")
+                        print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
+                        print(f"               will_generate_response=False (hallucination dropped)")
+                        
                         # 🔥 FIX BUG 3: Save as last hallucination to prevent repeats
                         self._last_hallucination = text.strip()
                         # 🔥 METRICS: Increment STT hallucinations counter
@@ -4584,9 +4613,17 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🔥 FIX BUG 4: Set user_has_spoken ONLY after validated transcription
                     # This ensures all guards pass before we mark user as having spoken
                     # Additional check: Only set if we have meaningful content (passed all STT guards)
+                    user_has_spoken_before = self.user_has_spoken
                     if not self.user_has_spoken and text and len(text.strip()) > 0:
                         self.user_has_spoken = True
                         print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
+                    
+                    # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                    print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
+                    print(f"               is_filler_only=False")
+                    print(f"               is_hallucination=False (passed validation)")
+                    print(f"               user_has_spoken_before={user_has_spoken_before} → after={self.user_has_spoken}")
+                    print(f"               will_generate_response=True")
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
@@ -4596,6 +4633,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Check if transcript is filler-only (should NOT trigger bot response)
                     if not is_valid_transcript(text):
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
+                        
+                        # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                        print(f"[STT_DECISION] raw='{raw_text}' normalized='{text}'")
+                        print(f"               is_filler_only=True")
+                        print(f"               is_hallucination=False")
+                        print(f"               user_has_spoken_before={self.user_has_spoken} → after={self.user_has_spoken}")
+                        print(f"               will_generate_response=False (filler-only)")
+                        
                         # Don't cancel AI, don't flush queue, just ignore
                         # Save to conversation history for context but mark as filler
                         # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
