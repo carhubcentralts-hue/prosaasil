@@ -3369,10 +3369,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
                         
                         # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
+                        # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
                         logger.info(
                             f"[BARGE-IN] Real user interrupt detected – "
                             f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
-                            f"flushed all queues (rx={openai_q_before}, tx={tx_q_before}, total={flushed_count}), "
+                            f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
                             f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
                             f"latency={barge_in_latency_ms:.1f}ms"
                         )
@@ -11568,13 +11569,16 @@ Greet briefly. Then WAIT for customer to speak."""
                             first_user_utterance_ms = int((msg['ts'] - self.connection_start_time) * 1000)
                         break
             
+            # Helper to avoid code duplication
+            conversation_history = self.conversation_history if hasattr(self, 'conversation_history') else []
+            
             # Calculate average AI turn duration
             ai_turn_durations = []
-            for i, msg in enumerate(self.conversation_history) if hasattr(self, 'conversation_history') else enumerate([]):
+            for i, msg in enumerate(conversation_history):
                 if msg.get('speaker') == 'ai' and msg.get('ts'):
                     # Find next message to calculate duration
-                    if i + 1 < len(self.conversation_history):
-                        next_msg = self.conversation_history[i + 1]
+                    if i + 1 < len(conversation_history):
+                        next_msg = conversation_history[i + 1]
                         if next_msg.get('ts'):
                             duration_ms = int((next_msg['ts'] - msg['ts']) * 1000)
                             ai_turn_durations.append(duration_ms)
@@ -11583,11 +11587,11 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Calculate average user turn duration
             user_turn_durations = []
-            for i, msg in enumerate(self.conversation_history) if hasattr(self, 'conversation_history') else enumerate([]):
+            for i, msg in enumerate(conversation_history):
                 if msg.get('speaker') == 'user' and msg.get('ts'):
                     # Find next message to calculate duration
-                    if i + 1 < len(self.conversation_history):
-                        next_msg = self.conversation_history[i + 1]
+                    if i + 1 < len(conversation_history):
+                        next_msg = conversation_history[i + 1]
                         if next_msg.get('ts'):
                             duration_ms = int((next_msg['ts'] - msg['ts']) * 1000)
                             user_turn_durations.append(duration_ms)
@@ -11605,14 +11609,22 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Log comprehensive metrics
             logger.info(
-                f"[CALL_METRICS] "
-                f"greeting_ms={greeting_ms}, "
-                f"first_user_utterance_ms={first_user_utterance_ms}, "
-                f"avg_ai_turn_ms={avg_ai_turn_ms}, "
-                f"avg_user_turn_ms={avg_user_turn_ms}, "
-                f"barge_in_events={barge_in_events}, "
-                f"silences_10s={silences_10s}, "
-                f"stt_hallucinations_dropped={stt_hallucinations_dropped}"
+                "[CALL_METRICS] greeting_ms=%(greeting_ms)d, "
+                "first_user_utterance_ms=%(first_user_utterance_ms)d, "
+                "avg_ai_turn_ms=%(avg_ai_turn_ms)d, "
+                "avg_user_turn_ms=%(avg_user_turn_ms)d, "
+                "barge_in_events=%(barge_in_events)d, "
+                "silences_10s=%(silences_10s)d, "
+                "stt_hallucinations_dropped=%(stt_hallucinations_dropped)d",
+                {
+                    'greeting_ms': greeting_ms,
+                    'first_user_utterance_ms': first_user_utterance_ms,
+                    'avg_ai_turn_ms': avg_ai_turn_ms,
+                    'avg_user_turn_ms': avg_user_turn_ms,
+                    'barge_in_events': barge_in_events,
+                    'silences_10s': silences_10s,
+                    'stt_hallucinations_dropped': stt_hallucinations_dropped
+                }
             )
             
             # Also print for visibility
