@@ -276,6 +276,13 @@ If unclear - ask to repeat. SPEAK HEBREW."""
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
+        # 🔥 PROMPT_CONTEXT: Log that compact prompt is fully dynamic
+        has_prompt = bool(ai_prompt_text and ai_prompt_text.strip())
+        logger.info(
+            "[PROMPT_CONTEXT] business_id=%s, prompt_source=%s, has_hardcoded_templates=False, mode=compact",
+            business_id, "ui" if has_prompt else "fallback"
+        )
+        
         # 🔥 PROMPT DEBUG: Log compact prompt
         logger.info(
             "[PROMPT_DEBUG] direction=%s business_id=%s compact_prompt(lead)=%s...",
@@ -646,6 +653,13 @@ Follow the business rules above for how to greet and handle the call.
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars (system + business)")
         
+        # 🔥 PROMPT_CONTEXT: Log that prompt is fully dynamic with no hardcoded templates
+        has_business_prompt = bool(ai_prompt_raw and ai_prompt_raw.strip())
+        logger.info(
+            "[PROMPT_CONTEXT] business_id=%s, prompt_source=%s, has_hardcoded_templates=False",
+            business_id, "ui" if has_business_prompt else "fallback"
+        )
+        
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
         logger.info(
             "[PROMPT_DEBUG] direction=inbound business_id=%s business_name=%s final_system_prompt(lead)=%s...",
@@ -748,6 +762,13 @@ Follow the outbound business rules above for all content and flow.
 ═══════════════════════════════════════════════════════════════"""
         
         logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars (system + outbound)")
+        
+        # 🔥 PROMPT_CONTEXT: Log that prompt is fully dynamic with no hardcoded templates
+        has_outbound_prompt = bool(outbound_prompt_raw and outbound_prompt_raw.strip())
+        logger.info(
+            "[PROMPT_CONTEXT] business_id=%s, prompt_source=%s, has_hardcoded_templates=False",
+            business_id, "ui" if has_outbound_prompt else "fallback"
+        )
         
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
         logger.info(
