@@ -4490,9 +4490,18 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
                         # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
                         # 🔥 PROMPT-ONLY MODE: When no required_lead_fields, rely only on goodbye + user interaction
+                        # 🔥 FIX: In SIMPLE_MODE, don't allow goodbye hangup if lead is incomplete
                         elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
+                            # 🔥 FIX: In SIMPLE_MODE with required_lead_fields, check if lead is complete
+                            if SIMPLE_MODE and self.required_lead_fields and not self.lead_captured:
+                                # Lead is incomplete - block hangup even if AI said goodbye
+                                print(f"🔒 [SMART_HANGUP] Goodbye detected but lead incomplete in SIMPLE_MODE - NOT hanging up")
+                                print(f"   required_lead_fields={self.required_lead_fields}")
+                                print(f"   lead_captured={self.lead_captured}")
+                                # Don't set auto_end_on_goodbye to False globally, just skip this hangup
+                                pass
                             # Prompt-only mode: If no required fields configured, allow hangup on goodbye alone
-                            if not self.required_lead_fields:
+                            elif not self.required_lead_fields:
                                 hangup_reason = "ai_goodbye_prompt_only"
                                 should_hangup = True
                                 print(f"✅ [HANGUP PROMPT-ONLY] AI said goodbye with auto_end_on_goodbye=True + user has spoken - disconnecting")
@@ -9329,6 +9338,12 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 SILENCE FAILSAFE: Hard 10s timeout for total silence in ACTIVE state
                 # If absolutely no audio activity (no user, no AI) for 10s, trigger polite closing
                 # This prevents getting stuck in 10-20s silent gaps
+                # 🔥 FIX: NEVER auto-hangup on silence in SIMPLE_MODE (telephony)
+                if SIMPLE_MODE:
+                    # In SIMPLE_MODE, never auto-close or hangup due to silence
+                    # Let the conversation continue - user may be thinking or having connection issues
+                    continue
+                
                 silence_duration = time.time() - self._last_speech_time
                 if self.user_has_spoken and silence_duration >= 10.0:
                     # Hard timeout - 10s of total silence after user spoke
@@ -9568,7 +9583,14 @@ Greet briefly. Then WAIT for customer to speak."""
         
         🔥 BUILD 200: Updated to use realtime_client and trigger_response
         🔥 BUILD 311: Mark SILENCE_HANDLER responses - shouldn't count towards LOOP GUARD
+        🔥 FIX: NEVER auto-generate polite closing or hangup on silence in SIMPLE_MODE
         """
+        # 🔥 FIX: In SIMPLE_MODE, never auto-generate silence handler responses
+        # This prevents automatic "thank you for calling" / polite closing on silence
+        if SIMPLE_MODE:
+            print(f"🔇 [SIMPLE_MODE] Skipping SILENCE_HANDLER - no auto-closing on silence in telephony mode")
+            return
+        
         try:
             # 🔥 BUILD 200: Use realtime_client instead of openai_ws
             if not self.realtime_client:
