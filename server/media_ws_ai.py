@@ -1066,6 +1066,14 @@ ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (e
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
 ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
 
+# 🔥 SIMPLE_MODE: Early user_has_spoken detection threshold
+# 1.5x multiplier provides confident speech detection: 
+# - Below 1x: Too sensitive, may trigger on noise
+# - At 1x: Matches normal validation, defeats purpose of early detection
+# - At 1.5x: Clear speech signal, confident real user input (not echo/noise)
+# - Above 2x: Too strict, may miss quiet speakers
+SIMPLE_MODE_RMS_MULTIPLIER = 1.5  # Sweet spot: confident speech without missing quiet users
+
 # Valid short Hebrew phrases that should ALWAYS pass (even if 1 word when RMS is high)
 VALID_SHORT_HEBREW_PHRASES = {
     "כן", "לא", "רגע", "שניה", "שנייה", "תן לי", "אני פה", "שומע",
@@ -3416,14 +3424,33 @@ Greet briefly. Then WAIT for customer to speak."""
                         continue
                     
                     # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
-                    # Don't immediately set user_has_spoken - wait for validated transcription
+                    # 🔥 FIX: In SIMPLE_MODE, mark user_has_spoken=True on speech_started if RMS is high
+                    # This prevents the guard from blocking responses when first utterance is hallucinated
                     print(f"🎤 [REALTIME] Speech started - marking as candidate (will validate on transcription)")
                     self._candidate_user_speaking = True
                     self._utterance_start_ts = time.time()
                     self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
                     self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
                     
-                    # Note: user_has_spoken will be set in transcription.completed after validation
+                    # 🔥 FIX: Set user_has_spoken=True early when real speech is detected
+                    # Even if STT later produces hallucination, we know user is trying to speak
+                    # This prevents the guard from blocking legitimate responses
+                    if SIMPLE_MODE and not self.user_has_spoken:
+                        # Check if this is real speech (high RMS + sufficient duration)
+                        utterance_rms = self._utterance_start_rms
+                        utterance_noise_floor = self._utterance_start_noise_floor
+                        rms_delta = utterance_rms - utterance_noise_floor
+                        
+                        # If RMS is significantly above noise floor, mark as user speaking
+                        # Use higher threshold than normal since this is just to open the conversation
+                        if rms_delta >= MIN_RMS_DELTA * SIMPLE_MODE_RMS_MULTIPLIER:
+                            logger.info(
+                                f"[STT_DECISION] Speech detected with high RMS - marking user_has_spoken=True early | "
+                                f"rms={utterance_rms:.1f}, noise_floor={utterance_noise_floor:.1f}, delta={rms_delta:.1f}"
+                            )
+                            self.user_has_spoken = True
+                    
+                    # Note: user_has_spoken may be set here (SIMPLE_MODE) or in transcription.completed after validation
                     if self._post_greeting_window_active:
                         self._post_greeting_heard_user = True
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
@@ -3697,7 +3724,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             continue
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
-                        if not self.user_has_spoken:
+                        # 🔥 FIX: Disabled in SIMPLE_MODE to prevent blocking legitimate responses
+                        # In SIMPLE_MODE, we trust speech_started event + RMS to detect real user speech
+                        if not SIMPLE_MODE and not self.user_has_spoken:
                             # User never spoke, and greeting not sent yet – block it
                             print(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
                             # If there is a response_id in the event, send response.cancel once
@@ -4551,6 +4580,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     if ai_speaking and self._last_ai_audio_start_ts:
                         time_since_ai_audio_start_ms = (now_sec - self._last_ai_audio_start_ts) * 1000
                     
+                    # 🔥 PRE-COMPUTE: Check filler status once (used in both hallucination and success paths)
+                    is_filler_only = not is_valid_transcript(text)
+                    
+                    # 🔥 PRE-COMPUTE: Save state before any modifications (used in all logging paths)
+                    user_has_spoken_before = self.user_has_spoken
+                    
                     # Run enhanced validation with all new parameters
                     accept_utterance = should_accept_realtime_utterance(
                         stt_text=text,
@@ -4565,6 +4600,16 @@ Greet briefly. Then WAIT for customer to speak."""
                     if not accept_utterance:
                         # 🚫 Utterance failed validation - save as hallucination and ignore
                         logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
+                        
+                        # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                        logger.info(
+                            f"[STT_DECISION] raw='{raw_text}' normalized='{text}' | "
+                            f"is_filler_only={is_filler_only} | "
+                            f"is_hallucination=True (failed validation) | "
+                            f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
+                            f"will_generate_response=False (hallucination dropped)"
+                        )
+                        
                         # 🔥 FIX BUG 3: Save as last hallucination to prevent repeats
                         self._last_hallucination = text.strip()
                         # 🔥 METRICS: Increment STT hallucinations counter
@@ -4588,14 +4633,24 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.user_has_spoken = True
                         print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
                     
+                    # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                    # is_filler_only already computed above, no duplicate function call
+                    logger.info(
+                        f"[STT_DECISION] raw='{raw_text}' normalized='{text}' | "
+                        f"is_filler_only={is_filler_only} | "
+                        f"is_hallucination=False (passed validation) | "
+                        f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
+                        f"will_generate_response={not is_filler_only}"
+                    )
+                    
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
                     
-                    # 🎯 TASK 4.2: TWO-PHASE BARGE-IN - Filler Detection
-                    # Check if transcript is filler-only (should NOT trigger bot response)
-                    if not is_valid_transcript(text):
+                    # Skip filler-only utterances
+                    if is_filler_only:
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
+                        
                         # Don't cancel AI, don't flush queue, just ignore
                         # Save to conversation history for context but mark as filler
                         # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
