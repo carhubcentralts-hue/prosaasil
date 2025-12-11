@@ -97,6 +97,13 @@ NOISE HANDLING:
 - If audio quality is poor → ask the user to repeat
 - Focus on speech content, not audio perfection
 
+FILLER HANDLING:
+- Do NOT respond to filler-only utterances like "אממ", "אההה", "הממ"
+- These are thinking sounds, not real questions or statements
+- Wait for the caller to finish their complete thought
+- If caller says "אממ כן" or "אההה טוב" → this is valid, respond normally
+- Filler-only = no response needed, keep listening
+
 TRANSCRIPTION TRUST:
 - If you didn't hear clearly → ASK the user to repeat
 - NEVER guess or make assumptions about what was said

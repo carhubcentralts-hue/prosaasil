@@ -4570,6 +4570,25 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
                     
+                    # 🎯 TASK 4.2: TWO-PHASE BARGE-IN - Filler Detection
+                    # Check if transcript is filler-only (should NOT trigger bot response)
+                    if not is_valid_transcript(text):
+                        logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
+                        # Don't cancel AI, don't flush queue, just ignore
+                        # Save to conversation history for context but mark as filler
+                        if hasattr(self, 'conversation_history'):
+                            self.conversation_history.append({
+                                "speaker": "user",
+                                "text": f"[FILLER: {text}]",
+                                "ts": time.time(),
+                                "filler_only": True
+                            })
+                        # Increment filler counter for metrics
+                        if not hasattr(self, '_stt_filler_only_count'):
+                            self._stt_filler_only_count = 0
+                        self._stt_filler_only_count += 1
+                        continue  # Skip to next event, don't process as user input
+                    
                     # 🔥 FIX BUG 2: Cancel any pending timeout tasks (transcription received)
                     if hasattr(self, '_timeout_tasks'):
                         for task in self._timeout_tasks:
@@ -11779,6 +11798,29 @@ Greet briefly. Then WAIT for customer to speak."""
             # Count STT hallucinations dropped
             stt_hallucinations_dropped = getattr(self, '_stt_hallucinations_dropped', 0)
             
+            # 🎯 TASK 6.1: STT QUALITY METRICS
+            # Count total user utterances
+            stt_utterances_total = len([m for m in conversation_history if m.get('speaker') == 'user'])
+            
+            # Count empty/very short utterances (marked as filtered)
+            stt_empty_count = len([m for m in conversation_history if m.get('speaker') == 'user' and m.get('filtered', False) and len(m.get('text', '').strip()) == 0])
+            stt_very_short_count = len([m for m in conversation_history if m.get('speaker') == 'user' and m.get('filtered', False) and 0 < len(m.get('text', '').strip()) < 5])
+            
+            # Count filler-only utterances
+            stt_filler_only_count = getattr(self, '_stt_filler_only_count', 0)
+            
+            # 🎯 TASK 6.1: AUDIO PIPELINE METRICS
+            frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
+            frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
+            frames_dropped_by_filters = getattr(self, '_stats_audio_blocked', 0)
+            
+            # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
+            if SIMPLE_MODE and frames_dropped_by_filters > 0:
+                logger.warning(
+                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_by_filters} frames dropped! "
+                    f"In SIMPLE_MODE, no frames should be dropped by filters."
+                )
+            
             # Log comprehensive metrics
             logger.info(
                 "[CALL_METRICS] greeting_ms=%(greeting_ms)d, "
@@ -11787,7 +11829,14 @@ Greet briefly. Then WAIT for customer to speak."""
                 "avg_user_turn_ms=%(avg_user_turn_ms)d, "
                 "barge_in_events=%(barge_in_events)d, "
                 "silences_10s=%(silences_10s)d, "
-                "stt_hallucinations_dropped=%(stt_hallucinations_dropped)d",
+                "stt_hallucinations_dropped=%(stt_hallucinations_dropped)d, "
+                "stt_utterances_total=%(stt_utterances_total)d, "
+                "stt_empty=%(stt_empty)d, "
+                "stt_short=%(stt_short)d, "
+                "stt_filler_only=%(stt_filler_only)d, "
+                "frames_in=%(frames_in)d, "
+                "frames_forwarded=%(frames_forwarded)d, "
+                "frames_dropped=%(frames_dropped)d",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -11795,7 +11844,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     'avg_user_turn_ms': avg_user_turn_ms,
                     'barge_in_events': barge_in_events,
                     'silences_10s': silences_10s,
-                    'stt_hallucinations_dropped': stt_hallucinations_dropped
+                    'stt_hallucinations_dropped': stt_hallucinations_dropped,
+                    'stt_utterances_total': stt_utterances_total,
+                    'stt_empty': stt_empty_count,
+                    'stt_short': stt_very_short_count,
+                    'stt_filler_only': stt_filler_only_count,
+                    'frames_in': frames_in_from_twilio,
+                    'frames_forwarded': frames_forwarded_to_realtime,
+                    'frames_dropped': frames_dropped_by_filters
                 }
             )
             
@@ -11808,6 +11864,10 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"   Barge-in events: {barge_in_events}")
             print(f"   Silences (10s+): {silences_10s}")
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
+            print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
+            print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped={frames_dropped_by_filters}")
+            if SIMPLE_MODE and frames_dropped_by_filters > 0:
+                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_by_filters} frames were dropped!")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
