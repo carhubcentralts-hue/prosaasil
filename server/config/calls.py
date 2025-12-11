@@ -2,8 +2,20 @@
 # 🔥 BUILD 325: CALL CONFIGURATION - Optimal settings for Hebrew phone calls
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 MASTER AUDIO CONFIG - Single source of truth for all audio filtering
+# ═══════════════════════════════════════════════════════════════════════════════
+AUDIO_CONFIG = {
+    "simple_mode": True,           # SIMPLE, ROBUST telephony mode - trust OpenAI VAD
+    "audio_guard_enabled": False,  # DISABLED: No aggressive RMS/ZCR filtering
+    "music_mode_enabled": False,   # DISABLED: No music detection (blocks speech)
+    "noise_gate_min_frames": 0,    # DISABLED: No consecutive frame requirements
+    "echo_guard_enabled": True,    # Minimal, conservative echo control only
+    "frame_pacing_ms": 20,         # Standard telephony frame interval (20ms)
+}
+
 # SIMPLE_MODE: Trust Twilio + OpenAI VAD completely
-SIMPLE_MODE = True  # All audio passes through - OpenAI handles speech detection
+SIMPLE_MODE = AUDIO_CONFIG["simple_mode"]  # All audio passes through - OpenAI handles speech detection
 
 # COST OPTIMIZATION
 # 🔥 BUILD 334: 100% AUDIO FOR PERFECT STT - No dropping any frames!
@@ -28,7 +40,7 @@ SERVER_VAD_SILENCE_MS = 380  # Silence duration to detect end of speech (ms)
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
 # ═══════════════════════════════════════════════════════════════════════════════
-AUDIO_GUARD_ENABLED = False  # DISABLED: Audio Guard blocks real user frames
+AUDIO_GUARD_ENABLED = AUDIO_CONFIG["audio_guard_enabled"]  # Controlled by AUDIO_CONFIG
 AUDIO_GUARD_MIN_SPEECH_FRAMES = 12  # Min consecutive frames to start sending (240ms)
 AUDIO_GUARD_SILENCE_RESET_FRAMES = 20  # Silence frames to reset utterance (400ms)
 AUDIO_GUARD_EMA_ALPHA = 0.12  # EMA alpha for noise floor smoothing
@@ -66,9 +78,9 @@ AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES = 100
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: MUSIC MODE - DISABLED to prevent speech misclassification
 # ═══════════════════════════════════════════════════════════════════════════════
-MUSIC_MODE_ENABLED = False  # DISABLED: Music Mode misclassifies human speech as music
+MUSIC_MODE_ENABLED = AUDIO_CONFIG["music_mode_enabled"]  # Controlled by AUDIO_CONFIG
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 CRITICAL HOTFIX: NOISE GATE - Reduced to 1 frame for minimal gating
+# 🔥 CRITICAL HOTFIX: NOISE GATE - Disabled in Simple Mode
 # ═══════════════════════════════════════════════════════════════════════════════
-NOISE_GATE_MIN_FRAMES = 1  # Minimal gating: 1 frame (20ms) to prevent blocking micro-pauses
+NOISE_GATE_MIN_FRAMES = AUDIO_CONFIG["noise_gate_min_frames"]  # 0 = disabled in Simple Mode

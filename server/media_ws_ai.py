@@ -69,7 +69,7 @@ USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 # 🔥 BUILD 325: Import all call configuration from centralized config
 try:
     from server.config.calls import (
-        SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
+        AUDIO_CONFIG, SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
@@ -87,7 +87,15 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
     MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
-    NOISE_GATE_MIN_FRAMES = 1  # Fallback: minimal gating (matches config)
+    NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
+    AUDIO_CONFIG = {
+        "simple_mode": True,
+        "audio_guard_enabled": False,
+        "music_mode_enabled": False,
+        "noise_gate_min_frames": 0,
+        "echo_guard_enabled": True,
+        "frame_pacing_ms": 20,
+    }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -853,6 +861,15 @@ logger.info(f"[BOOT] USE_REALTIME_API={USE_REALTIME_API} MODEL={OPENAI_REALTIME_
 if not USE_REALTIME_API:
     logger.warning("[BOOT] USE_REALTIME_API=FALSE - AI will NOT speak during calls!")
 
+# 🎯 AUDIO MODE STARTUP LOG - Single source of truth
+logger.info(
+    f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
+    f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
+    f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
+    f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
+    f"echo_guard_enabled={AUDIO_CONFIG['echo_guard_enabled']}"
+)
+
 # ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
 # Each call_sid has its own session + dispatcher state
 _sessions_registry = {}  # call_sid -> {"session": StreamingSTTSession, "utterance": {...}, "tenant": str, "ts": float}
@@ -1012,8 +1029,9 @@ RMS_SILENCE_THRESHOLD = 30     # Pure silence threshold: LOWERED from 40 to 30
 MIN_SPEECH_RMS = 40            # Minimum speech RMS: LOWERED from 60 to 40 - capture quiet Hebrew speakers
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
-# CONSECUTIVE FRAMES - CRITICAL HOTFIX: Use NOISE_GATE_MIN_FRAMES from config
-MIN_CONSECUTIVE_VOICE_FRAMES = NOISE_GATE_MIN_FRAMES  # From config (1 frame = 20ms) - allow speech through micro-pauses
+# CONSECUTIVE FRAMES - SIMPLE MODE: Use NOISE_GATE_MIN_FRAMES from AUDIO_CONFIG
+# In Simple Mode (noise_gate_min_frames=0), this is 0 = no gating, all frames pass through
+MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES)  # 0 in Simple Mode = no gate
 
 # TIMING - Fast Hebrew response
 POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
