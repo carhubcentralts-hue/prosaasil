@@ -1462,7 +1462,9 @@ class MediaStreamHandler:
         # 🔥 BARGE-IN FIX: Reduced to 150 frames (~3s buffer) for responsive barge-in
         # Large queues (1500 frames = 30s) cause old audio to continue playing after barge-in
         # 150 frames = 3 seconds is enough for smooth playback while allowing quick interruption
-        self.tx_q = queue.Queue(maxsize=150)  # Support up to 3s - responsive barge-in
+        # 🎯 FIX B: Increase TX queue to prevent audio cuts (150 frames = 3s → 1000 frames = 20s)
+        # This prevents "dropping oldest frames" which causes mid-sentence audio cuts
+        self.tx_q = queue.Queue(maxsize=1000)  # 1000 frames = 20s buffer (prevents overflow)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -1628,6 +1630,10 @@ class MediaStreamHandler:
         self._openai_connect_attempts = 0  # Count OpenAI connection attempts
         self._greeting_audio_first_ts = None  # When first greeting audio delta was received
         self._greeting_audio_received = False  # True after at least one greeting audio delta
+        
+        # 🎯 FIX A: GREETING STATE - Only first response is greeting, not all responses!
+        self.greeting_mode_active = False  # True only during FIRST response (real greeting)
+        self.greeting_completed = False    # Becomes True after first response.audio.done
         
         # Timeout configuration (optimized for fast response + stability)
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
@@ -2375,6 +2381,7 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
             self.greeting_sent = True  # Mark greeting as sent to allow audio through
             self.is_playing_greeting = True
+            self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
             self._greeting_start_ts = greeting_start_ts  # Store for duration logging
             # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
             triggered = await self.trigger_response("GREETING", client, is_greeting=True)
@@ -2624,10 +2631,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
+                # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
                 # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
                 # Solution: Don't send audio to OpenAI until greeting finishes playing.
-                if self.is_playing_greeting:
+                # OLD: if self.is_playing_greeting:
+                # NEW: Only block during actual greeting (first response)
+                if self.greeting_mode_active and not self.greeting_completed:
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
@@ -2635,11 +2645,10 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._stats_audio_blocked += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
-                else:
+                elif _greeting_block_logged and not _greeting_resumed_logged:
                     # Greeting finished - resume sending audio
-                    if _greeting_block_logged and not _greeting_resumed_logged:
-                        print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
-                        _greeting_resumed_logged = True
+                    print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
+                    _greeting_resumed_logged = True
                 
                 # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
                 current_time = time.time()
@@ -3640,8 +3649,10 @@ Greet briefly. Then WAIT for customer to speak."""
                             # Silently drop audio - don't even log each frame
                             continue
                         
-                        # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
-                        if self.greeting_sent and not self.user_has_spoken:
+                        # 🎯 FIX A: GREETING MODE - Only apply to FIRST response, not all responses!
+                        # OLD: if self.greeting_sent and not self.user_has_spoken:
+                        # NEW: Only when greeting_mode_active (first response only)
+                        if self.greeting_mode_active and not self.greeting_completed:
                             # ═══════════════════════════════════════════════════════════════
                             # 🔥 REALTIME STABILITY: Mark greeting audio as received
                             # ═══════════════════════════════════════════════════════════════
@@ -3784,18 +3795,28 @@ Greet briefly. Then WAIT for customer to speak."""
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
-                    # When audio finishes and we were in greeting mode, unset the flag
-                    if self.is_playing_greeting:
+                    # 🎯 FIX A: Complete greeting mode after FIRST response only
+                    if self.greeting_mode_active and not self.greeting_completed:
                         greeting_end_ts = time.time()
                         greeting_duration = 0
                         if hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
                             greeting_duration = (greeting_end_ts - self._greeting_start_ts) * 1000
                         print(f"🎤 [GREETING] Greeting finished at {greeting_end_ts:.3f} (duration: {greeting_duration:.0f}ms)")
+                        
+                        # 🎯 FIX A: Mark greeting as completed - ALL future responses are NORMAL
+                        self.greeting_mode_active = False
+                        self.greeting_completed = True
                         self.is_playing_greeting = False
+                        _orig_print(f"✅ [GREETING] Completed - switching to NORMAL AI responses. From now on NO greeting protect.", flush=True)
+                        
                         # 🎯 FIX: Enable barge-in after greeting completes
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
                         print(f"✅ [GREETING] Barge-in now ENABLED for rest of call")
+                    elif self.is_playing_greeting:
+                        # This shouldn't happen after our fix, but handle gracefully
+                        print(f"⚠️ [GREETING] is_playing_greeting was True but greeting already completed - clearing flag")
+                        self.is_playing_greeting = False
                         
                         # 🔥 MASTER FIX: Validation check for greeting SLA
                         self._validate_greeting_sla()
@@ -6263,36 +6284,33 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     try:
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🎯 TASK B.1: Queue overflow protection with correct maxsize
+                        # 🎯 FIX B: NO MORE DROPPING FRAMES - Just warn at high watermark
+                        # OLD: Dropped oldest frames at 90% → caused mid-sentence audio cuts
+                        # NEW: Warn at 80%, let TX loop drain naturally (20ms pacing)
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
-                        queue_maxsize = self.tx_q.maxsize  # Use actual maxsize (150)
-                        overflow_threshold = int(queue_maxsize * 0.9)  # 90% full
+                        queue_maxsize = self.tx_q.maxsize  # Now 1000 frames = 20s
+                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80% (800 frames)
                         
-                        if queue_size >= overflow_threshold:
-                            # Log overflow warning (throttled)
+                        if queue_size >= high_watermark:
+                            # Log warning (throttled), but DO NOT drop frames
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO OVERFLOW] TX queue at {queue_size}/{queue_maxsize} - dropping oldest frames")
+                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (80%) - letting TX loop drain")
                                 self._last_overflow_warning = now
-                            # Drop 10% of queue to make room
-                            frames_to_drop = max(10, int(queue_maxsize * 0.1))
-                            for _ in range(frames_to_drop):
-                                try:
-                                    self.tx_q.get_nowait()
-                                except queue.Empty:
-                                    break
                         
+                        # Enqueue frame - let TX loop handle timing
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # 🔥 BUILD 181: If still full after cleanup, drop oldest and retry
-                        try:
-                            self.tx_q.get_nowait()  # Remove oldest
-                            self.tx_q.put_nowait(twilio_frame)  # Add new
-                            self.realtime_tx_frames += 1
-                        except (queue.Empty, queue.Full):
-                            pass  # Last resort: skip this frame
+                        # 🎯 FIX B: If queue is REALLY full (shouldn't happen with 1000 maxsize)
+                        # Log error and skip THIS frame (newest), not oldest
+                        # This preserves sentence continuity better than dropping oldest
+                        now = time.time()
+                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
+                            print(f"❌ [AUDIO FULL] TX queue completely full ({queue_maxsize}) - dropping NEWEST frame to preserve continuity")
+                            self._last_full_error = now
+                        # Skip this frame (drop newest, not oldest)
                     
             except queue.Empty:
                 continue
