@@ -3207,7 +3207,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     # This runs BEFORE any other processing to prevent echo from triggering barge-in
                     now_ms = time.time() * 1000
                     if self.is_ai_speaking_event.is_set() and hasattr(self, '_last_ai_audio_ts'):
-                        time_since_ai_audio_ms = now_ms - (self._last_ai_audio_ts * 1000)
+                        # 🔥 BUG FIX: Handle None case - if no AI audio yet, skip echo guard
+                        if self._last_ai_audio_ts is None:
+                            # No AI audio yet - treat as very old, disable echo guard for this event
+                            time_since_ai_audio_ms = 9999.0
+                        else:
+                            time_since_ai_audio_ms = now_ms - (self._last_ai_audio_ts * 1000)
+                        
                         if time_since_ai_audio_ms <= ECHO_WINDOW_MS:
                             # 🔥 SMART ECHO DETECTION: Check RMS to differentiate echo from real speech
                             # - Low RMS within echo window = likely echo (reject)

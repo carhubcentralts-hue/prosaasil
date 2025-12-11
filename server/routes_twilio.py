@@ -479,16 +479,20 @@ def incoming_call():
         try:
             from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
             from server.stream_state import stream_registry
+            from server.app_factory import get_process_app
             
-            # Build COMPACT prompt (800 chars) - for INSTANT greeting
-            compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-            
-            # Build FULL prompt (3000+ chars) - for post-greeting upgrade
-            full_prompt = build_realtime_system_prompt(business_id, call_direction="inbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-            
-            print(f"✅ [PROMPT] Pre-built prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
+            # 🔥 BUG FIX: Wrap with app context for database queries
+            app = get_process_app()
+            with app.app_context():
+                # Build COMPACT prompt (800 chars) - for INSTANT greeting
+                compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
+                
+                # Build FULL prompt (3000+ chars) - for post-greeting upgrade
+                full_prompt = build_realtime_system_prompt(business_id, call_direction="inbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
+                
+                print(f"✅ [PROMPT] Pre-built prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
         except Exception as e:
             print(f"⚠️ [PROMPT] Background prompt build failed: {e} - will fallback to async build")
     
@@ -621,16 +625,20 @@ def outbound_call():
         try:
             from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
             from server.stream_state import stream_registry
+            from server.app_factory import get_process_app
             
-            # Build COMPACT prompt (800 chars) - for INSTANT greeting
-            compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-            
-            # Build FULL prompt (3000+ chars) - for post-greeting upgrade
-            full_prompt = build_realtime_system_prompt(int(business_id), call_direction="outbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-            
-            print(f"✅ [PROMPT] Pre-built outbound prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
+            # 🔥 BUG FIX: Wrap with app context for database queries
+            app = get_process_app()
+            with app.app_context():
+                # Build COMPACT prompt (800 chars) - for INSTANT greeting
+                compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
+                
+                # Build FULL prompt (3000+ chars) - for post-greeting upgrade
+                full_prompt = build_realtime_system_prompt(int(business_id), call_direction="outbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
+                
+                print(f"✅ [PROMPT] Pre-built outbound prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
         except Exception as e:
             print(f"⚠️ [PROMPT] Background outbound prompt build failed: {e}")
     
