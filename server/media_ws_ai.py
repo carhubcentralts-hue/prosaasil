@@ -1074,6 +1074,56 @@ VALID_SHORT_HEBREW_PHRASES = {
     "איך", "כמה", "מי", "איזה", "זה", "אני", "היי", "הלו", "שלום", "ביי"
 }
 
+# 🎯 TASK 4.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
+HEBREW_FILLER_WORDS = {
+    "אמ", "אם", "אממ", "אמממ", 
+    "אה", "אהה", "אההה", "אההההה",
+    "הממ", "אהם", "אהממ", "ממ", "הם"
+}
+
+def is_valid_transcript(text: str) -> bool:
+    """
+    🎯 TASK 4.2: Two-Phase Barge-in - Transcription-Based Confirmation
+    
+    Check if transcript is valid (contains meaningful content).
+    Returns False for:
+    - Empty/whitespace
+    - < 3 characters
+    - Filler-only utterances ("אממ", "אההה", etc.)
+    
+    Returns True for:
+    - Filler + real text ("אממ כן", "אהה טוב")
+    - Any meaningful speech
+    
+    Args:
+        text: Transcribed text from STT
+        
+    Returns:
+        True if transcript is valid, False if filler-only
+    """
+    if not text or not text.strip():
+        return False
+    
+    normalized = text.strip().lower()
+    
+    # Too short
+    if len(normalized) < 3:
+        return False
+    
+    # Split into tokens
+    tokens = normalized.split()
+    
+    # Check if ALL tokens are fillers
+    non_filler_tokens = [t for t in tokens if t not in HEBREW_FILLER_WORDS]
+    
+    if not non_filler_tokens:
+        # All filler - reject
+        logger.info(f"[FILLER_DETECT] Rejected filler-only: '{text}'")
+        return False
+    
+    # Has at least one meaningful word - accept
+    return True
+
 def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
                                      rms_snapshot: float, noise_floor: float,
                                      ai_speaking: bool = False, 
@@ -1413,7 +1463,9 @@ class MediaStreamHandler:
         # 🔥 BARGE-IN FIX: Reduced to 150 frames (~3s buffer) for responsive barge-in
         # Large queues (1500 frames = 30s) cause old audio to continue playing after barge-in
         # 150 frames = 3 seconds is enough for smooth playback while allowing quick interruption
-        self.tx_q = queue.Queue(maxsize=150)  # Support up to 3s - responsive barge-in
+        # 🎯 FIX B: Increase TX queue to prevent audio cuts (150 frames = 3s → 1000 frames = 20s)
+        # This prevents "dropping oldest frames" which causes mid-sentence audio cuts
+        self.tx_q = queue.Queue(maxsize=1000)  # 1000 frames = 20s buffer (prevents overflow)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -1579,6 +1631,10 @@ class MediaStreamHandler:
         self._openai_connect_attempts = 0  # Count OpenAI connection attempts
         self._greeting_audio_first_ts = None  # When first greeting audio delta was received
         self._greeting_audio_received = False  # True after at least one greeting audio delta
+        
+        # 🎯 FIX A: GREETING STATE - Only first response is greeting, not all responses!
+        self.greeting_mode_active = False  # True only during FIRST response (real greeting)
+        self.greeting_completed = False    # Becomes True after first response.audio.done
         
         # Timeout configuration (optimized for fast response + stability)
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
@@ -2326,6 +2382,7 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
             self.greeting_sent = True  # Mark greeting as sent to allow audio through
             self.is_playing_greeting = True
+            self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
             self._greeting_start_ts = greeting_start_ts  # Store for duration logging
             # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
             triggered = await self.trigger_response("GREETING", client, is_greeting=True)
@@ -2575,10 +2632,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
+                # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
                 # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
                 # Solution: Don't send audio to OpenAI until greeting finishes playing.
-                if self.is_playing_greeting:
+                # OLD: if self.is_playing_greeting:
+                # NEW: Only block during actual greeting (first response)
+                if self.greeting_mode_active and not self.greeting_completed:
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
@@ -2586,11 +2646,10 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._stats_audio_blocked += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
-                else:
+                elif _greeting_block_logged and not _greeting_resumed_logged:
                     # Greeting finished - resume sending audio
-                    if _greeting_block_logged and not _greeting_resumed_logged:
-                        print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
-                        _greeting_resumed_logged = True
+                    print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
+                    _greeting_resumed_logged = True
                 
                 # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
                 current_time = time.time()
@@ -3591,8 +3650,10 @@ Greet briefly. Then WAIT for customer to speak."""
                             # Silently drop audio - don't even log each frame
                             continue
                         
-                        # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
-                        if self.greeting_sent and not self.user_has_spoken:
+                        # 🎯 FIX A: GREETING MODE - Only apply to FIRST response, not all responses!
+                        # OLD: if self.greeting_sent and not self.user_has_spoken:
+                        # NEW: Only when greeting_mode_active (first response only)
+                        if self.greeting_mode_active and not self.greeting_completed:
                             # ═══════════════════════════════════════════════════════════════
                             # 🔥 REALTIME STABILITY: Mark greeting audio as received
                             # ═══════════════════════════════════════════════════════════════
@@ -3616,7 +3677,12 @@ Greet briefly. Then WAIT for customer to speak."""
                                     openai_connect_ms = getattr(self, '_metrics_openai_connect_ms', 0)
                                     logger.info(f"[GREETING_METRICS] openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_audio_ms}, direction={call_direction}")
                             
-                            print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                            # 🔥 TASK 0.4: THROTTLED GREETING LOG - Log only first chunk, not all chunks
+                            if not hasattr(self, '_greeting_audio_started_logged'):
+                                self._greeting_audio_started_logged = False
+                            if not self._greeting_audio_started_logged:
+                                print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                                self._greeting_audio_started_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
                             if not self.is_ai_speaking_event.is_set():
@@ -3730,18 +3796,28 @@ Greet briefly. Then WAIT for customer to speak."""
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
-                    # When audio finishes and we were in greeting mode, unset the flag
-                    if self.is_playing_greeting:
+                    # 🎯 FIX A: Complete greeting mode after FIRST response only
+                    if self.greeting_mode_active and not self.greeting_completed:
                         greeting_end_ts = time.time()
                         greeting_duration = 0
                         if hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
                             greeting_duration = (greeting_end_ts - self._greeting_start_ts) * 1000
                         print(f"🎤 [GREETING] Greeting finished at {greeting_end_ts:.3f} (duration: {greeting_duration:.0f}ms)")
+                        
+                        # 🎯 FIX A: Mark greeting as completed - ALL future responses are NORMAL
+                        self.greeting_mode_active = False
+                        self.greeting_completed = True
                         self.is_playing_greeting = False
+                        _orig_print(f"✅ [GREETING] Completed - switching to NORMAL AI responses. From now on NO greeting protect.", flush=True)
+                        
                         # 🎯 FIX: Enable barge-in after greeting completes
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
                         print(f"✅ [GREETING] Barge-in now ENABLED for rest of call")
+                    elif self.is_playing_greeting:
+                        # This shouldn't happen after our fix, but handle gracefully
+                        print(f"⚠️ [GREETING] is_playing_greeting was True but greeting already completed - clearing flag")
+                        self.is_playing_greeting = False
                         
                         # 🔥 MASTER FIX: Validation check for greeting SLA
                         self._validate_greeting_sla()
@@ -4515,6 +4591,27 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
+                    
+                    # 🎯 TASK 4.2: TWO-PHASE BARGE-IN - Filler Detection
+                    # Check if transcript is filler-only (should NOT trigger bot response)
+                    if not is_valid_transcript(text):
+                        logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
+                        # Don't cancel AI, don't flush queue, just ignore
+                        # Save to conversation history for context but mark as filler
+                        # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
+                        if not hasattr(self, 'conversation_history'):
+                            self.conversation_history = []
+                        self.conversation_history.append({
+                            "speaker": "user",
+                            "text": f"[FILLER: {text}]",
+                            "ts": time.time(),
+                            "filler_only": True
+                        })
+                        # Increment filler counter for metrics
+                        if not hasattr(self, '_stt_filler_only_count'):
+                            self._stt_filler_only_count = 0
+                        self._stt_filler_only_count += 1
+                        continue  # Skip to next event, don't process as user input
                     
                     # 🔥 FIX BUG 2: Cancel any pending timeout tasks (transcription received)
                     if hasattr(self, '_timeout_tasks'):
@@ -6190,36 +6287,33 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     try:
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🎯 TASK B.1: Queue overflow protection with correct maxsize
+                        # 🎯 FIX B: NO MORE DROPPING FRAMES - Just warn at high watermark
+                        # OLD: Dropped oldest frames at 90% → caused mid-sentence audio cuts
+                        # NEW: Warn at 80%, let TX loop drain naturally (20ms pacing)
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
-                        queue_maxsize = self.tx_q.maxsize  # Use actual maxsize (150)
-                        overflow_threshold = int(queue_maxsize * 0.9)  # 90% full
+                        queue_maxsize = self.tx_q.maxsize  # Now 1000 frames = 20s
+                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80% (800 frames)
                         
-                        if queue_size >= overflow_threshold:
-                            # Log overflow warning (throttled)
+                        if queue_size >= high_watermark:
+                            # Log warning (throttled), but DO NOT drop frames
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO OVERFLOW] TX queue at {queue_size}/{queue_maxsize} - dropping oldest frames")
+                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (80%) - letting TX loop drain")
                                 self._last_overflow_warning = now
-                            # Drop 10% of queue to make room
-                            frames_to_drop = max(10, int(queue_maxsize * 0.1))
-                            for _ in range(frames_to_drop):
-                                try:
-                                    self.tx_q.get_nowait()
-                                except queue.Empty:
-                                    break
                         
+                        # Enqueue frame - let TX loop handle timing
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # 🔥 BUILD 181: If still full after cleanup, drop oldest and retry
-                        try:
-                            self.tx_q.get_nowait()  # Remove oldest
-                            self.tx_q.put_nowait(twilio_frame)  # Add new
-                            self.realtime_tx_frames += 1
-                        except (queue.Empty, queue.Full):
-                            pass  # Last resort: skip this frame
+                        # 🎯 FIX B: If queue is REALLY full (shouldn't happen with 1000 maxsize)
+                        # Log error and skip THIS frame (newest), not oldest
+                        # This preserves sentence continuity better than dropping oldest
+                        now = time.time()
+                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
+                            print(f"❌ [AUDIO FULL] TX queue completely full ({queue_maxsize}) - dropping NEWEST frame to preserve continuity")
+                            self._last_full_error = now
+                        # Skip this frame (drop newest, not oldest)
                     
             except queue.Empty:
                 continue
@@ -10975,13 +11069,17 @@ Greet briefly. Then WAIT for customer to speak."""
         - Real-time telemetry (fps/q/drops)
         
         🔥 PART C DEBUG: Added logging to trace first frame sent to Twilio
+        🎯 TASK 0.4: Enhanced logging for Master BUG HUNT
         """
-        _orig_print(f"🔊 [TX_LOOP] STARTED - ready to send audio to Twilio (tx_running={self.tx_running})", flush=True)
+        call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
+        _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
         # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
         FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
         next_deadline = time.monotonic()
         tx_count = 0
+        frames_sent_total = 0
+        frames_blocked_total = 0
         
         # 🔥 PART C: Track first frame for tx=0 diagnostics
         _first_frame_sent = False
@@ -11029,6 +11127,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"[TX_LOOP] Sent Realtime format: success={success}")
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
+                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11044,6 +11143,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"[TX_LOOP] Sent old format (converted): success={success}")
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
+                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11093,7 +11193,8 @@ Greet briefly. Then WAIT for customer to speak."""
                 }))
                 print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
         
-        # ⚡ Removed flooding log - TX loop ended naturally
+        # 🎯 TASK 0.4: Log TX loop exit with totals
+        _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
@@ -11718,6 +11819,37 @@ Greet briefly. Then WAIT for customer to speak."""
             # Count STT hallucinations dropped
             stt_hallucinations_dropped = getattr(self, '_stt_hallucinations_dropped', 0)
             
+            # 🎯 TASK 6.1: STT QUALITY METRICS
+            # 🔧 CODE REVIEW FIX: Optimize - single pass instead of multiple list comprehensions
+            stt_utterances_total = 0
+            stt_empty_count = 0
+            stt_very_short_count = 0
+            
+            for msg in conversation_history:
+                if msg.get('speaker') == 'user':
+                    stt_utterances_total += 1
+                    if msg.get('filtered', False):
+                        text_len = len(msg.get('text', '').strip())
+                        if text_len == 0:
+                            stt_empty_count += 1
+                        elif text_len < 5:
+                            stt_very_short_count += 1
+            
+            # Count filler-only utterances
+            stt_filler_only_count = getattr(self, '_stt_filler_only_count', 0)
+            
+            # 🎯 TASK 6.1: AUDIO PIPELINE METRICS
+            frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
+            frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
+            frames_dropped_by_filters = getattr(self, '_stats_audio_blocked', 0)
+            
+            # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
+            if SIMPLE_MODE and frames_dropped_by_filters > 0:
+                logger.warning(
+                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_by_filters} frames dropped! "
+                    f"In SIMPLE_MODE, no frames should be dropped by filters."
+                )
+            
             # Log comprehensive metrics
             logger.info(
                 "[CALL_METRICS] greeting_ms=%(greeting_ms)d, "
@@ -11726,7 +11858,14 @@ Greet briefly. Then WAIT for customer to speak."""
                 "avg_user_turn_ms=%(avg_user_turn_ms)d, "
                 "barge_in_events=%(barge_in_events)d, "
                 "silences_10s=%(silences_10s)d, "
-                "stt_hallucinations_dropped=%(stt_hallucinations_dropped)d",
+                "stt_hallucinations_dropped=%(stt_hallucinations_dropped)d, "
+                "stt_utterances_total=%(stt_utterances_total)d, "
+                "stt_empty=%(stt_empty)d, "
+                "stt_short=%(stt_short)d, "
+                "stt_filler_only=%(stt_filler_only)d, "
+                "frames_in=%(frames_in)d, "
+                "frames_forwarded=%(frames_forwarded)d, "
+                "frames_dropped=%(frames_dropped)d",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -11734,7 +11873,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     'avg_user_turn_ms': avg_user_turn_ms,
                     'barge_in_events': barge_in_events,
                     'silences_10s': silences_10s,
-                    'stt_hallucinations_dropped': stt_hallucinations_dropped
+                    'stt_hallucinations_dropped': stt_hallucinations_dropped,
+                    'stt_utterances_total': stt_utterances_total,
+                    'stt_empty': stt_empty_count,
+                    'stt_short': stt_very_short_count,
+                    'stt_filler_only': stt_filler_only_count,
+                    'frames_in': frames_in_from_twilio,
+                    'frames_forwarded': frames_forwarded_to_realtime,
+                    'frames_dropped': frames_dropped_by_filters
                 }
             )
             
@@ -11747,6 +11893,10 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"   Barge-in events: {barge_in_events}")
             print(f"   Silences (10s+): {silences_10s}")
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
+            print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
+            print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped={frames_dropped_by_filters}")
+            if SIMPLE_MODE and frames_dropped_by_filters > 0:
+                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_by_filters} frames were dropped!")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
