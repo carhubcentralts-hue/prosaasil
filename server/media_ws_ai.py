@@ -1093,6 +1093,12 @@ HEBREW_FILLER_WORDS = {
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
 GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
 
+# 🔧 GOODBYE DETECTION: Thresholds for polite ending detection
+# Short utterances (≤3 words) with polite phrases are likely goodbyes (e.g., "תודה רבה")
+# Longer utterances require phrase to be ≥50% of content to avoid false positives
+GOODBYE_SHORT_UTTERANCE_MAX_WORDS = 3  # Max words for "short utterance" classification
+GOODBYE_PHRASE_MIN_PERCENTAGE = 0.5  # Minimum 50% of utterance must be the goodbye phrase
+
 def is_valid_transcript(text: str) -> bool:
     """
     🎯 TASK 4.2: Two-Phase Barge-in - Transcription-Based Confirmation
@@ -1660,7 +1666,7 @@ class MediaStreamHandler:
         # 🔥 BUILD 303: SMART HANGUP - Always send goodbye before disconnect
         self.goodbye_message_sent = False  # Track if we sent a proper goodbye
         self.user_said_goodbye = False  # Track if USER said goodbye (separate from AI polite closing)
-        self.last_user_goodbye_at = None  # Timestamp when user said goodbye
+        self.last_user_goodbye_at = None  # Timestamp in milliseconds when user said goodbye (time.time() * 1000)
         
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
@@ -4567,9 +4573,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         # In SIMPLE_MODE, check if user is currently speaking or just started
                         if should_hangup and SIMPLE_MODE:
                             # Check if there's active voice input (user speaking)
-                            user_is_speaking = (
-                                hasattr(self, 'barge_in_voice_frames') and self.barge_in_voice_frames > 0
-                            )
+                            # barge_in_voice_frames is always initialized to 0 in __init__
+                            user_is_speaking = getattr(self, 'barge_in_voice_frames', 0) > 0
                             if user_is_speaking:
                                 print(f"🔒 [GOODBYE] Blocking hangup - user currently speaking! voice_frames={self.barge_in_voice_frames}")
                                 should_hangup = False
@@ -9735,9 +9740,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 phrase_words = phrase.split()
                 phrase_length = len(phrase_words)
                 
-                # If the utterance is very short (≤3 words) and contains the phrase, it's likely a goodbye
-                # For longer utterances, the phrase should be at least 50% of the content
-                if text_length <= 3 or phrase_length >= text_length * 0.5:
+                # Use configurable constants for threshold logic
+                # Short utterances with polite phrases are likely goodbyes
+                # Longer utterances require phrase to be significant portion to avoid false positives
+                if text_length <= GOODBYE_SHORT_UTTERANCE_MAX_WORDS or phrase_length >= text_length * GOODBYE_PHRASE_MIN_PERCENTAGE:
                     print(f"[USER GOODBYE] Polite ending: '{phrase}' in '{text_lower[:30]}...'")
                     return True
         
