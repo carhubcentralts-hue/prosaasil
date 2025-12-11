@@ -69,10 +69,11 @@ USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 # 🔥 BUILD 325: Import all call configuration from centralized config
 try:
     from server.config.calls import (
-        SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
+        AUDIO_CONFIG, SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
-        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL
+        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
+        NOISE_GATE_MIN_FRAMES
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -86,6 +87,19 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
     MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
+    NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
+    AUDIO_CONFIG = {
+        "simple_mode": True,
+        "audio_guard_enabled": False,
+        "music_mode_enabled": False,
+        "noise_gate_min_frames": 0,
+        "echo_guard_enabled": True,
+        "frame_pacing_ms": 20,
+        "vad_rms": 60,
+        "rms_silence_threshold": 30,
+        "min_speech_rms": 40,
+        "min_rms_delta": 5.0,
+    }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -851,6 +865,15 @@ logger.info(f"[BOOT] USE_REALTIME_API={USE_REALTIME_API} MODEL={OPENAI_REALTIME_
 if not USE_REALTIME_API:
     logger.warning("[BOOT] USE_REALTIME_API=FALSE - AI will NOT speak during calls!")
 
+# 🎯 AUDIO MODE STARTUP LOG - Single source of truth
+logger.info(
+    f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
+    f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
+    f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
+    f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
+    f"echo_guard_enabled={AUDIO_CONFIG['echo_guard_enabled']}"
+)
+
 # ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
 # Each call_sid has its own session + dispatcher state
 _sessions_registry = {}  # call_sid -> {"session": StreamingSTTSession, "utterance": {...}, "tenant": str, "ts": float}
@@ -1002,16 +1025,17 @@ SR = 8000
 # Trust OpenAI's Realtime API VAD - minimal local filtering
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# SPEECH DETECTION - Optimized for Hebrew phone calls
+# SPEECH DETECTION - Use values from centralized AUDIO_CONFIG
 MIN_UTT_SEC = 0.35              # Minimum utterance: 350ms - allows short Hebrew words like "כן", "לא"
 MAX_UTT_SEC = 12.0              # Maximum utterance: 12s - enough for detailed Hebrew descriptions
-VAD_RMS = 80                    # VAD RMS threshold: 80 - trust OpenAI VAD, lower local threshold
-RMS_SILENCE_THRESHOLD = 40     # Pure silence threshold: 40 - only absolute silence is filtered
-MIN_SPEECH_RMS = 60            # Minimum speech RMS: 60 - allows quiet Hebrew speakers through
+VAD_RMS = AUDIO_CONFIG.get("vad_rms", 60)                       # From AUDIO_CONFIG
+RMS_SILENCE_THRESHOLD = AUDIO_CONFIG.get("rms_silence_threshold", 30)  # From AUDIO_CONFIG
+MIN_SPEECH_RMS = AUDIO_CONFIG.get("min_speech_rms", 40)        # From AUDIO_CONFIG
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
-# CONSECUTIVE FRAMES - Let OpenAI handle VAD
-MIN_CONSECUTIVE_VOICE_FRAMES = 3   # 3 frames = 60ms - minimal local gating
+# CONSECUTIVE FRAMES - SIMPLE MODE: Use NOISE_GATE_MIN_FRAMES from AUDIO_CONFIG
+# In Simple Mode (noise_gate_min_frames=0), this is 0 = no gating, all frames pass through
+MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES)  # 0 in Simple Mode = no gate
 
 # TIMING - Fast Hebrew response
 POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
@@ -1033,11 +1057,10 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# 🎯 STT GUARD: Prevent hallucinated utterances from triggering barge-in
+# 🎯 STT GUARD: Use values from centralized AUDIO_CONFIG
 # These parameters ensure we only accept real speech, not silence/noise
-# TODO: Consider making these configurable via environment variables or business settings
 MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
-MIN_RMS_DELTA = 25.0        # Minimum RMS above noise floor (increased from 20.0 for stronger validation)
+MIN_RMS_DELTA = AUDIO_CONFIG.get("min_rms_delta", 5.0)  # From AUDIO_CONFIG - microphone sensitivity
 MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
 ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
@@ -1567,14 +1590,16 @@ class MediaStreamHandler:
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
         
         # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
+        # 🔥 CRITICAL HOTFIX: Import MUSIC_MODE_ENABLED flag
         # Imports config values - see server/config/calls.py for tuning
         from server.config.calls import (
-            AUDIO_GUARD_ENABLED, AUDIO_GUARD_INITIAL_NOISE_FLOOR,
+            AUDIO_GUARD_ENABLED, MUSIC_MODE_ENABLED, AUDIO_GUARD_INITIAL_NOISE_FLOOR,
             AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR, AUDIO_GUARD_MIN_ZCR_FOR_SPEECH,
             AUDIO_GUARD_MIN_RMS_DELTA, AUDIO_GUARD_MUSIC_ZCR_THRESHOLD,
             AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER, AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
         )
         self._audio_guard_enabled = AUDIO_GUARD_ENABLED
+        self._music_mode_enabled = MUSIC_MODE_ENABLED
         self._audio_guard_noise_floor = AUDIO_GUARD_INITIAL_NOISE_FLOOR
         self._audio_guard_speech_factor = AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR
         self._audio_guard_prev_rms = 0.0
@@ -1583,7 +1608,7 @@ class MediaStreamHandler:
         self._audio_guard_music_cooldown_frames = 0
         self._audio_guard_drop_count = 0  # Rate-limited logging
         self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
-        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED} (dynamic noise floor, speech gating, music_mode, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
+        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED}, MusicMode={MUSIC_MODE_ENABLED} (dynamic noise floor, speech gating, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -2831,27 +2856,34 @@ Greet briefly. Then WAIT for customer to speak."""
             self._audio_guard_noise_floor = 0.9 * self._audio_guard_noise_floor + 0.1 * rms
         
         # ═══ MUSIC MODE DETECTION ═══
-        # Detect continuous background music: sustained RMS + moderate-high ZCR
-        if rms > effective_threshold and zcr > AUDIO_GUARD_MUSIC_ZCR_THRESHOLD:
-            self._audio_guard_music_frames_counter += 1
+        # 🔥 CRITICAL HOTFIX: Only enter music mode if MUSIC_MODE_ENABLED is True
+        if self._music_mode_enabled:
+            # Detect continuous background music: sustained RMS + moderate-high ZCR
+            if rms > effective_threshold and zcr > AUDIO_GUARD_MUSIC_ZCR_THRESHOLD:
+                self._audio_guard_music_frames_counter += 1
+            else:
+                self._audio_guard_music_frames_counter = 0
+            
+            # Enter music mode after sustained detection (~300ms)
+            if not self._audio_guard_music_mode and self._audio_guard_music_frames_counter >= AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER:
+                self._audio_guard_music_mode = True
+                self._audio_guard_music_cooldown_frames = AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
+                print(f"🎵 [AUDIO_GUARD] Entering music_mode (rms={rms:.1f}, zcr={zcr:.3f}) - filtering background music")
+            
+            # Exit music mode after cooldown
+            if self._audio_guard_music_mode:
+                self._audio_guard_music_cooldown_frames -= 1
+                if self._audio_guard_music_cooldown_frames <= 0:
+                    self._audio_guard_music_mode = False
+                    self._audio_guard_music_frames_counter = 0
+                    print(f"🎵 [AUDIO_GUARD] Leaving music_mode - resuming normal audio")
+                # During music mode, drop all frames
+                return False
         else:
-            self._audio_guard_music_frames_counter = 0
-        
-        # Enter music mode after sustained detection (~300ms)
-        if not self._audio_guard_music_mode and self._audio_guard_music_frames_counter >= AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER:
-            self._audio_guard_music_mode = True
-            self._audio_guard_music_cooldown_frames = AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
-            print(f"🎵 [AUDIO_GUARD] Entering music_mode (rms={rms:.1f}, zcr={zcr:.3f}) - filtering background music")
-        
-        # Exit music mode after cooldown
-        if self._audio_guard_music_mode:
-            self._audio_guard_music_cooldown_frames -= 1
-            if self._audio_guard_music_cooldown_frames <= 0:
+            # Music mode disabled - reset state only if needed (avoid per-frame overhead)
+            if self._audio_guard_music_mode or self._audio_guard_music_frames_counter > 0:
                 self._audio_guard_music_mode = False
                 self._audio_guard_music_frames_counter = 0
-                print(f"🎵 [AUDIO_GUARD] Leaving music_mode - resuming normal audio")
-            # During music mode, drop all frames
-            return False
         
         # ═══ SPEECH DETECTION ═══
         is_speech = self._is_probable_speech(rms, zcr, effective_threshold, self._audio_guard_prev_rms)

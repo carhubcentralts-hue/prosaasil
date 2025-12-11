@@ -2,8 +2,25 @@
 # 🔥 BUILD 325: CALL CONFIGURATION - Optimal settings for Hebrew phone calls
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🎯 MASTER AUDIO CONFIG - Single source of truth for all audio filtering
+# ═══════════════════════════════════════════════════════════════════════════════
+AUDIO_CONFIG = {
+    "simple_mode": True,           # SIMPLE, ROBUST telephony mode - trust OpenAI VAD
+    "audio_guard_enabled": False,  # DISABLED: No aggressive RMS/ZCR filtering
+    "music_mode_enabled": False,   # DISABLED: No music detection (blocks speech)
+    "noise_gate_min_frames": 0,    # DISABLED: No consecutive frame requirements
+    "echo_guard_enabled": True,    # Minimal, conservative echo control only
+    "frame_pacing_ms": 20,         # Standard telephony frame interval (20ms)
+    # RMS Thresholds - Lowered for better microphone sensitivity (telephony)
+    "vad_rms": 60,                 # VAD RMS threshold (lowered from 80 for quiet speakers)
+    "rms_silence_threshold": 30,   # Pure silence threshold (lowered from 40)
+    "min_speech_rms": 40,          # Minimum speech RMS (lowered from 60 for quiet callers)
+    "min_rms_delta": 5.0,          # Min RMS above noise floor (lowered from 25.0)
+}
+
 # SIMPLE_MODE: Trust Twilio + OpenAI VAD completely
-SIMPLE_MODE = True  # All audio passes through - OpenAI handles speech detection
+SIMPLE_MODE = AUDIO_CONFIG["simple_mode"]  # All audio passes through - OpenAI handles speech detection
 
 # COST OPTIMIZATION
 # 🔥 BUILD 334: 100% AUDIO FOR PERFECT STT - No dropping any frames!
@@ -26,9 +43,9 @@ SERVER_VAD_THRESHOLD = 0.72  # Balanced threshold for Hebrew speech detection
 SERVER_VAD_SILENCE_MS = 380  # Silence duration to detect end of speech (ms)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 MASTER FIX: AUDIO GUARD - Local smoothing and duration guards
+# 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
 # ═══════════════════════════════════════════════════════════════════════════════
-AUDIO_GUARD_ENABLED = True  # Enable local filtering on top of OpenAI VAD
+AUDIO_GUARD_ENABLED = AUDIO_CONFIG["audio_guard_enabled"]  # Controlled by AUDIO_CONFIG
 AUDIO_GUARD_MIN_SPEECH_FRAMES = 12  # Min consecutive frames to start sending (240ms)
 AUDIO_GUARD_SILENCE_RESET_FRAMES = 20  # Silence frames to reset utterance (400ms)
 AUDIO_GUARD_EMA_ALPHA = 0.12  # EMA alpha for noise floor smoothing
@@ -62,3 +79,13 @@ AUDIO_GUARD_MIN_RMS_DELTA = 5.0
 AUDIO_GUARD_MUSIC_ZCR_THRESHOLD = 0.03
 AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER = 15
 AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES = 100
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 CRITICAL HOTFIX: MUSIC MODE - DISABLED to prevent speech misclassification
+# ═══════════════════════════════════════════════════════════════════════════════
+MUSIC_MODE_ENABLED = AUDIO_CONFIG["music_mode_enabled"]  # Controlled by AUDIO_CONFIG
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 CRITICAL HOTFIX: NOISE GATE - Disabled in Simple Mode
+# ═══════════════════════════════════════════════════════════════════════════════
+NOISE_GATE_MIN_FRAMES = AUDIO_CONFIG["noise_gate_min_frames"]  # 0 = disabled in Simple Mode
