@@ -4496,7 +4496,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             # 🔥 FIX: In SIMPLE_MODE, behavior depends on call_goal
                             if SIMPLE_MODE:
                                 print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured}")
-                                if call_goal == 'lead_only' or call_goal == 'collect_details_only':
+                                if call_goal in ('lead_only', 'collect_details_only'):
                                     # For lead collection only: allow goodbye hangup without checking lead schema
                                     # AI prompt defines what "enough" means, not hard Python guards
                                     hangup_reason = "ai_goodbye_simple_mode_lead_only"

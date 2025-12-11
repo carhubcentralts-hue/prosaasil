@@ -5,67 +5,76 @@
 ### 1. Silence Handler Auto-Hangup in SIMPLE_MODE (Telephony) 🔇
 
 **Problem:**
-- In SIMPLE_MODE (telephony calls), the system was auto-closing calls after 10 seconds of silence
-- This happened because STT wasn't picking up the user well (8kHz telephony quality)
-- The silence failsafe would trigger a polite closing message like "תודה שהתקשרת, נשמח לעזור לך בפעם הבאה"
-- Then the GOODBYE CHECK would detect the closing phrase and trigger SMART_HANGUP
+- In SIMPLE_MODE (telephony calls), the system was auto-closing calls after silence
+- After configured warnings (e.g., 2 warnings after 15s each), it would auto-hangup
+- Users need time to think or may have connection issues in telephony
+- Auto-hangup was too aggressive for phone calls
 
 **Root Cause:**
-- `_send_text_to_ai()` was generating SILENCE_HANDLER responses in all modes
-- The silence monitor wasn't checking for SIMPLE_MODE before triggering auto-hangup
-- This caused premature call disconnections in telephony scenarios
+- The silence monitor would trigger auto-hangup after max warnings in all modes
+- `_send_text_to_ai()` was generating SILENCE_HANDLER responses which led to goodbye detection
+- No distinction between web demo (fast) and telephony (slower, more patient)
 
-**Solution:**
-- Added SIMPLE_MODE check in silence monitor (line ~9332) to skip auto-hangup entirely
-- Modified `_send_text_to_ai()` to return early in SIMPLE_MODE, preventing SILENCE_HANDLER responses
-- Now in telephony mode, the system never auto-closes on silence - letting users take their time
+**Solution (REFINED):**
+- Silence warnings STILL work in SIMPLE_MODE (respects UI settings)
+- "Are you still there?" prompts are sent as configured
+- After max warnings: AI says "I'll keep the line open" instead of hanging up
+- Call stays active until user speaks or Twilio disconnects naturally
+- Hard 10s timeout disabled in SIMPLE_MODE
 
 **Code Changes:**
 ```python
-# In silence monitor
-if SIMPLE_MODE:
-    # In SIMPLE_MODE, never auto-close or hangup due to silence
-    # Let the conversation continue - user may be thinking or having connection issues
-    continue
+# In silence monitor - skip hard 10s timeout
+if self.user_has_spoken and silence_duration >= 10.0 and not SIMPLE_MODE:
+    # Only in non-SIMPLE modes
 
-# In _send_text_to_ai()
+# After max warnings
 if SIMPLE_MODE:
-    print(f"🔇 [SIMPLE_MODE] Skipping SILENCE_HANDLER - no auto-closing on silence in telephony mode")
-    return
+    print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
+    await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+    self._last_speech_time = time.time()
+    continue  # Stay in monitor loop
 ```
 
 ---
 
-### 2. Goodbye Detection with Incomplete Lead Data 🚫
+### 2. Goodbye Detection with call_goal Support 🚫
 
 **Problem:**
-- AI would sometimes say "תודה שהתקשרת... ביי" even when lead data wasn't complete
-- With `auto_end_on_goodbye=True`, the system would hang up immediately
-- This caused incomplete lead captures (e.g., missing phone number or name)
+- Goodbye detection didn't respect the business conversation goal (lead_only vs appointment)
+- For "lead collection only" calls, it was checking lead schema unnecessarily
+- For "appointment" calls, it wasn't checking if appointment details were captured
+- UI toggle `auto_end_on_goodbye` wasn't properly respected
 
 **Root Cause:**
-- The goodbye detection logic didn't check if required_lead_fields were captured
-- It only checked for `user_has_spoken` and AI polite closing phrases
-- Lead completeness was ignored in the hangup decision
+- The goodbye detection logic treated all calls the same
+- It didn't differentiate between "collect details only" and "appointment booking"
+- Hard Python guards were enforcing rules that should be handled by AI prompt
 
-**Solution:**
-- Added SIMPLE_MODE guard that checks `lead_captured` status before allowing goodbye hangup
-- When lead is incomplete (required fields not captured), the hangup is blocked
-- System logs the block reason and continues the conversation to collect missing data
+**Solution (REFINED):**
+- Check `call_goal` setting from database (values: "lead_only" or "appointment")
+- For goal="lead_only": Allow goodbye hangup without checking lead schema (AI prompt controls)
+- For goal="appointment": Block goodbye hangup if required fields (name/phone/time) incomplete
+- Respects `auto_end_on_goodbye` UI toggle
+- Comprehensive logging shows decision reasoning
 
 **Code Changes:**
 ```python
 elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
-    # 🔥 FIX: In SIMPLE_MODE with required_lead_fields, check if lead is complete
-    if SIMPLE_MODE and self.required_lead_fields and not self.lead_captured:
-        # Lead is incomplete - block hangup even if AI said goodbye
-        print(f"🔒 [SMART_HANGUP] Goodbye detected but lead incomplete in SIMPLE_MODE - NOT hanging up")
-        print(f"   required_lead_fields={self.required_lead_fields}")
-        print(f"   lead_captured={self.lead_captured}")
-        pass
-    elif not self.required_lead_fields:
-        # Prompt-only mode - allow hangup
-        ...
+    call_goal = getattr(self, 'call_goal', 'lead_only')
+    
+    if SIMPLE_MODE:
+        print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured}")
+        if call_goal in ('lead_only', 'collect_details_only'):
+            # For lead collection: allow goodbye (AI prompt defines "enough")
+            should_hangup = True
+        elif call_goal == 'appointment':
+            # For appointments: check if required fields captured
+            if self.required_lead_fields and not self.lead_captured:
+                # Block hangup - AI should ask for missing info
+                pass
+            else:
+                should_hangup = True
 ```
 
 ---
