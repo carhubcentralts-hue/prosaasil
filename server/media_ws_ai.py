@@ -4998,6 +4998,25 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._stt_last_segment_ts = now_ms
                     transcript = text
                     
+                    # 🔥 SIMPLE_MODE: Structured utterance logging
+                    # Single log line with all key info for debugging and analysis
+                    try:
+                        call_direction = getattr(self, 'call_direction', 'inbound')
+                        call_goal = getattr(self, 'call_goal', 'lead_only')
+                        user_has_spoken_state = self.user_has_spoken
+                        is_ai_currently_speaking = self.is_ai_speaking_event.is_set()
+                        
+                        # Format: [UTTERANCE] SIMPLE_MODE=True direction=inbound goal=lead_only 
+                        #         user_has_spoken=True ai_speaking=False text='...'
+                        logger.info(
+                            f"[UTTERANCE] SIMPLE_MODE={SIMPLE_MODE} direction={call_direction} "
+                            f"goal={call_goal} user_has_spoken={user_has_spoken_state} "
+                            f"ai_speaking={is_ai_currently_speaking} text='{transcript[:100]}'"
+                        )
+                    except Exception as log_err:
+                        # Don't let logging errors break STT
+                        logger.warning(f"[UTTERANCE] Logging error: {log_err}")
+                    
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 3: Log final transcript
                     # Format: [STT_FINAL] → what goes into Lead State / AI processing
                     print(f"[STT_FINAL] '{transcript}' (from raw: '{raw_text[:30]}...')")
