@@ -1468,12 +1468,11 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 BARGE-IN FIX: Reduced to 150 frames (~3s buffer) for responsive barge-in
-        # Large queues (1500 frames = 30s) cause old audio to continue playing after barge-in
-        # 150 frames = 3 seconds is enough for smooth playback while allowing quick interruption
-        # 🎯 FIX B: Increase TX queue to prevent audio cuts (150 frames = 3s → 1000 frames = 20s)
-        # This prevents "dropping oldest frames" which causes mid-sentence audio cuts
-        self.tx_q = queue.Queue(maxsize=1000)  # 1000 frames = 20s buffer (prevents overflow)
+        # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
+        # Small queue (150-250 frames = 3-5s) allows quick interruption while preventing underruns
+        # On barge-in, we flush the entire queue anyway, so large buffers just add latency
+        # 🔧 NEW FIX: Reduced to 250 frames (~5s) for <300ms barge-in response
+        self.tx_q = queue.Queue(maxsize=250)  # 250 frames = 5s buffer (balanced: smooth + responsive)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
