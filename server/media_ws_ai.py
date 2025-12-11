@@ -1419,6 +1419,16 @@ class MediaStreamHandler:
         self._last_overflow_log = 0.0  # For throttled logging
         self._audio_gap_recovery_active = False  # 🔥 BUILD 181: Gap recovery state
         
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 🎯 TASK 0.1: Log AUDIO_CONFIG at startup (Master QA - Single Source of Truth)
+        # ═══════════════════════════════════════════════════════════════════════════
+        _orig_print(f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
+                   f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
+                   f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
+                   f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
+                   f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
+                   f"sample_rate=8000, encoding=pcmu", flush=True)
+        
         print("🎯 AI CONVERSATION STARTED")
         
         # מאפיינים לזיהוי עסק
@@ -3074,6 +3084,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         status = response.get("status", "?")
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
+                        resp_id = response.get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}", flush=True)
                         # Log output items to see if audio was included
                         for i, item in enumerate(output[:3]):  # First 3 items
@@ -3081,6 +3092,19 @@ Greet briefly. Then WAIT for customer to speak."""
                             content = item.get("content", [])
                             content_types = [c.get("type", "?") for c in content] if content else []
                             _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 TASK D.2: Log response completion metrics for audio quality analysis
+                        # ═══════════════════════════════════════════════════════════════════════
+                        if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
+                            tracking = self._response_tracking[resp_id]
+                            end_time = time.time()
+                            duration_ms = int((end_time - tracking['start_time']) * 1000)
+                            frames_sent = tracking['frames_sent']
+                            avg_fps = frames_sent / ((end_time - tracking['start_time']) or 1)
+                            print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
+                            # Cleanup
+                            del self._response_tracking[resp_id]
                         
                         # 🔥 PROMPT UPGRADE: After first response, upgrade from COMPACT to FULL prompt
                         # This happens automatically after greeting completes, giving AI full context
@@ -3200,6 +3224,17 @@ Greet briefly. Then WAIT for customer to speak."""
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 TASK D.2: Per-response markers to track audio delivery quality
+                        # ═══════════════════════════════════════════════════════════════════════
+                        if not hasattr(self, '_response_tracking'):
+                            self._response_tracking = {}
+                        self._response_tracking[resp_id] = {
+                            'start_time': time.time(),
+                            'frames_sent': 0,
+                            'first_audio_ts': None
+                        }
+                        print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
                     else:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
@@ -3680,6 +3715,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         try:
                             self.realtime_audio_out_queue.put_nowait(audio_b64)
+                            # 🎯 TASK D.2: Track frames sent for this response
+                            response_id = event.get("response_id")
+                            if response_id and hasattr(self, '_response_tracking') and response_id in self._response_tracking:
+                                self._response_tracking[response_id]['frames_sent'] += 1
+                                if self._response_tracking[response_id]['first_audio_ts'] is None:
+                                    self._response_tracking[response_id]['first_audio_ts'] = time.time()
                         except queue.Full:
                             pass
                 
@@ -10920,17 +10961,22 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         _orig_print(f"🔊 [TX_LOOP] STARTED - ready to send audio to Twilio (tx_running={self.tx_running})", flush=True)
         
-        FRAME_INTERVAL = 0.02  # 20 ms per frame expected by Twilio
+        # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
+        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
         next_deadline = time.monotonic()
         tx_count = 0
         
         # 🔥 PART C: Track first frame for tx=0 diagnostics
         _first_frame_sent = False
         
-        # Telemetry
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 🎯 TASK D.1: TX timing metrics to detect stutters (Master QA)
+        # ═══════════════════════════════════════════════════════════════════════════
         frames_sent_last_sec = 0
         drops_last_sec = 0
         last_telemetry_time = time.monotonic()
+        last_frame_time = time.monotonic()
+        max_gap_ms = 0.0  # Track maximum frame-to-frame interval
         
         while self.tx_running:
             try:
@@ -10998,15 +11044,23 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Missed deadline - resync
                     next_deadline = time.monotonic()
                 
-                # ⚡ Telemetry: Print stats every second (only if issues)
+                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
                 now = time.monotonic()
+                frame_gap_ms = (now - last_frame_time) * 1000.0
+                if frame_gap_ms > max_gap_ms:
+                    max_gap_ms = frame_gap_ms
+                last_frame_time = now
+                
+                # ⚡ Telemetry: Print stats every second with max_gap_ms
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
-                    # 🔥 BUILD 181: Updated threshold to 750 frames (50% of 1500)
-                    if queue_size > 750:
-                        print(f"[TX] fps={frames_sent_last_sec} q={queue_size}/1500", flush=True)
+                    actual_fps = frames_sent_last_sec  # Frames sent in last second
+                    # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
+                    if queue_size > 750 or max_gap_ms > 40:  # Log if queue high or gaps detected
+                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/150", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
+                    max_gap_ms = 0.0  # Reset for next window
                     last_telemetry_time = now
                 
                 continue
