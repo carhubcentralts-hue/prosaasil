@@ -87,7 +87,7 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
     MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
-    NOISE_GATE_MIN_FRAMES = 3  # Fallback if config not available
+    NOISE_GATE_MIN_FRAMES = 1  # Fallback: minimal gating (matches config)
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -2859,9 +2859,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 # During music mode, drop all frames
                 return False
         else:
-            # Music mode disabled - always pass frames through to speech detection
-            self._audio_guard_music_mode = False
-            self._audio_guard_music_frames_counter = 0
+            # Music mode disabled - reset state only if needed (avoid per-frame overhead)
+            if self._audio_guard_music_mode or self._audio_guard_music_frames_counter > 0:
+                self._audio_guard_music_mode = False
+                self._audio_guard_music_frames_counter = 0
         
         # ═══ SPEECH DETECTION ═══
         is_speech = self._is_probable_speech(rms, zcr, effective_threshold, self._audio_guard_prev_rms)
