@@ -26,9 +26,9 @@ SERVER_VAD_THRESHOLD = 0.72  # Balanced threshold for Hebrew speech detection
 SERVER_VAD_SILENCE_MS = 380  # Silence duration to detect end of speech (ms)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 MASTER FIX: AUDIO GUARD - Local smoothing and duration guards
+# 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
 # ═══════════════════════════════════════════════════════════════════════════════
-AUDIO_GUARD_ENABLED = True  # Enable local filtering on top of OpenAI VAD
+AUDIO_GUARD_ENABLED = False  # DISABLED: Audio Guard blocks real user frames
 AUDIO_GUARD_MIN_SPEECH_FRAMES = 12  # Min consecutive frames to start sending (240ms)
 AUDIO_GUARD_SILENCE_RESET_FRAMES = 20  # Silence frames to reset utterance (400ms)
 AUDIO_GUARD_EMA_ALPHA = 0.12  # EMA alpha for noise floor smoothing
@@ -62,3 +62,13 @@ AUDIO_GUARD_MIN_RMS_DELTA = 5.0
 AUDIO_GUARD_MUSIC_ZCR_THRESHOLD = 0.03
 AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER = 15
 AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES = 100
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 CRITICAL HOTFIX: MUSIC MODE - DISABLED to prevent speech misclassification
+# ═══════════════════════════════════════════════════════════════════════════════
+MUSIC_MODE_ENABLED = False  # DISABLED: Music Mode misclassifies human speech as music
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 CRITICAL HOTFIX: NOISE GATE - Reduced to 1 frame for minimal gating
+# ═══════════════════════════════════════════════════════════════════════════════
+NOISE_GATE_MIN_FRAMES = 1  # Minimal gating: 1 frame (20ms) to prevent blocking micro-pauses
