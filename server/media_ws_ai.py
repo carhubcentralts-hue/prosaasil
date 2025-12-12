@@ -1061,7 +1061,7 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 
 # 🎯 STT GUARD: Use values from centralized AUDIO_CONFIG
 # These parameters ensure we only accept real speech, not silence/noise
-MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
+MIN_UTTERANCE_MS = 200      # Minimum utterance duration (200ms allows short valid responses like "כן", "לא")
 MIN_RMS_DELTA = AUDIO_CONFIG.get("min_rms_delta", 5.0)  # From AUDIO_CONFIG - microphone sensitivity
 MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
 ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
@@ -1205,25 +1205,24 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         return False
     
     # 5) NEW: Minimum word count - reject single words (prevents "היי", "מה", "למה" hallucinations)
-    # BUT: Allow valid short Hebrew phrases when RMS is high (real human speech)
+    # BUT: Allow valid short Hebrew phrases with normal RMS (not requiring high RMS)
     word_count = len(stt_text.strip().split())
     if word_count < MIN_WORD_COUNT:
         # Check if this is a valid short Hebrew phrase
         normalized_text = stt_text.strip().lower()
         is_valid_short_phrase = normalized_text in VALID_SHORT_HEBREW_PHRASES
         
-        # Allow short phrases ONLY when RMS is significantly above noise floor (real speech)
-        rms_is_high = rms_snapshot >= noise_floor + (MIN_RMS_DELTA * 2)  # Double the normal threshold
-        
-        if is_valid_short_phrase and rms_is_high:
+        # Allow short phrases when they pass basic RMS check (no need for extra-high RMS)
+        # This prevents dropping valid short responses from normal or quiet speakers
+        if is_valid_short_phrase:
             logger.info(
-                f"[STT_GUARD] Accepted short phrase: '{stt_text}' (valid Hebrew, high RMS={rms_snapshot:.1f})"
+                f"[STT_GUARD] Accepted short phrase: '{stt_text}' (valid Hebrew phrase in whitelist)"
             )
             # Continue to final acceptance check
         else:
             logger.info(
                 f"[STT_GUARD] Rejected: too few words ({word_count} < {MIN_WORD_COUNT}), "
-                f"text='{stt_text[:20]}...', valid_phrase={is_valid_short_phrase}, high_rms={rms_is_high}"
+                f"text='{stt_text[:20]}...', not in whitelist"
             )
             return False
     
