@@ -279,9 +279,12 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             
             logger.info(f"✅ [COMPACT] Extracted {len(compact_context)} chars from {call_direction} prompt")
         else:
-            # Fallback - should never happen in production
+            # 🎯 MASTER DIRECTIVE 1: PROMPT FALLBACK logging
+            # If missing → fallback ONCE and log
             compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
-            logger.warning(f"⚠️ [COMPACT] No prompt for business {business_id} - using fallback")
+            logger.warning(
+                f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
+            )
         
         # 🔥 Add minimal context (direction, STT truth)
         direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
@@ -363,11 +366,14 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             return _get_fallback_prompt(business_id)
         
         if not business:
-            raise ValueError(f"Business {business_id} not found")
+            logger.error(f"❌ CRITICAL: Business {business_id} not found!")
+            raise ValueError(f"CRITICAL: Business {business_id} not found - cannot build prompt")
         
         business_name = business.name or "Business"
         
+        # 🔥 BUSINESS ISOLATION: Log business context to track cross-contamination
         logger.info(f"📋 [ROUTER] Building prompt for {business_name} (business_id={business_id}, direction={call_direction})")
+        logger.info(f"[BUSINESS_ISOLATION] prompt_request business_id={business_id} direction={call_direction}")
         
         # 🔥 PREPARE BUSINESS SETTINGS DICT
         business_settings_dict = {
@@ -402,6 +408,11 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 call_control_settings=call_control_settings_dict,
                 db_session=db_session
             )
+        
+        # 🔥 BUSINESS ISOLATION VERIFICATION: Ensure prompt contains correct business context
+        if final_prompt and business_name:
+            # Log verification - prompt should contain business-specific content
+            logger.info(f"[BUSINESS_ISOLATION] prompt_built business_id={business_id} contains_business_name={business_name in final_prompt}")
         
         # 🔥 CACHE STORE: Save to cache for future use
         # 🔥 FIX: Include direction in cache key to prevent inbound/outbound prompt mixing

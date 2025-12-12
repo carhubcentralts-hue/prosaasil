@@ -1033,9 +1033,11 @@ RMS_SILENCE_THRESHOLD = AUDIO_CONFIG.get("rms_silence_threshold", 30)  # From AU
 MIN_SPEECH_RMS = AUDIO_CONFIG.get("min_speech_rms", 40)        # From AUDIO_CONFIG
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
-# CONSECUTIVE FRAMES - SIMPLE MODE: Use NOISE_GATE_MIN_FRAMES from AUDIO_CONFIG
-# In Simple Mode (noise_gate_min_frames=0), this is 0 = no gating, all frames pass through
-MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES)  # 0 in Simple Mode = no gate
+# 🎯 MASTER DIRECTIVE 3.1: VAD - Voice Detection
+# Continuous voice frames to prevent short noise spikes
+# Reduced from 400ms to 240ms to avoid missing short valid utterances like "כן", "לא"
+# 12 frames @ 20ms/frame = 240ms (balances noise rejection with responsiveness)
+MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES) if not SIMPLE_MODE else 12  # 12 frames = 240ms minimum
 
 # TIMING - Fast Hebrew response
 POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
@@ -1059,7 +1061,7 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 
 # 🎯 STT GUARD: Use values from centralized AUDIO_CONFIG
 # These parameters ensure we only accept real speech, not silence/noise
-MIN_UTTERANCE_MS = 500      # Minimum utterance duration to accept (500ms prevents short hallucinations)
+MIN_UTTERANCE_MS = 200      # Minimum utterance duration (200ms allows short valid responses like "כן", "לא")
 MIN_RMS_DELTA = AUDIO_CONFIG.get("min_rms_delta", 5.0)  # From AUDIO_CONFIG - microphone sensitivity
 MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
 ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
@@ -1082,7 +1084,8 @@ VALID_SHORT_HEBREW_PHRASES = {
     "איך", "כמה", "מי", "איזה", "זה", "אני", "היי", "הלו", "שלום", "ביי"
 }
 
-# 🎯 TASK 4.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
+# 🎯 MASTER DIRECTIVE 3.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
+# These are thinking sounds, not real speech. Drop silently at STT level.
 HEBREW_FILLER_WORDS = {
     "אמ", "אם", "אממ", "אמממ", 
     "אה", "אהה", "אההה", "אההההה",
@@ -1101,17 +1104,20 @@ GOODBYE_PHRASE_MIN_PERCENTAGE = 0.5  # Minimum 50% of utterance must be the good
 
 def is_valid_transcript(text: str) -> bool:
     """
-    🎯 TASK 4.2: Two-Phase Barge-in - Transcription-Based Confirmation
+    🎯 MASTER DIRECTIVE 3.2: STT Acceptance Rules - Filter at STT level, not flow level
     
     Check if transcript is valid (contains meaningful content).
-    Returns False for:
-    - Empty/whitespace
-    - < 3 characters
-    - Filler-only utterances ("אממ", "אההה", etc.)
     
-    Returns True for:
+    DROP silently if:
+    - Empty/whitespace only
+    - Filler only: "אמ", "אה", "הממ", "אהה" (no real words)
+    
+    ACCEPT if:
     - Filler + real text ("אממ כן", "אהה טוב")
     - Any meaningful speech
+    
+    ❌ Do NOT block AI with flow guards
+    ❌ Do NOT mark as user turn if dropped
     
     Args:
         text: Transcribed text from STT
@@ -1124,8 +1130,9 @@ def is_valid_transcript(text: str) -> bool:
     
     normalized = text.strip().lower()
     
-    # Too short
-    if len(normalized) < 3:
+    # Only drop completely empty - do NOT filter by length
+    # Hebrew has valid 2-char words: כן, לא, מי, מה
+    if len(normalized) == 0:
         return False
     
     # Split into tokens
@@ -1135,8 +1142,8 @@ def is_valid_transcript(text: str) -> bool:
     non_filler_tokens = [t for t in tokens if t not in HEBREW_FILLER_WORDS]
     
     if not non_filler_tokens:
-        # All filler - reject
-        logger.info(f"[FILLER_DETECT] Rejected filler-only: '{text}'")
+        # All filler - drop silently (log only)
+        logger.info(f"[STT_FILTER] dropped filler/short utterance text='{text}'")
         return False
     
     # Has at least one meaningful word - accept
@@ -1168,23 +1175,22 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     """
     # 1) No text = reject
     if not stt_text or not stt_text.strip():
-        logger.info("[STT_GUARD] Dropping hallucinated utterance: empty text")
+        logger.info("[STT_FILTER] drop reason=empty_text")
         return False
     
     # 2) Too short = likely hallucination
     if utterance_ms < MIN_UTTERANCE_MS:
         logger.info(
-            f"[STT_GUARD] Dropping hallucinated utterance: {utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms, "
-            f"rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, text='{stt_text[:30]}...'"
+            f"[STT_FILTER] drop reason=duration_ms value={utterance_ms:.0f} threshold={MIN_UTTERANCE_MS} "
+            f"rms={rms_snapshot:.1f} noise_floor={noise_floor:.1f} text='{stt_text[:30]}...'"
         )
         return False
     
     # 3) RMS too low = not real speech
     if rms_snapshot < noise_floor + MIN_RMS_DELTA:
         logger.info(
-            f"[STT_GUARD] Dropping hallucinated utterance: low RMS "
-            f"(rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, "
-            f"delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}), "
+            f"[STT_FILTER] drop reason=low_rms value={rms_snapshot:.1f} "
+            f"noise_floor={noise_floor:.1f} delta={rms_snapshot - noise_floor:.1f} threshold={MIN_RMS_DELTA} "
             f"text='{stt_text[:30]}...'"
         )
         return False
@@ -1192,38 +1198,37 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     # 4) NEW: Echo suppression window - reject if AI is speaking AND <200ms since audio started
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
         logger.info(
-            f"[STT_GUARD] Rejected: echo window (AI speaking, only {last_ai_audio_start_ms:.0f}ms since audio start), "
-            f"text='{stt_text[:20]}...'"
+            f"[STT_FILTER] drop reason=echo_window value={last_ai_audio_start_ms:.0f} "
+            f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:20]}...'"
         )
         return False
     
     # 5) NEW: Minimum word count - reject single words (prevents "היי", "מה", "למה" hallucinations)
-    # BUT: Allow valid short Hebrew phrases when RMS is high (real human speech)
+    # BUT: Allow valid short Hebrew phrases with normal RMS (not requiring high RMS)
     word_count = len(stt_text.strip().split())
     if word_count < MIN_WORD_COUNT:
         # Check if this is a valid short Hebrew phrase
         normalized_text = stt_text.strip().lower()
         is_valid_short_phrase = normalized_text in VALID_SHORT_HEBREW_PHRASES
         
-        # Allow short phrases ONLY when RMS is significantly above noise floor (real speech)
-        rms_is_high = rms_snapshot >= noise_floor + (MIN_RMS_DELTA * 2)  # Double the normal threshold
-        
-        if is_valid_short_phrase and rms_is_high:
+        # Allow short phrases when they pass basic RMS check (no need for extra-high RMS)
+        # This prevents dropping valid short responses from normal or quiet speakers
+        if is_valid_short_phrase:
             logger.info(
-                f"[STT_GUARD] Accepted short phrase: '{stt_text}' (valid Hebrew, high RMS={rms_snapshot:.1f})"
+                f"[STT_GUARD] Accepted short phrase: '{stt_text}' (valid Hebrew phrase in whitelist)"
             )
             # Continue to final acceptance check
         else:
             logger.info(
-                f"[STT_GUARD] Rejected: too few words ({word_count} < {MIN_WORD_COUNT}), "
-                f"text='{stt_text[:20]}...', valid_phrase={is_valid_short_phrase}, high_rms={rms_is_high}"
+                f"[STT_FILTER] drop reason=word_count value={word_count} threshold={MIN_WORD_COUNT} "
+                f"not_in_whitelist=true text='{stt_text[:20]}...'"
             )
             return False
     
     # 6) NEW: Prevent repeat hallucinations - reject if identical to last rejected utterance
     if last_hallucination and stt_text.strip() == last_hallucination.strip():
         logger.info(
-            f"[STT_GUARD] Rejected: duplicate hallucination '{stt_text[:20]}...'"
+            f"[STT_FILTER] drop reason=duplicate_hallucination text='{stt_text[:20]}...'"
         )
         return False
     
@@ -2013,10 +2018,10 @@ class MediaStreamHandler:
 
     def _set_safe_business_defaults(self, force_greeting=False):
         """🔥 SAFETY: Set ONLY MISSING fields with safe defaults. Never overwrite valid data."""
-        # Only set if attribute doesn't exist or is explicitly None
+        # ⛔ CRITICAL: NEVER allow calls without business_id - this causes cross-business contamination!
         if not hasattr(self, 'business_id') or self.business_id is None:
-            self.business_id = 1
-            print(f"🔒 [DEFAULTS] Set fallback business_id=1")
+            logger.error(f"❌ CRITICAL: Call without business_id! call_sid={getattr(self, 'call_sid', 'unknown')}, to={getattr(self, 'to_number', 'unknown')}")
+            raise ValueError("CRITICAL: business_id is required - cannot process call without valid business identification")
         if not hasattr(self, 'business_name') or self.business_name is None:
             self.business_name = "העסק"
         if not hasattr(self, 'bot_speaks_first'):
@@ -2224,9 +2229,20 @@ class MediaStreamHandler:
             t_before_prompt = time.time()
             greeting_text = getattr(self, 'greeting_text', None)
             biz_name = getattr(self, 'business_name', None) or "העסק"
-            business_id_safe = self.business_id if self.business_id is not None else 1
+            
+            # ⛔ CRITICAL: business_id must be set before this point - no fallback allowed
+            if self.business_id is None:
+                logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
+                _orig_print(f"❌ [BUSINESS_ISOLATION] OpenAI session rejected - no business_id", flush=True)
+                raise ValueError("CRITICAL: business_id required for greeting")
+            
+            business_id_safe = self.business_id
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
+            
+            # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
+            logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
+            _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
@@ -4710,11 +4726,18 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
                     
-                    # Skip filler-only utterances
+                    # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
+                    # If final text is filler → ignore, if real text → CONFIRMED barge-in
                     if is_filler_only:
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
                         
                         # Don't cancel AI, don't flush queue, just ignore
+                        # If this was during AI speech, it's not a real barge-in
+                        if self.barge_in_active:
+                            logger.info(f"[BARGE-IN] Phase B: Filler detected - not a real barge-in, clearing flag")
+                            self.barge_in_active = False
+                            self._barge_in_started_ts = None
+                        
                         # Save to conversation history for context but mark as filler
                         # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
                         if not hasattr(self, 'conversation_history'):
@@ -6756,55 +6779,42 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 GREETING PROFILER: Track WS connect time
                         stream_registry.set_metric(self.call_sid, 'ws_connect_ts', self.t0_connected)
                     
-                    # 🚀 PARALLEL STARTUP: Start OpenAI connection AND DB query simultaneously!
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # ⛔ CRITICAL: VALIDATE BUSINESS_ID **BEFORE** STARTING OPENAI SESSION
+                    # This prevents OpenAI charges if business cannot be identified
+                    # ═══════════════════════════════════════════════════════════════════════
                     logger.info(f"[REALTIME] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
-                    logger.info(f"[REALTIME] About to check if we should start realtime thread...")
-                    logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
                     
-                    # 🔥 STEP 1: Start OpenAI thread IMMEDIATELY (connects while DB runs)
-                    if USE_REALTIME_API and not self.realtime_thread:
-                        logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
-                        t_realtime_start = time.time()
-                        delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
-                        _orig_print(f"🚀 [PARALLEL] Starting OpenAI at T0+{delta_from_t0:.0f}ms (BEFORE DB query!)", flush=True)
-                        
-                        logger.info(f"[REALTIME] Creating realtime thread...")
-                        self.realtime_thread = threading.Thread(
-                            target=self._run_realtime_mode_thread,
-                            daemon=True
-                        )
-                        logger.info(f"[REALTIME] Starting realtime thread...")
-                        self.realtime_thread.start()
-                        self.background_threads.append(self.realtime_thread)
-                        logger.info(f"[REALTIME] Realtime thread started successfully!")
-                        
-                        logger.info(f"[REALTIME] Creating realtime audio out thread...")
-                        realtime_out_thread = threading.Thread(
-                            target=self._realtime_audio_out_loop,
-                            daemon=True
-                        )
-                        realtime_out_thread.start()
-                        self.background_threads.append(realtime_out_thread)
-                        logger.info(f"[REALTIME] Both realtime threads started successfully!")
-                    else:
-                        logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 PART D OPTIMIZATION: DB query + prompt building runs IN PARALLEL with OpenAI connection
-                    # Previously: Main thread did DB query, async loop did ANOTHER DB query to build prompt
-                    # Now: Main thread builds prompt ONCE, async loop uses pre-built prompt
-                    # Expected savings: 500-2000ms (eliminates redundant DB query)
-                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 STEP 1: IDENTIFY BUSINESS FIRST (before OpenAI connection)
                     t_biz_start = time.time()
                     try:
                         app = _get_flask_app()
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
                             
+                            # ⛔ CRITICAL: business_id must be set - no fallback to prevent cross-business contamination
+                            if not self.business_id:
+                                if not business_id:
+                                    logger.error(f"❌ CRITICAL: Cannot identify business! call_sid={self.call_sid}, to={self.to_number}")
+                                    _orig_print(f"❌ [BUSINESS_ISOLATION] Call rejected - no business_id for to={self.to_number}", flush=True)
+                                    raise ValueError("CRITICAL: business_id required - call cannot proceed")
+                                self.business_id = business_id
+                            
+                            # ⛔ CRITICAL: Verify business_id is set before continuing
+                            if self.business_id is None:
+                                logger.error(f"❌ CRITICAL: business_id still None after DB query! to={self.to_number}, call_sid={self.call_sid}")
+                                _orig_print(f"❌ [BUSINESS_ISOLATION] Call rejected - business_id=None after query", flush=True)
+                                raise ValueError(f"CRITICAL: Cannot identify business for to_number={self.to_number}")
+                            
+                            business_id_safe = self.business_id
+                            call_direction = getattr(self, 'call_direction', 'inbound')
+                            
+                            # 🔒 LOG BUSINESS ISOLATION: Track which business is handling this call
+                            logger.info(f"[BUSINESS_ISOLATION] call_accepted business_id={business_id_safe} to={self.to_number} call_sid={self.call_sid}")
+                            _orig_print(f"✅ [BUSINESS_ISOLATION] Business validated: {business_id_safe}", flush=True)
+                            
                             # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
                             # This eliminates redundant DB query in async loop
-                            call_direction = getattr(self, 'call_direction', 'inbound')
-                            business_id_safe = self.business_id if self.business_id is not None else (business_id or 1)
                             try:
                                 from server.services.realtime_prompt_builder import build_realtime_system_prompt
                                 self._prebuilt_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
@@ -6817,11 +6827,37 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
-                        # 🔥 SAFETY: Only set defaults if fields are truly None (preserve valid 0 or empty)
-                        if self.business_id is None:
-                            self.business_id = 1
-                            self.business_name = "העסק"
-                            print(f"🔒 [DEFAULTS] No business_id from DB - using fallback=1")
+                        # 🔥 STEP 2: Now that business is validated, START OPENAI SESSION
+                        # OpenAI connection happens ONLY AFTER business_id is confirmed
+                        logger.info(f"[REALTIME] About to check if we should start realtime thread...")
+                        logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
+                        
+                        if USE_REALTIME_API and not self.realtime_thread:
+                            logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
+                            t_realtime_start = time.time()
+                            delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
+                            _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
+                            
+                            logger.info(f"[REALTIME] Creating realtime thread...")
+                            self.realtime_thread = threading.Thread(
+                                target=self._run_realtime_mode_thread,
+                                daemon=True
+                            )
+                            logger.info(f"[REALTIME] Starting realtime thread...")
+                            self.realtime_thread.start()
+                            self.background_threads.append(self.realtime_thread)
+                            logger.info(f"[REALTIME] Realtime thread started successfully!")
+                            
+                            logger.info(f"[REALTIME] Creating realtime audio out thread...")
+                            realtime_out_thread = threading.Thread(
+                                target=self._realtime_audio_out_loop,
+                                daemon=True
+                            )
+                            realtime_out_thread.start()
+                            self.background_threads.append(realtime_out_thread)
+                            logger.info(f"[REALTIME] Both realtime threads started successfully!")
+                        else:
+                            logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):
                             self.bot_speaks_first = True
                         
@@ -8912,6 +8948,16 @@ Greet briefly. Then WAIT for customer to speak."""
                     self.business_name = business.name or "העסק שלנו"
                     greeting = business.greeting_message or None
                     business_name = self.business_name
+                    
+                    # 🎯 MASTER DIRECTIVE 7: CALL DIRECTION VERIFICATION - Log at call start
+                    call_direction = getattr(self, 'call_direction', 'inbound')
+                    # Use call_config if already loaded (avoids redundant DB query)
+                    call_goal = getattr(self.call_config, 'call_goal', 'lead_only') if hasattr(self, 'call_config') else 'lead_only'
+                    
+                    logger.info(
+                        f"[BUILD] SIMPLE_MODE={SIMPLE_MODE} business_id={self.business_id} "
+                        f"direction={call_direction} goal={call_goal}"
+                    )
                     
                     if greeting:
                         greeting = greeting.replace("{{business_name}}", business_name)
