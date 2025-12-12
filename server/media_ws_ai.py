@@ -1175,23 +1175,22 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     """
     # 1) No text = reject
     if not stt_text or not stt_text.strip():
-        logger.info("[STT_GUARD] Dropping hallucinated utterance: empty text")
+        logger.info("[STT_FILTER] drop reason=empty_text")
         return False
     
     # 2) Too short = likely hallucination
     if utterance_ms < MIN_UTTERANCE_MS:
         logger.info(
-            f"[STT_GUARD] Dropping hallucinated utterance: {utterance_ms:.0f}ms < {MIN_UTTERANCE_MS}ms, "
-            f"rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, text='{stt_text[:30]}...'"
+            f"[STT_FILTER] drop reason=duration_ms value={utterance_ms:.0f} threshold={MIN_UTTERANCE_MS} "
+            f"rms={rms_snapshot:.1f} noise_floor={noise_floor:.1f} text='{stt_text[:30]}...'"
         )
         return False
     
     # 3) RMS too low = not real speech
     if rms_snapshot < noise_floor + MIN_RMS_DELTA:
         logger.info(
-            f"[STT_GUARD] Dropping hallucinated utterance: low RMS "
-            f"(rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, "
-            f"delta={rms_snapshot - noise_floor:.1f} < {MIN_RMS_DELTA}), "
+            f"[STT_FILTER] drop reason=low_rms value={rms_snapshot:.1f} "
+            f"noise_floor={noise_floor:.1f} delta={rms_snapshot - noise_floor:.1f} threshold={MIN_RMS_DELTA} "
             f"text='{stt_text[:30]}...'"
         )
         return False
@@ -1199,8 +1198,8 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     # 4) NEW: Echo suppression window - reject if AI is speaking AND <200ms since audio started
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
         logger.info(
-            f"[STT_GUARD] Rejected: echo window (AI speaking, only {last_ai_audio_start_ms:.0f}ms since audio start), "
-            f"text='{stt_text[:20]}...'"
+            f"[STT_FILTER] drop reason=echo_window value={last_ai_audio_start_ms:.0f} "
+            f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:20]}...'"
         )
         return False
     
@@ -1221,15 +1220,15 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
             # Continue to final acceptance check
         else:
             logger.info(
-                f"[STT_GUARD] Rejected: too few words ({word_count} < {MIN_WORD_COUNT}), "
-                f"text='{stt_text[:20]}...', not in whitelist"
+                f"[STT_FILTER] drop reason=word_count value={word_count} threshold={MIN_WORD_COUNT} "
+                f"not_in_whitelist=true text='{stt_text[:20]}...'"
             )
             return False
     
     # 6) NEW: Prevent repeat hallucinations - reject if identical to last rejected utterance
     if last_hallucination and stt_text.strip() == last_hallucination.strip():
         logger.info(
-            f"[STT_GUARD] Rejected: duplicate hallucination '{stt_text[:20]}...'"
+            f"[STT_FILTER] drop reason=duplicate_hallucination text='{stt_text[:20]}...'"
         )
         return False
     
