@@ -2231,13 +2231,20 @@ class MediaStreamHandler:
             t_before_prompt = time.time()
             greeting_text = getattr(self, 'greeting_text', None)
             biz_name = getattr(self, 'business_name', None) or "העסק"
+            
             # ⛔ CRITICAL: business_id must be set before this point - no fallback allowed
             if self.business_id is None:
                 logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
+                _orig_print(f"❌ [BUSINESS_ISOLATION] OpenAI session rejected - no business_id", flush=True)
                 raise ValueError("CRITICAL: business_id required for greeting")
+            
             business_id_safe = self.business_id
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
+            
+            # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
+            logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
+            _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
@@ -6774,61 +6781,42 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 GREETING PROFILER: Track WS connect time
                         stream_registry.set_metric(self.call_sid, 'ws_connect_ts', self.t0_connected)
                     
-                    # 🚀 PARALLEL STARTUP: Start OpenAI connection AND DB query simultaneously!
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # ⛔ CRITICAL: VALIDATE BUSINESS_ID **BEFORE** STARTING OPENAI SESSION
+                    # This prevents OpenAI charges if business cannot be identified
+                    # ═══════════════════════════════════════════════════════════════════════
                     logger.info(f"[REALTIME] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
-                    logger.info(f"[REALTIME] About to check if we should start realtime thread...")
-                    logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
                     
-                    # 🔥 STEP 1: Start OpenAI thread IMMEDIATELY (connects while DB runs)
-                    if USE_REALTIME_API and not self.realtime_thread:
-                        logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
-                        t_realtime_start = time.time()
-                        delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
-                        _orig_print(f"🚀 [PARALLEL] Starting OpenAI at T0+{delta_from_t0:.0f}ms (BEFORE DB query!)", flush=True)
-                        
-                        logger.info(f"[REALTIME] Creating realtime thread...")
-                        self.realtime_thread = threading.Thread(
-                            target=self._run_realtime_mode_thread,
-                            daemon=True
-                        )
-                        logger.info(f"[REALTIME] Starting realtime thread...")
-                        self.realtime_thread.start()
-                        self.background_threads.append(self.realtime_thread)
-                        logger.info(f"[REALTIME] Realtime thread started successfully!")
-                        
-                        logger.info(f"[REALTIME] Creating realtime audio out thread...")
-                        realtime_out_thread = threading.Thread(
-                            target=self._realtime_audio_out_loop,
-                            daemon=True
-                        )
-                        realtime_out_thread.start()
-                        self.background_threads.append(realtime_out_thread)
-                        logger.info(f"[REALTIME] Both realtime threads started successfully!")
-                    else:
-                        logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 PART D OPTIMIZATION: DB query + prompt building runs IN PARALLEL with OpenAI connection
-                    # Previously: Main thread did DB query, async loop did ANOTHER DB query to build prompt
-                    # Now: Main thread builds prompt ONCE, async loop uses pre-built prompt
-                    # Expected savings: 500-2000ms (eliminates redundant DB query)
-                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 STEP 1: IDENTIFY BUSINESS FIRST (before OpenAI connection)
                     t_biz_start = time.time()
                     try:
                         app = _get_flask_app()
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
                             
-                            # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
-                            # This eliminates redundant DB query in async loop
-                            call_direction = getattr(self, 'call_direction', 'inbound')
                             # ⛔ CRITICAL: business_id must be set - no fallback to prevent cross-business contamination
                             if not self.business_id:
                                 if not business_id:
                                     logger.error(f"❌ CRITICAL: Cannot identify business! call_sid={self.call_sid}, to={self.to_number}")
+                                    _orig_print(f"❌ [BUSINESS_ISOLATION] Call rejected - no business_id for to={self.to_number}", flush=True)
                                     raise ValueError("CRITICAL: business_id required - call cannot proceed")
                                 self.business_id = business_id
+                            
+                            # ⛔ CRITICAL: Verify business_id is set before continuing
+                            if self.business_id is None:
+                                logger.error(f"❌ CRITICAL: business_id still None after DB query! to={self.to_number}, call_sid={self.call_sid}")
+                                _orig_print(f"❌ [BUSINESS_ISOLATION] Call rejected - business_id=None after query", flush=True)
+                                raise ValueError(f"CRITICAL: Cannot identify business for to_number={self.to_number}")
+                            
                             business_id_safe = self.business_id
+                            call_direction = getattr(self, 'call_direction', 'inbound')
+                            
+                            # 🔒 LOG BUSINESS ISOLATION: Track which business is handling this call
+                            logger.info(f"[BUSINESS_ISOLATION] call_accepted business_id={business_id_safe} to={self.to_number} call_sid={self.call_sid}")
+                            _orig_print(f"✅ [BUSINESS_ISOLATION] Business validated: {business_id_safe}", flush=True)
+                            
+                            # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
+                            # This eliminates redundant DB query in async loop
                             try:
                                 from server.services.realtime_prompt_builder import build_realtime_system_prompt
                                 self._prebuilt_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
@@ -6841,10 +6829,37 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
-                        # ⛔ CRITICAL: business_id must be set - no fallback to prevent cross-business contamination
-                        if self.business_id is None:
-                            logger.error(f"❌ CRITICAL: business_id still None after DB query! to={self.to_number}, call_sid={self.call_sid}")
-                            raise ValueError(f"CRITICAL: Cannot identify business for to_number={self.to_number}")
+                        # 🔥 STEP 2: Now that business is validated, START OPENAI SESSION
+                        # OpenAI connection happens ONLY AFTER business_id is confirmed
+                        logger.info(f"[REALTIME] About to check if we should start realtime thread...")
+                        logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
+                        
+                        if USE_REALTIME_API and not self.realtime_thread:
+                            logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
+                            t_realtime_start = time.time()
+                            delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
+                            _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
+                            
+                            logger.info(f"[REALTIME] Creating realtime thread...")
+                            self.realtime_thread = threading.Thread(
+                                target=self._run_realtime_mode_thread,
+                                daemon=True
+                            )
+                            logger.info(f"[REALTIME] Starting realtime thread...")
+                            self.realtime_thread.start()
+                            self.background_threads.append(self.realtime_thread)
+                            logger.info(f"[REALTIME] Realtime thread started successfully!")
+                            
+                            logger.info(f"[REALTIME] Creating realtime audio out thread...")
+                            realtime_out_thread = threading.Thread(
+                                target=self._realtime_audio_out_loop,
+                                daemon=True
+                            )
+                            realtime_out_thread.start()
+                            self.background_threads.append(realtime_out_thread)
+                            logger.info(f"[REALTIME] Both realtime threads started successfully!")
+                        else:
+                            logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):
                             self.bot_speaks_first = True
                         
