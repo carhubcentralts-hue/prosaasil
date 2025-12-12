@@ -1089,6 +1089,16 @@ HEBREW_FILLER_WORDS = {
     "הממ", "אהם", "אהממ", "ממ", "הם"
 }
 
+# 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
+GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
+GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
+
+# 🔧 GOODBYE DETECTION: Thresholds for polite ending detection
+# Short utterances (≤3 words) with polite phrases are likely goodbyes (e.g., "תודה רבה")
+# Longer utterances require phrase to be ≥50% of content to avoid false positives
+GOODBYE_SHORT_UTTERANCE_MAX_WORDS = 3  # Max words for "short utterance" classification
+GOODBYE_PHRASE_MIN_PERCENTAGE = 0.5  # Minimum 50% of utterance must be the goodbye phrase
+
 def is_valid_transcript(text: str) -> bool:
     """
     🎯 TASK 4.2: Two-Phase Barge-in - Transcription-Based Confirmation
@@ -1468,12 +1478,11 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 BARGE-IN FIX: Reduced to 150 frames (~3s buffer) for responsive barge-in
-        # Large queues (1500 frames = 30s) cause old audio to continue playing after barge-in
-        # 150 frames = 3 seconds is enough for smooth playback while allowing quick interruption
-        # 🎯 FIX B: Increase TX queue to prevent audio cuts (150 frames = 3s → 1000 frames = 20s)
-        # This prevents "dropping oldest frames" which causes mid-sentence audio cuts
-        self.tx_q = queue.Queue(maxsize=1000)  # 1000 frames = 20s buffer (prevents overflow)
+        # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
+        # Small queue (150-250 frames = 3-5s) allows quick interruption while preventing underruns
+        # On barge-in, we flush the entire queue anyway, so large buffers just add latency
+        # 🔧 NEW FIX: Reduced to 250 frames (~5s) for <300ms barge-in response
+        self.tx_q = queue.Queue(maxsize=250)  # 250 frames = 5s buffer (balanced: smooth + responsive)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -1656,6 +1665,8 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 303: SMART HANGUP - Always send goodbye before disconnect
         self.goodbye_message_sent = False  # Track if we sent a proper goodbye
+        self.user_said_goodbye = False  # Track if USER said goodbye (separate from AI polite closing)
+        self.last_user_goodbye_at = None  # Timestamp in milliseconds when user said goodbye (time.time() * 1000)
         
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
@@ -4490,35 +4501,49 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
                         # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
                         # 🔥 FIX: In SIMPLE_MODE, respect call_goal and auto_end_on_goodbye toggle
+                        # 🔧 NEW FIX: In SIMPLE_MODE, require explicit user goodbye - AI polite closing alone is NOT enough
                         elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
                             call_goal = getattr(self, 'call_goal', 'lead_only')
                             
                             # 🔥 FIX: In SIMPLE_MODE, behavior depends on call_goal
                             if SIMPLE_MODE:
-                                print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured}")
+                                print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured} user_said_goodbye={self.user_said_goodbye}")
                                 if call_goal in ('lead_only', 'collect_details_only'):
-                                    # For lead collection only: allow goodbye hangup without checking lead schema
-                                    # AI prompt defines what "enough" means, not hard Python guards
-                                    hangup_reason = "ai_goodbye_simple_mode_lead_only"
-                                    should_hangup = True
-                                    print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal} (no hard lead guards)")
+                                    # 🔧 NEW LOGIC: REQUIRE user goodbye first
+                                    # DO NOT hang up based only on AI polite closing
+                                    if not self.user_said_goodbye:
+                                        print(f"🔒 [GOODBYE] will_hangup=False - SIMPLE_MODE requires USER goodbye first")
+                                        print(f"   AI polite closing detected, but user has not said goodbye")
+                                        pass  # Don't hangup
+                                    else:
+                                        # User said goodbye - allow hangup
+                                        hangup_reason = "ai_goodbye_simple_mode_lead_only"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, user said goodbye")
                                 elif call_goal == 'appointment':
-                                    # For appointments: only hangup if required lead fields are captured
-                                    if self.required_lead_fields and not self.lead_captured:
+                                    # For appointments: require user goodbye AND lead completion
+                                    if not self.user_said_goodbye:
+                                        print(f"🔒 [GOODBYE] will_hangup=False - appointment mode requires USER goodbye")
+                                        pass  # Don't hangup
+                                    elif self.required_lead_fields and not self.lead_captured:
                                         # Lead incomplete - block hangup, AI should ask for missing info
                                         print(f"🔒 [GOODBYE] will_hangup=False - goal=appointment, lead incomplete")
                                         print(f"   required_lead_fields={self.required_lead_fields}, lead_captured={self.lead_captured}")
                                         pass  # Don't hangup
                                     else:
-                                        # Lead complete or no required fields - allow hangup
+                                        # User said goodbye AND lead complete - allow hangup
                                         hangup_reason = "ai_goodbye_simple_mode_appointment"
                                         should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, lead complete")
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, user goodbye + lead complete")
                                 else:
-                                    # Unknown goal - default to allowing goodbye
-                                    hangup_reason = "ai_goodbye_simple_mode_unknown"
-                                    should_hangup = True
-                                    print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}")
+                                    # Unknown goal - still require user goodbye
+                                    if not self.user_said_goodbye:
+                                        print(f"🔒 [GOODBYE] will_hangup=False - unknown goal, requires USER goodbye")
+                                        pass  # Don't hangup
+                                    else:
+                                        hangup_reason = "ai_goodbye_simple_mode_unknown"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, user said goodbye")
                             # Prompt-only mode: If no required fields configured, allow hangup on goodbye alone
                             elif not self.required_lead_fields:
                                 hangup_reason = "ai_goodbye_prompt_only"
@@ -4543,6 +4568,16 @@ Greet briefly. Then WAIT for customer to speak."""
                             print(f"   auto_end_on_goodbye={self.auto_end_on_goodbye}")
                             print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}, lead_captured={self.lead_captured}")
                             print(f"   verification_confirmed={self.verification_confirmed}")
+                        
+                        # 🔧 NEW FIX: Guard against hangup while user is speaking
+                        # In SIMPLE_MODE, check if user is currently speaking or just started
+                        if should_hangup and SIMPLE_MODE:
+                            # Check if there's active voice input (user speaking)
+                            # barge_in_voice_frames is always initialized to 0 in __init__
+                            user_is_speaking = getattr(self, 'barge_in_voice_frames', 0) > 0
+                            if user_is_speaking:
+                                print(f"🔒 [GOODBYE] Blocking hangup - user currently speaking! voice_frames={self.barge_in_voice_frames}")
+                                should_hangup = False
                         
                         if should_hangup:
                             self.goodbye_detected = True
@@ -4963,6 +4998,25 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._stt_last_segment_ts = now_ms
                     transcript = text
                     
+                    # 🔥 SIMPLE_MODE: Structured utterance logging
+                    # Single log line with all key info for debugging and analysis
+                    try:
+                        call_direction = getattr(self, 'call_direction', 'inbound')
+                        call_goal = getattr(self, 'call_goal', 'lead_only')
+                        user_has_spoken_state = self.user_has_spoken
+                        is_ai_currently_speaking = self.is_ai_speaking_event.is_set()
+                        
+                        # Format: [UTTERANCE] SIMPLE_MODE=True direction=inbound goal=lead_only 
+                        #         user_has_spoken=True ai_speaking=False text='...'
+                        logger.info(
+                            f"[UTTERANCE] SIMPLE_MODE={SIMPLE_MODE} direction={call_direction} "
+                            f"goal={call_goal} user_has_spoken={user_has_spoken_state} "
+                            f"ai_speaking={is_ai_currently_speaking} text='{transcript[:100]}'"
+                        )
+                    except Exception as log_err:
+                        # Don't let logging errors break STT
+                        logger.warning(f"[UTTERANCE] Logging error: {log_err}")
+                    
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 3: Log final transcript
                     # Format: [STT_FINAL] → what goes into Lead State / AI processing
                     print(f"[STT_FINAL] '{transcript}' (from raw: '{raw_text[:30]}...')")
@@ -5263,6 +5317,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
                         self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
+                        
+                        # 🔧 FIX: Track user goodbye separately from AI polite closing
+                        if self._looks_like_user_goodbye(transcript):
+                            self.user_said_goodbye = True
+                            self.last_user_goodbye_at = time.time() * 1000  # ms
+                            print(f"[USER GOODBYE] User said goodbye: '{transcript[:50]}...'")
+                        
                         self._current_stt_confidence = None
                         self._current_transcript_token_count = 0
                         self._current_transcript_is_first_answer = False
@@ -9638,6 +9699,75 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception as e:
             print(f"❌ [AI] Failed to send text: {e}")
 
+    def _looks_like_user_goodbye(self, text: str) -> bool:
+        """
+        🔧 FIX: Detect USER goodbye phrases (separate from AI polite closing)
+        
+        User goodbye phrases include:
+        - Clear goodbye: "ביי", "להתראות", "bye", "goodbye"
+        - Polite endings: "תודה רבה", "אין צורך", "לא צריך", "אפשר לסיים"
+        - Combined phrases: "תודה וביי", "תודה להתראות"
+        
+        This is used to track user_said_goodbye separately from AI polite closing.
+        
+        Args:
+            text: User transcript to check
+            
+        Returns:
+            True if user is ending the call
+        """
+        text_lower = text.lower().strip()
+        
+        # Skip very short utterances (noise)
+        if len(text_lower) < 3:
+            return False
+        
+        # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
+        for ignore in GOODBYE_IGNORE_PHRASES:
+            if ignore in text_lower:
+                return False
+        
+        # 🛡️ FILTER: Exclude greetings that sound like goodbye
+        for greeting in GOODBYE_GREETING_WORDS:
+            if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
+                return False
+        
+        # ✅ CLEAR goodbye words
+        clear_goodbye_words = [
+            "להתראות", "ביי", "bye", "bye bye", "goodbye",
+            "יאללה ביי", "יאללה להתראות"
+        ]
+        
+        for word in clear_goodbye_words:
+            if word in text_lower:
+                print(f"[USER GOODBYE] Clear goodbye: '{word}' in '{text_lower[:30]}...'")
+                return True
+        
+        # ✅ Polite endings that indicate user wants to end call
+        # These should only count as goodbye if they're the main content of the utterance
+        polite_endings = [
+            "תודה רבה", "אין צורך", "לא צריך", "אפשר לסיים",
+            "תודה וביי", "תודה להתראות", "תודה רבה וביי", "תודה רבה להתראות"
+        ]
+        
+        # Check if any polite ending is present and is a significant portion of the text
+        words_in_text = text_lower.split()
+        text_length = len(words_in_text)
+        
+        for phrase in polite_endings:
+            if phrase in text_lower:
+                phrase_words = phrase.split()
+                phrase_length = len(phrase_words)
+                
+                # Use configurable constants for threshold logic
+                # Short utterances with polite phrases are likely goodbyes
+                # Longer utterances require phrase to be significant portion to avoid false positives
+                if text_length <= GOODBYE_SHORT_UTTERANCE_MAX_WORDS or phrase_length >= text_length * GOODBYE_PHRASE_MIN_PERCENTAGE:
+                    print(f"[USER GOODBYE] Polite ending: '{phrase}' in '{text_lower[:30]}...'")
+                    return True
+        
+        return False
+    
     def _check_goodbye_phrases(self, text: str) -> bool:
         """
         🎯 BUILD 163 STRICT: Check if text contains CLEAR goodbye phrases
@@ -9657,15 +9787,13 @@ Greet briefly. Then WAIT for customer to speak."""
         text_lower = text.lower().strip()
         
         # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
-        ignore_phrases = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
-        for ignore in ignore_phrases:
+        for ignore in GOODBYE_IGNORE_PHRASES:
             if ignore in text_lower:
                 print(f"[GOODBYE CHECK] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
                 return False
         
         # 🛡️ FILTER: Exclude greetings that sound like goodbye
-        greeting_words = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
-        for greeting in greeting_words:
+        for greeting in GOODBYE_GREETING_WORDS:
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
                 print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
