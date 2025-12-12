@@ -2020,10 +2020,10 @@ class MediaStreamHandler:
 
     def _set_safe_business_defaults(self, force_greeting=False):
         """🔥 SAFETY: Set ONLY MISSING fields with safe defaults. Never overwrite valid data."""
-        # Only set if attribute doesn't exist or is explicitly None
+        # ⛔ CRITICAL: NEVER allow calls without business_id - this causes cross-business contamination!
         if not hasattr(self, 'business_id') or self.business_id is None:
-            self.business_id = 1
-            print(f"🔒 [DEFAULTS] Set fallback business_id=1")
+            logger.error(f"❌ CRITICAL: Call without business_id! call_sid={getattr(self, 'call_sid', 'unknown')}, to={getattr(self, 'to_number', 'unknown')}")
+            raise ValueError("CRITICAL: business_id is required - cannot process call without valid business identification")
         if not hasattr(self, 'business_name') or self.business_name is None:
             self.business_name = "העסק"
         if not hasattr(self, 'bot_speaks_first'):
@@ -2231,7 +2231,11 @@ class MediaStreamHandler:
             t_before_prompt = time.time()
             greeting_text = getattr(self, 'greeting_text', None)
             biz_name = getattr(self, 'business_name', None) or "העסק"
-            business_id_safe = self.business_id if self.business_id is not None else 1
+            # ⛔ CRITICAL: business_id must be set before this point - no fallback allowed
+            if self.business_id is None:
+                logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
+                raise ValueError("CRITICAL: business_id required for greeting")
+            business_id_safe = self.business_id
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
             
@@ -6818,7 +6822,13 @@ Greet briefly. Then WAIT for customer to speak."""
                             # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
                             # This eliminates redundant DB query in async loop
                             call_direction = getattr(self, 'call_direction', 'inbound')
-                            business_id_safe = self.business_id if self.business_id is not None else (business_id or 1)
+                            # ⛔ CRITICAL: business_id must be set - no fallback to prevent cross-business contamination
+                            if not self.business_id:
+                                if not business_id:
+                                    logger.error(f"❌ CRITICAL: Cannot identify business! call_sid={self.call_sid}, to={self.to_number}")
+                                    raise ValueError("CRITICAL: business_id required - call cannot proceed")
+                                self.business_id = business_id
+                            business_id_safe = self.business_id
                             try:
                                 from server.services.realtime_prompt_builder import build_realtime_system_prompt
                                 self._prebuilt_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
@@ -6831,11 +6841,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
-                        # 🔥 SAFETY: Only set defaults if fields are truly None (preserve valid 0 or empty)
+                        # ⛔ CRITICAL: business_id must be set - no fallback to prevent cross-business contamination
                         if self.business_id is None:
-                            self.business_id = 1
-                            self.business_name = "העסק"
-                            print(f"🔒 [DEFAULTS] No business_id from DB - using fallback=1")
+                            logger.error(f"❌ CRITICAL: business_id still None after DB query! to={self.to_number}, call_sid={self.call_sid}")
+                            raise ValueError(f"CRITICAL: Cannot identify business for to_number={self.to_number}")
                         if not hasattr(self, 'bot_speaks_first'):
                             self.bot_speaks_first = True
                         
