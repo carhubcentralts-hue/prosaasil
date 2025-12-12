@@ -1131,7 +1131,7 @@ def is_valid_transcript(text: str) -> bool:
     
     normalized = text.strip().lower()
     
-    # Drop if too short (< 2-3 chars per directive)
+    # Drop if too short (2 chars minimum per directive section 3.2)
     if len(normalized) < 2:
         return False
     
@@ -8929,14 +8929,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🎯 MASTER DIRECTIVE 7: CALL DIRECTION VERIFICATION - Log at call start
                     call_direction = getattr(self, 'call_direction', 'inbound')
-                    call_goal = 'lead_only'  # Default
-                    try:
-                        from server.models_sql import BusinessSettings
-                        settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
-                        if settings and hasattr(settings, 'call_goal'):
-                            call_goal = settings.call_goal or 'lead_only'
-                    except Exception:
-                        pass
+                    # Use call_config if already loaded (avoids redundant DB query)
+                    call_goal = getattr(self.call_config, 'call_goal', 'lead_only') if hasattr(self, 'call_config') else 'lead_only'
                     
                     logger.info(
                         f"[BUILD] SIMPLE_MODE={SIMPLE_MODE} business_id={self.business_id} "
