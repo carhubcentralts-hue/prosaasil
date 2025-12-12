@@ -1033,9 +1033,11 @@ RMS_SILENCE_THRESHOLD = AUDIO_CONFIG.get("rms_silence_threshold", 30)  # From AU
 MIN_SPEECH_RMS = AUDIO_CONFIG.get("min_speech_rms", 40)        # From AUDIO_CONFIG
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
-# CONSECUTIVE FRAMES - SIMPLE MODE: Use NOISE_GATE_MIN_FRAMES from AUDIO_CONFIG
-# In Simple Mode (noise_gate_min_frames=0), this is 0 = no gating, all frames pass through
-MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES)  # 0 in Simple Mode = no gate
+# 🎯 MASTER DIRECTIVE 3.1: VAD - Voice Detection
+# Continuous voice frames ≥ 400-500ms required to consider as REAL speech
+# 400ms = 20 frames @ 20ms/frame, 500ms = 25 frames
+# This prevents short spikes/bursts from being treated as speech
+MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES) if not SIMPLE_MODE else 20  # 20 frames = 400ms minimum
 
 # TIMING - Fast Hebrew response
 POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
@@ -1082,7 +1084,8 @@ VALID_SHORT_HEBREW_PHRASES = {
     "איך", "כמה", "מי", "איזה", "זה", "אני", "היי", "הלו", "שלום", "ביי"
 }
 
-# 🎯 TASK 4.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
+# 🎯 MASTER DIRECTIVE 3.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
+# These are thinking sounds, not real speech. Drop silently at STT level.
 HEBREW_FILLER_WORDS = {
     "אמ", "אם", "אממ", "אמממ", 
     "אה", "אהה", "אההה", "אההההה",
@@ -1101,17 +1104,21 @@ GOODBYE_PHRASE_MIN_PERCENTAGE = 0.5  # Minimum 50% of utterance must be the good
 
 def is_valid_transcript(text: str) -> bool:
     """
-    🎯 TASK 4.2: Two-Phase Barge-in - Transcription-Based Confirmation
+    🎯 MASTER DIRECTIVE 3.2: STT Acceptance Rules - Filter at STT level, not flow level
     
     Check if transcript is valid (contains meaningful content).
-    Returns False for:
-    - Empty/whitespace
-    - < 3 characters
-    - Filler-only utterances ("אממ", "אההה", etc.)
     
-    Returns True for:
+    DROP silently if:
+    - Empty/whitespace
+    - text length < 2-3 chars
+    - Filler only: "אמ", "אה", "הממ", "אהה"
+    
+    ACCEPT if:
     - Filler + real text ("אממ כן", "אהה טוב")
     - Any meaningful speech
+    
+    ❌ Do NOT block AI with flow guards
+    ❌ Do NOT mark as user turn if dropped
     
     Args:
         text: Transcribed text from STT
@@ -1124,8 +1131,8 @@ def is_valid_transcript(text: str) -> bool:
     
     normalized = text.strip().lower()
     
-    # Too short
-    if len(normalized) < 3:
+    # Drop if too short (< 2-3 chars per directive)
+    if len(normalized) < 2:
         return False
     
     # Split into tokens
@@ -1135,8 +1142,8 @@ def is_valid_transcript(text: str) -> bool:
     non_filler_tokens = [t for t in tokens if t not in HEBREW_FILLER_WORDS]
     
     if not non_filler_tokens:
-        # All filler - reject
-        logger.info(f"[FILLER_DETECT] Rejected filler-only: '{text}'")
+        # All filler - drop silently (log only)
+        logger.info(f"[STT_FILTER] dropped filler/short utterance text='{text}'")
         return False
     
     # Has at least one meaningful word - accept
@@ -8912,6 +8919,22 @@ Greet briefly. Then WAIT for customer to speak."""
                     self.business_name = business.name or "העסק שלנו"
                     greeting = business.greeting_message or None
                     business_name = self.business_name
+                    
+                    # 🎯 MASTER DIRECTIVE 7: CALL DIRECTION VERIFICATION - Log at call start
+                    call_direction = getattr(self, 'call_direction', 'inbound')
+                    call_goal = 'lead_only'  # Default
+                    try:
+                        from server.models_sql import BusinessSettings
+                        settings = BusinessSettings.query.filter_by(tenant_id=self.business_id).first()
+                        if settings and hasattr(settings, 'call_goal'):
+                            call_goal = settings.call_goal or 'lead_only'
+                    except Exception:
+                        pass
+                    
+                    logger.info(
+                        f"[BUILD] SIMPLE_MODE={SIMPLE_MODE} business_id={self.business_id} "
+                        f"direction={call_direction} goal={call_goal}"
+                    )
                     
                     if greeting:
                         greeting = greeting.replace("{{business_name}}", business_name)
