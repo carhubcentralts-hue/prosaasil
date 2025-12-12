@@ -4717,11 +4717,18 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
                     
-                    # Skip filler-only utterances
+                    # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
+                    # If final text is filler → ignore, if real text → CONFIRMED barge-in
                     if is_filler_only:
                         logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
                         
                         # Don't cancel AI, don't flush queue, just ignore
+                        # If this was during AI speech, it's not a real barge-in
+                        if self.barge_in_active:
+                            logger.info(f"[BARGE-IN] Phase B: Filler detected - not a real barge-in, clearing flag")
+                            self.barge_in_active = False
+                            self._barge_in_started_ts = None
+                        
                         # Save to conversation history for context but mark as filler
                         # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
                         if not hasattr(self, 'conversation_history'):

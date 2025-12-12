@@ -279,9 +279,12 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             
             logger.info(f"✅ [COMPACT] Extracted {len(compact_context)} chars from {call_direction} prompt")
         else:
-            # Fallback - should never happen in production
+            # 🎯 MASTER DIRECTIVE 1: PROMPT FALLBACK logging
+            # If missing → fallback ONCE and log
             compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
-            logger.warning(f"⚠️ [COMPACT] No prompt for business {business_id} - using fallback")
+            logger.warning(
+                f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
+            )
         
         # 🔥 Add minimal context (direction, STT truth)
         direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
