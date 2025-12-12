@@ -1034,10 +1034,10 @@ MIN_SPEECH_RMS = AUDIO_CONFIG.get("min_speech_rms", 40)        # From AUDIO_CONF
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
 # 🎯 MASTER DIRECTIVE 3.1: VAD - Voice Detection
-# Continuous voice frames ≥ 400-500ms required to consider as REAL speech
-# 400ms = 20 frames @ 20ms/frame, 500ms = 25 frames
-# This prevents short spikes/bursts from being treated as speech
-MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES) if not SIMPLE_MODE else 20  # 20 frames = 400ms minimum
+# Continuous voice frames to prevent short noise spikes
+# Reduced from 400ms to 240ms to avoid missing short valid utterances like "כן", "לא"
+# 12 frames @ 20ms/frame = 240ms (balances noise rejection with responsiveness)
+MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES) if not SIMPLE_MODE else 12  # 12 frames = 240ms minimum
 
 # TIMING - Fast Hebrew response
 POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
@@ -1109,9 +1109,8 @@ def is_valid_transcript(text: str) -> bool:
     Check if transcript is valid (contains meaningful content).
     
     DROP silently if:
-    - Empty/whitespace
-    - text length < 2-3 chars
-    - Filler only: "אמ", "אה", "הממ", "אהה"
+    - Empty/whitespace only
+    - Filler only: "אמ", "אה", "הממ", "אהה" (no real words)
     
     ACCEPT if:
     - Filler + real text ("אממ כן", "אהה טוב")
@@ -1131,8 +1130,9 @@ def is_valid_transcript(text: str) -> bool:
     
     normalized = text.strip().lower()
     
-    # Drop if too short (2 chars minimum per directive section 3.2)
-    if len(normalized) < 2:
+    # Only drop completely empty - do NOT filter by length
+    # Hebrew has valid 2-char words: כן, לא, מי, מה
+    if len(normalized) == 0:
         return False
     
     # Split into tokens
