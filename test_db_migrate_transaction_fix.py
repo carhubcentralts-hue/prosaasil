@@ -121,7 +121,14 @@ def check_rollback_calls():
         
         for block in except_blocks:
             # Skip check_* functions - they use independent connections and don't need rollback
-            if any(x in block for x in ['Error checking if column', 'Error checking if table', 'Error checking if index', 'Failed to create tables']):
+            # Also skip the "Failed to create tables" error in the initial setup
+            if any(x in block for x in [
+                'Error checking if column', 
+                'Error checking if table', 
+                'Error checking if index', 
+                'Failed to create tables',
+                'checkpoint(f"❌ Failed to create tables'
+            ]):
                 skipped_count += 1
                 continue
             
@@ -161,7 +168,7 @@ def check_table_exists_before_count():
         
         # Find all COUNT queries in the file
         count_queries = re.finditer(
-            r'SELECT COUNT\(\*\) FROM (\w+)',
+            r'SELECT COUNT\(\*\) FROM ([a-zA-Z_]\w+)',
             content,
             re.IGNORECASE
         )
@@ -224,9 +231,9 @@ def check_no_nested_rollback_try():
         return False
 
 
-def check_table_schema_filter():
-    """Verify that check_table_exists includes table_schema = 'public' filter"""
-    print("\n=== Checking Table Schema Filter ===")
+def check_schema_filters():
+    """Verify that all check_* functions include schema filtering"""
+    print("\n=== Checking Schema Filters in All Check Functions ===")
     
     filepath = 'server/db_migrate.py'
     
@@ -234,7 +241,9 @@ def check_table_schema_filter():
         with open(filepath, 'r') as f:
             content = f.read()
         
-        # Extract check_table_exists function
+        all_ok = True
+        
+        # Check check_table_exists for table_schema filter
         table_exists_match = re.search(
             r'def check_table_exists\(.*?\):.*?(?=\ndef |\Z)', 
             content, 
@@ -243,18 +252,52 @@ def check_table_schema_filter():
         
         if table_exists_match:
             func_content = table_exists_match.group(0)
-            if "table_schema = 'public'" in func_content or \
-               'table_schema = "public"' in func_content or \
-               "table_schema='public'" in func_content:
+            if "table_schema = 'public'" in func_content or "table_schema='public'" in func_content:
                 print(f"  ✅ check_table_exists includes table_schema = 'public' filter")
-                return True
             else:
-                print(f"  ⚠️  check_table_exists does not filter by table_schema='public'")
-                print(f"      This is not critical but recommended for PostgreSQL")
-                return True  # Not a failure, just a warning
+                print(f"  ❌ check_table_exists missing table_schema filter")
+                all_ok = False
         else:
             print(f"  ❌ check_table_exists function not found")
-            return False
+            all_ok = False
+        
+        # Check check_column_exists for table_schema filter
+        column_exists_match = re.search(
+            r'def check_column_exists\(.*?\):.*?(?=\ndef |\Z)', 
+            content, 
+            re.DOTALL
+        )
+        
+        if column_exists_match:
+            func_content = column_exists_match.group(0)
+            if "table_schema = 'public'" in func_content or "table_schema='public'" in func_content:
+                print(f"  ✅ check_column_exists includes table_schema = 'public' filter")
+            else:
+                print(f"  ❌ check_column_exists missing table_schema filter")
+                all_ok = False
+        else:
+            print(f"  ❌ check_column_exists function not found")
+            all_ok = False
+        
+        # Check check_index_exists for schemaname filter
+        index_exists_match = re.search(
+            r'def check_index_exists\(.*?\):.*?(?=\ndef |\Z)', 
+            content, 
+            re.DOTALL
+        )
+        
+        if index_exists_match:
+            func_content = index_exists_match.group(0)
+            if "schemaname = 'public'" in func_content or "schemaname='public'" in func_content:
+                print(f"  ✅ check_index_exists includes schemaname = 'public' filter")
+            else:
+                print(f"  ❌ check_index_exists missing schemaname filter")
+                all_ok = False
+        else:
+            print(f"  ❌ check_index_exists function not found")
+            all_ok = False
+        
+        return all_ok
         
     except Exception as e:
         print(f"  ❌ Error checking {filepath}: {e}")
@@ -272,7 +315,7 @@ def main():
         'Rollback Calls': check_rollback_calls(),
         'Table Existence Before COUNT': check_table_exists_before_count(),
         'No Nested Rollback Try': check_no_nested_rollback_try(),
-        'Table Schema Filter': check_table_schema_filter(),
+        'Schema Filters': check_schema_filters(),
     }
     
     print("\n" + "=" * 60)

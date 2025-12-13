@@ -31,14 +31,14 @@ def checkpoint(message):
     sys.stderr.flush()
 
 def check_column_exists(table_name, column_name):
-    """Check if column exists in table - uses independent connection to avoid transaction pollution"""
+    """Check if column exists in table using independent connection"""
     from sqlalchemy import text
     try:
         # Use engine.connect() instead of db.session to avoid polluting the main transaction
         with db.engine.connect() as conn:
             result = conn.execute(text("""
                 SELECT column_name FROM information_schema.columns 
-                WHERE table_name = :table_name AND column_name = :column_name
+                WHERE table_schema = 'public' AND table_name = :table_name AND column_name = :column_name
             """), {"table_name": table_name, "column_name": column_name})
             return result.fetchone() is not None
     except Exception as e:
@@ -46,7 +46,7 @@ def check_column_exists(table_name, column_name):
         return False
 
 def check_table_exists(table_name):
-    """Check if table exists - uses independent connection to avoid transaction pollution"""
+    """Check if table exists using independent connection"""
     from sqlalchemy import text
     try:
         # Use engine.connect() instead of db.session to avoid polluting the main transaction
@@ -61,14 +61,14 @@ def check_table_exists(table_name):
         return False
 
 def check_index_exists(index_name):
-    """Check if index exists - uses independent connection to avoid transaction pollution"""
+    """Check if index exists using independent connection"""
     from sqlalchemy import text
     try:
         # Use engine.connect() instead of db.session to avoid polluting the main transaction
         with db.engine.connect() as conn:
             result = conn.execute(text("""
                 SELECT indexname FROM pg_indexes 
-                WHERE indexname = :index_name
+                WHERE schemaname = 'public' AND indexname = :index_name
             """), {"index_name": index_name})
             return result.fetchone() is not None
     except Exception as e:
