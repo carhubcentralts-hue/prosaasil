@@ -2266,16 +2266,18 @@ class MediaStreamHandler:
             # Step 3: Fallback - build if not in registry (should rarely happen)
             if not compact_prompt or not full_prompt:
                 print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
+                # 🔥 LOG: Direction being used for prompt building
+                print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
                 try:
                     from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
                     app = _get_flask_app()
                     with app.app_context():
                         if not compact_prompt:
                             compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars")
+                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
                         if not full_prompt:
                             full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars")
+                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
                 except Exception as prompt_err:
                     print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
                     import traceback
