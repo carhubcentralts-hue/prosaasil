@@ -24,6 +24,9 @@ from datetime import datetime, timedelta
 import secrets
 import hashlib
 
+# Module-level logger
+logger = logging.getLogger(__name__)
+
 # 🔥 CRITICAL FIX: Single instance management to prevent APP_START crashes
 _app_singleton = None
 _app_lock = __import__('threading').RLock()  # RLock allows reentrant acquisition (prevents deadlock)
@@ -123,7 +126,9 @@ def create_app():
             'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
                 'connect_timeout': 30,
-                'application_name': 'AgentLocator-71'
+                'application_name': 'AgentLocator-71',
+                # ✅ DB RESILIENCE: Add statement timeout to prevent hanging queries
+                'options': '-c statement_timeout=30000'  # 30 seconds max per statement
             }
         },
         # Session configuration

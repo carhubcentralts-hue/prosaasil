@@ -557,7 +557,7 @@ def _session_processor_loop():
                 
                 # Reset error counter on success
                 if consecutive_errors > 0:
-                    logger.info(f"[DB] recovered after {consecutive_errors} attempts")
+                    logger.info(f"[DB_RECOVERED] op=whatsapp_session_loop after {consecutive_errors} attempts")
                     print(f"[WHATSAPP_SESSION] ✅ DB recovered after {consecutive_errors} attempts")
                 consecutive_errors = 0
                 
