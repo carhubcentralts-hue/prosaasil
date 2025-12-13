@@ -4615,6 +4615,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
                     print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
                     
+                    # 🔥 MASTER CHECK: Log utterance received (verification requirement)
+                    logger.info(f"[UTTERANCE] text='{raw_text}'")
+                    
                     # 🔥 BUILD 170.4: Apply Hebrew normalization
                     text = normalize_hebrew_text(text)
                     
@@ -4723,6 +4726,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
                         f"will_generate_response={not is_filler_only}"
                     )
+                    
+                    # 🔥 MASTER CHECK: Confirm transcript committed to model (Path A - Realtime-native)
+                    # Transcript is already in session state via conversation.item.input_audio_transcription.completed
+                    # No manual conversation.item.create needed - OpenAI handles it automatically
+                    logger.info(f"[AI_INPUT] kind=realtime_transcript committed=True text_preview='{text[:100]}'")
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
