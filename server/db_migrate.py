@@ -33,29 +33,56 @@ def checkpoint(message):
 def check_column_exists(table_name, column_name):
     """Check if column exists in table"""
     from sqlalchemy import text
-    result = db.session.execute(text("""
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = :table_name AND column_name = :column_name
-    """), {"table_name": table_name, "column_name": column_name})
-    return result.fetchone() is not None
+    try:
+        result = db.session.execute(text("""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name = :table_name AND column_name = :column_name
+        """), {"table_name": table_name, "column_name": column_name})
+        return result.fetchone() is not None
+    except Exception as e:
+        # IMPORTANT: reset failed transaction so future queries won't crash
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        log.warning(f"Error checking if column {column_name} exists in {table_name}: {e}")
+        return False
 
 def check_table_exists(table_name):
     """Check if table exists"""
     from sqlalchemy import text
-    result = db.session.execute(text("""
-        SELECT table_name FROM information_schema.tables 
-        WHERE table_name = :table_name
-    """), {"table_name": table_name})
-    return result.fetchone() is not None
+    try:
+        result = db.session.execute(text("""
+            SELECT table_name FROM information_schema.tables 
+            WHERE table_name = :table_name
+        """), {"table_name": table_name})
+        return result.fetchone() is not None
+    except Exception as e:
+        # IMPORTANT: reset failed transaction so future queries won't crash
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        log.warning(f"Error checking if table {table_name} exists: {e}")
+        return False
 
 def check_index_exists(index_name):
     """Check if index exists"""
     from sqlalchemy import text
-    result = db.session.execute(text("""
-        SELECT indexname FROM pg_indexes 
-        WHERE indexname = :index_name
-    """), {"index_name": index_name})
-    return result.fetchone() is not None
+    try:
+        result = db.session.execute(text("""
+            SELECT indexname FROM pg_indexes 
+            WHERE indexname = :index_name
+        """), {"index_name": index_name})
+        return result.fetchone() is not None
+    except Exception as e:
+        # IMPORTANT: reset failed transaction so future queries won't crash
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        log.warning(f"Error checking if index {index_name} exists: {e}")
+        return False
 
 def apply_migrations():
     """
@@ -104,6 +131,13 @@ def apply_migrations():
             msg_count_before = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
             checkpoint(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
     except Exception as e:
+        # IMPORTANT: reset failed transaction so future queries won't crash
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        
+        log.warning(f"Could not check data counts (database may be new): {e}")
         checkpoint(f"Could not check data counts (database may be new): {e}")
     
     # Migration 1: Add transcript column to CallLog
@@ -215,6 +249,11 @@ def apply_migrations():
             migrations_applied.append("add_unique_provider_msg_id")
             log.info("Applied migration: add_unique_provider_msg_id")
         except Exception as e:
+            # IMPORTANT: reset failed transaction so future queries won't crash
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
             log.warning(f"Could not create unique index (may already exist): {e}")
     
     # Migration 7: Create leads table for CRM system
@@ -371,6 +410,11 @@ def apply_migrations():
             migrations_applied.append("add_unique_call_sid")
             log.info("Applied migration: add_unique_call_sid")
         except Exception as e:
+            # IMPORTANT: reset failed transaction so future queries won't crash
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
             log.warning(f"Could not create unique index on call_sid (may already exist): {e}")
     
     # Migration 13: Create business_settings table for AI prompt management
@@ -516,6 +560,11 @@ def apply_migrations():
             migrations_applied.append("fix_deal_customer_fkey")
             log.info("Applied migration: fix_deal_customer_fkey - Now points to customer.id with CASCADE")
         except Exception as e:
+            # IMPORTANT: reset failed transaction so future queries won't crash
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
             log.warning(f"Could not fix deal foreign key (may already be correct): {e}")
     
     # Migration 19: Add Policy Engine fields to business_settings
@@ -917,6 +966,13 @@ def apply_migrations():
     except Exception as e:
         if "Data protection violation" in str(e):
             raise  # Re-raise data protection violations
+        
+        # IMPORTANT: reset failed transaction so future queries won't crash
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        
         checkpoint(f"Could not verify data counts after migrations: {e}")
     
     checkpoint("✅ Migration completed successfully!")
