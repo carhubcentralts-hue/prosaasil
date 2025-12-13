@@ -117,8 +117,8 @@ def create_app():
         'SQLALCHEMY_DATABASE_URI': DATABASE_URL,
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
         'SQLALCHEMY_ENGINE_OPTIONS': {
-            'pool_pre_ping': True,
-            'pool_recycle': 300,
+            'pool_pre_ping': True,  # ✅ DB RESILIENCE: Verify connections before use (prevents stale connections)
+            'pool_recycle': 300,    # ✅ DB RESILIENCE: Recycle connections after 5 min (handles Neon idle timeout)
             # Fix for Eventlet + SQLAlchemy lock issue
             'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
@@ -131,6 +131,9 @@ def create_app():
         'PERMANENT_SESSION_LIFETIME': timedelta(hours=8),
         'SESSION_REFRESH_EACH_REQUEST': True
     })
+    
+    # ✅ DB RESILIENCE: Log pool configuration for troubleshooting
+    logger.info(f"[DB_POOL] pool_pre_ping=True pool_recycle=300s (Neon-optimized)")
     
     # 1) Flask bootstrap - ProxyFix for Replit's reverse proxy
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
