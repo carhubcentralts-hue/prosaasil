@@ -460,6 +460,7 @@ def clear_vocabulary_cache(business_id: Optional[int] = None):
 async def semantic_repair(text: str, business_id: int) -> str:
     """
     🔥 BUILD 301: 100% DYNAMIC semantic repair - uses ONLY business vocabulary
+    🔥 FIX: More conservative to prevent changing valid Hebrew words
     
     Uses GPT-4o-mini to fix obvious transcription errors in short Hebrew text
     from telephony (8kHz μ-law) audio.
@@ -468,6 +469,11 @@ async def semantic_repair(text: str, business_id: int) -> str:
     - Uses only business vocabulary from DB (services, staff, products, locations)
     - Uses business context and name from settings
     - Fixes based on what the BUSINESS defined, not generic patterns
+    
+    ONLY applies when:
+    - Business has vocabulary defined
+    - Text is very short (< 12 chars) or garbled
+    - Repair confidence is high
     
     Examples (with business vocabulary):
     - "תפורת" → "תספורת" (if "תספורת" is in business services)
@@ -495,23 +501,29 @@ async def semantic_repair(text: str, business_id: int) -> str:
             vocab_items.extend(vocab.get(key, [])[:5])
         vocab_str = ", ".join(vocab_items[:15]) if vocab_items else ""
         
+        # 🔥 FIX: If no vocabulary, skip semantic repair
+        # Don't try to repair without business context - too risky
+        if not vocab_str or len(vocab_str.strip()) < 3:
+            logger.debug(f"[SEMANTIC_REPAIR] Skipping - no vocabulary for business {business_id}")
+            return text
+        
         business_context = vocab.get("business_context", "") or ""
         business_name = vocab.get("business_name", "") or ""
         
         # 🔥 BUILD 301: 100% DYNAMIC repair prompt - uses ONLY business vocabulary
-        # No hardcoded references to cities/names - everything comes from DB
+        # 🔥 FIX: More conservative instructions - only fix if VERY confident
         prompt = f"""תמלול קצר מקו טלפון עברי (רועש).
 משימה:
-1. אם הטקסט עברית מעוותת, תקן לביטוי הסביר ביותר.
+1. תקן רק אם אתה 100% בטוח שיש שגיאת תמלול ברורה.
 2. השתמש רק באוצר המילים של העסק למטה.
-3. אל תשנה מספרים, שעות, או תאריכים.
-4. אם לא בטוח - החזר כמו שזה.
+3. אל תשנה מספרים, שעות, תאריכים, או מילים נפוצות.
+4. אם לא בטוח לחלוטין - החזר כמו שזה ללא שינוי.
 
 עסק: {business_name}
 הקשר: {business_context}
 מילים: {vocab_str}
 
-החזר רק את הטקסט המתוקן.
+החזר רק את הטקסט המתוקן (או המקורי אם לא בטוח).
 
 קלט: "{text}"
 """
@@ -533,8 +545,25 @@ async def semantic_repair(text: str, business_id: int) -> str:
         if repaired.startswith("'") and repaired.endswith("'"):
             repaired = repaired[1:-1]
         
-        # Log repair if changed
+        # 🔥 FIX: Only apply repair if it seems like a real fix, not a random change
+        # Don't repair if:
+        # - Same text returned
+        # - Only whitespace/punctuation differences
+        # - Length changed by more than 50% (suspicious)
         if repaired and repaired != text:
+            text_normalized = text.strip().replace(" ", "")
+            repaired_normalized = repaired.strip().replace(" ", "")
+            
+            # Skip if only whitespace changed
+            if text_normalized == repaired_normalized:
+                return text
+            
+            # Skip if length changed too much (suspicious)
+            len_ratio = len(repaired) / max(len(text), 1)
+            if len_ratio < 0.5 or len_ratio > 1.5:
+                logger.info(f"🔧 [STT_REPAIRED] SKIPPED suspicious length change: '{text}' → '{repaired}' (ratio={len_ratio:.2f})")
+                return text
+            
             logger.info(f"🔧 [STT_REPAIRED] '{text}' → '{repaired}' (business={business_id})")
             return repaired
         

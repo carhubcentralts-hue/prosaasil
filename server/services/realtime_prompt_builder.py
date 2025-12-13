@@ -388,12 +388,14 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         final_prompt = None
         if call_direction == "outbound":
             # 🔥 OUTBOUND: Use pure prompt mode (no call control settings)
+            logger.info(f"📤 [PROMPT_ROUTER] Building OUTBOUND prompt for business {business_id}")
             final_prompt = build_outbound_system_prompt(
                 business_settings=business_settings_dict,
                 db_session=db_session
             )
         else:
             # 🔥 INBOUND: Use full call control settings
+            logger.info(f"📞 [PROMPT_ROUTER] Building INBOUND prompt for business {business_id}")
             call_control_settings_dict = {
                 "enable_calendar_scheduling": settings.enable_calendar_scheduling if (settings and hasattr(settings, 'enable_calendar_scheduling')) else True,
                 "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if (settings and hasattr(settings, 'auto_end_after_lead_capture')) else False,
@@ -684,6 +686,7 @@ Follow the business rules above for how to greet and handle the call.
 ═══════════════════════════════════════════════════════════════"""
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars (system + business)")
+        logger.info(f"🔍 [PROMPT_VERIFICATION] business_id={business_id}, direction=INBOUND, call_type_in_prompt={'CALL TYPE: INBOUND' in full_prompt}")
         
         # 🔥 PROMPT_CONTEXT: Log that prompt is fully dynamic with no hardcoded templates
         has_business_prompt = bool(ai_prompt_raw and ai_prompt_raw.strip())
@@ -794,6 +797,7 @@ Follow the outbound business rules above for all content and flow.
 ═══════════════════════════════════════════════════════════════"""
         
         logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars (system + outbound)")
+        logger.info(f"🔍 [PROMPT_VERIFICATION] business_id={business_id}, direction=OUTBOUND, call_type_in_prompt={'CALL TYPE: OUTBOUND' in full_prompt}")
         
         # 🔥 PROMPT_CONTEXT: Log that prompt is fully dynamic with no hardcoded templates
         has_outbound_prompt = bool(outbound_prompt_raw and outbound_prompt_raw.strip())
