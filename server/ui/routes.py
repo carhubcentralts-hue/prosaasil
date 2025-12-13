@@ -2,9 +2,12 @@
 # Based on exact specification from attached_assets
 from flask import Blueprint, request, session, g, redirect, url_for, jsonify, send_file
 import os
+import logging
 from functools import wraps
 from datetime import datetime
 from server.security_audit import audit_action
+
+logger = logging.getLogger(__name__)
 
 ui_bp = Blueprint('ui', __name__)
 
