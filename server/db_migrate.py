@@ -921,3 +921,52 @@ def apply_migrations():
     
     checkpoint("✅ Migration completed successfully!")
     return migrations_applied
+
+
+if __name__ == '__main__':
+    """
+    Standalone execution: python -m server.db_migrate
+    
+    Runs migrations without eventlet or background workers.
+    """
+    import sys
+    
+    # Set migration mode
+    import os
+    os.environ['MIGRATION_MODE'] = '1'
+    os.environ['ASYNC_LOG_QUEUE'] = '0'
+    
+    checkpoint("=" * 80)
+    checkpoint("DATABASE MIGRATION RUNNER - Standalone Mode")
+    checkpoint("=" * 80)
+    
+    # Validate DATABASE_URL
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        checkpoint("❌ DATABASE_URL environment variable is not set!")
+        sys.exit(1)
+    
+    checkpoint(f"Database: {database_url.split('@')[0] if '@' in database_url else 'sqlite'}@***")
+    
+    try:
+        # Create minimal app and run migrations
+        checkpoint("Creating minimal Flask app context...")
+        from server.app_factory import create_minimal_app
+        app = create_minimal_app()
+        
+        checkpoint("Running migrations within app context...")
+        with app.app_context():
+            migrations = apply_migrations()
+        
+        checkpoint("=" * 80)
+        checkpoint(f"✅ SUCCESS - Applied {len(migrations)} migrations")
+        checkpoint("=" * 80)
+        sys.exit(0)
+        
+    except Exception as e:
+        checkpoint("=" * 80)
+        checkpoint(f"❌ MIGRATION FAILED: {e}")
+        checkpoint("=" * 80)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)
