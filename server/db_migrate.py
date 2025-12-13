@@ -11,8 +11,24 @@ Database migrations - additive only, with strict data protection
 from server.db import db
 from datetime import datetime
 import logging
+import sys
 
+# Configure logging with explicit format
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    stream=sys.stderr,
+    force=True  # Override any existing configuration
+)
 log = logging.getLogger(__name__)
+
+# Explicit checkpoint logging
+def checkpoint(message):
+    """Log checkpoint that always prints to stderr"""
+    msg = f"🔧 MIGRATION CHECKPOINT: {message}"
+    log.info(msg)
+    print(msg, file=sys.stderr, flush=True)
+    sys.stderr.flush()
 
 def check_column_exists(table_name, column_name):
     """Check if column exists in table"""
@@ -48,12 +64,31 @@ def apply_migrations():
     🔒 DATA PROTECTION: This function ONLY adds new tables/columns/indexes.
     It NEVER deletes user data. All existing FAQs, leads, messages, etc. are preserved.
     """
+    checkpoint("Starting apply_migrations()")
     migrations_applied = []
+    
+    checkpoint("Checking if database is completely empty...")
+    # Check if database is empty and create all tables if needed
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    existing_tables = inspector.get_table_names()
+    checkpoint(f"Found {len(existing_tables)} existing tables: {existing_tables[:5]}...")
+    
+    if len(existing_tables) == 0:
+        checkpoint("Database is empty - creating all tables from SQLAlchemy metadata")
+        try:
+            db.create_all()
+            checkpoint("✅ All tables created successfully from metadata")
+            migrations_applied.append("create_all_tables_from_metadata")
+        except Exception as e:
+            checkpoint(f"❌ Failed to create tables: {e}")
+            raise
     
     # 🔒 BUILD 111: TRIPLE LAYER DATA PROTECTION
     # Layer 1: Count FAQs BEFORE migrations
     # Layer 2: Run migrations inside TRY block
     # Layer 3: Count FAQs AFTER migrations and ROLLBACK if decreased
+    checkpoint("Starting data protection layer 1 - counting existing data")
     faq_count_before = 0
     lead_count_before = 0
     msg_count_before = 0
@@ -61,17 +96,15 @@ def apply_migrations():
         from sqlalchemy import text
         if check_table_exists('faqs'):
             faq_count_before = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
-            log.info(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs exist")
-            print(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs in database")
+            checkpoint(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs exist")
         if check_table_exists('leads'):
             lead_count_before = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
-            log.info(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads exist")
-            print(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads in database")
+            checkpoint(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads exist")
         if check_table_exists('messages'):
             msg_count_before = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
-            log.info(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
+            checkpoint(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
     except Exception as e:
-        log.warning(f"Could not check data counts (database may be new): {e}")
+        checkpoint(f"Could not check data counts (database may be new): {e}")
     
     # Migration 1: Add transcript column to CallLog
     if check_table_exists('call_log') and not check_column_exists('call_log', 'transcript'):
@@ -834,14 +867,16 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()
-        log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
+        checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
     else:
-        log.info("No migrations needed - database is up to date")
+        checkpoint("No migrations needed - database is up to date")
     
     # 🔒 DATA PROTECTION CHECK: Verify data counts AFTER migrations - CRITICAL!
     # If FAQs or leads are deleted, ROLLBACK and FAIL the migration
+    checkpoint("Starting data protection layer 3 - verifying no data loss")
     try:
         from sqlalchemy import text
         data_loss_detected = False
@@ -850,30 +885,25 @@ def apply_migrations():
             faq_count_after = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
             faq_delta = faq_count_after - faq_count_before
             if faq_delta < 0:
-                log.error(f"❌ DATA LOSS DETECTED: {abs(faq_delta)} FAQs were DELETED during migrations!")
-                print(f"❌ CRITICAL: {abs(faq_delta)} FAQs DELETED! Before: {faq_count_before}, After: {faq_count_after}")
+                checkpoint(f"❌ DATA LOSS DETECTED: {abs(faq_delta)} FAQs were DELETED during migrations!")
                 data_loss_detected = True
             else:
-                log.info(f"✅ DATA PROTECTION (AFTER): {faq_count_after} FAQs preserved (delta: +{faq_delta})")
-                print(f"✅ DATA PROTECTION: {faq_count_after} FAQs preserved (no deletions)")
+                checkpoint(f"✅ DATA PROTECTION (AFTER): {faq_count_after} FAQs preserved (delta: +{faq_delta})")
         
         if check_table_exists('leads'):
             lead_count_after = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
             lead_delta = lead_count_after - lead_count_before
             if lead_delta < 0:
-                log.error(f"❌ DATA LOSS DETECTED: {abs(lead_delta)} leads were DELETED during migrations!")
-                print(f"❌ CRITICAL: {abs(lead_delta)} leads DELETED! Before: {lead_count_before}, After: {lead_count_after}")
+                checkpoint(f"❌ DATA LOSS DETECTED: {abs(lead_delta)} leads were DELETED during migrations!")
                 data_loss_detected = True
             else:
-                log.info(f"✅ DATA PROTECTION (AFTER): {lead_count_after} leads preserved (delta: +{lead_delta})")
-                print(f"✅ DATA PROTECTION: {lead_count_after} leads preserved (no deletions)")
+                checkpoint(f"✅ DATA PROTECTION (AFTER): {lead_count_after} leads preserved (delta: +{lead_delta})")
         
         # 🛑 ENFORCE DATA PROTECTION: Rollback and fail if FAQs or leads were deleted
         if data_loss_detected:
             db.session.rollback()
             error_msg = "❌ MIGRATION FAILED: Data loss detected. Rolling back changes."
-            log.error(error_msg)
-            print(error_msg)
+            checkpoint(error_msg)
             raise Exception("Data protection violation: FAQs or leads were deleted during migration")
         
         # Messages can decrease (deduplication is expected and documented)
@@ -881,13 +911,13 @@ def apply_migrations():
             msg_count_after = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
             msg_delta = msg_count_after - msg_count_before
             if msg_delta < 0:
-                log.warning(f"⚠️ Messages decreased by {abs(msg_delta)} (deduplication cleanup - expected)")
-                print(f"⚠️ {abs(msg_delta)} duplicate messages removed (data cleanup)")
+                checkpoint(f"⚠️ Messages decreased by {abs(msg_delta)} (deduplication cleanup - expected)")
             else:
-                log.info(f"✅ DATA PROTECTION (AFTER): {msg_count_after} messages (delta: +{msg_delta})")
+                checkpoint(f"✅ DATA PROTECTION (AFTER): {msg_count_after} messages (delta: +{msg_delta})")
     except Exception as e:
         if "Data protection violation" in str(e):
             raise  # Re-raise data protection violations
-        log.warning(f"Could not verify data counts after migrations: {e}")
+        checkpoint(f"Could not verify data counts after migrations: {e}")
     
+    checkpoint("✅ Migration completed successfully!")
     return migrations_applied
