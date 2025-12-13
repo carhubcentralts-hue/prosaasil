@@ -1,5 +1,7 @@
 """
 Background Recording Processing - תמלול והקלטות ברקע
+
+DB RESILIENCE: Recording worker handles DB outages gracefully and continues processing
 """
 import os
 import requests
@@ -8,6 +10,7 @@ import queue
 from threading import Thread
 from datetime import datetime
 from typing import Optional
+from sqlalchemy.exc import OperationalError, DisconnectionError
 
 log = logging.getLogger("tasks.recording")
 
@@ -49,7 +52,12 @@ def enqueue_recording(form_data):
     enqueue_recording_job(call_sid, recording_url, business_id, from_number, to_number)
 
 def start_recording_worker(app):
-    """Background worker loop - processes recording jobs from queue"""
+    """
+    Background worker loop - processes recording jobs from queue.
+    
+    DB RESILIENCE: This worker continues processing even if DB is temporarily unavailable.
+    Jobs that fail due to DB errors are logged but don't crash the worker.
+    """
     print("✅ [OFFLINE_STT] Recording worker loop started")
     log.info("[OFFLINE_STT] Recording worker thread initialized")
     
@@ -82,10 +90,31 @@ def start_recording_worker(app):
                 print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
                 log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
                 
+            except (OperationalError, DisconnectionError) as e:
+                # 🔥 DB RESILIENCE: DB error - log and continue with next job
+                from server.utils.db_health import log_db_error
+                log_db_error(e, context="recording_worker")
+                print(f"🔴 [OFFLINE_STT] DB error processing {job.get('call_sid', 'unknown')} - skipping")
+                
+                # Rollback to clean up session
+                try:
+                    from server.db import db
+                    db.session.rollback()
+                    db.session.close()
+                except:
+                    pass
+                
+                # Do NOT crash worker - continue with next job
+                
             except Exception as e:
+                # 🔥 DB RESILIENCE: Any other error - log and continue
                 log.error(f"[OFFLINE_STT] Worker error: {e}")
+                print(f"❌ [OFFLINE_STT] Error processing {job.get('call_sid', 'unknown')}: {e}")
                 import traceback
                 traceback.print_exc()
+                
+                # Do NOT crash worker - continue with next job
+                
             finally:
                 RECORDING_QUEUE.task_done()
 
