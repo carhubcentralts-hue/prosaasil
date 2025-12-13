@@ -7,6 +7,8 @@ This service tracks WhatsApp conversation sessions:
 2. Updates last_message_at on each message
 3. Closes session + generates summary after 15min inactivity
 4. Links sessions to leads when available
+
+DB RESILIENCE: Background loops handle DB outages gracefully with exponential backoff
 """
 import logging
 import threading
@@ -15,6 +17,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, Tuple
 from server.db import db
 from server.models_sql import WhatsAppConversation, WhatsAppMessage, Lead
+from sqlalchemy.exc import OperationalError, DisconnectionError
+import psycopg2
 
 logger = logging.getLogger(__name__)
 
@@ -465,6 +469,8 @@ def process_stale_sessions():
     1. Find sessions inactive for 15+ minutes
     2. Generate AI summaries
     3. Close sessions and update leads
+    
+    DB RESILIENCE: Individual session processing errors don't stop the batch
     """
     stale = get_stale_sessions()
     
@@ -482,45 +488,149 @@ def process_stale_sessions():
             close_session(session.id, summary=summary)
             processed += 1
             
+        except (OperationalError, DisconnectionError) as e:
+            # DB error during individual session processing - log and skip this session
+            logger.error(f"[WA-SESSION] DB error processing session {session.id}: {e}")
+            try:
+                db.session.rollback()
+            except:
+                pass
+            # Don't re-raise - continue with other sessions
+            
         except Exception as e:
             logger.error(f"[WA-SESSION] Error processing session {session.id}: {e}")
+            try:
+                db.session.rollback()
+            except:
+                pass
     
-    logger.info(f"[WA-SESSION] Processed {processed} stale sessions")
+    logger.info(f"[WA-SESSION] Processed {processed}/{len(stale)} stale sessions")
     
     return processed
 
 
 def _session_processor_loop():
-    """Background thread loop that processes stale sessions every 5 minutes"""
-    logger.info("[WA-SESSION] Background processor thread started")
-    print("[WA-SESSION] 📱 Background processor thread started - checking every 5 minutes")
+    """
+    Background thread loop that processes stale sessions every 5 minutes.
+    
+    DB RESILIENCE: This loop never crashes. If DB is down (Neon endpoint disabled),
+    it backs off exponentially and recovers automatically when DB returns.
+    """
+    logger.info("[WHATSAPP_SESSION] processor loop started interval=300s")
+    print("[WHATSAPP_SESSION] 📱 Background processor thread started - checking every 5 minutes")
     
     # Wait 60 seconds after startup before first check
     time.sleep(60)
     
     iteration = 0
+    consecutive_errors = 0
+    max_backoff = 60  # Maximum backoff: 60 seconds
+    
     while True:
         iteration += 1
+        backoff_sleep = 0  # Additional sleep for exponential backoff
+        
         try:
             from server.app_factory import get_process_app
+            from server.utils.db_health import db_ping, log_db_error, is_neon_error
+            
             app = get_process_app()
             
             with app.app_context():
+                # 🔥 DB RESILIENCE: Check DB health before heavy queries
+                if not db_ping():
+                    logger.warning("[WHATSAPP_SESSION] DB not ready, skipping cycle")
+                    print(f"[WHATSAPP_SESSION] ⚠️ DB not ready, skipping cycle #{iteration}")
+                    time.sleep(5)  # Short sleep before retry
+                    consecutive_errors += 1
+                    continue
+                
                 # 🔥 DEBUG: Log every check for troubleshooting
                 stale_count = len(get_stale_sessions())
-                print(f"[WA-SESSION] 📱 Check #{iteration}: Found {stale_count} stale sessions to process")
-                logger.info(f"[WA-SESSION] Check #{iteration}: Found {stale_count} stale sessions")
+                print(f"[WHATSAPP_SESSION] 📱 Check #{iteration}: Found {stale_count} stale sessions to process")
+                logger.info(f"[WHATSAPP_SESSION] Check #{iteration}: Found {stale_count} stale sessions")
                 
                 processed = process_stale_sessions()
                 if processed > 0:
-                    print(f"[WA-SESSION] ✅ Processed {processed} stale sessions with AI summaries")
-                    logger.info(f"[WA-SESSION] Background job: processed {processed} sessions")
+                    print(f"[WHATSAPP_SESSION] ✅ Processed {processed} stale sessions with AI summaries")
+                    logger.info(f"[WHATSAPP_SESSION] Background job: processed {processed} sessions")
+                
+                # Reset error counter on success
+                if consecutive_errors > 0:
+                    logger.info(f"[DB] recovered after {consecutive_errors} attempts")
+                    print(f"[WHATSAPP_SESSION] ✅ DB recovered after {consecutive_errors} attempts")
+                consecutive_errors = 0
+                
+        except (OperationalError, DisconnectionError) as e:
+            # 🔥 DB RESILIENCE: Handle DB connectivity errors gracefully
+            consecutive_errors += 1
+            
+            # Calculate exponential backoff: 2s → 5s → 10s → 20s → max 60s
+            backoff_sleep = min(2 ** min(consecutive_errors, 5), max_backoff)
+            
+            # Log with Neon-specific hint if applicable
+            log_db_error(e, context="whatsapp_session_loop")
+            
+            if is_neon_error(e):
+                print(f"[WHATSAPP_SESSION] 🔴 Neon endpoint disabled - backing off {backoff_sleep}s")
+            else:
+                print(f"[WHATSAPP_SESSION] 🔴 DB error - backing off {backoff_sleep}s")
+            
+            logger.error(
+                f"[DB_BACKOFF] service=whatsapp_session attempt={consecutive_errors} "
+                f"sleep={backoff_sleep}s reason=OperationalError"
+            )
+            
+            # Rollback and close session to prevent poisoning
+            try:
+                db.session.rollback()
+                db.session.close()
+            except:
+                pass
+            
+            # Do NOT raise - keep loop alive
+            
+        except psycopg2.OperationalError as e:
+            # 🔥 DB RESILIENCE: Handle psycopg2 errors (lower level than SQLAlchemy)
+            consecutive_errors += 1
+            backoff_sleep = min(2 ** min(consecutive_errors, 5), max_backoff)
+            
+            log_db_error(e, context="whatsapp_session_loop")
+            
+            print(f"[WHATSAPP_SESSION] 🔴 Postgres error - backing off {backoff_sleep}s")
+            logger.error(
+                f"[DB_BACKOFF] service=whatsapp_session attempt={consecutive_errors} "
+                f"sleep={backoff_sleep}s reason=psycopg2.OperationalError"
+            )
+            
+            try:
+                db.session.rollback()
+                db.session.close()
+            except:
+                pass
+            
+            # Do NOT raise - keep loop alive
+            
         except Exception as e:
-            print(f"[WA-SESSION] ❌ Background processor error: {e}")
-            logger.error(f"[WA-SESSION] Background processor error: {e}")
-            import traceback
-            traceback.print_exc()
+            # 🔥 DB RESILIENCE: Catch any other errors to prevent thread death
+            consecutive_errors += 1
+            
+            print(f"[WHATSAPP_SESSION] ❌ Background processor error: {e}")
+            logger.error(f"[WHATSAPP_SESSION] DB error handled - continuing loop: {e}", exc_info=True)
+            
+            # Shorter backoff for non-DB errors
+            backoff_sleep = min(5, max_backoff)
+            
+            try:
+                db.session.rollback()
+            except:
+                pass
         
+        # Apply exponential backoff if there were errors
+        if backoff_sleep > 0:
+            time.sleep(backoff_sleep)
+        
+        # Regular check interval (5 minutes)
         time.sleep(CHECK_INTERVAL_SECONDS)
 
 
