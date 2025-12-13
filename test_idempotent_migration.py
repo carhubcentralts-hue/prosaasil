@@ -51,20 +51,25 @@ def check_if_not_exists_in_migrations():
         # 1. Use IF NOT EXISTS, OR
         # 2. Are wrapped in check_column_exists guard, OR
         # 3. Are in a try-except block with rollback
-        alter_column_pattern = r'ALTER TABLE \w+ ADD COLUMN (?!IF NOT EXISTS)(\w+)'
+        # Pattern: ALTER TABLE ... ADD COLUMN <column_name> (not followed immediately by IF NOT EXISTS)
+        alter_column_pattern = r'ALTER TABLE \w+ ADD COLUMN\s+(\w+)'
         alter_matches = re.finditer(alter_column_pattern, content, re.IGNORECASE)
         
         risky_alters = []
         for match in alter_matches:
             column_name = match.group(1)
-            # Get context around this ALTER statement (300 chars before)
+            # Get context around this ALTER statement (300 chars before and 100 after)
             start_pos = max(0, match.start() - 300)
-            context = content[start_pos:match.end() + 200]
+            end_pos = min(len(content), match.end() + 100)
+            context = content[start_pos:end_pos]
             
-            # Check if protected by check_column_exists or try-except
+            # Check the actual ALTER statement for IF NOT EXISTS (between ADD COLUMN and column name)
+            alter_statement = content[match.start():match.end() + 50]
+            has_if_not_exists = 'IF NOT EXISTS' in alter_statement
+            
+            # Check if protected by check_column_exists or try-except in the context
             has_column_check = 'check_column_exists' in context
             has_try_except = 'try:' in context and 'except' in context
-            has_if_not_exists = 'IF NOT EXISTS' in context[match.start():match.end() + 50]
             
             if not (has_column_check or has_try_except or has_if_not_exists):
                 risky_alters.append(column_name)
@@ -92,8 +97,9 @@ def check_migration_1_structure():
         with open(filepath, 'r') as f:
             content = f.read()
         
-        # Find Migration 1 block
-        migration_1_pattern = r'# Migration 1: Add transcript column.*?(?=# Migration 2:|$)'
+        # Find Migration 1 block - look for the migration comment and the next migration or end of function
+        # More robust pattern that doesn't assume Migration 2 follows immediately
+        migration_1_pattern = r'# Migration 1: Add transcript column[^\n]*\n(?:(?!# Migration \d+:).*\n)*'
         migration_1_match = re.search(migration_1_pattern, content, re.DOTALL)
         
         if not migration_1_match:
