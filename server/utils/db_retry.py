@@ -16,9 +16,11 @@ from typing import Callable, Optional, TypeVar, Any
 from sqlalchemy.exc import OperationalError, DisconnectionError
 import psycopg2
 
+from server.utils.db_health import is_neon_error, log_db_error
+
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar('T')  # Generic type for return values from db operations
 
 
 def db_retry(
@@ -56,7 +58,6 @@ def db_retry(
             logger.warning("[WA] DB unavailable, skipping processing cycle")
             return
     """
-    from server.utils.db_health import is_neon_error, log_db_error
     
     for attempt in range(max_tries):
         try:

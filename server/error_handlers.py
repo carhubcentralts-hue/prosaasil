@@ -5,6 +5,8 @@ from werkzeug.exceptions import HTTPException
 from sqlalchemy.exc import OperationalError, DisconnectionError
 import psycopg2
 
+from server.utils.db_health import is_neon_error, log_db_error
+
 log = logging.getLogger("errors")
 
 def register_error_handlers(app):
@@ -20,7 +22,6 @@ def register_error_handlers(app):
     @app.errorhandler(OperationalError)
     def handle_db_operational_error(e: OperationalError):
         """Handle DB connectivity errors - return 503 Service Unavailable"""
-        from server.utils.db_health import is_neon_error, log_db_error
         
         log_db_error(e, context=f"{request.method} {request.path}")
         
@@ -76,7 +77,6 @@ def register_error_handlers(app):
     def handle_exception(e: Exception):
         # Check if it's a psycopg2 OperationalError (lower level than SQLAlchemy)
         if isinstance(e, psycopg2.OperationalError):
-            from server.utils.db_health import log_db_error
             log_db_error(e, context=f"{request.method} {request.path}")
             
             payload = {
