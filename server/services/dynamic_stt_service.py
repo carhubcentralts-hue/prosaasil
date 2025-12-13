@@ -562,11 +562,17 @@ async def semantic_repair(text: str, business_id: int) -> str:
             # Skip if length changed too much (suspicious)
             len_ratio = len(repaired) / max(len(text), 1)
             if len_ratio < 0.5 or len_ratio > 1.5:
-                logger.info(f"🔧 [STT_REPAIR] SKIPPED suspicious length change: before='{text}' after='{repaired}' ratio={len_ratio:.2f} reason=suspicious_length_change")
+                logger.info(f"🔧 [STT_REPAIR] SKIPPED before='{text}' after='{repaired}' ratio={len_ratio:.2f} reason=suspicious_length_change")
                 return text
             
             # 🔥 REQUIREMENT: Mandatory logging for every repair
-            logger.info(f"🔧 [STT_REPAIR] before='{text}' after='{repaired}' reason=vocabulary_match business_id={business_id}")
+            # Determine repair reason based on what changed
+            if any(term in repaired for term in vocab_items):
+                reason = "vocabulary_match"
+            else:
+                reason = "general_repair"
+            
+            logger.info(f"🔧 [STT_REPAIR] before='{text}' after='{repaired}' reason={reason} business_id={business_id}")
             return repaired
         
         return text

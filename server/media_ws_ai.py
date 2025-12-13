@@ -5526,22 +5526,6 @@ Greet briefly. Then WAIT for customer to speak."""
         return
     
     async def _send_silence_warning(self):
-            # - Loop guard check (for inbound calls)
-            is_appointment_msg = "appointment" in message_text.lower() or "תור" in message_text or "זמינות" in message_text
-            reason = f"SERVER_EVENT:{message_text[:30]}"
-            if is_appointment_msg:
-                reason = f"APPOINTMENT:{message_text[:30]}"
-            
-            triggered = await self.trigger_response(reason)
-            if not triggered:
-                print(f"⏸️ [SERVER_EVENT] Response blocked by trigger_response guards")
-            
-        except Exception as e:
-            print(f"❌ [SERVER_EVENT] Failed to send: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def _finalize_user_turn_on_timeout(self):
         """
         🔥 FIX BUG 2: Finalize user turn when timeout expires without transcription
         
@@ -9720,8 +9704,8 @@ Greet briefly. Then WAIT for customer to speak."""
                 return
             
             # 🔥 REQUIREMENT: Mandatory logging for every AI input
-            # This should only be real user transcripts, never synthetic messages
-            logger.info(f"[AI_INPUT] kind=user_transcript text='{text}'")
+            # Truncate to protect sensitive customer data in logs
+            logger.info(f"[AI_INPUT] kind=user_transcript text_preview='{text[:100]}'")
             
             msg = {
                 "type": "conversation.item.create",
