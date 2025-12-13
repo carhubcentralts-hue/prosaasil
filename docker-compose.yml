@@ -1,16 +1,4 @@
 services:
-  db:
-    image: postgres:14
-    container_name: prosaas-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_DB: ${POSTGRES_DB}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
 
   backend:
     container_name: prosaas-backend
@@ -22,16 +10,10 @@ services:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
       TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
       TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
-    depends_on:
-      - db
     ports:
       - "5000:5000"
 
@@ -65,26 +47,18 @@ services:
     image: n8nio/n8n:latest
     container_name: prosaas-n8n
     restart: unless-stopped
-    depends_on:
-      - db
     environment:
       N8N_HOST: 0.0.0.0
       N8N_PORT: 5678
       N8N_PROTOCOL: http
       N8N_PATH: /n8n/
+      DB_TYPE: sqlite
       N8N_BASE_URL: ${PUBLIC_BASE_URL}/n8n/
       N8N_PUBLIC_URL: ${PUBLIC_BASE_URL}/n8n/
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: prosaas-db
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - n8n_data:/home/node/.n8n
     ports:
       - "5678:5678"
 
 volumes:
-  postgres_data:
   n8n_data:
