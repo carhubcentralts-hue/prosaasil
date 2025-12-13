@@ -2266,16 +2266,18 @@ class MediaStreamHandler:
             # Step 3: Fallback - build if not in registry (should rarely happen)
             if not compact_prompt or not full_prompt:
                 print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
+                # 🔥 LOG: Direction being used for prompt building
+                print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
                 try:
                     from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
                     app = _get_flask_app()
                     with app.app_context():
                         if not compact_prompt:
                             compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars")
+                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
                         if not full_prompt:
                             full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars")
+                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
                 except Exception as prompt_err:
                     print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
                     import traceback
@@ -4613,6 +4615,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
                     print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
                     
+                    # 🔥 MASTER CHECK: Log utterance received (verification requirement)
+                    logger.info(f"[UTTERANCE] text='{raw_text}'")
+                    
                     # 🔥 BUILD 170.4: Apply Hebrew normalization
                     text = normalize_hebrew_text(text)
                     
@@ -4721,6 +4726,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
                         f"will_generate_response={not is_filler_only}"
                     )
+                    
+                    # 🔥 MASTER CHECK: Confirm transcript committed to model (Path A - Realtime-native)
+                    # Transcript is already in session state via conversation.item.input_audio_transcription.completed
+                    # No manual conversation.item.create needed - OpenAI handles it automatically
+                    logger.info(f"[AI_INPUT] kind=realtime_transcript committed=True text_preview='{text[:100]}'")
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
@@ -5505,68 +5515,25 @@ Greet briefly. Then WAIT for customer to speak."""
     
     async def _send_server_event_to_ai(self, message_text: str):
         """
-        🔥 Send server-side message to AI via conversation.item.create
-        Used for appointment validation feedback, calendar availability, etc.
+        🔥 DISABLED: Server events should NOT be sent as user input
+        
+        This function has been disabled because sending [SERVER] prefixed messages
+        with role="user" violates the "transcription is truth" principle.
+        The AI receives these as if the customer said them, causing confusion.
         
         Args:
-            message_text: Message to send to AI (in Hebrew)
+            message_text: Message to send to AI (in Hebrew) - IGNORED
         """
-        if not self.realtime_client:
-            print(f"⚠️ [SERVER_EVENT] No Realtime client - cannot send message")
-            return
+        # 🔥 FIX: Do NOT send server events as user input
+        # The AI should respond based on actual user speech only, not synthetic server messages
         
-        try:
-            # 🔥 BUILD 148 FIX: OpenAI Realtime API only accepts "input_text" type for conversation.item.create
-            # System/assistant messages need special handling - use "user" role with special marker
-            # The AI will understand this is server feedback and respond appropriately
-            event = {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",  # 🔥 Must be "user" for conversation.item.create
-                    "content": [
-                        {
-                            "type": "input_text",  # 🔥 Must be "input_text" (not "text"!)
-                            "text": f"[SERVER] {message_text}"  # Prefix to distinguish from real user
-                        }
-                    ]
-                }
-            }
-            
-            await self.realtime_client.send_event(event)
-            print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
-            
-            # 🎯 DEBUG: Track appointment_created messages
-            if "appointment_created" in message_text:
-                print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
-                print(f"🔔 [APPOINTMENT] Message content: {message_text}")
-            
-            # 🔥 BUILD 302: DON'T trigger response during barge-in!
-            # If user just interrupted AI, don't let server_events revive old context
-            if self.barge_in_active:
-                print(f"⏸️ [SERVER_EVENT] Skipping trigger - barge-in active (message logged but no response)")
-                return
-            
-            # 🔥 BUILD 200: Use central trigger_response for ALL response.create calls
-            # The trigger_response function handles:
-            # - Active response ID check (prevents "already has active response" errors)
-            # - Response pending check (race condition prevention)
-            # - Loop guard check (for inbound calls)
-            is_appointment_msg = "appointment" in message_text.lower() or "תור" in message_text or "זמינות" in message_text
-            reason = f"SERVER_EVENT:{message_text[:30]}"
-            if is_appointment_msg:
-                reason = f"APPOINTMENT:{message_text[:30]}"
-            
-            triggered = await self.trigger_response(reason)
-            if not triggered:
-                print(f"⏸️ [SERVER_EVENT] Response blocked by trigger_response guards")
-            
-        except Exception as e:
-            print(f"❌ [SERVER_EVENT] Failed to send: {e}")
-            import traceback
-            traceback.print_exc()
+        # 🔥 REQUIREMENT: Mandatory logging when blocking server events
+        logger.warning(f"[AI_INPUT_BLOCKED] kind=server_event reason=never_send_to_model text_preview='{message_text[:100]}'")
+        print(f"⚠️ [SERVER_EVENT] BLOCKED - server events disabled to prevent prompt confusion")
+        print(f"   └─ Would have sent: {message_text[:100]}")
+        return
     
-    def _finalize_user_turn_on_timeout(self):
+    async def _send_silence_warning(self):
         """
         🔥 FIX BUG 2: Finalize user turn when timeout expires without transcription
         
@@ -9715,17 +9682,38 @@ Greet briefly. Then WAIT for customer to speak."""
     
     async def _send_text_to_ai(self, text: str):
         """
-        Send a text message to OpenAI Realtime for processing.
-        Used for system prompts and silence handling.
+        🔥 DISABLED: Sending text as user input violates "transcription is truth"
         
-        🔥 BUILD 200: Updated to use realtime_client and trigger_response
-        🔥 BUILD 311: Mark SILENCE_HANDLER responses - shouldn't count towards LOOP GUARD
+        This function has been disabled because sending [SYSTEM] messages with role="user"
+        makes the AI think the customer said these things, causing prompt confusion.
+        
+        The AI should respond based ONLY on actual customer speech transcripts.
+        
+        Args:
+            text: Text to send - IGNORED
         """
+        # 🔥 FIX: Do NOT send synthetic text as user input
+        # Block [SYSTEM] and [SERVER] messages from being injected
+        if "[SYSTEM]" in text or "[SERVER]" in text:
+            # 🔥 REQUIREMENT: Mandatory logging when blocking server events
+            logger.warning(f"[AI_INPUT_BLOCKED] kind=server_event reason=never_send_to_model text_preview='{text[:100]}'")
+            print(f"🛡️ [PROMPT_FIX] BLOCKED synthetic message from being sent as user input")
+            print(f"   └─ Blocked: {text[:100]}")
+            return
+        
+        # If not a system message, log warning but allow (for backward compatibility)
+        logger.warning(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
+        print(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
+        
         try:
             # 🔥 BUILD 200: Use realtime_client instead of openai_ws
             if not self.realtime_client:
                 print(f"⚠️ [AI] No realtime_client - cannot send text")
                 return
+            
+            # 🔥 REQUIREMENT: Mandatory logging for every AI input
+            # Truncate to protect sensitive customer data in logs
+            logger.info(f"[AI_INPUT] kind=user_transcript text_preview='{text[:100]}'")
             
             msg = {
                 "type": "conversation.item.create",
