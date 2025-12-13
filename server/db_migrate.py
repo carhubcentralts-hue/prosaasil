@@ -138,11 +138,17 @@ def apply_migrations():
         checkpoint(f"Could not check data counts (database may be new): {e}")
     
     # Migration 1: Add transcript column to CallLog
-    if check_table_exists('call_log') and not check_column_exists('call_log', 'transcript'):
+    if check_table_exists('call_log'):
         from sqlalchemy import text
-        db.session.execute(text("ALTER TABLE call_log ADD COLUMN transcript TEXT"))
-        migrations_applied.append("add_call_log_transcript")
-        log.info("Applied migration: add_call_log_transcript")
+        try:
+            # 🔒 IDEMPOTENT: Use IF NOT EXISTS to prevent DuplicateColumn errors
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN IF NOT EXISTS transcript TEXT"))
+            migrations_applied.append("add_call_log_transcript")
+            log.info("Applied migration: add_call_log_transcript")
+        except Exception as e:
+            # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+            db.session.rollback()
+            log.warning(f"Could not add transcript column (may already exist): {e}")
     
     # Migration 2: Create CallTurn table
     if not check_table_exists('call_turn'):
