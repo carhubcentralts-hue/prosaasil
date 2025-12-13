@@ -18,6 +18,10 @@ _vocabulary_cache: Dict[int, Dict] = {}
 _cache_expiry: Dict[int, float] = {}
 CACHE_TTL_SECONDS = 300  # 5 minutes
 
+# 🔥 SEMANTIC REPAIR CONSTANTS
+MIN_VOCAB_LENGTH = 3  # Minimum vocabulary string length to attempt repair
+SEMANTIC_REPAIR_ENABLED = False  # 🔥 DISABLED by requirement - too risky without strong confidence signals
+
 
 @dataclass
 class STTEnhancement:
@@ -461,31 +465,28 @@ async def semantic_repair(text: str, business_id: int) -> str:
     """
     🔥 BUILD 301: 100% DYNAMIC semantic repair - uses ONLY business vocabulary
     🔥 FIX: More conservative to prevent changing valid Hebrew words
+    🔥 NEW REQUIREMENT: DISABLED by default - too risky without confidence signals
     
-    Uses GPT-4o-mini to fix obvious transcription errors in short Hebrew text
-    from telephony (8kHz μ-law) audio.
+    This function is DISABLED to prevent "I said X and it became Y" issues.
+    Semantic repair without strong confidence signals (RMS, VAD stability) is too risky.
     
-    100% DYNAMIC - NO HARDCODED VALUES:
-    - Uses only business vocabulary from DB (services, staff, products, locations)
-    - Uses business context and name from settings
-    - Fixes based on what the BUSINESS defined, not generic patterns
-    
-    ONLY applies when:
-    - Business has vocabulary defined
-    - Text is very short (< 12 chars) or garbled
-    - Repair confidence is high
-    
-    Examples (with business vocabulary):
-    - "תפורת" → "תספורת" (if "תספורת" is in business services)
-    - "שניר" → "שניר" kept as-is (if staff name matches)
+    To re-enable:
+    1. Set SEMANTIC_REPAIR_ENABLED = True at module level
+    2. Add confidence signal checks (RMS threshold, VAD stability)
+    3. Use strict whitelist of known fixes only
     
     Args:
         text: Short transcript to repair (typically < 12 chars or 1-2 tokens)
         business_id: Business ID for vocabulary context
     
     Returns:
-        Repaired text (or original if no repair needed/possible)
+        Original text unchanged (repair disabled)
     """
+    # 🔥 REQUIREMENT: Disable semantic repair - too risky without confidence signals
+    if not SEMANTIC_REPAIR_ENABLED:
+        logger.debug(f"[SEMANTIC_REPAIR] DISABLED globally - returning original text: '{text}'")
+        return text
+    
     if not text or len(text.strip()) < 2:
         return text
     
@@ -503,7 +504,7 @@ async def semantic_repair(text: str, business_id: int) -> str:
         
         # 🔥 FIX: If no vocabulary, skip semantic repair
         # Don't try to repair without business context - too risky
-        if not vocab_str or len(vocab_str.strip()) < 3:
+        if not vocab_str or len(vocab_str.strip()) < MIN_VOCAB_LENGTH:
             logger.debug(f"[SEMANTIC_REPAIR] Skipping - no vocabulary for business {business_id}")
             return text
         
@@ -561,10 +562,11 @@ async def semantic_repair(text: str, business_id: int) -> str:
             # Skip if length changed too much (suspicious)
             len_ratio = len(repaired) / max(len(text), 1)
             if len_ratio < 0.5 or len_ratio > 1.5:
-                logger.info(f"🔧 [STT_REPAIRED] SKIPPED suspicious length change: '{text}' → '{repaired}' (ratio={len_ratio:.2f})")
+                logger.info(f"🔧 [STT_REPAIR] SKIPPED suspicious length change: before='{text}' after='{repaired}' ratio={len_ratio:.2f} reason=suspicious_length_change")
                 return text
             
-            logger.info(f"🔧 [STT_REPAIRED] '{text}' → '{repaired}' (business={business_id})")
+            # 🔥 REQUIREMENT: Mandatory logging for every repair
+            logger.info(f"🔧 [STT_REPAIR] before='{text}' after='{repaired}' reason=vocabulary_match business_id={business_id}")
             return repaired
         
         return text

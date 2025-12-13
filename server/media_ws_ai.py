@@ -5518,51 +5518,14 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         # 🔥 FIX: Do NOT send server events as user input
         # The AI should respond based on actual user speech only, not synthetic server messages
+        
+        # 🔥 REQUIREMENT: Mandatory logging when blocking server events
+        logger.warning(f"[AI_INPUT_BLOCKED] kind=server_event reason=never_send_to_model text_preview='{message_text[:100]}'")
         print(f"⚠️ [SERVER_EVENT] BLOCKED - server events disabled to prevent prompt confusion")
         print(f"   └─ Would have sent: {message_text[:100]}")
         return
-        
-        # Original implementation disabled below:
-        # if not self.realtime_client:
-        #     print(f"⚠️ [SERVER_EVENT] No Realtime client - cannot send message")
-        #     return
-        # 
-        # try:
-        #     # 🔥 BUILD 148 FIX: OpenAI Realtime API only accepts "input_text" type for conversation.item.create
-        #     # System/assistant messages need special handling - use "user" role with special marker
-        #     # The AI will understand this is server feedback and respond appropriately
-        #     event = {
-        #         "type": "conversation.item.create",
-        #         "item": {
-        #             "type": "message",
-        #             "role": "user",  # 🔥 Must be "user" for conversation.item.create
-        #             "content": [
-        #                 {
-        #                     "type": "input_text",  # 🔥 Must be "input_text" (not "text"!)
-        #                     "text": f"[SERVER] {message_text}"  # Prefix to distinguish from real user
-        #                 }
-        #             ]
-        #         }
-        #     }
-        #     
-        #     await self.realtime_client.send_event(event)
-        #     print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
-        #     
-        #     # 🎯 DEBUG: Track appointment_created messages
-        #     if "appointment_created" in message_text:
-        #         print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
-        #         print(f"🔔 [APPOINTMENT] Message content: {message_text}")
-            
-            # 🔥 BUILD 302: DON'T trigger response during barge-in!
-            # If user just interrupted AI, don't let server_events revive old context
-            if self.barge_in_active:
-                print(f"⏸️ [SERVER_EVENT] Skipping trigger - barge-in active (message logged but no response)")
-                return
-            
-            # 🔥 BUILD 200: Use central trigger_response for ALL response.create calls
-            # The trigger_response function handles:
-            # - Active response ID check (prevents "already has active response" errors)
-            # - Response pending check (race condition prevention)
+    
+    async def _send_silence_warning(self):
             # - Loop guard check (for inbound calls)
             is_appointment_msg = "appointment" in message_text.lower() or "תור" in message_text or "זמינות" in message_text
             reason = f"SERVER_EVENT:{message_text[:30]}"
@@ -9740,11 +9703,14 @@ Greet briefly. Then WAIT for customer to speak."""
         # 🔥 FIX: Do NOT send synthetic text as user input
         # Block [SYSTEM] and [SERVER] messages from being injected
         if "[SYSTEM]" in text or "[SERVER]" in text:
+            # 🔥 REQUIREMENT: Mandatory logging when blocking server events
+            logger.warning(f"[AI_INPUT_BLOCKED] kind=server_event reason=never_send_to_model text_preview='{text[:100]}'")
             print(f"🛡️ [PROMPT_FIX] BLOCKED synthetic message from being sent as user input")
             print(f"   └─ Blocked: {text[:100]}")
             return
         
         # If not a system message, log warning but allow (for backward compatibility)
+        logger.warning(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
         print(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
         
         try:
@@ -9752,6 +9718,10 @@ Greet briefly. Then WAIT for customer to speak."""
             if not self.realtime_client:
                 print(f"⚠️ [AI] No realtime_client - cannot send text")
                 return
+            
+            # 🔥 REQUIREMENT: Mandatory logging for every AI input
+            # This should only be real user transcripts, never synthetic messages
+            logger.info(f"[AI_INPUT] kind=user_transcript text='{text}'")
             
             msg = {
                 "type": "conversation.item.create",
@@ -9764,10 +9734,6 @@ Greet briefly. Then WAIT for customer to speak."""
             await self.realtime_client.send_event(msg)
             
             # 🔥 BUILD 311: Mark this as silence handler response (don't count towards consecutive)
-            self._is_silence_handler_response = True
-            
-            # 🔥 BUILD 200: Use central trigger_response
-            await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}")
             self._is_silence_handler_response = True
             
             # 🔥 BUILD 200: Use central trigger_response
