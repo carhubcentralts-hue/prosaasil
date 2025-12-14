@@ -437,14 +437,18 @@ export function MainLayout() {
 
               {/* Right side - Action buttons + User */}
               <div className="flex items-center space-x-reverse space-x-2">
-                {/* Global Search - Now enabled with Ctrl+K shortcut */}
+                {/* Global Search - Quick access button */}
                 <button
-                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative"
+                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative group"
                   onClick={() => setSearchModalOpen(true)}
                   data-testid="button-search"
-                  title="חיפוש מהיר (Ctrl+K)"
+                  title="חיפוש גלובלי - לחץ כאן או Ctrl+K"
                 >
                   <Search className="h-5 w-5" />
+                  {/* Keyboard shortcut hint */}
+                  <span className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                    Ctrl+K
+                  </span>
                 </button>
 
                 {/* Notifications */}

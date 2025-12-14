@@ -37,6 +37,11 @@ export interface SearchResult {
     lastActivity?: string;
     created_at?: string;
     lead_id?: number;
+    // For function/page/setting types
+    path?: string;
+    section?: string;
+    action?: string;
+    category?: string;
   };
 }
 

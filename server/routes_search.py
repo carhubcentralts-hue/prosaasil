@@ -40,20 +40,26 @@ def global_search():
     }
     """
     try:
-        # Get current user and business context
-        user = session.get('al_user') or session.get('user', {})
-        user_role = user.get('role')
+        # Get current user and business context - USE @require_api_auth populated g.user/g.tenant
+        from flask import g
+        user = getattr(g, 'user', None) or session.get('al_user') or session.get('user', {})
+        tenant_id = getattr(g, 'tenant', None)
+        user_role = user.get('role') if user else None
         
-        # Get business_id based on role
+        # ✅ CRITICAL: Enforce business isolation for non-system_admin
         if user_role == 'system_admin':
-            # System admin can search across all businesses or filter by business_id
-            business_id = request.args.get('business_id', type=int)
+            # System admin can optionally filter by business_id, or search all
+            business_id = request.args.get('business_id', type=int) or tenant_id
+            # If system_admin and no specific business - search all (business_id = None is OK)
         else:
-            # Regular users can only search within their business
-            business_id = session.get('impersonated_tenant_id') or user.get('business_id')
+            # ✅ Regular users MUST be filtered to their business only
+            business_id = tenant_id or session.get('impersonated_tenant_id') or user.get('business_id')
+            
+            if not business_id:
+                log.error(f"No business_id for user {user.get('email')} role {user_role}")
+                return jsonify({'error': 'Business context required'}), 401
         
-        if not business_id:
-            return jsonify({'error': 'Business context required'}), 401
+        log.info(f"Global search: user={user.get('email')}, role={user_role}, business_id={business_id}")
         
         # Get search parameters
         query = request.args.get('q', '').strip()
@@ -95,30 +101,42 @@ def global_search():
         # Search in Leads
         if 'leads' in search_types:
             try:
-                # Search by name, phone, email, or notes
-                leads_query = Lead.query.filter(
-                    Lead.business_id == business_id,
+                # ✅ CRITICAL: Always filter by tenant_id (not business_id) for Leads
+                leads_query = Lead.query
+                
+                # Apply business filter - Lead uses tenant_id field
+                if business_id:
+                    leads_query = leads_query.filter(Lead.tenant_id == business_id)
+                elif user_role != 'system_admin':
+                    # Non-admin without business_id - should not happen, but safety check
+                    log.error("Non-admin user attempting search without business_id")
+                    return jsonify({'error': 'Business context required'}), 401
+                
+                # Search by first_name, last_name, phone_e164, email, or notes
+                leads_query = leads_query.filter(
                     or_(
-                        Lead.name.ilike(f'%{query}%'),
-                        Lead.phone.ilike(f'%{query}%'),
+                        Lead.first_name.ilike(f'%{query}%'),
+                        Lead.last_name.ilike(f'%{query}%'),
+                        Lead.phone_e164.ilike(f'%{query}%'),
                         Lead.email.ilike(f'%{query}%'),
-                        Lead.notes.ilike(f'%{query}%')
+                        Lead.notes.ilike(f'%{query}%') if hasattr(Lead, 'notes') else False
                     )
                 ).order_by(Lead.created_at.desc()).limit(limit)
                 
                 for lead in leads_query.all():
+                    full_name = f"{lead.first_name or ''} {lead.last_name or ''}".strip()
                     results['leads'].append({
                         'id': lead.id,
                         'type': 'lead',
-                        'title': lead.name or 'לא ידוע',
-                        'subtitle': lead.phone or lead.email,
-                        'description': lead.notes or '',
+                        'title': full_name or lead.phone_e164 or 'לא ידוע',
+                        'subtitle': lead.phone_e164,
+                        'description': lead.email or (lead.notes[:100] + '...' if hasattr(lead, 'notes') and lead.notes else ''),
                         'metadata': {
-                            'phone': lead.phone,
+                            'phone': lead.phone_e164,
                             'email': lead.email,
                             'status': lead.status or 'חדש',
                             'created_at': lead.created_at.isoformat() if lead.created_at else None,
-                            'source': lead.source
+                            'source': getattr(lead, 'source', None)
                         }
                     })
             except Exception as e:
@@ -127,9 +145,18 @@ def global_search():
         # Search in Calls
         if 'calls' in search_types:
             try:
+                # ✅ CRITICAL: Always filter by business_id for non-system_admin
+                calls_query = CallLog.query
+                
+                # Apply business filter
+                if business_id:
+                    calls_query = calls_query.filter(CallLog.business_id == business_id)
+                elif user_role != 'system_admin':
+                    log.error("Non-admin user attempting calls search without business_id")
+                    return jsonify({'error': 'Business context required'}), 401
+                
                 # Search by phone number or call SID
-                calls_query = CallLog.query.filter(
-                    CallLog.business_id == business_id,
+                calls_query = calls_query.filter(
                     or_(
                         CallLog.from_number.ilike(f'%{query}%'),
                         CallLog.to_number.ilike(f'%{query}%'),
@@ -166,9 +193,18 @@ def global_search():
         # Search in WhatsApp Conversations
         if 'whatsapp' in search_types:
             try:
+                # ✅ CRITICAL: Always filter by business_id for non-system_admin
+                conversations_query = WhatsAppConversation.query
+                
+                # Apply business filter
+                if business_id:
+                    conversations_query = conversations_query.filter(WhatsAppConversation.business_id == business_id)
+                elif user_role != 'system_admin':
+                    log.error("Non-admin user attempting WhatsApp search without business_id")
+                    return jsonify({'error': 'Business context required'}), 401
+                
                 # Search by phone or customer name
-                conversations_query = WhatsAppConversation.query.filter(
-                    WhatsAppConversation.business_id == business_id,
+                conversations_query = conversations_query.filter(
                     or_(
                         WhatsAppConversation.customer_number.ilike(f'%{query}%'),
                         WhatsAppConversation.customer_name.ilike(f'%{query}%')
@@ -196,9 +232,18 @@ def global_search():
         # Search in Contacts/Users (optional - for internal team search)
         if 'contacts' in search_types:
             try:
+                # ✅ CRITICAL: Always filter by business_id for non-system_admin
+                users_query = User.query
+                
+                # Apply business filter
+                if business_id:
+                    users_query = users_query.filter(User.business_id == business_id)
+                elif user_role != 'system_admin':
+                    log.error("Non-admin user attempting users search without business_id")
+                    return jsonify({'error': 'Business context required'}), 401
+                
                 # Search users in the same business
-                users_query = User.query.filter(
-                    User.business_id == business_id,
+                users_query = users_query.filter(
                     or_(
                         User.name.ilike(f'%{query}%'),
                         User.email.ilike(f'%{query}%')
