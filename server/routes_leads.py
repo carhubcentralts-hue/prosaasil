@@ -379,6 +379,17 @@ def create_lead():
             log.error(f"🔴 CREATE LEAD - No JSON data")
             return jsonify({"error": "JSON data required"}), 400
         
+        # 🔥 FIX: Normalize phone number to E.164 format if provided
+        raw_phone = data.get('phone_e164')
+        if raw_phone:
+            from server.agent_tools.phone_utils import normalize_il_phone
+            normalized_phone = normalize_il_phone(raw_phone)
+            if normalized_phone:
+                data['phone_e164'] = normalized_phone
+                log.info(f"📞 Normalized phone: {raw_phone} → {normalized_phone}")
+            else:
+                log.warning(f"⚠️ Could not normalize phone: {raw_phone}")
+        
         # Validate required fields
         if not data.get('first_name') and not data.get('phone_e164'):
             log.error(f"🔴 CREATE LEAD - Missing required fields")
@@ -627,6 +638,17 @@ def update_lead(lead_id):
     data = request.get_json()
     if not data:
         return jsonify({"error": "JSON data required"}), 400
+    
+    # 🔥 FIX: Normalize phone number to E.164 format if provided
+    if 'phone_e164' in data and data['phone_e164']:
+        from server.agent_tools.phone_utils import normalize_il_phone
+        raw_phone = data['phone_e164']
+        normalized_phone = normalize_il_phone(raw_phone)
+        if normalized_phone:
+            data['phone_e164'] = normalized_phone
+            log.info(f"📞 Normalized phone: {raw_phone} → {normalized_phone}")
+        else:
+            log.warning(f"⚠️ Could not normalize phone: {raw_phone}")
     
     lead = Lead.query.filter_by(id=lead_id).first()
     if not lead:
@@ -1829,6 +1851,72 @@ def upload_note_attachment(lead_id, note_id):
         "success": True,
         "attachment": attachment
     })
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>/attachments/<attachment_id>", methods=["DELETE"])
+@require_api_auth()
+def delete_note_attachment(lead_id, note_id, attachment_id):
+    """
+    Delete a file attachment from a note
+    - Removes attachment from note.attachments JSON field
+    - Deletes file from storage
+    - Validates tenant access
+    """
+    import os
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Get note and verify tenant access
+    note = LeadNote.query.filter_by(id=note_id, lead_id=lead_id, tenant_id=tenant_id).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+    
+    # Find attachment in JSON field by ID (UUID)
+    attachments = note.attachments or []
+    attachment_to_delete = None
+    new_attachments = []
+    
+    for att in attachments:
+        if str(att.get('id')) == str(attachment_id):
+            attachment_to_delete = att
+        else:
+            new_attachments.append(att)
+    
+    if not attachment_to_delete:
+        return jsonify({"error": "Attachment not found"}), 404
+    
+    # Delete file from storage if it exists
+    url = attachment_to_delete.get('url', '')
+    if url.startswith('/uploads/notes/'):
+        # Extract file path from URL
+        # URL format: /uploads/notes/{tenant_id}/{filename}
+        file_path = os.path.join(os.getcwd(), url.lstrip('/'))
+        
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                log.info(f"Deleted note attachment file: {file_path}")
+            except Exception as e:
+                log.error(f"Error deleting file {file_path}: {e}")
+                # Continue with DB update even if file deletion fails
+    
+    # Update note with remaining attachments
+    note.attachments = new_attachments
+    note.updated_at = datetime.utcnow()
+    
+    # Mark JSON field as modified for SQLAlchemy
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(note, 'attachments')
+    
+    try:
+        db.session.commit()
+        return jsonify({"success": True, "message": "Attachment deleted successfully"})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error deleting note attachment from database: {e}")
+        return jsonify({"error": "Failed to delete attachment"}), 500
 
 
 # ============================================================================

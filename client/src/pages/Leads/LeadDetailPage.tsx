@@ -2123,7 +2123,8 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     if (!confirm('האם למחוק את הקובץ?')) return;
     
     try {
-      await http.delete(`/api/attachments/${attachmentId}`);
+      // Use the correct endpoint for note attachments (supports UUID IDs)
+      await http.delete(`/api/leads/${lead.id}/notes/${noteId}/attachments/${attachmentId}`);
       // Refresh notes to get updated attachments
       await fetchNotes();
       alert('הקובץ נמחק בהצלחה');

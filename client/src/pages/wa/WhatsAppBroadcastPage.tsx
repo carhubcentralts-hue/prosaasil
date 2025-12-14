@@ -205,12 +205,19 @@ export function WhatsAppBroadcastPage() {
       const queryString = params.toString();
       const url = `/api/leads${queryString ? `?${queryString}` : ''}`;
       
-      const response = await http.get<{ leads: Array<{id: number; name: string; phone_e164: string; status: string}> }>(url);
-      const loadedLeads = response.leads || [];
-      setLeads(loadedLeads.map(l => ({ id: l.id, name: l.name, phone: l.phone_e164, status: l.status })));
+      // 🔥 FIX: Backend returns 'items', not 'leads'
+      const response = await http.get<{ items: Array<{id: number; full_name: string; phone_e164: string; status: string}> }>(url);
+      const loadedLeads = response.items || [];
+      
+      // 🔥 FIX: Only include leads with valid phone numbers (E.164 format)
+      const leadsWithPhone = loadedLeads.filter(l => l.phone_e164 && l.phone_e164.trim());
+      
+      setLeads(leadsWithPhone.map(l => ({ id: l.id, name: l.full_name, phone: l.phone_e164, status: l.status })));
       
       // Calculate recipient count based on audience source
-      updateRecipientCount(loadedLeads.length);
+      updateRecipientCount(leadsWithPhone.length);
+      
+      console.log(`📊 Loaded ${leadsWithPhone.length} leads with phones out of ${loadedLeads.length} total`);
     } catch (error) {
       console.error('Error loading leads:', error);
       setLeads([]);
