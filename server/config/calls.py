@@ -23,18 +23,18 @@ AUDIO_CONFIG = {
 SIMPLE_MODE = AUDIO_CONFIG["simple_mode"]  # All audio passes through - OpenAI handles speech detection
 
 # COST OPTIMIZATION
-# 🔥 BUILD 334: 100% AUDIO FOR PERFECT STT - No dropping any frames!
-# Phone audio = 8kHz @ 20ms frames = 50 FPS. For Hebrew city names, we need EVERY frame.
-# User priority: Perfect transcription > cost savings
-COST_EFFICIENT_MODE = True   # Enabled but no actual dropping at 50 FPS
+# 🔥 BUILD 341: AUDIO QUALITY FIX - Increased FPS limit to handle jitter
+# Phone audio = 8kHz @ 20ms frames = 50 FPS nominal, but jitter can cause bursts
+# 70 FPS allows headroom to absorb timing variations without dropping frames
+COST_EFFICIENT_MODE = True   # Enabled with higher limit to handle jitter
 COST_MIN_RMS_THRESHOLD = 0   # No RMS gating - all audio passes through
-COST_MAX_FPS = 50            # 50 FPS = 100% of audio (perfect STT quality)
+COST_MAX_FPS = 70            # 70 FPS = headroom for jitter (was 50)
 
 # 🔥 BUILD 335: EXTENDED LIMITS - Allow up to 10 minutes for complex bookings!
 # Only disconnect if customer asks or truly needs to hang up.
 # These are ABSOLUTE safety limits to prevent infinite runaway costs.
 MAX_REALTIME_SECONDS_PER_CALL = 600  # Max 10 minutes per call
-MAX_AUDIO_FRAMES_PER_CALL = 30000    # 50 fps × 600s = 30000 frames maximum
+MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 MASTER FIX: SERVER-SIDE VAD THRESHOLDS for OpenAI Realtime API

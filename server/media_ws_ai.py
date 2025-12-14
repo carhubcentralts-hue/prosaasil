@@ -77,16 +77,16 @@ try:
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = True   # BUILD 332: RE-ENABLED with higher FPS limit
+    COST_EFFICIENT_MODE = True   # BUILD 341: RE-ENABLED with higher FPS limit
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 48  # BUILD 332: 48 FPS = 96% audio (balanced: quality + cost)
+    COST_MAX_FPS = 70  # BUILD 341: 70 FPS = headroom for jitter
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
-    MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
-    MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
+    MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
+    MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
     AUDIO_CONFIG = {
         "simple_mode": True,
@@ -2656,6 +2656,13 @@ Greet briefly. Then WAIT for customer to speak."""
         _greeting_block_logged = False
         _greeting_resumed_logged = False
         
+        # 🔥 BUILD 341: FRAME METRICS - Track all frames for quality monitoring
+        _frames_in = 0        # Total frames received from queue
+        _frames_sent = 0      # Total frames sent to OpenAI
+        _frames_dropped = 0   # Total frames dropped (FPS limit or other)
+        _metrics_last_log = time.time()
+        _metrics_log_interval = 5.0  # Log every 5 seconds
+        
         # 🔥 BUILD 318: FPS LIMITER - Prevent sending too many frames/second
         # This is a critical cost optimization - limits frames to COST_MAX_FPS per second
         _fps_frame_count = 0
@@ -2684,6 +2691,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
+                # 🔥 BUILD 341: Count incoming frames
+                _frames_in += 1
+                
                 # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
                 # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
@@ -2696,6 +2706,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         _greeting_block_logged = True
                     # 🔥 BUILD 200: Track blocked audio stats
                     self._stats_audio_blocked += 1
+                    # 🔥 BUILD 341: Count as dropped
+                    _frames_dropped += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
                 elif _greeting_block_logged and not _greeting_resumed_logged:
@@ -2715,12 +2727,16 @@ Greet briefly. Then WAIT for customer to speak."""
                     _fps_window_start = current_time
                     _fps_throttle_logged = False
                 
-                # Check if we've exceeded FPS limit
-                if COST_EFFICIENT_MODE and _fps_frame_count >= COST_MAX_FPS:
+                # 🔥 BUILD 341: FPS LIMITER FIX - Changed >= to > to not drop the 70th frame
+                # Bug: Was dropping frames when exactly at limit (50th, 60th, 70th frame)
+                # This caused audio quality issues even when within budget
+                if COST_EFFICIENT_MODE and _fps_frame_count > COST_MAX_FPS:
                     # Skip this frame - we're over the limit
                     if not _fps_throttle_logged:
                         print(f"💰 [FPS LIMIT] Throttling audio - {_fps_frame_count} frames this second (max={COST_MAX_FPS})")
                         _fps_throttle_logged = True
+                    # 🔥 BUILD 341: Count as dropped
+                    _frames_dropped += 1
                     continue
                 
                 _fps_frame_count += 1
@@ -2791,6 +2807,18 @@ Greet briefly. Then WAIT for customer to speak."""
                 if not hasattr(self, '_user_speech_start') or self._user_speech_start is None:
                     self._user_speech_start = time.time()
                 self.realtime_audio_in_chunks += 1
+                
+                # 🔥 BUILD 341: Count frames sent and log metrics periodically
+                _frames_sent += 1
+                
+                # Log metrics every 5 seconds
+                current_time = time.time()
+                if current_time - _metrics_last_log >= _metrics_log_interval:
+                    call_duration = current_time - _call_start_time
+                    print(f"📊 [FRAME_METRICS] StreamSid={self.stream_sid} | "
+                          f"frames_in={_frames_in}, frames_sent={_frames_sent}, frames_dropped={_frames_dropped} | "
+                          f"call_duration={call_duration:.1f}s")
+                    _metrics_last_log = current_time
                 
                 # 🔥 BUILD 200: Track audio sent stats
                 self._stats_audio_sent += 1
