@@ -1825,11 +1825,13 @@ class MediaStreamHandler:
         
         Realtime phone calls policy:
         - Default: NO tools (pure conversation)
-        - If business has appointments enabled: ONLY appointment scheduling tool
+        - If business has appointments enabled: TWO appointment tools
+          1. check_availability: Check slot availability
+          2. book_appointment: Actually book the appointment
         - Never: city tools, lead tools, WhatsApp tools, AgentKit tools
         
         Returns:
-            list[dict]: Tool schemas for OpenAI Realtime (empty list or appointment tool only)
+            list[dict]: Tool schemas for OpenAI Realtime (empty list or 2 appointment tools)
         """
         tools = []
         
@@ -1852,36 +1854,88 @@ class MediaStreamHandler:
                 enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
                 
                 if call_goal == 'appointment' and enable_scheduling:
-                    # Appointment tool schema
-                    appointment_tool = {
+                    # 🔥 TWO SEPARATE TOOLS as per problem statement:
+                    # Tool 1: check_availability - Check if slot is available
+                    check_availability_tool = {
                         "type": "function",
-                        "name": "schedule_appointment",
-                        "description": "Schedule an appointment when customer confirms time and provides required details",
+                        "name": "check_availability",
+                        "description": "Check if an appointment slot is available for a specific service, date, time, and duration",
                         "parameters": {
                             "type": "object",
                             "properties": {
+                                "service": {
+                                    "type": "string",
+                                    "description": "Type of service requested"
+                                },
+                                "date": {
+                                    "type": "string",
+                                    "description": "Appointment date in YYYY-MM-DD format"
+                                },
+                                "time_window": {
+                                    "type": "string",
+                                    "description": "Preferred time (HH:MM format, 24-hour) or time window (e.g., 'morning', 'afternoon', 'evening')"
+                                },
+                                "duration": {
+                                    "type": "integer",
+                                    "description": "Appointment duration in minutes (default: business slot_size_min)"
+                                },
+                                "timezone": {
+                                    "type": "string",
+                                    "description": "Timezone (default: Asia/Jerusalem)"
+                                },
+                                "business_id": {
+                                    "type": "integer",
+                                    "description": "Business ID"
+                                }
+                            },
+                            "required": ["service", "date", "business_id"]
+                        }
+                    }
+                    
+                    # Tool 2: book_appointment - Actually create the appointment
+                    book_appointment_tool = {
+                        "type": "function",
+                        "name": "book_appointment",
+                        "description": "Book an appointment after confirming availability. MUST check availability first with check_availability tool.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "service": {
+                                    "type": "string",
+                                    "description": "Type of service requested"
+                                },
+                                "datetime": {
+                                    "type": "string",
+                                    "description": "Full appointment date and time in ISO 8601 format (e.g., '2025-11-17T18:00:00')"
+                                },
+                                "duration": {
+                                    "type": "integer",
+                                    "description": "Appointment duration in minutes"
+                                },
                                 "customer_name": {
                                     "type": "string",
                                     "description": "Customer's full name"
                                 },
-                                "appointment_date": {
+                                "customer_phone": {
                                     "type": "string",
-                                    "description": "Appointment date in YYYY-MM-DD format"
+                                    "description": "Customer's phone number in E.164 format"
                                 },
-                                "appointment_time": {
+                                "notes": {
                                     "type": "string",
-                                    "description": "Appointment time in HH:MM format (24-hour)"
+                                    "description": "Optional notes or special requests"
                                 },
-                                "service_type": {
-                                    "type": "string",
-                                    "description": "Type of service requested"
+                                "business_id": {
+                                    "type": "integer",
+                                    "description": "Business ID"
                                 }
                             },
-                            "required": ["customer_name", "appointment_date", "appointment_time"]
+                            "required": ["service", "datetime", "customer_name", "customer_phone", "business_id"]
                         }
                     }
-                    tools.append(appointment_tool)
-                    logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
+                    
+                    tools.append(check_availability_tool)
+                    tools.append(book_appointment_tool)
+                    logger.info(f"[TOOLS][REALTIME] TWO appointment tools ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
                 else:
                     logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}, scheduling={enable_scheduling}) - no tools for business {business_id}")
                 
@@ -3641,63 +3695,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"[BARGE-IN] Audio forwarding enabled - waiting for STT confirmation...")
                         # DON'T cancel AI yet - wait for STT to confirm this is real speech
                         # The cancellation will happen in input_audio_transcription.completed handler
+                        # ⚠️ CRITICAL: NO TX_CLEAR/flush here! Only in Confirmed stage (transcription.completed)
                         continue
-                        if cancelled_id and self.realtime_client:
-                            try:
-                                # Use asyncio.wait_for with 0.5s timeout to avoid blocking
-                                await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(cancelled_id),
-                                    timeout=0.5
-                                )
-                                self._mark_response_cancelled_locally(cancelled_id, "speech_started")
-                                print(f"[BARGE_IN] Cancelled AI response: response_id={cancelled_id[:20]}...")
-                            except asyncio.TimeoutError:
-                                print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
-                            except Exception as e:
-                                print(f"   ⚠️ Error cancelling response: {e}")
-                        elif not cancelled_id:
-                            print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
-                        elif not self.realtime_client:
-                            print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
-                        
-                        # 2) Clear local guards (ALWAYS, even if cancel failed)
-                        # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
-                        self.active_response_id = None
-                        self.response_pending_event.clear()
-                        self.is_ai_speaking_event.clear()
-                        self.speaking = False
-                        self.has_pending_ai_response = False
-                        print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
-                        
-                        # ═══════════════════════════════════════════════════════════════════
-                        # 🎯 TASK C.1: Flush TX queue ONLY on confirmed barge-in (Master QA)
-                        # This only runs when actual user speech is detected during AI speech
-                        # ═══════════════════════════════════════════════════════════════════
-                        # 3) Flush both audio queues so NO old audio reaches Twilio
-                        openai_q_before = self.realtime_audio_out_queue.qsize()
-                        tx_q_before = self.tx_q.qsize()
-                        try:
-                            flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
-                        except Exception as e:
-                            print(f"   ⚠️ Error flushing TX queue: {e}")
-                            flushed_count = 0
-                        
-                        # Calculate and log comprehensive barge-in metrics
-                        barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
-                        
-                        # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
-                        # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
-                        logger.info(
-                            f"[BARGE-IN] Real user interrupt detected – "
-                            f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
-                            f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
-                            f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
-                            f"latency={barge_in_latency_ms:.1f}ms"
-                        )
-                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, {flushed_count} frames flushed")
-                        
-                        # 🔥 METRICS: Increment barge-in counter
-                        self._barge_in_event_count += 1
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
@@ -4911,14 +4910,48 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Determine if barge-in should be confirmed
                         should_confirm_barge_in = False
                         
+                        # 🔥 INTENT-AWARE BARGE-IN: Accept single-token for meaningful intents
+                        # Problem statement requirement: אישור חכם של STT במקום "2 מילים או כלום"
+                        # Accept single-token if it's:
+                        # - Numbers/time: digits or numeric words in Hebrew
+                        # - Confirmations: כן/לא/רגע/שנייה/הלו/עצור/תעצור
+                        # - Timing words: היום/מחר/בערב/בבוקר + weekdays
+                        
+                        is_intent_aware_token = False
+                        if word_count == 1:
+                            # Check if it's a number (digits)
+                            import re
+                            if re.match(r'^\d+$', normalized_text):
+                                is_intent_aware_token = True
+                                confirm_reason = f"number={normalized_text}"
+                            # Check if it's a Hebrew numeric word
+                            elif normalized_text in ['אחד', 'אחת', 'שתיים', 'שניים', 'שלוש', 'שלושה', 
+                                                     'ארבע', 'ארבעה', 'חמש', 'חמישה', 'שש', 'שישה',
+                                                     'שבע', 'שבעה', 'שמונה', 'תשע', 'תשעה', 'עשר', 'עשרה']:
+                                is_intent_aware_token = True
+                                confirm_reason = f"hebrew_number={normalized_text}"
+                            # Check if it's a confirmation word
+                            elif normalized_text in ['כן', 'לא', 'רגע', 'שנייה', 'שניה', 'הלו', 'עצור', 'תעצור']:
+                                is_intent_aware_token = True
+                                confirm_reason = f"confirmation={normalized_text}"
+                            # Check if it's a timing word
+                            elif normalized_text in ['היום', 'מחר', 'בערב', 'בבוקר', 'בצהריים', 'בלילה',
+                                                     'ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']:
+                                is_intent_aware_token = True
+                                confirm_reason = f"timing={normalized_text}"
+                            # Check interrupt whitelist (existing logic)
+                            elif normalized_text in INTERRUPT_WHITELIST:
+                                is_intent_aware_token = True
+                                confirm_reason = f"whitelist_match={normalized_text}"
+                        
                         if word_count >= 2:
                             should_confirm_barge_in = True
                             confirm_reason = f"word_count={word_count}"
-                        elif word_count == 1 and normalized_text in INTERRUPT_WHITELIST:
+                        elif is_intent_aware_token:
                             should_confirm_barge_in = True
-                            confirm_reason = f"whitelist_match={normalized_text}"
+                            # confirm_reason already set above
                         else:
-                            confirm_reason = f"not_confirmed (wc={word_count}, not_in_whitelist)"
+                            confirm_reason = f"not_confirmed (wc={word_count}, not_intent_aware)"
                         
                         # Apply guards
                         if should_confirm_barge_in and is_in_echo_window:
@@ -4943,16 +4976,13 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self.is_ai_speaking_event.clear()
                                     self.speaking = False
                                     
-                                    # Clear TX queue to stop audio playback
+                                    # 🔥 CONFIRMED BARGE-IN: Flush TX queue to stop audio playback
+                                    # This is the ONLY place where TX_CLEAR happens during barge-in
                                     try:
-                                        while not self.tx_q.empty():
-                                            try:
-                                                self.tx_q.get_nowait()
-                                            except:
-                                                break
-                                        logger.info(f"[BARGE-IN] TX queue cleared")
+                                        flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN_CONFIRMED")
+                                        logger.info(f"[BARGE-IN] ✅ CONFIRMED flush: {flushed_count} frames cleared")
                                     except Exception as clear_err:
-                                        logger.warning(f"[BARGE-IN] Failed to clear TX queue: {clear_err}")
+                                        logger.warning(f"[BARGE-IN] Failed to flush TX queue: {clear_err}")
                                     
                                     # Mark barge-in confirmed
                                     self.barge_in_active = True
