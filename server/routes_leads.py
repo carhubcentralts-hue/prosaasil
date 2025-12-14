@@ -684,7 +684,7 @@ def delete_lead(lead_id):
     
     return jsonify({"message": "Lead deleted successfully"}), 200
 
-@leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST"])
+@leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST", "PATCH"])
 @require_api_auth()  # BUILD 137: Added missing decorator
 def update_lead_status(lead_id):
     """Update lead status (for Kanban board)"""

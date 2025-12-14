@@ -121,83 +121,127 @@ class LeadAutoStatusService:
         
         return None
     
+    def _build_status_groups(self, valid_statuses: set) -> dict:
+        """
+        Build semantic groups from business's available statuses
+        Returns dict mapping group names to available status names for that group
+        """
+        # Define status name/label synonyms for each semantic group
+        groups = {
+            'APPOINTMENT_SET': ['qualified', 'appointment', 'meeting', 'נקבע', 'פגישה', 'סגירה'],
+            'HOT_INTERESTED': ['interested', 'hot', 'מעוניין', 'חם', 'מתעניין', 'המשך טיפול', 'פוטנציאל'],
+            'FOLLOW_UP': ['follow_up', 'callback', 'חזרה', 'תזכורת', 'תחזור', 'מאוחר יותר'],
+            'NOT_RELEVANT': ['not_relevant', 'not_interested', 'לא רלוונטי', 'לא מעוניין', 'להסיר', 'חסום'],
+            'NO_ANSWER': ['no_answer', 'אין מענה', 'לא ענה', 'תא קולי'],
+        }
+        
+        result = {}
+        for group_name, synonyms in groups.items():
+            # Find which statuses from this business match this group
+            matching = []
+            for status_name in valid_statuses:
+                status_lower = status_name.lower()
+                if any(syn.lower() in status_lower or status_lower in syn.lower() for syn in synonyms):
+                    matching.append(status_name)
+            
+            if matching:
+                # Prefer exact matches, then use first match
+                for preferred in synonyms:
+                    if preferred in matching:
+                        result[group_name] = preferred
+                        break
+                else:
+                    result[group_name] = matching[0]
+        
+        return result
+    
     def _map_from_keywords(self, text: str, valid_statuses: set) -> Optional[str]:
         """
-        Map from text content using keyword scoring
+        Map from text content using keyword scoring with priority-based tie-breaking
         
-        Looks for Hebrew and English keywords that indicate call outcome
+        Priority order (highest to lowest):
+        1. Appointment set
+        2. Hot/Interested  
+        3. Follow up
+        4. Not relevant
+        5. No answer
         """
         text_lower = text.lower()
         
-        # Pattern 1: Not interested / Not relevant
+        # Build status groups from available statuses
+        status_groups = self._build_status_groups(valid_statuses)
+        
+        # Score each pattern group (higher score = stronger match)
+        scores = {}
+        
+        # Pattern 4: Not interested / Not relevant (CHECK FIRST - contains negations)
+        # Must check before interested keywords to catch "לא מעוניין"
         not_relevant_keywords = [
             'לא מעוניין', 'לא רלוונטי', 'להסיר', 'תפסיקו', 'לא מתאים',
             'not interested', 'not relevant', 'remove me', 'stop calling',
-            'תמחקו אותי', 'אל תתקשרו', 'לא צריך'
+            'תמחקו אותי', 'אל תתקשרו', 'לא צריך', 'תורידו אותי', 'להפסיק'
         ]
+        not_relevant_score = sum(1 for kw in not_relevant_keywords if kw in text_lower)
+        if not_relevant_score > 0 and 'NOT_RELEVANT' in status_groups:
+            scores['NOT_RELEVANT'] = (4, not_relevant_score)  # Priority 4
         
-        if any(kw in text_lower for kw in not_relevant_keywords):
-            if 'not_relevant' in valid_statuses:
-                return 'not_relevant'
-            elif 'lost' in valid_statuses:  # Fallback
-                return 'lost'
-        
-        # Pattern 2: Interested / Wants more info
-        interested_keywords = [
-            'מעוניין', 'כן רוצה', 'תשלח פרטים', 'דברו איתי', 'מתאים לי',
-            'interested', 'yes please', 'send details', 'call me back',
-            'אני רוצה', 'נשמע טוב', 'בואו נדבר'
+        # Pattern 1: Appointment / Meeting scheduled (HIGHEST PRIORITY)
+        appointment_keywords = [
+            'קבענו פגישה', 'נקבע', 'פגישה', 'meeting', 'appointment', 'scheduled', 'confirmed',
+            'בוקר מתאים', 'אחר הצהריים מתאים', 'ביום', 'בשעה'
         ]
+        appointment_score = sum(1 for kw in appointment_keywords if kw in text_lower)
+        if appointment_score > 0 and 'APPOINTMENT_SET' in status_groups:
+            scores['APPOINTMENT_SET'] = (1, appointment_score)  # Priority 1
         
-        if any(kw in text_lower for kw in interested_keywords):
-            if 'interested' in valid_statuses:
-                return 'interested'
-            elif 'qualified' in valid_statuses:  # Fallback
-                return 'qualified'
+        # Pattern 2: Hot / Interested (SECOND PRIORITY)
+        # Only count if NOT_RELEVANT wasn't already scored (to avoid "לא מעוניין" matching "מעוניין")
+        if 'NOT_RELEVANT' not in scores:
+            interested_keywords = [
+                'מעוניין', 'כן רוצה', 'תשלח פרטים', 'תשלחו פרטים', 'דברו איתי', 'מתאים לי',
+                'interested', 'yes please', 'send details', 'call me back',
+                'אני רוצה', 'נשמע טוב', 'נשמע מעניין', 'בואו נדבר', 'יכול להיות מעניין',
+                'תן הצעה', 'תתקשרו', 'כן', 'נשמע', 'יפה'
+            ]
+            interested_score = sum(1 for kw in interested_keywords if kw in text_lower)
+            if interested_score > 0 and 'HOT_INTERESTED' in status_groups:
+                scores['HOT_INTERESTED'] = (2, interested_score)  # Priority 2
         
-        # Pattern 3: Follow up / Call back later
+        # Pattern 3: Follow up / Call back later (THIRD PRIORITY)
         follow_up_keywords = [
-            'תחזרו', 'מאוחר יותר', 'שבוע הבא', 'חודש הבא', 'תתקשרו שוב',
+            'תחזרו', 'תחזור', 'מאוחר יותר', 'שבוע הבא', 'חודש הבא', 'תתקשרו שוב',
             'call back', 'follow up', 'later', 'next week', 'next month',
-            'בעוד כמה ימים', 'אחרי החגים', 'בשבוע הבא'
+            'בעוד כמה ימים', 'אחרי החגים', 'אחרי החג', 'בשבוע הבא', 'תזכיר לי'
         ]
+        follow_up_score = sum(1 for kw in follow_up_keywords if kw in text_lower)
+        if follow_up_score > 0 and 'FOLLOW_UP' in status_groups:
+            scores['FOLLOW_UP'] = (3, follow_up_score)  # Priority 3
         
-        if any(kw in text_lower for kw in follow_up_keywords):
-            if 'follow_up' in valid_statuses:
-                return 'follow_up'
-        
-        # Pattern 4: No answer / Voicemail
+        # Pattern 5: No answer / Voicemail (LOWEST PRIORITY)
         no_answer_keywords = [
             'לא ענה', 'אין מענה', 'תא קולי', 'לא זמין', 'לא פנוי',
             'no answer', 'voicemail', 'not available', 'unavailable',
-            'מכשיר כבוי', 'לא משיב'
+            'מכשיר כבוי', 'לא משיב', 'מספר לא זמין'
         ]
+        no_answer_score = sum(1 for kw in no_answer_keywords if kw in text_lower)
+        if no_answer_score > 0 and 'NO_ANSWER' in status_groups:
+            scores['NO_ANSWER'] = (5, no_answer_score)  # Priority 5
         
-        if any(kw in text_lower for kw in no_answer_keywords):
-            if 'no_answer' in valid_statuses:
-                return 'no_answer'
-            elif 'attempting' in valid_statuses:  # Fallback
-                return 'attempting'
-        
-        # Pattern 5: Appointment / Meeting scheduled
-        appointment_keywords = [
-            'קבענו פגישה', 'נקבע', 'ביום', 'בשעה', 'יום רביעי', 'יום חמישי',
-            'appointment', 'meeting', 'scheduled', 'confirmed',
-            'בוקר מתאים', 'אחר הצהריים מתאים'
-        ]
-        
-        if any(kw in text_lower for kw in appointment_keywords):
-            if 'qualified' in valid_statuses:
-                return 'qualified'
-            elif 'interested' in valid_statuses:  # Fallback
-                return 'interested'
-        
-        # Default fallback: If we got here and text is long enough, assume contacted
-        if len(text) > 50:  # Meaningful conversation happened
-            if 'contacted' in valid_statuses:
+        # No matches found
+        if not scores:
+            # Default fallback: If conversation happened, assume contacted
+            if len(text) > 50 and 'contacted' in valid_statuses:
                 return 'contacted'
+            return None
         
-        return None
+        # Select winner based on priority (lower priority number = higher priority)
+        # In case of tie on priority, use keyword count
+        winner = min(scores.items(), key=lambda x: (x[1][0], -x[1][1]))
+        winner_group = winner[0]
+        
+        log.info(f"[AutoStatus] Keyword scoring: {scores}, winner: {winner_group}")
+        
+        return status_groups[winner_group]
 
 
 # Global singleton instance
