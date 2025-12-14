@@ -1390,6 +1390,9 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         
+        # 🔥 FIX: Guard against double-close websocket error
+        self._ws_closed = False
+        
         # 🔧 תאימות WebSocket - EventLet vs RFC6455 עם טיפול שגיאות
         if hasattr(ws, 'send'):
             self._ws_send_method = ws.send
@@ -7588,12 +7591,18 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
                     # ✅ CRITICAL: סיכום שיחה בסיום
                     self._finalize_call_on_stop()
-                    # Send close frame properly
+                    # Send close frame properly with double-close guard
                     try:
-                        if hasattr(self.ws, 'close'):
+                        if hasattr(self.ws, 'close') and not self._ws_closed:
                             self.ws.close()
-                    except:
-                        pass
+                            self._ws_closed = True
+                    except Exception as e:
+                        # 🔥 FIX: Catch "websocket.close" ASGI error and reduce to debug
+                        error_msg = str(e).lower()
+                        if 'websocket.close' in error_msg or 'asgi' in error_msg:
+                            print(f"[DEBUG] Websocket already closed (expected): {e}")
+                        else:
+                            print(f"Error closing websocket: {e}")
                     break
 
         except ConnectionClosed as e:
@@ -7752,10 +7761,16 @@ Greet briefly. Then WAIT for customer to speak."""
             limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
             print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
-            try: 
-                self.ws.close()
-            except: 
-                pass
+            # 🔥 FIX: Guard against double-close
+            try:
+                if not self._ws_closed:
+                    self.ws.close()
+                    self._ws_closed = True
+            except Exception as e:
+                # Catch "websocket.close" ASGI error and reduce to debug
+                error_msg = str(e).lower()
+                if 'websocket.close' not in error_msg and 'asgi' not in error_msg:
+                    print(f"[DEBUG] Error in final websocket close: {e}")
             # Mark as ended
             if hasattr(self, 'call_sid') and self.call_sid:
                 stream_registry.clear(self.call_sid)
@@ -11636,6 +11651,12 @@ Greet briefly. Then WAIT for customer to speak."""
                             call_log.transcription = ""  # Empty transcription
                             call_log.summary = ""  # Empty summary - DO NOT HALLUCINATE!
                             call_log.ai_summary = ""
+                            
+                            # 🔥 FIX: Save recording_sid if available
+                            if hasattr(self, '_recording_sid') and self._recording_sid:
+                                call_log.recording_sid = self._recording_sid
+                                print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
+                            
                             db.session.commit()
                             print(f"✅ CALL FINALIZED (no conversation): {self.call_sid}")
                             return  # Exit early - no webhook, no lead update
@@ -11671,6 +11692,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         call_log.transcription = full_conversation  # ✅ FIX: transcription not transcript!
                         call_log.summary = summary_data.get('summary', '')
                         call_log.ai_summary = summary_data.get('detailed_summary', '')
+                        
+                        # 🔥 FIX: Save recording_sid if available
+                        if hasattr(self, '_recording_sid') and self._recording_sid:
+                            call_log.recording_sid = self._recording_sid
+                            print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
                         
                         db.session.commit()
                         

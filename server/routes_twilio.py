@@ -712,6 +712,7 @@ def handle_recording():
     # Fast data extraction
     call_sid = request.form.get("CallSid", "unknown")
     rec_url = request.form.get("RecordingUrl")
+    rec_sid = request.form.get("RecordingSid")  # 🔥 FIX: Extract recording SID
     rec_duration = request.form.get("RecordingDuration", "0")
     rec_status = request.form.get("RecordingStatus", "unknown")
     
@@ -744,9 +745,12 @@ def handle_recording():
             else:
                 call_log.status = "recorded"
             
-            # עדכן recording_url
+            # 🔥 FIX: עדכן recording_url AND recording_sid
             if rec_url:
                 call_log.recording_url = rec_url
+            if rec_sid:
+                call_log.recording_sid = rec_sid
+                print(f"✅ handle_recording: Saved recording_sid {rec_sid} for {call_sid}")
             
             db.session.commit()
             print(f"✅ handle_recording: Updated call_log for {call_sid}")
