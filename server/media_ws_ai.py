@@ -8044,6 +8044,43 @@ Greet briefly. Then WAIT for customer to speak."""
             limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
             print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 CLEANUP FLAGS: Reset all state flags to prevent cross-call contamination
+            # ═══════════════════════════════════════════════════════════════════════
+            # This is critical for preventing bugs like "stuck barge_pending" affecting next call
+            print(f"🧹 [CLEANUP] Resetting all state flags...")
+            
+            # Barge-in flags
+            if hasattr(self, '_barge_pending'):
+                self._barge_pending = False
+            if hasattr(self, '_flush_preroll'):
+                self._flush_preroll = False
+            self.barge_in_active = False
+            self._barge_in_started_ts = None
+            
+            # STT/Turn flags
+            if hasattr(self, '_candidate_user_speaking'):
+                self._candidate_user_speaking = False
+            if hasattr(self, '_utterance_start_ts'):
+                self._utterance_start_ts = None
+            if hasattr(self, '_realtime_speech_active'):
+                self._realtime_speech_active = False
+            if hasattr(self, '_realtime_speech_started_ts'):
+                self._realtime_speech_started_ts = None
+            
+            # Appointment flags
+            if hasattr(self, '_appointment_created_this_session'):
+                self._appointment_created_this_session = False
+            
+            # Response/AI state
+            self.active_response_id = None
+            self.response_pending_event.clear()
+            self.is_ai_speaking_event.clear()
+            self.speaking = False
+            self.has_pending_ai_response = False
+            
+            print(f"✅ [CLEANUP] All state flags reset successfully")
+            
             # 🔥 FIX: Guard against double-close
             try:
                 if not self._ws_closed:
