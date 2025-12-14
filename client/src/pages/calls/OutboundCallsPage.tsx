@@ -203,9 +203,10 @@ export function OutboundCallsPage() {
 
   // Convert imported leads to Lead format for display in Kanban/List views
   // ✅ Robust conversion that handles all field mappings properly
+  // Note: This is for DISPLAY ONLY in UI components. tenant_id is not used in display contexts.
   const importedLeadsAsLeads: Lead[] = importedLeads.map((imported) => ({
     id: imported.id,
-    tenant_id: 0,  // Not needed for display
+    tenant_id: 0,  // Display-only conversion - not used by UI components
     full_name: imported.name,
     name: imported.name,
     first_name: imported.name.split(' ')[0] || '',
@@ -215,7 +216,7 @@ export function OutboundCallsPage() {
     display_phone: imported.phone,
     status: imported.status || 'new',
     source: 'phone' as const,  // Imported leads are phone leads
-    notes: imported.notes || undefined,
+    notes: imported.notes ?? undefined,  // ✅ Convert null to undefined for type safety
     created_at: imported.created_at || new Date().toISOString(),
     updated_at: imported.created_at || new Date().toISOString(),
     last_contact_at: undefined,
