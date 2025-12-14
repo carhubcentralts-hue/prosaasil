@@ -140,15 +140,19 @@ def ensure_default_statuses_exist(business_id):
     if existing_statuses > 0:
         return  # Already seeded
     
-    # Default Hebrew real estate statuses - ALWAYS lowercase canonical names
+    # Default Hebrew statuses with auto-status support - ALWAYS lowercase canonical names
     default_statuses = [
         {'name': 'new', 'label': 'חדש', 'color': 'bg-blue-100 text-blue-800', 'is_default': True},
         {'name': 'attempting', 'label': 'בניסיון קשר', 'color': 'bg-yellow-100 text-yellow-800'},
+        {'name': 'no_answer', 'label': 'לא ענה', 'color': 'bg-gray-100 text-gray-800'},
         {'name': 'contacted', 'label': 'נוצר קשר', 'color': 'bg-purple-100 text-purple-800'},
-        {'name': 'qualified', 'label': 'מוכשר', 'color': 'bg-green-100 text-green-800'},
+        {'name': 'interested', 'label': 'מעוניין', 'color': 'bg-green-100 text-green-800'},
+        {'name': 'follow_up', 'label': 'חזרה', 'color': 'bg-orange-100 text-orange-800'},
+        {'name': 'not_relevant', 'label': 'לא רלוונטי', 'color': 'bg-red-100 text-red-800'},
+        {'name': 'qualified', 'label': 'מוכשר', 'color': 'bg-teal-100 text-teal-800'},
         {'name': 'won', 'label': 'זכיה', 'color': 'bg-emerald-100 text-emerald-800', 'is_system': True},
-        {'name': 'lost', 'label': 'אובדן', 'color': 'bg-red-100 text-red-800', 'is_system': True},
-        {'name': 'unqualified', 'label': 'לא מוכשר', 'color': 'bg-gray-100 text-gray-800', 'is_system': True}
+        {'name': 'lost', 'label': 'אובדן', 'color': 'bg-rose-100 text-rose-800', 'is_system': True},
+        {'name': 'unqualified', 'label': 'לא מוכשר', 'color': 'bg-slate-100 text-slate-800', 'is_system': True}
     ]
     
     for index, status_data in enumerate(default_statuses):
@@ -225,6 +229,7 @@ def list_leads():
     status_filter = request.args.get('status', '')
     source_filter = request.args.get('source', '')
     owner_filter = request.args.get('owner', '')
+    outbound_list_id = request.args.get('outbound_list_id', '')
     q_filter = request.args.get('q', '')  # Search query
     from_date = request.args.get('from', '')
     to_date = request.args.get('to', '')
@@ -246,6 +251,9 @@ def list_leads():
     
     if owner_filter:
         query = query.filter(Lead.owner_user_id == owner_filter)
+    
+    if outbound_list_id:
+        query = query.filter(Lead.outbound_list_id == int(outbound_list_id))
     
     if q_filter:
         # ✅ BUILD 170: Search only by name or phone number (partial match)
@@ -301,6 +309,8 @@ def list_leads():
             "status": lead.status,
             "source": normalize_source(lead.source),
             "owner_user_id": lead.owner_user_id,
+            "outbound_list_id": lead.outbound_list_id,
+            "summary": lead.summary,
             "tags": lead.tags or [],
             "created_at": lead.created_at.isoformat() if lead.created_at else None,
             "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
@@ -674,7 +684,7 @@ def delete_lead(lead_id):
     
     return jsonify({"message": "Lead deleted successfully"}), 200
 
-@leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST"])
+@leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST", "PATCH"])
 @require_api_auth()  # BUILD 137: Added missing decorator
 def update_lead_status(lead_id):
     """Update lead status (for Kanban board)"""

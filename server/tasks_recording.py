@@ -548,16 +548,62 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # 3. ✨ סיכום חכם של השיחה (שימוש בסיכום שכבר יצרנו!)
                 conversation_summary = ci.generate_conversation_summary(transcription)
                 
-                # 4. ✨ עדכון סטטוס אוטומטי
-                new_status = ci.auto_update_lead_status(lead, conversation_summary)
+                # 4. ✨ עדכון סטטוס אוטומטי - שימוש בשירות החדש
+                # Get call direction from call_log
+                call_direction = call_log.direction if call_log else "inbound"
                 
-                # 5. ✨ שמירת הסיכום בליד (summary מה-GPT + notes עם פרטים)
+                # Use new auto-status service
+                from server.services.lead_auto_status_service import suggest_lead_status_from_call
+                suggested_status = suggest_lead_status_from_call(
+                    tenant_id=call_log.business_id,
+                    lead_id=lead.id,
+                    call_direction=call_direction,
+                    call_summary=summary,  # AI-generated summary
+                    call_transcript=final_transcript or transcription
+                )
+                
+                # Apply status change with validation
+                old_status = lead.status
+                if suggested_status:
+                    # Extra safety: validate status exists for this business
+                    from server.models_sql import LeadStatus
+                    valid_status = LeadStatus.query.filter_by(
+                        business_id=call_log.business_id,
+                        name=suggested_status,
+                        is_active=True
+                    ).first()
+                    
+                    if valid_status:
+                        lead.status = suggested_status
+                        
+                        # Create activity for auto status change
+                        from server.models_sql import LeadActivity
+                        activity = LeadActivity()
+                        activity.lead_id = lead.id
+                        activity.type = "status_change"
+                        activity.payload = {
+                            "from": old_status,
+                            "to": suggested_status,
+                            "source": f"auto_{call_direction}",
+                            "call_sid": call_sid
+                        }
+                        activity.at = datetime.utcnow()
+                        db.session.add(activity)
+                        
+                        log.info(f"[AutoStatus] ✅ Updated lead {lead.id} status: {old_status} → {suggested_status} (source: {call_direction})")
+                    else:
+                        log.warning(f"[AutoStatus] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id} - skipping status change")
+                else:
+                    log.info(f"[AutoStatus] ℹ️ No confident status match for lead {lead.id} - keeping status as '{old_status}'")
+                
+                # 5. ✨ שמירת הסיכום בליד + עדכון last_contact_at (ALWAYS updated, even if status didn't change)
                 lead.summary = summary  # סיכום קצר (10-30 מילים)
+                lead.last_contact_at = datetime.utcnow()  # Update last contact time
                 lead.notes = f"סיכום: {conversation_summary.get('summary', '')}\n" + (lead.notes or "")
                 
                 db.session.commit()
                 
-                log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Lead status: {new_status}")
+                log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Final status: {lead.status}")
                 log.info(f"📋 Summary: {conversation_summary.get('summary', 'N/A')}")
                 log.info(f"🎭 Intent: {conversation_summary.get('intent', 'N/A')}")
                 log.info(f"⚡ Next action: {conversation_summary.get('next_action', 'N/A')}")
@@ -626,7 +672,7 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
         # שימוש ב-PostgreSQL דרך SQLAlchemy במקום SQLite
         from server.app_factory import get_process_app
         from server.db import db
-        from server.models_sql import CallLog
+        from server.models_sql import CallLog, OutboundCallJob, OutboundCallRun
         
         app = get_process_app()
         with app.app_context():
@@ -642,6 +688,27 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
                 call_log.updated_at = db.func.now()
                 db.session.commit()
                 log.info("PostgreSQL call status updated: %s -> %s (duration=%s)", call_sid, status, duration)
+                
+                # ✅ Update OutboundCallJob if this is part of a bulk run
+                if status in ["completed", "busy", "no-answer", "failed", "canceled"]:
+                    job = OutboundCallJob.query.filter_by(call_sid=call_sid).first()
+                    if job:
+                        job.status = "completed" if status == "completed" else "failed"
+                        job.completed_at = datetime.utcnow()
+                        
+                        # Update run counts
+                        run = OutboundCallRun.query.get(job.run_id)
+                        if run:
+                            run.in_progress_count = max(0, run.in_progress_count - 1)
+                            if job.status == "completed":
+                                run.completed_count += 1
+                            else:
+                                run.failed_count += 1
+                                if job.error_message:
+                                    run.last_error = job.error_message[:500]
+                        
+                        db.session.commit()
+                        log.info(f"[BulkCall] Updated job {job.id} status: {job.status}")
             else:
                 log.warning("Call SID not found for status update: %s", call_sid)
         
