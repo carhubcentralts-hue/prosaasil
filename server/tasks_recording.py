@@ -108,7 +108,7 @@ def start_recording_worker(app):
                     from server.db import db
                     db.session.rollback()
                     db.session.close()
-                except:
+                except Exception:
                     pass
                 
                 # Do NOT crash worker - continue with next job
@@ -160,7 +160,7 @@ def process_recording_async(form_data):
             try:
                 from server.db import db
                 db.session.rollback()
-            except:
+            except Exception:
                 pass
         
         if not audio_file:
@@ -279,7 +279,7 @@ def process_recording_async(form_data):
                 try:
                     from server.db import db
                     db.session.rollback()
-                except:
+                except Exception:
                     pass
             
             summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
@@ -315,7 +315,7 @@ def process_recording_async(form_data):
                 try:
                     from server.db import db
                     db.session.rollback()
-                except:
+                except Exception:
                     pass
         
         if not skip_extraction:
@@ -715,7 +715,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
         try:
             from server.db import db
             db.session.rollback()
-        except:
+        except Exception:
             pass
 
 def _identify_business_for_call(to_number, from_number):
