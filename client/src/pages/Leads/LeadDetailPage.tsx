@@ -101,7 +101,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
           duration: call.duration || 0,
           recording_url: call.recording_url,
-          notes: call.transcription || '',
+          notes: call.transcript || call.transcription || '',  // Try both transcript and transcription fields
           summary: call.summary || '',
           created_at: call.created_at || call.at,
           status: call.status
@@ -790,8 +790,8 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
           {calls.map((call) => {
             const isExpanded = expandedCallId === call.id;
             const hasRecording = Boolean(call.recording_url);
-            const hasTranscript = Boolean(call.notes);
-            const hasSummary = Boolean(call.summary);
+            const hasTranscript = Boolean(call.notes?.trim());
+            const hasSummary = Boolean(call.summary?.trim());
 
             return (
               <div key={call.id} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`call-${call.id}`}>
@@ -817,6 +817,9 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
                           {hasTranscript && (
                             <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">תמליל</span>
                           )}
+                          {hasSummary && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">סיכום</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -836,7 +839,7 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
                     {hasRecording ? (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium text-gray-700">הקלטת שיחה</p>
+                          <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
                           <button
                             onClick={() => handleDownload(call.id)}
                             className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
@@ -853,35 +856,39 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
                       </div>
                     ) : (
                       <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <p className="text-xs text-yellow-800">הקלטה לא זמינה (פגה תוקף או נמחקה)</p>
+                        <p className="text-sm text-yellow-800">הקלטה לא זמינה</p>
                       </div>
                     )}
 
-                    {/* Summary */}
-                    {hasSummary && (
-                      <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-                        <p className="text-xs font-medium text-blue-800 mb-2">סיכום שיחה</p>
-                        <p className="text-sm text-blue-900 whitespace-pre-wrap">{call.summary}</p>
+                    {/* Summary - Always visible when expanded if exists */}
+                    {hasSummary ? (
+                      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-sm font-semibold text-blue-900 mb-2">סיכום שיחה</p>
+                        <p className="text-sm text-blue-800 whitespace-pre-wrap">{call.summary}</p>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <p className="text-sm text-gray-600">אין סיכום שיחה</p>
                       </div>
                     )}
 
-                    {/* Transcript */}
-                    {hasTranscript && (
+                    {/* Transcript - Always visible when expanded if exists */}
+                    {hasTranscript ? (
                       <div>
-                        <details className="group">
-                          <summary className="cursor-pointer text-xs font-medium text-gray-700 hover:text-gray-900 flex items-center gap-1">
-                            <ChevronDown className="w-3 h-3 group-open:rotate-180 transition-transform" />
+                        <details className="group" open>
+                          <summary className="cursor-pointer text-sm font-semibold text-gray-900 hover:text-gray-700 flex items-center gap-2 mb-2">
+                            <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
                             תמליל מלא
                           </summary>
-                          <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <div className="mt-2 p-4 bg-gray-50 rounded-lg border border-gray-200">
                             <p className="text-sm text-gray-700 whitespace-pre-wrap">{call.notes}</p>
                           </div>
                         </details>
                       </div>
-                    )}
-
-                    {!hasSummary && !hasTranscript && !hasRecording && (
-                      <p className="text-xs text-gray-500 text-center py-4">אין פרטים נוספים זמינים לשיחה זו</p>
+                    ) : (
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <p className="text-sm text-gray-600">אין תמליל</p>
+                      </div>
                     )}
                   </div>
                 )}

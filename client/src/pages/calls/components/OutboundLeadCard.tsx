@@ -2,7 +2,6 @@ import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Phone, Clock, GripVertical } from 'lucide-react';
-import { Checkbox } from '../../../shared/components/ui/Checkbox';
 
 interface Lead {
   id: number;
@@ -105,21 +104,28 @@ export function OutboundLeadCard({
       className={`
         bg-white rounded-lg border shadow-sm p-3
         hover:shadow-md transition-shadow cursor-pointer
-        ${isSelected ? 'ring-2 ring-blue-500' : ''}
+        ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''}
         ${isDragOverlay ? 'shadow-xl' : ''}
       `}
       onClick={handleCardClick}
     >
       <div className="flex items-start gap-2">
         {/* Checkbox */}
-        <div 
-          onClick={handleCheckboxClick} 
-          onPointerDown={(e) => e.stopPropagation()}
-          className="mt-0.5"
+        <label
           data-checkbox-wrapper
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={handleCheckboxClick}
+          className="flex items-center gap-2 cursor-pointer mt-0.5"
         >
-          <Checkbox checked={isSelected} onChange={() => {}} />
-        </div>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            readOnly
+            aria-label={`בחר ליד ${lead.full_name || lead.first_name || 'ללא שם'}`}
+            className="accent-blue-600 pointer-events-auto h-4 w-4 rounded border-gray-300"
+          />
+        </label>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
