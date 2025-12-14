@@ -10863,20 +10863,28 @@ Greet briefly. Then WAIT for customer to speak."""
                     await client.send_event({"type": "response.create"})
                     return
                 
-                # Parse datetime
+                # 🔥 WRAP IN APP CONTEXT - Critical for DB access
+                # Import once at module level to avoid repeated imports
                 from datetime import datetime, timedelta
                 import pytz
                 from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from server.policy.business_policy import get_business_policy
                 
-                # 🔥 WRAP IN APP CONTEXT - Critical for DB access
                 app = _get_flask_app()
                 with app.app_context():
                     policy = get_business_policy(business_id)
                     tz = pytz.timezone(policy.tz)
                     
-                    # Parse ISO datetime
-                    requested_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
+                    # Parse ISO datetime - handle both Z suffix and explicit timezone
+                    # Using fromisoformat after normalizing Z to +00:00
+                    try:
+                        requested_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
+                    except ValueError:
+                        # Fallback for malformed ISO strings
+                        print(f"⚠️ [BOOK_APPT] Invalid ISO format: {datetime_iso}, attempting manual parse")
+                        # Try parsing as YYYY-MM-DDTHH:MM:SS
+                        requested_dt = datetime.strptime(datetime_iso[:19], "%Y-%m-%dT%H:%M:%S")
+                    
                     if requested_dt.tzinfo is None:
                         requested_dt = tz.localize(requested_dt)
                     else:
@@ -10963,10 +10971,18 @@ Greet briefly. Then WAIT for customer to speak."""
                 import traceback
                 traceback.print_exc()
                 
-                # 🔥 FALLBACK_LEAD_CREATED: Save customer details as lead for human follow-up
-                print(f"📋 [BOOK_APPT] FALLBACK_LEAD_CREATED: Saving details for manual processing")
-                # Note: Lead already created at call start via ensure_lead()
-                # The AI will be informed that details were saved and rep will call back
+                # 🔥 FALLBACK_LEAD_CREATED: Ensure lead exists for manual processing
+                # Note: Lead should already exist from ensure_lead() at call start
+                # Verify and create if needed for safety
+                print(f"📋 [BOOK_APPT] FALLBACK_LEAD_CREATED: Verifying lead exists for manual processing")
+                try:
+                    # Ensure lead is saved (idempotent - won't create duplicate)
+                    if hasattr(self, 'ensure_lead') and callable(self.ensure_lead):
+                        self.ensure_lead()
+                        print(f"✅ [BOOK_APPT] Lead verified/created for follow-up")
+                except Exception as lead_err:
+                    print(f"⚠️ [BOOK_APPT] Could not verify lead: {lead_err}")
+                    # Continue anyway - rep can still call back using caller ID
                 
                 await client.send_event({
                     "type": "conversation.item.create",
