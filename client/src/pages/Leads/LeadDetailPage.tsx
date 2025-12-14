@@ -1937,13 +1937,15 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
   };
 
   const handleSaveNewNote = async () => {
-    if (!newNoteContent.trim()) return;
+    // 🔥 FIX: Allow saving if there's content OR files (not just content)
+    if (!newNoteContent.trim() && pendingFiles.length === 0) return;
     
     setSaving(true);
     try {
-      // First, create the note
+      // First, create the note (use placeholder text if only files, no text)
+      const noteContent = newNoteContent.trim() || '📎 קבצים מצורפים';
       const response = await http.post<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes`, {
-        content: newNoteContent.trim()
+        content: noteContent
       });
       
       if (response.success) {
@@ -2170,7 +2172,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
           </div>
           <Button
             onClick={handleSaveNewNote}
-            disabled={saving || !newNoteContent.trim()}
+            disabled={saving || (!newNoteContent.trim() && pendingFiles.length === 0)}
             size="sm"
             data-testid="button-save-new-note"
           >

@@ -1019,6 +1019,38 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 39: CRITICAL HOTFIX - Add missing columns to call_log for post-call pipeline
+    # 🔒 IDEMPOTENT: These columns are referenced in code but missing from production DB
+    # Fixes: psycopg2.errors.UndefinedColumn: column call_log.audio_bytes_len does not exist
+    if check_table_exists('call_log'):
+        checkpoint("Migration 39: Adding missing audio/transcript columns to call_log table")
+        try:
+            from sqlalchemy import text
+            
+            # Add audio_bytes_len column if missing
+            if not check_column_exists('call_log', 'audio_bytes_len'):
+                db.session.execute(text("ALTER TABLE call_log ADD COLUMN audio_bytes_len BIGINT"))
+                migrations_applied.append('add_call_log_audio_bytes_len')
+                log.info("✅ Applied migration 39a: add_call_log_audio_bytes_len")
+            
+            # Add audio_duration_sec column if missing
+            if not check_column_exists('call_log', 'audio_duration_sec'):
+                db.session.execute(text("ALTER TABLE call_log ADD COLUMN audio_duration_sec DOUBLE PRECISION"))
+                migrations_applied.append('add_call_log_audio_duration_sec')
+                log.info("✅ Applied migration 39b: add_call_log_audio_duration_sec")
+            
+            # Add transcript_source column if missing
+            if not check_column_exists('call_log', 'transcript_source'):
+                db.session.execute(text("ALTER TABLE call_log ADD COLUMN transcript_source VARCHAR(32)"))
+                migrations_applied.append('add_call_log_transcript_source')
+                log.info("✅ Applied migration 39c: add_call_log_transcript_source")
+            
+            checkpoint("✅ Migration 39 completed - all missing columns added")
+        except Exception as e:
+            log.error(f"❌ Migration 39 failed: {e}")
+            db.session.rollback()
+            raise
+    
     checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()

@@ -2503,6 +2503,9 @@ Greet briefly. Then WAIT for customer to speak."""
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
             # 🔥 FIX: Wrap in try/except to prevent crashes - realtime should continue even if tools fail
             realtime_tools = []
+            # 🔥 CRITICAL FIX: Define tool_choice BEFORE any closure to avoid scope errors
+            tool_choice = "auto"
+            
             try:
                 logger.info(f"[REALTIME] Building tools for call...")
                 realtime_tools = self._build_realtime_tools_for_call()
@@ -2515,7 +2518,6 @@ Greet briefly. Then WAIT for customer to speak."""
             
             if realtime_tools:
                 # Appointment tool is enabled - send session update
-                tool_choice = "auto"
                 print(f"[TOOLS][REALTIME] Appointment tool enabled - tools={len(realtime_tools)}")
                 logger.info(f"[TOOLS][REALTIME] Session will use appointment tool (count={len(realtime_tools)})")
             else:
@@ -7769,8 +7771,10 @@ Greet briefly. Then WAIT for customer to speak."""
             except Exception as e:
                 # Catch "websocket.close" ASGI error and reduce to debug
                 error_msg = str(e).lower()
-                if 'websocket.close' not in error_msg and 'asgi' not in error_msg:
-                    print(f"[DEBUG] Error in final websocket close: {e}")
+                if 'websocket.close' in error_msg or 'asgi' in error_msg:
+                    print(f"[DEBUG] Websocket already closed (expected): {e}")
+                else:
+                    print(f"Error in final websocket close: {e}")
             # Mark as ended
             if hasattr(self, 'call_sid') and self.call_sid:
                 stream_registry.clear(self.call_sid)
@@ -11750,6 +11754,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"❌ Failed to finalize call: {e}")
                     import traceback
                     traceback.print_exc()
+                    # 🔥 CRITICAL FIX: Rollback on DB errors to prevent InFailedSqlTransaction
+                    try:
+                        db.session.rollback()
+                    except:
+                        pass
             
             # רוץ ברקע
             thread = threading.Thread(target=finalize_in_background, daemon=True)

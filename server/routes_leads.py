@@ -348,6 +348,7 @@ def list_leads():
         })
     except Exception as e:
         # 🔒 DB RESILIENCE: Catch schema mismatch errors (e.g., missing last_call_direction column)
+        db.session.rollback()
         if PSYCOPG2_AVAILABLE and (isinstance(e, psycopg2.errors.UndefinedColumn) or 'last_call_direction does not exist' in str(e)):
             log.error(f"❌ Database schema mismatch: last_call_direction column missing. Please run migrations. Error: {e}")
             return jsonify({
@@ -1623,28 +1624,14 @@ def get_lead_notes(lead_id):
         LeadNote.created_at.desc()
     ).all()
     
-    # Get all attachments for this lead
-    attachments_by_note = {}
-    all_attachments = LeadAttachment.query.filter_by(lead_id=lead_id, tenant_id=tenant_id).all()
-    for att in all_attachments:
-        note_id = att.note_id or 'unlinked'
-        if note_id not in attachments_by_note:
-            attachments_by_note[note_id] = []
-        attachments_by_note[note_id].append({
-            "id": att.id,
-            "filename": att.filename,
-            "content_type": att.content_type,
-            "size_bytes": att.size_bytes,
-            "download_url": f"/api/attachments/{att.id}/download",
-            "created_at": att.created_at.isoformat() if att.created_at else None
-        })
-    
+    # 🔥 FIX: Return attachments from the JSON field, not from LeadAttachment table
+    # The upload endpoint saves to the JSON field, so we need to read from there
     return jsonify({
         "success": True,
         "notes": [{
             "id": note.id,
             "content": note.content,
-            "attachments": attachments_by_note.get(note.id, []),
+            "attachments": note.attachments or [],  # Use JSON field
             "created_at": note.created_at.isoformat() if note.created_at else None,
             "updated_at": note.updated_at.isoformat() if note.updated_at else None
         } for note in notes]
@@ -1664,20 +1651,37 @@ def create_lead_note(lead_id):
         return jsonify({"error": "Lead not found"}), 404
     
     data = request.get_json()
-    if not data or not data.get('content', '').strip():
-        return jsonify({"error": "Note content is required"}), 400
+    # 🔥 FIX: Allow notes with just attachments (no text content required)
+    # The frontend will send placeholder text if only files are attached
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    content = data.get('content', '').strip()
+    if not content:
+        # 🔥 FIX: content is NOT NULL, so use placeholder for file-only notes
+        content = '📎 קבצים מצורפים'
     
     user = get_current_user()
     
     note = LeadNote()
     note.lead_id = lead_id
     note.tenant_id = tenant_id
-    note.content = data['content'].strip()
+    note.content = content
     note.attachments = data.get('attachments', [])
     note.created_by = user.get('id') if user else None
     
-    db.session.add(note)
-    db.session.commit()
+    # 🔥 CRITICAL FIX: Mark JSON field as modified for SQLAlchemy
+    if note.attachments:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(note, 'attachments')
+    
+    try:
+        db.session.add(note)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error creating note: {e}")
+        return jsonify({"error": "Failed to create note"}), 500
     
     return jsonify({
         "success": True,
@@ -1712,9 +1716,18 @@ def update_lead_note(lead_id, note_id):
     
     if 'attachments' in data:
         note.attachments = data['attachments']
+        # 🔥 CRITICAL FIX: Mark JSON field as modified for SQLAlchemy
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(note, 'attachments')
     
     note.updated_at = datetime.utcnow()
-    db.session.commit()
+    
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error updating note: {e}")
+        return jsonify({"error": "Failed to update note"}), 500
     
     return jsonify({
         "success": True,
@@ -1805,6 +1818,10 @@ def upload_note_attachment(lead_id, note_id):
     attachments.append(attachment)
     note.attachments = attachments
     note.updated_at = datetime.utcnow()
+    
+    # 🔥 CRITICAL FIX: Mark JSON field as modified for SQLAlchemy to detect changes
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(note, 'attachments')
     
     db.session.commit()
     
@@ -1928,6 +1945,7 @@ def upload_lead_attachment(lead_id):
         }), 201
         
     except Exception as e:
+        db.session.rollback()
         log.error(f"Error uploading attachment: {e}")
         # Clean up file if database insert failed
         if os.path.exists(file_path):
