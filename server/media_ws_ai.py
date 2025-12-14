@@ -2780,7 +2780,8 @@ Greet briefly. Then WAIT for customer to speak."""
                             _frames_sent += 1
                         except Exception as e:
                             print(f"⚠️ [HALF-DUPLEX] Failed to send preroll frame: {e}")
-                    _flush_preroll = False
+                    # CRITICAL: Reset flush flag immediately to prevent double-flush
+                    self._flush_preroll = False
                     _preroll_buffer.clear()  # Clear after flushing
                 
                 # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
@@ -4940,6 +4941,22 @@ Greet briefly. Then WAIT for customer to speak."""
                             # NOT CONFIRMED - Keep AI speaking
                             logger.info(f"[BARGE-IN] ❌ NOT CONFIRMED: {confirm_reason} text='{text[:40]}...'")
                             # Don't cancel AI - let it continue speaking
+                            
+                            # Reset barge-in candidate flags (not confirmed)
+                            if hasattr(self, '_barge_pending'):
+                                self._barge_pending = False
+                            if hasattr(self, '_flush_preroll'):
+                                self._flush_preroll = False
+                            logger.debug(f"[HALF-DUPLEX] Reset barge candidate flags (not confirmed)")
+                    
+                    # 🔥 GUARANTEED RESET: Always reset flags after transcription (confirmed or not)
+                    # This is the most reliable reset point - transcription.completed always fires
+                    if hasattr(self, '_barge_pending') and not ai_currently_speaking:
+                        # AI not speaking anymore - safe to reset
+                        self._barge_pending = False
+                        if hasattr(self, '_flush_preroll'):
+                            self._flush_preroll = False
+                        logger.debug(f"[HALF-DUPLEX] Reset flags - AI finished speaking")
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
@@ -7227,7 +7244,16 @@ Greet briefly. Then WAIT for customer to speak."""
                                         self._echo_gate_logged = True
                                     continue
                                 elif is_likely_real_speech:
-                                    # 5+ frames = real barge-in, let it through
+                                    # 🔥 LOCAL VAD: Candidate barge-in detected!
+                                    # This is the CRITICAL fix - detect barge-in via LOCAL VAD, not OpenAI events
+                                    if not hasattr(self, '_barge_pending') or not self._barge_pending:
+                                        # First time detecting candidate - set flags
+                                        self._barge_pending = True
+                                        self._flush_preroll = True
+                                        logger.info(f"🔶 [LOCAL VAD] Candidate barge-in: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
+                                        logger.info(f"[BARGE-IN] Audio forwarding enabled - waiting for STT confirmation...")
+                                    
+                                    # Log barge-in detection (once)
                                     if not hasattr(self, '_echo_barge_logged'):
                                         print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
                                         self._echo_barge_logged = True
