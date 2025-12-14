@@ -8053,10 +8053,16 @@ Greet briefly. Then WAIT for customer to speak."""
             # Barge-in flags
             if hasattr(self, '_barge_pending'):
                 self._barge_pending = False
+            if hasattr(self, '_barge_confirmed'):
+                self._barge_confirmed = False
             if hasattr(self, '_flush_preroll'):
                 self._flush_preroll = False
             self.barge_in_active = False
             self._barge_in_started_ts = None
+            if hasattr(self, '_barge_in_event_count'):
+                self._barge_in_event_count = 0
+            if hasattr(self, '_barge_in_debug_counter'):
+                self._barge_in_debug_counter = 0
             
             # STT/Turn flags
             if hasattr(self, '_candidate_user_speaking'):
