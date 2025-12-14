@@ -492,6 +492,27 @@ class LeadNote(db.Model):
         db.Index('idx_lead_notes_lead', 'lead_id', 'created_at'),
     )
 
+class LeadAttachment(db.Model):
+    """File attachments for leads - secure file storage with tenant isolation"""
+    __tablename__ = "lead_attachments"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_id = db.Column(db.Integer, db.ForeignKey("lead_notes.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    filename = db.Column(db.String(255), nullable=False)
+    content_type = db.Column(db.String(128), nullable=False)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    storage_key = db.Column(db.String(512), nullable=False)  # Path in storage (local or S3)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    
+    __table_args__ = (
+        db.Index('idx_lead_attachments_tenant_lead', 'tenant_id', 'lead_id'),
+    )
+
 class LeadMergeCandidate(db.Model):
     """Potential duplicate leads for merging"""
     __tablename__ = "lead_merge_candidates"

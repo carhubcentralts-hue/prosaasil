@@ -1886,11 +1886,16 @@ interface NotesTabProps {
 }
 
 interface NoteAttachment {
-  id: string;
-  type: 'image' | 'file';
-  name: string;
-  url: string;
-  size?: number;
+  id: string | number;
+  filename?: string;  // For new API format
+  name?: string;      // Legacy format
+  content_type?: string;
+  size_bytes?: number;
+  size?: number;      // Legacy format
+  download_url?: string;
+  url?: string;       // Legacy format
+  type?: 'image' | 'file';
+  created_at?: string;
 }
 
 interface LeadNoteItem {
@@ -1980,7 +1985,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, noteId?: number) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -1992,22 +1997,33 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       return;
     }
 
-    if (!noteId) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const attachment: NoteAttachment = {
-          id: `temp-${Date.now()}`,
-          type: file.type.startsWith('image/') ? 'image' : 'file',
-          name: file.name,
-          url: event.target?.result as string,
-          size: file.size
-        };
-        setNewNoteContent(prev => prev + `\n[קובץ מצורף: ${file.name}]`);
-      };
-      reader.readAsDataURL(file);
+    // Upload the file
+    setSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      
+      // Use request method directly to pass FormData
+      const response = await http.request<any>(`/api/leads/${lead.id}/attachments`, {
+        method: 'POST',
+        body: fd
+      });
+      
+      if (response && response.id) {
+        // Add attachment info to note content
+        const attachmentText = `\n[קובץ מצורף: ${response.filename}]`;
+        setNewNoteContent(prev => prev + attachmentText);
+        
+        // Show success feedback
+        alert(`הקובץ "${response.filename}" הועלה בהצלחה!`);
+      }
+    } catch (error) {
+      console.error('Failed to upload file:', error);
+      alert('שגיאה בהעלאת הקובץ');
+    } finally {
+      setSaving(false);
+      e.target.value = '';
     }
-    
-    e.target.value = '';
   };
 
   const startEditing = (note: LeadNoteItem) => {
@@ -2025,6 +2041,41 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getAttachmentUrl = (att: NoteAttachment) => {
+    return att.download_url || att.url || '';
+  };
+
+  const getAttachmentName = (att: NoteAttachment) => {
+    return att.filename || att.name || 'קובץ';
+  };
+
+  const getAttachmentSize = (att: NoteAttachment) => {
+    return att.size_bytes || att.size || 0;
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string | number, noteId: number) => {
+    if (!confirm('האם למחוק את הקובץ?')) return;
+    
+    try {
+      await http.delete(`/api/attachments/${attachmentId}`);
+      // Refresh notes to get updated attachments
+      await fetchNotes();
+      alert('הקובץ נמחק בהצלחה');
+    } catch (error) {
+      console.error('Failed to delete attachment:', error);
+      alert('שגיאה במחיקת הקובץ');
+    }
+  };
+
+  const getFileIcon = (contentType?: string) => {
+    if (!contentType) return File;
+    if (contentType.startsWith('image/')) return ImageIcon;
+    if (contentType.startsWith('audio/')) return FileText;
+    if (contentType.startsWith('video/')) return FileText;
+    if (contentType.includes('pdf')) return FileText;
+    return File;
   };
 
   return (
@@ -2155,20 +2206,41 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                   
                   {note.attachments && note.attachments.length > 0 && (
                     <div className="mt-3 pt-3 border-t">
+                      <p className="text-xs font-medium text-gray-500 mb-2">קבצים מצורפים:</p>
                       <div className="flex flex-wrap gap-2">
-                        {note.attachments.map((att) => (
-                          <a
-                            key={att.id}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-sm text-gray-600 hover:bg-gray-200"
-                          >
-                            <File className="w-3 h-3" />
-                            {att.name}
-                            {att.size && <span className="text-xs text-gray-400">({formatFileSize(att.size)})</span>}
-                          </a>
-                        ))}
+                        {note.attachments.map((att) => {
+                          const FileIconComponent = getFileIcon(att.content_type);
+                          const url = getAttachmentUrl(att);
+                          const name = getAttachmentName(att);
+                          const size = getAttachmentSize(att);
+                          
+                          return (
+                            <div
+                              key={att.id}
+                              className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors group"
+                            >
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 text-sm text-gray-700 hover:text-blue-600"
+                              >
+                                <FileIconComponent className="w-4 h-4 flex-shrink-0" />
+                                <span className="max-w-[150px] truncate">{name}</span>
+                                {size > 0 && (
+                                  <span className="text-xs text-gray-400">({formatFileSize(size)})</span>
+                                )}
+                              </a>
+                              <button
+                                onClick={() => handleDeleteAttachment(att.id, note.id)}
+                                className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:text-red-700 transition-opacity"
+                                title="מחק קובץ"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

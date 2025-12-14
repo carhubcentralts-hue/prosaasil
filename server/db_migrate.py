@@ -973,6 +973,38 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 37: Lead Attachments - Production-ready file uploads for leads
+    if not check_table_exists('lead_attachments'):
+        checkpoint("Migration 37: Creating lead_attachments table for secure file storage")
+        try:
+            db.session.execute(text("""
+                CREATE TABLE lead_attachments (
+                    id SERIAL PRIMARY KEY,
+                    tenant_id INTEGER NOT NULL REFERENCES business(id),
+                    lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                    note_id INTEGER REFERENCES lead_notes(id) ON DELETE SET NULL,
+                    filename VARCHAR(255) NOT NULL,
+                    content_type VARCHAR(128) NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    storage_key VARCHAR(512) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by INTEGER REFERENCES users(id)
+                )
+            """))
+            
+            # Create indexes for performance
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_tenant_lead ON lead_attachments(tenant_id, lead_id)"))
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_lead_id ON lead_attachments(lead_id)"))
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_note_id ON lead_attachments(note_id)"))
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_created_at ON lead_attachments(created_at)"))
+            
+            migrations_applied.append('create_lead_attachments_table')
+            log.info("✅ Applied migration 37: create_lead_attachments_table - Secure file upload support")
+        except Exception as e:
+            log.error(f"❌ Migration 37 failed: {e}")
+            db.session.rollback()
+            raise
+    
     checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()

@@ -2,14 +2,17 @@
 Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
-from flask import Blueprint, jsonify, request, session, g
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, User, Business, CallLog
+from flask import Blueprint, jsonify, request, session, g, send_file
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog
 from server.db import db
 from server.auth_api import require_api_auth
 from datetime import datetime, timezone
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
 import logging
+import os
+import uuid
+from werkzeug.utils import secure_filename
 
 # Import psycopg2 for database error handling
 try:
@@ -1620,12 +1623,28 @@ def get_lead_notes(lead_id):
         LeadNote.created_at.desc()
     ).all()
     
+    # Get all attachments for this lead
+    attachments_by_note = {}
+    all_attachments = LeadAttachment.query.filter_by(lead_id=lead_id, tenant_id=tenant_id).all()
+    for att in all_attachments:
+        note_id = att.note_id or 'unlinked'
+        if note_id not in attachments_by_note:
+            attachments_by_note[note_id] = []
+        attachments_by_note[note_id].append({
+            "id": att.id,
+            "filename": att.filename,
+            "content_type": att.content_type,
+            "size_bytes": att.size_bytes,
+            "download_url": f"/api/attachments/{att.id}/download",
+            "created_at": att.created_at.isoformat() if att.created_at else None
+        })
+    
     return jsonify({
         "success": True,
         "notes": [{
             "id": note.id,
             "content": note.content,
-            "attachments": note.attachments or [],
+            "attachments": attachments_by_note.get(note.id, []),
             "created_at": note.created_at.isoformat() if note.created_at else None,
             "updated_at": note.updated_at.isoformat() if note.updated_at else None
         } for note in notes]
@@ -1793,3 +1812,209 @@ def upload_note_attachment(lead_id, note_id):
         "success": True,
         "attachment": attachment
     })
+
+
+# ============================================================================
+# ATTACHMENT ENDPOINTS - Production-ready file uploads for leads
+# ============================================================================
+
+ALLOWED_EXTENSIONS = {
+    'pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp',  # Images & PDFs
+    'mp3', 'wav', 'ogg', 'm4a', 'aac',  # Audio
+    'mp4', 'avi', 'mov', 'webm',  # Video
+    'txt', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',  # Documents
+    'zip', 'rar', '7z'  # Archives
+}
+
+MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10MB
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def sanitize_filename(filename):
+    """Sanitize filename to prevent path traversal attacks"""
+    # Use werkzeug's secure_filename and add additional sanitization
+    safe_name = secure_filename(filename)
+    # Remove any remaining path separators
+    safe_name = safe_name.replace('/', '').replace('\\', '')
+    # Limit length
+    if len(safe_name) > 255:
+        name, ext = os.path.splitext(safe_name)
+        safe_name = name[:255-len(ext)] + ext
+    return safe_name
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/attachments", methods=["POST"])
+@require_api_auth()
+def upload_lead_attachment(lead_id):
+    """
+    Upload file attachment for a lead
+    - Validates tenant access
+    - Stores file in tenant-isolated directory
+    - Creates database record
+    - Returns attachment metadata with download URL
+    """
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Verify lead belongs to tenant
+    lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    
+    # Check file in request
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+    
+    # Validate file extension
+    if not allowed_file(file.filename):
+        return jsonify({"error": f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+    
+    # Check file size
+    file.seek(0, 2)  # Seek to end
+    size_bytes = file.tell()
+    file.seek(0)  # Reset to start
+    
+    if size_bytes > MAX_ATTACHMENT_SIZE:
+        return jsonify({"error": f"File too large. Maximum size is {MAX_ATTACHMENT_SIZE // (1024*1024)}MB"}), 400
+    
+    # Sanitize and generate unique filename
+    original_filename = sanitize_filename(file.filename)
+    file_ext = os.path.splitext(original_filename)[1]
+    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    
+    # Create tenant-isolated storage path
+    storage_dir = os.path.join(os.getcwd(), 'data', 'tenants', str(tenant_id), 'leads', str(lead_id))
+    os.makedirs(storage_dir, exist_ok=True)
+    
+    # Full file path
+    file_path = os.path.join(storage_dir, unique_filename)
+    storage_key = os.path.join('tenants', str(tenant_id), 'leads', str(lead_id), unique_filename)
+    
+    try:
+        # Save file
+        file.save(file_path)
+        
+        # Get current user
+        user = get_current_user()
+        user_id = user.get('id') if user else None
+        
+        # Create database record
+        attachment = LeadAttachment()
+        attachment.tenant_id = tenant_id
+        attachment.lead_id = lead_id
+        attachment.filename = original_filename
+        attachment.content_type = file.content_type or 'application/octet-stream'
+        attachment.size_bytes = size_bytes
+        attachment.storage_key = storage_key
+        attachment.created_by = user_id
+        
+        db.session.add(attachment)
+        db.session.commit()
+        
+        return jsonify({
+            "id": attachment.id,
+            "filename": attachment.filename,
+            "content_type": attachment.content_type,
+            "size_bytes": attachment.size_bytes,
+            "download_url": f"/api/attachments/{attachment.id}/download",
+            "created_at": attachment.created_at.isoformat() if attachment.created_at else None
+        }), 201
+        
+    except Exception as e:
+        log.error(f"Error uploading attachment: {e}")
+        # Clean up file if database insert failed
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
+        return jsonify({"error": "Failed to upload file"}), 500
+
+
+@leads_bp.route("/api/attachments/<int:attachment_id>/download", methods=["GET"])
+@require_api_auth()
+def download_attachment(attachment_id):
+    """
+    Download or preview an attachment
+    - Validates tenant access
+    - Supports both inline (preview) and attachment (download) modes
+    - Query param ?download=1 forces download
+    """
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Get attachment and verify tenant access
+    attachment = LeadAttachment.query.filter_by(id=attachment_id, tenant_id=tenant_id).first()
+    if not attachment:
+        return jsonify({"error": "Attachment not found or access denied"}), 404
+    
+    # Build file path
+    file_path = os.path.join(os.getcwd(), 'data', attachment.storage_key)
+    
+    # Check if file exists
+    if not os.path.exists(file_path):
+        log.error(f"Attachment file not found: {file_path}")
+        return jsonify({"error": "File not found on server"}), 404
+    
+    # Determine if download or inline
+    as_attachment = request.args.get('download', '0') == '1'
+    
+    try:
+        return send_file(
+            file_path,
+            mimetype=attachment.content_type,
+            as_attachment=as_attachment,
+            download_name=attachment.filename
+        )
+    except Exception as e:
+        log.error(f"Error serving attachment {attachment_id}: {e}")
+        return jsonify({"error": "Failed to serve file"}), 500
+
+
+@leads_bp.route("/api/attachments/<int:attachment_id>", methods=["DELETE"])
+@require_api_auth()
+def delete_attachment(attachment_id):
+    """
+    Delete an attachment
+    - Removes from database
+    - Removes file from storage
+    - Validates tenant access
+    """
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Get attachment and verify tenant access
+    attachment = LeadAttachment.query.filter_by(id=attachment_id, tenant_id=tenant_id).first()
+    if not attachment:
+        return jsonify({"error": "Attachment not found or access denied"}), 404
+    
+    # Build file path
+    file_path = os.path.join(os.getcwd(), 'data', attachment.storage_key)
+    
+    # Delete file from storage
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            log.info(f"Deleted attachment file: {file_path}")
+        except Exception as e:
+            log.error(f"Error deleting file {file_path}: {e}")
+            # Continue with DB deletion even if file deletion fails
+    
+    # Delete from database
+    try:
+        db.session.delete(attachment)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Attachment deleted successfully"})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error deleting attachment from database: {e}")
+        return jsonify({"error": "Failed to delete attachment"}), 500
