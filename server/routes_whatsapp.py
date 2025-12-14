@@ -1806,8 +1806,22 @@ def create_broadcast():
         
         log.info(f"✅ Created broadcast campaign {broadcast.id} with {len(recipients)} recipients")
         
-        # TODO: Trigger background worker to process the broadcast
-        # For now, just mark as pending and let a worker pick it up
+        # Trigger background worker to process the broadcast
+        try:
+            import threading
+            from server.services.broadcast_worker import process_broadcast
+            
+            # Run in background thread
+            thread = threading.Thread(
+                target=process_broadcast,
+                args=(broadcast.id,),
+                daemon=True
+            )
+            thread.start()
+            log.info(f"🚀 Started broadcast worker for campaign {broadcast.id}")
+        except Exception as worker_err:
+            log.error(f"Failed to start broadcast worker: {worker_err}")
+            # Don't fail the request - campaign is created, worker can be triggered manually
         
         return jsonify({
             'success': True,
