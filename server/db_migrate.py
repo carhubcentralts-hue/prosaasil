@@ -939,11 +939,12 @@ def apply_migrations():
             """))
             
             # Backfill last_call_direction from call_log table
-            # This updates leads based on the most recent call direction
+            # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
+            # This determines the lead's origin (inbound vs outbound)
             checkpoint("Backfilling last_call_direction from call_log...")
             if check_table_exists('call_log'):
                 backfill_result = db.session.execute(text("""
-                    WITH latest_calls AS (
+                    WITH first_calls AS (
                         SELECT DISTINCT ON (cl.lead_id) 
                             cl.lead_id,
                             cl.direction,
@@ -951,16 +952,17 @@ def apply_migrations():
                         FROM call_log cl
                         WHERE cl.lead_id IS NOT NULL 
                           AND cl.direction IS NOT NULL
-                        ORDER BY cl.lead_id, cl.created_at DESC
+                          AND cl.direction IN ('inbound', 'outbound')
+                        ORDER BY cl.lead_id, cl.created_at ASC
                     )
                     UPDATE leads l
-                    SET last_call_direction = lc.direction
-                    FROM latest_calls lc
-                    WHERE l.id = lc.lead_id
+                    SET last_call_direction = fc.direction
+                    FROM first_calls fc
+                    WHERE l.id = fc.lead_id
                       AND (l.last_call_direction IS NULL OR l.last_call_direction = '')
                 """))
                 rows_updated = backfill_result.rowcount
-                checkpoint(f"✅ Backfilled last_call_direction for {rows_updated} leads")
+                checkpoint(f"✅ Backfilled last_call_direction for {rows_updated} leads (using FIRST call direction)")
             
             migrations_applied.append("add_leads_last_call_direction")
             log.info("✅ Applied migration 36: add_leads_last_call_direction - Inbound/outbound filtering support")

@@ -371,7 +371,8 @@ class Lead(db.Model):
     whatsapp_last_summary_at = db.Column(db.DateTime)  # When summary was created
     
     # Call direction tracking for filtering (inbound/outbound)
-    last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - updated on each call
+    # 🔒 IMPORTANT: Set ONCE on first interaction, never overridden by subsequent calls
+    last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - set on first call only
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
