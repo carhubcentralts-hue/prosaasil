@@ -112,8 +112,7 @@ export function InboundCallsPage() {
       console.error('❌ Failed to update lead status:', err);
     },
     onSuccess: () => {
-      // Refetch to sync with server
-      queryClient.invalidateQueries({ queryKey: ['/api/leads', 'inbound'] });
+      // Refetch to sync with server - invalidate all leads queries
       queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
     },
   });

@@ -366,9 +366,7 @@ export function OutboundCallsPage() {
     },
     onSuccess: (data, variables) => {
       console.log(`[OutboundCallsPage] ✅ Status updated for lead ${variables.leadId}`);
-      // Refetch to sync with server
-      queryClient.invalidateQueries({ queryKey: ['/api/leads', 'system'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/leads', 'active-outbound'] });
+      // Refetch to sync with server - invalidate all leads queries
       queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
     },
   });
