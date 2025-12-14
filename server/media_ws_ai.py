@@ -2,7 +2,7 @@
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, struct
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -2780,10 +2780,6 @@ Greet briefly. Then WAIT for customer to speak."""
         ═══════════════════════════════════════════════════════════════════════
         """
         print(f"[PIPELINE] LIVE AUDIO PIPELINE ACTIVE: Twilio → realtime_audio_in_queue → send_audio_chunk (single path)")
-        
-        # Import modules needed for local VAD processing
-        import base64
-        import struct
         
         # 🛡️ BUILD 168.5: Track if we've logged the greeting block message
         _greeting_block_logged = False
