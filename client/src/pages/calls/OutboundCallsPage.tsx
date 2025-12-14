@@ -23,16 +23,7 @@ import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
-
-interface Lead {
-  id: number;
-  full_name: string;
-  phone_e164: string;
-  status: string;
-  summary?: string;
-  last_contact_at?: string;
-  created_at: string;
-}
+import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
 
 interface LeadStatus {
   name: string;
@@ -211,13 +202,23 @@ export function OutboundCallsPage() {
   const importLimit = importedLeadsData?.limit || 5000;
 
   // Convert imported leads to Lead format for display in Kanban/List views
+  // ✅ Robust conversion that handles all field mappings properly
   const importedLeadsAsLeads: Lead[] = importedLeads.map((imported) => ({
     id: imported.id,
+    tenant_id: 0,  // Not needed for display
     full_name: imported.name,
+    name: imported.name,
+    first_name: imported.name.split(' ')[0] || '',
+    last_name: imported.name.split(' ').slice(1).join(' ') || '',
     phone_e164: imported.phone,
+    phone: imported.phone,
+    display_phone: imported.phone,
     status: imported.status || 'new',
+    source: 'phone' as const,  // Imported leads are phone leads
     summary: imported.notes || undefined,
+    notes: imported.notes || undefined,
     created_at: imported.created_at || new Date().toISOString(),
+    updated_at: imported.created_at || new Date().toISOString(),
     last_contact_at: undefined,
   }));
 
@@ -952,8 +953,8 @@ export function OutboundCallsPage() {
                     leads={importedLeadsAsLeads}
                     statuses={statuses}
                     loading={importedLoading}
-                    selectedLeadIds={new Set()} // No selection in Kanban for imported
-                    onLeadSelect={() => {}} // No selection in Kanban for imported
+                    selectedLeadIds={new Set(selectedImportedLeads)}
+                    onLeadSelect={(leadId) => handleToggleImportedLead(leadId)}
                     onLeadClick={handleLeadClick}
                     onStatusChange={handleStatusChange}
                   />
