@@ -186,8 +186,8 @@ export function MultiStatusSelect({
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => {}}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      readOnly
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none"
                     />
                     <span 
                       className="w-3 h-3 rounded-full flex-shrink-0" 

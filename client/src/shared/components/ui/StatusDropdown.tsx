@@ -52,7 +52,7 @@ export function StatusDropdown({
       const shouldFlip = spaceBelow < dropdownHeight && spaceAbove > spaceBelow;
       
       setPosition({
-        top: shouldFlip ? rect.top - 8 : rect.bottom + 8, // 8px gap
+        top: shouldFlip ? rect.top - dropdownHeight - 8 : rect.bottom + 8, // 8px gap, account for dropdown height when flipping
         left: rect.left,
         width: rect.width < 180 ? 180 : rect.width, // Minimum 180px
       });

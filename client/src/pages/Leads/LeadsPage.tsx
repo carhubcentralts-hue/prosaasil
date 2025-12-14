@@ -193,7 +193,6 @@ export default function LeadsPage() {
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
     // ✅ BUILD 170: Optimistic update - immediately update UI without waiting for server
-    setEditingStatus(null);
     
     // Find the old status for potential rollback
     const oldLead = leads.find(l => l.id === leadId);
