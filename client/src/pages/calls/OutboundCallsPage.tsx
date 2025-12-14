@@ -322,12 +322,54 @@ export function OutboundCallsPage() {
       console.log(`[OutboundCallsPage] Updating lead ${leadId} status to ${newStatus}`);
       return await http.patch(`/api/leads/${leadId}/status`, { status: newStatus });
     },
+    onMutate: async ({ leadId, newStatus }) => {
+      // Cancel outgoing queries to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ['/api/leads'] });
+      
+      // Snapshot previous values for rollback
+      const previousSystemLeads = queryClient.getQueryData(['/api/leads', 'system', searchQuery, selectedStatuses]);
+      const previousActiveLeads = queryClient.getQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses]);
+      
+      // Optimistically update system leads
+      queryClient.setQueryData(['/api/leads', 'system', searchQuery, selectedStatuses], (old: any) => {
+        if (!old?.leads) return old;
+        return {
+          ...old,
+          leads: old.leads.map((lead: any) =>
+            lead.id === leadId ? { ...lead, status: newStatus } : lead
+          ),
+        };
+      });
+      
+      // Optimistically update active outbound leads
+      queryClient.setQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses], (old: any) => {
+        if (!old?.leads) return old;
+        return {
+          ...old,
+          leads: old.leads.map((lead: any) =>
+            lead.id === leadId ? { ...lead, status: newStatus } : lead
+          ),
+        };
+      });
+      
+      return { previousSystemLeads, previousActiveLeads };
+    },
+    onError: (error, variables, context) => {
+      // Rollback on error
+      if (context?.previousSystemLeads) {
+        queryClient.setQueryData(['/api/leads', 'system', searchQuery, selectedStatuses], context.previousSystemLeads);
+      }
+      if (context?.previousActiveLeads) {
+        queryClient.setQueryData(['/api/leads', 'active-outbound', searchQuery, selectedStatuses], context.previousActiveLeads);
+      }
+      console.error(`[OutboundCallsPage] ❌ Failed to update status for lead ${variables.leadId}:`, error);
+    },
     onSuccess: (data, variables) => {
       console.log(`[OutboundCallsPage] ✅ Status updated for lead ${variables.leadId}`);
+      // Refetch to sync with server
+      queryClient.invalidateQueries({ queryKey: ['/api/leads', 'system'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/leads', 'active-outbound'] });
       queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
-    },
-    onError: (error, variables) => {
-      console.error(`[OutboundCallsPage] ❌ Failed to update status for lead ${variables.leadId}:`, error);
     },
   });
 

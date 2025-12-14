@@ -51,6 +51,7 @@ export function LeadKanbanView({
 }: LeadKanbanViewProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -101,7 +102,7 @@ export function LeadKanbanView({
     setActiveId(null);
     setIsDragging(false);
 
-    if (!over) return;
+    if (!over || isUpdating) return;
 
     const leadId = active.id as number;
     const newStatusIdentifier = over.id; // This should be status.name (string)
@@ -125,10 +126,17 @@ export function LeadKanbanView({
       return;
     }
 
-    console.log('🔵 Kanban drag:', { leadId, from: currentStatus, to: newStatusName, type: typeof newStatusName });
-    
-    // Call the parent's status change handler (optimistic update handled there)
-    await onStatusChange(leadId, newStatusName);
+    try {
+      setIsUpdating(true);
+      console.log(`🔵 LeadKanban: Moving lead ${leadId} from ${currentStatus} to ${newStatusName}`);
+      // Call the parent's status change handler (optimistic update handled there)
+      await onStatusChange(leadId, newStatusName);
+      console.log(`✅ LeadKanban: Successfully moved lead ${leadId} to ${newStatusName}`);
+    } catch (error) {
+      console.error(`❌ LeadKanban: Failed to move lead ${leadId}:`, error);
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   if (loading && leads.length === 0) {
