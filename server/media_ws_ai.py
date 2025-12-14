@@ -1068,6 +1068,11 @@ ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (e
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
 ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
 
+# 🔥 BUILD 341: Minimum transcription length to mark user_has_spoken
+# Requirement: At least 2 characters after cleanup (not just whitespace/single char)
+# This prevents state progression on meaningless single-character transcriptions
+MIN_TRANSCRIPTION_LENGTH = 2
+
 # 🔥 SIMPLE_MODE: Early user_has_spoken detection threshold
 # 1.5x multiplier provides confident speech detection: 
 # - Below 1x: Too sensitive, may trigger on noise
@@ -2727,11 +2732,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     _fps_window_start = current_time
                     _fps_throttle_logged = False
                 
-                # 🔥 BUILD 341: FPS LIMITER FIX - Changed >= to > to not drop the 70th frame
-                # Bug: Was dropping frames when exactly at limit (50th, 60th, 70th frame)
-                # This caused audio quality issues even when within budget
-                if COST_EFFICIENT_MODE and _fps_frame_count > COST_MAX_FPS:
-                    # Skip this frame - we're over the limit
+                # 🔥 BUILD 341: FPS LIMITER FIX - Changed to >= to drop at exactly the limit
+                # Allow frames 1-70 (when _fps_frame_count is 0-69 before increment)
+                # Drop frame 71+ (when _fps_frame_count is 70+ before increment)
+                if COST_EFFICIENT_MODE and _fps_frame_count >= COST_MAX_FPS:
+                    # Skip this frame - we're at or over the limit
                     if not _fps_throttle_logged:
                         print(f"💰 [FPS LIMIT] Throttling audio - {_fps_frame_count} frames this second (max={COST_MAX_FPS})")
                         _fps_throttle_logged = True
@@ -4738,13 +4743,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🔥 BUILD 341: Set user_has_spoken ONLY after validated transcription with meaningful text
                     # This ensures all guards pass before we mark user as having spoken
-                    # Minimum requirement: At least 2 characters after cleanup (not just whitespace/single char)
-                    if not self.user_has_spoken and text and len(text.strip()) >= 2:
+                    # Minimum requirement: At least MIN_TRANSCRIPTION_LENGTH characters after cleanup
+                    if not self.user_has_spoken and text and len(text.strip()) >= MIN_TRANSCRIPTION_LENGTH:
                         self.user_has_spoken = True
                         print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...', len={len(text.strip())})")
                     elif not self.user_has_spoken and text:
                         # Log when we get text but it's too short to count
-                        print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >=2): '{text}'")
+                        print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call

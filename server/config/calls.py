@@ -25,10 +25,12 @@ SIMPLE_MODE = AUDIO_CONFIG["simple_mode"]  # All audio passes through - OpenAI h
 # COST OPTIMIZATION
 # 🔥 BUILD 341: AUDIO QUALITY FIX - Increased FPS limit to handle jitter
 # Phone audio = 8kHz @ 20ms frames = 50 FPS nominal, but jitter can cause bursts
-# 70 FPS allows headroom to absorb timing variations without dropping frames
+# 70 FPS = 40% headroom above nominal (allows ±20% timing variation)
+# Calculation: 50 FPS * 1.4 = 70 FPS (handles worst-case burst scenarios)
+# This prevents frame drops during normal operation while maintaining cost control
 COST_EFFICIENT_MODE = True   # Enabled with higher limit to handle jitter
 COST_MIN_RMS_THRESHOLD = 0   # No RMS gating - all audio passes through
-COST_MAX_FPS = 70            # 70 FPS = headroom for jitter (was 50)
+COST_MAX_FPS = 70            # 70 FPS = 40% headroom for jitter (was 50)
 
 # 🔥 BUILD 335: EXTENDED LIMITS - Allow up to 10 minutes for complex bookings!
 # Only disconnect if customer asks or truly needs to hang up.
