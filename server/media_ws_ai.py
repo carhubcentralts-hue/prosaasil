@@ -3866,6 +3866,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._barge_confirmed = False
                     if hasattr(self, '_flush_preroll'):
                         self._flush_preroll = False
+                    # Reset local VAD counters after user turn
+                    if hasattr(self, '_local_vad_voice_frames'):
+                        self._local_vad_voice_frames = 0
+                    if hasattr(self, '_local_vad_silence_frames'):
+                        self._local_vad_silence_frames = 0
                     logger.debug(f"[HALF-DUPLEX] Reset barge states after user turn")
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
@@ -8171,6 +8176,12 @@ Greet briefly. Then WAIT for customer to speak."""
                 self._barge_in_event_count = 0
             if hasattr(self, '_barge_in_debug_counter'):
                 self._barge_in_debug_counter = 0
+            
+            # Local VAD counters
+            if hasattr(self, '_local_vad_voice_frames'):
+                self._local_vad_voice_frames = 0
+            if hasattr(self, '_local_vad_silence_frames'):
+                self._local_vad_silence_frames = 0
             
             # STT/Turn flags
             if hasattr(self, '_candidate_user_speaking'):
