@@ -5,7 +5,7 @@ Supports multi-tenant with business_id filtering
 from flask import Blueprint, request, jsonify, session
 from server.auth_api import require_api_auth
 from server.db import db
-from server.models_sql import Lead, Call, WhatsAppThread, User, Business
+from server.models_sql import Lead, CallLog, WhatsAppConversation, User, Business
 from sqlalchemy import or_, and_, func
 from datetime import datetime
 import logging
@@ -121,14 +121,14 @@ def global_search():
         if 'calls' in search_types:
             try:
                 # Search by phone number or call SID
-                calls_query = Call.query.filter(
-                    Call.business_id == business_id,
+                calls_query = CallLog.query.filter(
+                    CallLog.business_id == business_id,
                     or_(
-                        Call.from_number.ilike(f'%{query}%'),
-                        Call.to_number.ilike(f'%{query}%'),
-                        Call.call_sid.ilike(f'%{query}%')
+                        CallLog.from_number.ilike(f'%{query}%'),
+                        CallLog.to_number.ilike(f'%{query}%'),
+                        CallLog.call_sid.ilike(f'%{query}%')
                     )
-                ).order_by(Call.start_time.desc()).limit(limit)
+                ).order_by(CallLog.created_at.desc()).limit(limit)
                 
                 for call in calls_query.all():
                     # Get lead info if exists
@@ -149,43 +149,42 @@ def global_search():
                             'direction': call.direction,
                             'duration': call.duration,
                             'status': call.status,
-                            'start_time': call.start_time.isoformat() if call.start_time else None,
+                            'created_at': call.created_at.isoformat() if call.created_at else None,
                             'lead_id': call.lead_id
                         }
                     })
             except Exception as e:
                 log.error(f"Error searching calls: {e}")
         
-        # Search in WhatsApp Threads
+        # Search in WhatsApp Conversations
         if 'whatsapp' in search_types:
             try:
-                # Search by phone or peer name
-                threads_query = WhatsAppThread.query.filter(
-                    WhatsAppThread.business_id == business_id,
+                # Search by phone or customer name
+                conversations_query = WhatsAppConversation.query.filter(
+                    WhatsAppConversation.business_id == business_id,
                     or_(
-                        WhatsAppThread.phone_e164.ilike(f'%{query}%'),
-                        WhatsAppThread.peer_name.ilike(f'%{query}%')
+                        WhatsAppConversation.customer_number.ilike(f'%{query}%'),
+                        WhatsAppConversation.customer_name.ilike(f'%{query}%')
                     )
-                ).order_by(WhatsAppThread.last_activity.desc()).limit(limit)
+                ).order_by(WhatsAppConversation.last_message_at.desc()).limit(limit)
                 
-                for thread in threads_query.all():
+                for conversation in conversations_query.all():
                     results['whatsapp'].append({
-                        'id': thread.id,
+                        'id': conversation.id,
                         'type': 'whatsapp',
-                        'title': f"WhatsApp - {thread.peer_name or thread.phone_e164}",
-                        'subtitle': thread.phone_e164,
-                        'description': f"הודעות: {thread.message_count or 0}",
+                        'title': f"WhatsApp - {conversation.customer_name or conversation.customer_number}",
+                        'subtitle': conversation.customer_number,
+                        'description': f"סטטוס: {'פתוח' if conversation.is_open else 'סגור'}",
                         'metadata': {
-                            'phone': thread.phone_e164,
-                            'peer_name': thread.peer_name,
-                            'message_count': thread.message_count,
-                            'unread_count': thread.unread_count or 0,
-                            'last_activity': thread.last_activity.isoformat() if thread.last_activity else None,
-                            'is_closed': thread.is_closed
+                            'phone': conversation.customer_number,
+                            'customer_name': conversation.customer_name,
+                            'last_activity': conversation.last_message_at.isoformat() if conversation.last_message_at else None,
+                            'is_open': conversation.is_open,
+                            'lead_id': conversation.lead_id
                         }
                     })
             except Exception as e:
-                log.error(f"Error searching WhatsApp threads: {e}")
+                log.error(f"Error searching WhatsApp conversations: {e}")
         
         # Search in Contacts/Users (optional - for internal team search)
         if 'contacts' in search_types:
