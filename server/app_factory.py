@@ -352,7 +352,64 @@ def create_app():
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     )
     
-    # UI Blueprint registration (לפי ההנחיות) - MUST BE FIRST!
+    # ⚡ CRITICAL FIX: Register essential API blueprints FIRST (before all other blueprints)
+    # This ensures dashboard, business, notifications, etc. work even if other blueprints fail
+    # If these fail to register, app CRASHES (fail-fast) instead of running without API
+    try:
+        # Health endpoints - MUST be registered FIRST for monitoring
+        from server.health_endpoints import health_bp
+        app.register_blueprint(health_bp)
+        app.logger.info("✅ Health endpoints registered")
+        
+        # API Adapter - Dashboard, stats, activity endpoints
+        from server.api_adapter import api_adapter_bp
+        app.register_blueprint(api_adapter_bp)
+        app.logger.info("✅ API Adapter blueprint registered (dashboard endpoints)")
+        
+        # Admin endpoints - /api/admin/businesses, etc.
+        from server.routes_admin import admin_bp
+        app.register_blueprint(admin_bp)
+        app.logger.info("✅ Admin blueprint registered")
+        
+        # Business management - /api/business/current, settings, FAQs
+        from server.routes_business_management import biz_mgmt_bp
+        app.register_blueprint(biz_mgmt_bp)
+        app.logger.info("✅ Business management blueprint registered")
+        
+        # Leads - /api/leads, /api/notifications
+        from server.routes_leads import leads_bp
+        app.register_blueprint(leads_bp)
+        app.logger.info("✅ Leads blueprint registered")
+        
+        # Search - /api/search
+        from server.routes_search import search_api
+        app.register_blueprint(search_api)
+        app.logger.info("✅ Search blueprint registered")
+        
+        # CRM - /api/crm/threads
+        from server.routes_crm import crm_bp
+        app.register_blueprint(crm_bp)
+        app.logger.info("✅ CRM blueprint registered")
+        
+        # Status management - /api/statuses
+        from server.routes_status_management import status_management_bp
+        app.register_blueprint(status_management_bp)
+        app.logger.info("✅ Status management blueprint registered")
+        
+        # WhatsApp - /api/whatsapp/*
+        from server.routes_whatsapp import whatsapp_bp, internal_whatsapp_bp
+        app.register_blueprint(whatsapp_bp)
+        app.register_blueprint(internal_whatsapp_bp)
+        app.logger.info("✅ WhatsApp blueprints registered")
+        
+    except Exception as e:
+        app.logger.error(f"❌ CRITICAL: Failed to register essential API blueprints: {e}")
+        import traceback
+        traceback.print_exc()
+        # Re-raise to prevent app from starting with broken API
+        raise RuntimeError(f"Essential API blueprints failed to register: {e}")
+    
+    # UI Blueprint registration (לפי ההנחיות)
     try:
         from server.ui.routes import ui_bp
         # Removed routes_auth.py - using only auth_api.py for cleaner code
@@ -367,9 +424,7 @@ def create_app():
         from server.routes_ai_prompt import ai_prompt_bp
         app.register_blueprint(ai_prompt_bp)
         
-        # Status Management Blueprint - Custom Lead Statuses
-        from server.routes_status_management import status_management_bp
-        app.register_blueprint(status_management_bp)
+        # Note: Status Management Blueprint now registered earlier (before line 356)
         
         @app.before_request  
         def setup_security_context():
@@ -412,23 +467,17 @@ def create_app():
         # Register auth blueprint - single clean system
         app.register_blueprint(auth_api)
         
-        # Register new API blueprints
-        from server.routes_admin import admin_bp
-        from server.routes_crm import crm_bp
-        from server.routes_business_management import biz_mgmt_bp
+        # ⚡ NOTE: Critical API blueprints (admin, business, leads, search, crm, status, whatsapp, health, api_adapter)
+        # are now registered EARLIER in a separate try-except block (before line 356)
+        # This ensures they load even if other blueprints fail
+        
+        # Register additional API blueprints
         from server.routes_twilio import twilio_bp
         from server.routes_calendar import calendar_bp
-        from server.routes_leads import leads_bp
         from server.routes_user_management import user_mgmt_api
-        from server.routes_search import search_api
-        app.register_blueprint(admin_bp)
-        app.register_blueprint(crm_bp)
-        app.register_blueprint(biz_mgmt_bp)
         app.register_blueprint(twilio_bp)
         app.register_blueprint(calendar_bp)
-        app.register_blueprint(leads_bp)
         app.register_blueprint(user_mgmt_api)
-        app.register_blueprint(search_api)
         
         # Calls API for recordings and transcripts
         from server.routes_calls import calls_bp
@@ -442,10 +491,7 @@ def create_app():
         from server.routes_receipts_contracts import receipts_contracts_bp
         app.register_blueprint(receipts_contracts_bp)
         
-        # WhatsApp Canonical API (replaces all other WhatsApp routes)
-        from server.routes_whatsapp import whatsapp_bp, internal_whatsapp_bp
-        app.register_blueprint(whatsapp_bp)
-        app.register_blueprint(internal_whatsapp_bp)  # BUILD 151: Internal status webhook
+        # Note: WhatsApp blueprints now registered earlier (before line 356)
         
         # WhatsApp Webhook endpoints for Baileys service
         from server.routes_webhook import webhook_bp
@@ -479,15 +525,7 @@ def create_app():
         app.logger.info("New API blueprints registered")
         app.logger.info("Twilio webhooks registered")
         
-        # Register API Adapter Blueprint - Frontend Compatibility Layer
-        from server.api_adapter import api_adapter_bp
-        app.register_blueprint(api_adapter_bp)
-        app.logger.info("API Adapter blueprint registered")
-        
-        # Health endpoints - MUST be registered
-        from server.health_endpoints import health_bp
-        app.register_blueprint(health_bp)
-        app.logger.info("Health endpoints registered")
+        # Note: API Adapter and Health blueprints now registered earlier (before line 356)
         
         # data_api removed - כפילות
         

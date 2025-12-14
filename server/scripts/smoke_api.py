@@ -84,6 +84,13 @@ def run_smoke_tests(base_url: str = None) -> bool:
         ("/api/dashboard/stats?time_filter=today", [200, 401, 403], "Dashboard Stats"),
         ("/api/dashboard/activity?time_filter=today", [200, 401, 403], "Dashboard Activity"),
         
+        # Business endpoints - critical for settings
+        ("/api/business/current", [200, 401, 403], "Business Current"),
+        ("/api/business/current/prompt", [200, 401, 403], "Business Current Prompt"),
+        
+        # Search endpoint
+        ("/api/search?q=test", [200, 401, 403], "Global Search"),
+        
         # Leads endpoint - critical for core functionality
         ("/api/leads?page=1&pageSize=1", [200, 401, 403], "Leads List"),
         
