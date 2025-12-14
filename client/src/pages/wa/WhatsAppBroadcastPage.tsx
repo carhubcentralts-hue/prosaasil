@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Send, Users, MessageSquare, Filter, Upload, RefreshCw, CheckCircle, XCircle, Clock, AlertTriangle } from 'lucide-react';
 import { http } from '../../services/http';
-import { getStatusLabel } from '../../shared/utils/status';
 
 // UI Components
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
