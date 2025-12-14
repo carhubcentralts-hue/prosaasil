@@ -420,6 +420,7 @@ def create_app():
         from server.routes_calendar import calendar_bp
         from server.routes_leads import leads_bp
         from server.routes_user_management import user_mgmt_api
+        from server.routes_search import search_api
         app.register_blueprint(admin_bp)
         app.register_blueprint(crm_bp)
         app.register_blueprint(biz_mgmt_bp)
@@ -427,6 +428,7 @@ def create_app():
         app.register_blueprint(calendar_bp)
         app.register_blueprint(leads_bp)
         app.register_blueprint(user_mgmt_api)
+        app.register_blueprint(search_api)
         
         # Calls API for recordings and transcripts
         from server.routes_calls import calls_bp
