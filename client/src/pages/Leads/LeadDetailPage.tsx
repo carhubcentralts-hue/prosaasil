@@ -2085,6 +2085,40 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     return att.size_bytes || att.size || 0;
   };
 
+  const handleDownloadFile = async (url: string, filename: string, e?: React.MouseEvent) => {
+    // Prevent default link behavior
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    try {
+      // Fetch the file with proper auth
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to download file');
+      }
+      
+      // Create blob and download
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      alert('שגיאה בהורדת הקובץ');
+    }
+  };
+
   const handleDeleteAttachment = async (attachmentId: string | number, noteId: number) => {
     if (!confirm('האם למחוק את הקובץ?')) return;
     
@@ -2300,10 +2334,22 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                                   className="w-full h-10"
                                   preload="metadata"
                                   aria-label={`הקלטה: ${name}`}
+                                  onClick={(e) => e.stopPropagation()}
                                 >
                                   <source src={url} type={att.content_type} />
                                   הדפדפן שלך אינו תומך בנגן שמע.
                                 </audio>
+                                <div className="flex gap-2 mt-2">
+                                  <button
+                                    onClick={(e) => handleDownloadFile(url, name, e)}
+                                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    הורד
+                                  </button>
+                                </div>
                               </div>
                             );
                           }
@@ -2328,20 +2374,43 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </div>
-                                <a 
-                                  href={url} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  title="לחץ לפתיחת התמונה בחלון חדש"
-                                  aria-label={`פתח תמונה: ${name}`}
-                                >
+                                <div className="relative">
                                   <img 
                                     src={url} 
                                     alt={name}
-                                    className="max-w-full h-auto rounded border border-gray-300 hover:opacity-90 transition-opacity cursor-pointer"
+                                    className="max-w-full h-auto rounded border border-gray-300 cursor-pointer"
                                     style={{ maxHeight: '300px' }}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      window.open(url, '_blank', 'noopener,noreferrer');
+                                    }}
                                   />
-                                </a>
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        window.open(url, '_blank', 'noopener,noreferrer');
+                                      }}
+                                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                      </svg>
+                                      פתח
+                                    </button>
+                                    <button
+                                      onClick={(e) => handleDownloadFile(url, name, e)}
+                                      className="text-xs text-gray-600 hover:text-gray-700 flex items-center gap-1 px-2 py-1 bg-gray-50 hover:bg-gray-100 rounded"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                      </svg>
+                                      הורד
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
                             );
                           }
@@ -2350,27 +2419,46 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                           return (
                             <div
                               key={att.id}
-                              className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors group"
+                              className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg transition-colors group"
                             >
-                              <a
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-sm text-gray-700 hover:text-blue-600 flex-1"
-                              >
+                              <div className="flex items-center gap-2 text-sm text-gray-700 flex-1">
                                 <FileIconComponent className="w-4 h-4 flex-shrink-0" />
                                 <span className="max-w-[150px] truncate">{name}</span>
                                 {size > 0 && (
                                   <span className="text-xs text-gray-400">({formatFileSize(size)})</span>
                                 )}
-                              </a>
-                              <button
-                                onClick={() => handleDeleteAttachment(att.id, note.id)}
-                                className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:text-red-700 transition-opacity"
-                                title="מחק קובץ"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                              </div>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    window.open(url, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                                  title="פתח קובץ"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={(e) => handleDownloadFile(url, name, e)}
+                                  className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded transition-colors"
+                                  title="הורד קובץ"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteAttachment(att.id, note.id)}
+                                  className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:text-red-700 transition-opacity"
+                                  title="מחק קובץ"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
