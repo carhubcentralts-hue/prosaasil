@@ -28,6 +28,9 @@ export default function LeadsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
   const [selectedSource, setSelectedSource] = useState<LeadSource | 'all'>('all');
+  const [selectedDirection, setSelectedDirection] = useState<'all' | 'inbound' | 'outbound'>('all');
+  const [selectedOutboundList, setSelectedOutboundList] = useState<string>('all');
+  const [outboundLists, setOutboundLists] = useState<Array<{ id: number; name: string }>>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -55,22 +58,39 @@ export default function LeadsPage() {
   useEffect(() => {
     refreshStatuses();
   }, [refreshStatuses]);
+  
+  // Load outbound lists for filter
+  useEffect(() => {
+    const loadOutboundLists = async () => {
+      try {
+        const response = await http.get('/api/outbound/import-lists');
+        if (response && (response as any).lists) {
+          setOutboundLists((response as any).lists);
+        }
+      } catch (error) {
+        console.error('Error loading outbound lists:', error);
+      }
+    };
+    loadOutboundLists();
+  }, []);
 
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, selectedStatus, selectedSource, dateFrom, dateTo]);
+  }, [debouncedSearch, selectedStatus, selectedSource, selectedDirection, selectedOutboundList, dateFrom, dateTo]);
 
   // Memoize filters using debounced search to prevent excessive API calls
   const filters = useMemo(() => ({
     search: debouncedSearch,
     status: selectedStatus === 'all' ? undefined : selectedStatus,
     source: selectedSource === 'all' ? undefined : selectedSource,
+    direction: selectedDirection === 'all' ? undefined : selectedDirection,
+    outbound_list_id: selectedOutboundList === 'all' ? undefined : selectedOutboundList,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     page: currentPage,
     pageSize: PAGE_SIZE,
-  }), [debouncedSearch, selectedStatus, selectedSource, dateFrom, dateTo, currentPage]);
+  }), [debouncedSearch, selectedStatus, selectedSource, selectedDirection, selectedOutboundList, dateFrom, dateTo, currentPage]);
 
   const {
     leads,
@@ -389,6 +409,33 @@ export default function LeadsPage() {
               <SelectOption value="phone">טלפון</SelectOption>
               <SelectOption value="whatsapp">ווצאפ</SelectOption>
             </Select>
+            
+            <Select
+              value={selectedDirection}
+              onChange={(e) => setSelectedDirection(e.target.value as 'all' | 'inbound' | 'outbound')}
+              data-testid="select-direction-filter"
+              className="w-full sm:w-auto min-w-[140px]"
+            >
+              <SelectOption value="all">כל השיחות</SelectOption>
+              <SelectOption value="inbound">נכנסות</SelectOption>
+              <SelectOption value="outbound">יוצאות</SelectOption>
+            </Select>
+            
+            {outboundLists.length > 0 && (
+              <Select
+                value={selectedOutboundList}
+                onChange={(e) => setSelectedOutboundList(e.target.value)}
+                data-testid="select-outbound-list-filter"
+                className="w-full sm:w-auto min-w-[150px]"
+              >
+                <SelectOption value="all">כל רשימות היבוא</SelectOption>
+                {outboundLists.map(list => (
+                  <SelectOption key={list.id} value={list.id.toString()}>
+                    {list.name}
+                  </SelectOption>
+                ))}
+              </Select>
+            )}
             
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-gray-400" />

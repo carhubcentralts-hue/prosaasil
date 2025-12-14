@@ -25,7 +25,7 @@ const CalendarPage = lazy(() => import('../pages/Calendar/CalendarPage').then(m 
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 const LeadDetailPage = lazy(() => import('../pages/Leads/LeadDetailPage'));
 const WhatsAppPage = lazy(() => import('../pages/wa/WhatsAppPage').then(m => ({ default: m.WhatsAppPage })));
-const CallsPage = lazy(() => import('../pages/calls/CallsPage').then(m => ({ default: m.CallsPage })));
+const InboundCallsPage = lazy(() => import('../pages/calls/InboundCallsPage').then(m => ({ default: m.InboundCallsPage })));
 const OutboundCallsPage = lazy(() => import('../pages/calls/OutboundCallsPage').then(m => ({ default: m.OutboundCallsPage })));
 const CrmPage = lazy(() => import('../pages/crm/CrmPage').then(m => ({ default: m.CrmPage })));
 const BillingPage = lazy(() => import('../pages/billing/BillingPage').then(m => ({ default: m.BillingPage })));
@@ -186,12 +186,12 @@ export function AppRoutes() {
           }
         />
 
-        {/* Calls Routes */}
+        {/* Calls Routes - Inbound Calls (lead-centric view) */}
         <Route
           path="calls"
           element={
             <RoleGuard roles={['system_admin', 'owner', 'admin', 'agent']}>
-              <CallsPage />
+              <InboundCallsPage />
             </RoleGuard>
           }
         />

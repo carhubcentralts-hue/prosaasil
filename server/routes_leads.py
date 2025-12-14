@@ -230,6 +230,7 @@ def list_leads():
     source_filter = request.args.get('source', '')
     owner_filter = request.args.get('owner', '')
     outbound_list_id = request.args.get('outbound_list_id', '')
+    direction_filter = request.args.get('direction', '')  # inbound|outbound|all
     q_filter = request.args.get('q', '')  # Search query
     from_date = request.args.get('from', '')
     to_date = request.args.get('to', '')
@@ -254,6 +255,10 @@ def list_leads():
     
     if outbound_list_id:
         query = query.filter(Lead.outbound_list_id == int(outbound_list_id))
+    
+    if direction_filter and direction_filter != 'all':
+        # Filter by call direction (inbound/outbound)
+        query = query.filter(Lead.last_call_direction == direction_filter)
     
     if q_filter:
         # ✅ BUILD 170: Search only by name or phone number (partial match)
@@ -310,6 +315,7 @@ def list_leads():
             "source": normalize_source(lead.source),
             "owner_user_id": lead.owner_user_id,
             "outbound_list_id": lead.outbound_list_id,
+            "last_call_direction": lead.last_call_direction,
             "summary": lead.summary,
             "tags": lead.tags or [],
             "created_at": lead.created_at.isoformat() if lead.created_at else None,

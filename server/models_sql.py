@@ -370,6 +370,9 @@ class Lead(db.Model):
     whatsapp_last_summary = db.Column(db.Text)  # Latest WhatsApp conversation summary
     whatsapp_last_summary_at = db.Column(db.DateTime)  # When summary was created
     
+    # Call direction tracking for filtering (inbound/outbound)
+    last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - updated on each call
+    
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

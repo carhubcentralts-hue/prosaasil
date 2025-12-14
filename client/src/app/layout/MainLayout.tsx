@@ -49,7 +49,7 @@ const menuItems = [
   },
   { 
     icon: Phone, 
-    label: 'שיחות',
+    label: 'שיחות נכנסות',
     to: '/app/calls',
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
