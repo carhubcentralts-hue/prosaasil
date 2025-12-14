@@ -349,6 +349,16 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                 logger.info(f"[OFFLINE_STT] Trying model: {model}")
                 print(f"[OFFLINE_STT] Attempting transcription with {model_desc}")
                 
+                # 🔥 BUILD 342: Enhanced prompt with business vocabulary hints
+                # Include common Hebrew service terms and city names to improve accuracy
+                business_vocabulary_prompt = (
+                    "תמלל מילה במילה שיחת טלפון בעברית בין לקוח לנציג שירות. "
+                    "תכתוב בעברית תקנית עם פיסוק. "
+                    "השיחה עוסקת בבקשת שירות (למשל: פורץ מנעולים, חשמלאי, אינסטלטור, נקיון) "
+                    "ומיקום (ערים בישראל כמו: תל אביב, ירושלים, חיפה, באר שבע, בית שאן, מצפה רמון). "
+                    "אל תוסיף או תמציא מידע שלא נאמר."
+                )
+                
                 with open(audio_file_path, 'rb') as audio_file:
                     transcript_response = client.audio.transcriptions.create(
                         model=model,
@@ -356,11 +366,7 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                         language="he",  # Hebrew
                         temperature=0,  # Most deterministic/accurate
                         response_format="text",  # Plain text output
-                        # Improved prompt for better context
-                        prompt=(
-                            "תמלל מילה במילה שיחת טלפון בעברית בין לקוח לנציג. "
-                            "תכתוב בעברית תקנית עם פיסוק, בלי להוסיף או להמציא מידע."
-                        )
+                        prompt=business_vocabulary_prompt
                     )
                 
                 # Extract text

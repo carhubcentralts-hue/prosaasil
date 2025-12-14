@@ -112,8 +112,13 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
 
 def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str, call_sid: str) -> Optional[bytes]:
     """
-    ✅ הורדת הקלטה מטוויליו - EXACT SAME LOGIC AS UI
-    מנסה מספר פורמטים: base URL, .mp3, .wav
+    ✅ BUILD 342: Download recording in best quality format
+    Priority: Dual-channel WAV > Mono WAV > MP3
+    
+    Dual-channel provides:
+    - Separate tracks for customer/bot (cleaner transcription)
+    - Less TTS "bleeding" into customer transcript
+    - Higher quality audio (WAV > MP3)
     
     Args:
         recording_url: URL from CallLog.recording_url
@@ -134,20 +139,23 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
         if not base_url.startswith("http"):
             base_url = f"https://api.twilio.com{base_url}"
         
-        # Try multiple formats - EXACT same as routes_calls.py
+        # 🔥 BUILD 342: Try best quality first - Dual-channel WAV > Mono WAV > MP3
+        # RequestedChannels=2 gives separate tracks for customer/bot (when available)
         urls_to_try = [
-            base_url,  # No extension - Twilio's default format
-            f"{base_url}.mp3",
-            f"{base_url}.wav",
+            (f"{base_url}.wav?RequestedChannels=2", "Dual-channel WAV (best quality)"),
+            (f"{base_url}.wav", "Mono WAV (high quality)"),
+            (f"{base_url}.mp3", "MP3 (fallback)"),
+            (base_url, "Default format (last resort)"),
         ]
         
         auth = (account_sid, auth_token)
         last_error = None
         
-        for attempt, try_url in enumerate(urls_to_try, 1):
+        for attempt, (try_url, format_desc) in enumerate(urls_to_try, 1):
             try:
-                log.info(f"[RECORDING_SERVICE] Trying URL format {attempt}/{len(urls_to_try)}: {try_url[:80]}...")
-                print(f"[RECORDING_SERVICE] Trying URL format {attempt}/{len(urls_to_try)}")
+                log.info(f"[RECORDING_SERVICE] Trying format {attempt}/{len(urls_to_try)}: {format_desc}")
+                log.info(f"[RECORDING_SERVICE] URL: {try_url[:80]}...")
+                print(f"[RECORDING_SERVICE] Trying {format_desc}")
                 
                 response = requests.get(try_url, auth=auth, timeout=30)
                 
@@ -164,8 +172,8 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
                 
                 # Success!
                 if response.status_code == 200 and len(response.content) > 1000:
-                    log.info(f"[RECORDING_SERVICE] ✅ Successfully downloaded {len(response.content)} bytes")
-                    print(f"[RECORDING_SERVICE] ✅ Successfully downloaded {len(response.content)} bytes")
+                    log.info(f"[RECORDING_SERVICE] ✅ Successfully downloaded {len(response.content)} bytes using {format_desc}")
+                    print(f"[RECORDING_SERVICE] ✅ Downloaded {len(response.content)} bytes using {format_desc}")
                     return response.content
                 else:
                     log.warning(f"[RECORDING_SERVICE] URL returned {response.status_code} or too small ({len(response.content)} bytes)")
