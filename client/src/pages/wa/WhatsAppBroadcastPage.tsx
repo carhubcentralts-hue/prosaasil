@@ -185,12 +185,14 @@ export function WhatsAppBroadcastPage() {
       params.append('page', '1');
       params.append('pageSize', '1000'); // Get all leads
       
+      // Add multiple statuses using statuses[] parameter (backend expects this format)
       if (selectedStatuses.length > 0) {
-        // Add each status as a separate parameter
         selectedStatuses.forEach(status => {
-          params.append('status', status);
+          params.append('statuses[]', status);
         });
       }
+      
+      // Add search query using 'q' parameter (backend uses this)
       if (leadSearchTerm.trim()) {
         params.append('q', leadSearchTerm.trim());
       }

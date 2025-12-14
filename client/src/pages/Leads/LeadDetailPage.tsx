@@ -2246,6 +2246,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                                   controls 
                                   className="w-full h-10"
                                   preload="metadata"
+                                  aria-label={`הקלטה: ${name}`}
                                 >
                                   <source src={url} type={att.content_type} />
                                   הדפדפן שלך אינו תומך בנגן שמע.
@@ -2274,7 +2275,13 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                                     <Trash2 className="w-3 h-3" />
                                   </button>
                                 </div>
-                                <a href={url} target="_blank" rel="noopener noreferrer">
+                                <a 
+                                  href={url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  title="לחץ לפתיחת התמונה בחלון חדש"
+                                  aria-label={`פתח תמונה: ${name}`}
+                                >
                                   <img 
                                     src={url} 
                                     alt={name}
