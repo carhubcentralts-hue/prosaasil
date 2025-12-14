@@ -2078,6 +2078,14 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     return File;
   };
 
+  const isAudioFile = (contentType?: string) => {
+    return contentType?.startsWith('audio/') || false;
+  };
+
+  const isImageFile = (contentType?: string) => {
+    return contentType?.startsWith('image/') || false;
+  };
+
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
@@ -2207,13 +2215,85 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                   {note.attachments && note.attachments.length > 0 && (
                     <div className="mt-3 pt-3 border-t">
                       <p className="text-xs font-medium text-gray-500 mb-2">קבצים מצורפים:</p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-col gap-3">
                         {note.attachments.map((att) => {
                           const FileIconComponent = getFileIcon(att.content_type);
                           const url = getAttachmentUrl(att);
                           const name = getAttachmentName(att);
                           const size = getAttachmentSize(att);
                           
+                          // Render audio files with player
+                          if (isAudioFile(att.content_type)) {
+                            return (
+                              <div key={att.id} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <FileIconComponent className="w-4 h-4 text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">{name}</span>
+                                    {size > 0 && (
+                                      <span className="text-xs text-gray-400">({formatFileSize(size)})</span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteAttachment(att.id, note.id)}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                    title="מחק קובץ"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <audio 
+                                  controls 
+                                  className="w-full h-10"
+                                  preload="metadata"
+                                  aria-label={`הקלטה: ${name}`}
+                                >
+                                  <source src={url} type={att.content_type} />
+                                  הדפדפן שלך אינו תומך בנגן שמע.
+                                </audio>
+                              </div>
+                            );
+                          }
+                          
+                          // Render images with preview
+                          if (isImageFile(att.content_type)) {
+                            return (
+                              <div key={att.id} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <ImageIcon className="w-4 h-4 text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">{name}</span>
+                                    {size > 0 && (
+                                      <span className="text-xs text-gray-400">({formatFileSize(size)})</span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteAttachment(att.id, note.id)}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                    title="מחק קובץ"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <a 
+                                  href={url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  title="לחץ לפתיחת התמונה בחלון חדש"
+                                  aria-label={`פתח תמונה: ${name}`}
+                                >
+                                  <img 
+                                    src={url} 
+                                    alt={name}
+                                    className="max-w-full h-auto rounded border border-gray-300 hover:opacity-90 transition-opacity cursor-pointer"
+                                    style={{ maxHeight: '300px' }}
+                                  />
+                                </a>
+                              </div>
+                            );
+                          }
+                          
+                          // Render other files as download links
                           return (
                             <div
                               key={att.id}
@@ -2223,7 +2303,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                                 href={url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-2 text-sm text-gray-700 hover:text-blue-600"
+                                className="flex items-center gap-2 text-sm text-gray-700 hover:text-blue-600 flex-1"
                               >
                                 <FileIconComponent className="w-4 h-4 flex-shrink-0" />
                                 <span className="max-w-[150px] truncate">{name}</span>

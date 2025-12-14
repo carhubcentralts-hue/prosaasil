@@ -37,6 +37,11 @@ export interface SearchResult {
     lastActivity?: string;
     created_at?: string;
     lead_id?: number;
+    // For function/page/setting types
+    path?: string;
+    section?: string;
+    action?: string;
+    category?: string;
   };
 }
 
@@ -202,12 +207,16 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
             calls: SearchResult[];
             whatsapp: SearchResult[];
             contacts: SearchResult[];
+            pages: SearchResult[];
+            settings: SearchResult[];
           };
           total: number;
-        }>(`/api/search?q=${encodeURIComponent(query)}&types=leads,calls,whatsapp,contacts&limit=5`);
+        }>(`/api/search?q=${encodeURIComponent(query)}&types=all&limit=10`);
         
-        // Flatten all results into a single array
+        // Flatten all results into a single array, prioritizing pages/settings at top
         const allResults: SearchResult[] = [
+          ...response.results.pages,
+          ...response.results.settings,
           ...response.results.leads,
           ...response.results.calls,
           ...response.results.whatsapp,
@@ -221,7 +230,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
       } finally {
         setIsLoading(false);
       }
-    }, 250); // 250ms debounce as specified
+    }, 250); // 250ms debounce
 
     return () => clearTimeout(timeoutId);
   }, [query]);
@@ -246,16 +255,42 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
     
     switch (result.type) {
       case 'lead':
-        navigate(`/app/leads`); // Navigate to leads page - could add lead detail if exists
+        if (result.id) {
+          navigate(`/app/leads/${result.id}`);
+        } else {
+          navigate(`/app/leads`);
+        }
         break;
       case 'call':
-        navigate(`/app/calls`);
+        if (result.metadata?.lead_id) {
+          navigate(`/app/leads/${result.metadata.lead_id}`);
+        } else {
+          navigate(`/app/calls`);
+        }
         break;
       case 'whatsapp':
-        navigate(`/app/whatsapp`);
+        if (result.metadata?.lead_id) {
+          navigate(`/app/leads/${result.metadata.lead_id}`);
+        } else {
+          navigate(`/app/whatsapp`);
+        }
         break;
       case 'contact':
         navigate(`/app/users`);
+        break;
+      case 'function':
+        // Navigate to page or setting
+        if (result.metadata?.path) {
+          navigate(result.metadata.path);
+          // If there's a section/action, you could handle it here
+          if (result.metadata?.action) {
+            // Could trigger action after navigation, e.g., open modal
+            setTimeout(() => {
+              // Dispatch custom event or state update
+              console.log('Action:', result.metadata?.action);
+            }, 300);
+          }
+        }
         break;
       default:
         console.log('Navigation not configured for type:', result.type);
@@ -294,7 +329,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
           <input
             ref={inputRef}
             type="text"
-            placeholder="חפש לידים, שיחות, WhatsApp, אנשי קשר..."
+            placeholder="חפש לידים, שיחות, דפים, הגדרות..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 text-lg placeholder-slate-400 bg-transparent outline-none"
@@ -321,13 +356,18 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
           {!query.trim() ? (
             <div className="p-8 text-center text-slate-500">
               <Search className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-              <p className="text-lg font-medium mb-2">חיפוש מהיר</p>
+              <p className="text-lg font-medium mb-2">חיפוש גלובלי 🔍</p>
               <p className="text-sm">
-                חפש לידים, שיחות, WhatsApp ואנשי קשר
+                חפש לידים, שיחות, דפים במערכת, והגדרות
               </p>
+              <div className="mt-4 text-xs text-slate-400 space-y-1">
+                <p>נסה: <span className="font-mono bg-slate-100 px-2 py-1 rounded">webhook</span></p>
+                <p>או: <span className="font-mono bg-slate-100 px-2 py-1 rounded">הגדרות</span></p>
+                <p>או: <span className="font-mono bg-slate-100 px-2 py-1 rounded">שיחות</span></p>
+              </div>
               {(user?.role === 'system_admin' || user?.role === 'owner') && (
-                <p className="text-xs text-slate-400 mt-2">
-                  כמנהל, אתה יכול לחפש בכל העסקים במערכת
+                <p className="text-xs text-slate-400 mt-3">
+                  כמנהל, אתה יכול לחפש בכל המערכת
                 </p>
               )}
             </div>

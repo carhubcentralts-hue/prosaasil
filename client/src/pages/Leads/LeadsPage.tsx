@@ -193,6 +193,13 @@ export default function LeadsPage() {
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
     // ✅ BUILD 170: Optimistic update - immediately update UI without waiting for server
+    // ✅ FIX BUG #1: Ensure newStatus is always a string (status name), never a number
+    
+    if (typeof newStatus !== 'string') {
+      console.error('❌ Invalid status type:', typeof newStatus, newStatus);
+      alert('שגיאה: סטטוס לא תקין');
+      return;
+    }
     
     // Find the old status for potential rollback
     const oldLead = leads.find(l => l.id === leadId);
@@ -204,6 +211,8 @@ export default function LeadsPage() {
         lead.id === leadId ? { ...lead, status: newStatus } : lead
       )
     );
+    
+    console.log('🔵 Status update:', { leadId, from: oldStatus, to: newStatus, type: typeof newStatus });
     
     try {
       // Send update to server in background

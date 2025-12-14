@@ -359,9 +359,15 @@ export function OutboundCallsPage() {
   };
 
   const handleStartCalls = () => {
-    const ids = activeTab === 'existing' ? selectedLeads : selectedImportedLeads;
-    if (ids.length === 0) return;
+    // ✅ FIX: Check correct tab names - 'system' for CRM leads, 'imported' for imported leads
+    const ids = (activeTab === 'system' || activeTab === 'active') ? selectedLeads : selectedImportedLeads;
     
+    if (ids.length === 0) {
+      alert('יש לבחור לפחות ליד אחד להפעלת שיחה');
+      return;
+    }
+    
+    console.log('🔵 Starting calls:', { activeTab, selectedIds: ids, count: ids.length });
     startCallsMutation.mutate({ lead_ids: ids });
   };
 
