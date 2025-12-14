@@ -128,13 +128,6 @@ export function LeadKanbanCard({
             </div>
           )}
 
-          {/* Summary */}
-          {lead.summary && (
-            <div className="text-xs text-gray-500 mt-2 line-clamp-2">
-              {lead.summary}
-            </div>
-          )}
-
           {/* Last Contact */}
           {lead.last_contact_at && (
             <div className="flex items-center gap-1 text-xs text-gray-400 mt-2">
