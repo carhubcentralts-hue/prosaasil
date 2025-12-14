@@ -2673,6 +2673,17 @@ Greet briefly. Then WAIT for customer to speak."""
         _metrics_last_log = time.time()
         _metrics_log_interval = 5.0  # Log every 5 seconds
         
+        # 🔥 HALF-DUPLEX AUDIO GATE: Preroll ring buffer (600-900ms)
+        # This prevents turn_detected cancellations by not sending audio to OpenAI while AI speaks
+        from collections import deque
+        PREROLL_MS = 800
+        FRAME_MS = 20
+        PREROLL_FRAMES = PREROLL_MS // FRAME_MS  # ~40 frames
+        _preroll_buffer = deque(maxlen=PREROLL_FRAMES)
+        _barge_pending = False
+        _barge_confirmed = False
+        _flush_preroll = False
+        
         # 🔥 BUILD 318: FPS LIMITER - Prevent sending too many frames/second
         # This is a critical cost optimization - limits frames to COST_MAX_FPS per second
         _fps_frame_count = 0
@@ -2724,6 +2735,40 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Greeting finished - resume sending audio
                     print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                     _greeting_resumed_logged = True
+                
+                # 🔥 HALF-DUPLEX AUDIO GATE: Don't send audio to OpenAI while AI speaks
+                # This prevents turn_detected cancellations from background noise/echo
+                # Always keep preroll buffer updated for potential barge-in
+                _preroll_buffer.append(audio_chunk)
+                
+                # Check if AI is currently speaking (via active_response_id or is_ai_speaking_event)
+                ai_currently_speaking = (
+                    self.active_response_id is not None or 
+                    self.is_ai_speaking_event.is_set()
+                )
+                
+                if ai_currently_speaking and not _barge_pending and not _barge_confirmed:
+                    # HALF-DUPLEX: AI is speaking and no barge-in in progress
+                    # DO NOT send to OpenAI - just keep in preroll buffer
+                    if _frames_in % 50 == 0:  # Log every 50 frames to avoid spam
+                        print(f"🎤 [HALF-DUPLEX] Blocking audio to OpenAI - AI speaking (response_id={self.active_response_id[:15] if self.active_response_id else 'N/A'})")
+                    # Track as blocked
+                    self._stats_audio_blocked += 1
+                    _frames_dropped += 1
+                    continue
+                
+                # If barge pending/confirmed OR AI not speaking, forward to OpenAI
+                # First flush preroll buffer if needed
+                if _flush_preroll:
+                    print(f"🔄 [HALF-DUPLEX] Flushing preroll buffer ({len(_preroll_buffer)} frames)")
+                    for preroll_frame in list(_preroll_buffer):
+                        try:
+                            await client.send_audio_chunk(preroll_frame)
+                            _frames_sent += 1
+                        except Exception as e:
+                            print(f"⚠️ [HALF-DUPLEX] Failed to send preroll frame: {e}")
+                    _flush_preroll = False
+                    _preroll_buffer.clear()  # Clear after flushing
                 
                 # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
                 current_time = time.time()
@@ -3528,15 +3573,52 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._loop_guard_engaged = False
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BUILD 302 + FIX BUG 1: HARD BARGE-IN - If AI is speaking, KILL the response NOW!
+                    # 🔥 TWO-STAGE CONFIRMED BARGE-IN:
+                    # Stage A (Candidate): Detect possible speech → start forwarding audio for STT
+                    # Stage B (Confirmed): STT returns valid text → THEN cancel AI
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Goal: Any time user starts speaking while AI is speaking, we do a hard barge-in:
-                    #   1. Cancel the current OpenAI response
-                    #   2. Stop sending its audio to Twilio
-                    #   3. Clear guards/flags
-                    #   4. Let the new user utterance lead the next response
+                    # Goal: Prevent false cancellations from background noise/echo
+                    # Instead of immediate cancellation, we:
+                    #   1. Mark as barge_pending (candidate stage)
+                    #   2. Start forwarding audio to OpenAI (with preroll flush)
+                    #   3. Wait for STT confirmation before canceling AI
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                        # Track barge-in latency and timing metrics for comprehensive logging
+                        # Track barge-in timing metrics
+                        barge_in_latency_start = time.time()
+                        ai_speaking_start_ts = getattr(self, '_last_ai_audio_start_ts', None)
+                        time_since_ai_start_ms = 0
+                        if ai_speaking_start_ts:
+                            time_since_ai_start_ms = (barge_in_latency_start - ai_speaking_start_ts) * 1000
+                        
+                        # Check if already in barge-in flow
+                        if hasattr(self, '_barge_pending') and self._barge_pending:
+                            logger.debug(f"[BARGE-IN] Already in candidate stage - ignoring duplicate speech_started")
+                            continue
+                        
+                        logger.info(f"[BARGE-IN] 🔶 CANDIDATE: Possible user speech detected while AI speaking")
+                        logger.info(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
+                        logger.info(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
+                        logger.info(f"   time_since_ai_start={time_since_ai_start_ms:.0f}ms")
+                        
+                        # Set candidate barge-in flags
+                        # These will be read by audio sender to start forwarding audio with preroll
+                        self._barge_pending = True
+                        self._flush_preroll = True
+                        
+                        # Track for metrics
+                        if not hasattr(self, '_barge_in_event_count'):
+                            self._barge_in_event_count = 0
+                        self._barge_in_event_count += 1
+                        
+                        logger.info(f"[BARGE-IN] Audio forwarding enabled - waiting for STT confirmation...")
+                        # DON'T cancel AI yet - wait for STT to confirm this is real speech
+                        # The cancellation will happen in input_audio_transcription.completed handler
+                        continue  # Don't run the old immediate cancellation code below
+                    
+                    # OLD IMMEDIATE CANCELLATION CODE (now bypassed by continue above)
+                    # Keeping for reference but it won't execute due to continue
+                    if False:  # Disabled - using two-stage barge-in instead
+                         # Track barge-in latency and timing metrics for comprehensive logging
                         barge_in_latency_start = time.time()
                         ai_speaking_start_ts = getattr(self, '_last_ai_audio_start_ts', None)
                         time_since_ai_start_ms = 0
@@ -3653,6 +3735,15 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"✅ [BARGE-IN] User utterance completed - barge-in ended (duration={barge_duration:.1f}s)")
                         self.barge_in_active = False
                         self._barge_in_started_ts = None
+                    
+                    # 🔥 HALF-DUPLEX: Reset barge-in state flags after user turn
+                    if hasattr(self, '_barge_pending'):
+                        self._barge_pending = False
+                    if hasattr(self, '_barge_confirmed'):
+                        self._barge_confirmed = False
+                    if hasattr(self, '_flush_preroll'):
+                        self._flush_preroll = False
+                    logger.debug(f"[HALF-DUPLEX] Reset barge states after user turn")
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
@@ -4774,6 +4865,95 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
+                    
+                    # 🔥 CONFIRMED BARGE-IN: Two-stage approach to prevent false cancellations
+                    # Stage A (Candidate): VAD detected possible speech while AI talking → audio forwarding started
+                    # Stage B (Confirmed): STT returned valid text → NOW cancel AI
+                    
+                    # Define interrupt whitelist for single-word barge-ins
+                    INTERRUPT_WHITELIST = {
+                        "רגע", "שנייה", "תעצור", "עצור", "הלו", "מה", "כן", "לא", "די",
+                        "חכה", "רגע רגע", "סליחה", "לא לא", "תודה", "די תודה", "שקט"
+                    }
+                    
+                    # Check if this is during AI speaking (barge-in scenario)
+                    ai_currently_speaking = (
+                        self.active_response_id is not None or 
+                        self.is_ai_speaking_event.is_set()
+                    )
+                    
+                    if ai_currently_speaking:
+                        # Calculate word count for confirmation
+                        word_count = len(text.strip().split())
+                        normalized_text = text.strip().lower()
+                        
+                        # Confirmation rules:
+                        # - word_count >= 2 OR
+                        # - word_count == 1 AND in whitelist
+                        # Plus guards: not echo, not hallucination
+                        
+                        # Check echo window (reuse existing check)
+                        is_in_echo_window = False
+                        if self._last_ai_audio_start_ts:
+                            time_since_ai_audio = (time.time() - self._last_ai_audio_start_ts) * 1000
+                            is_in_echo_window = time_since_ai_audio < ECHO_WINDOW_MS
+                        
+                        # Determine if barge-in should be confirmed
+                        should_confirm_barge_in = False
+                        
+                        if word_count >= 2:
+                            should_confirm_barge_in = True
+                            confirm_reason = f"word_count={word_count}"
+                        elif word_count == 1 and normalized_text in INTERRUPT_WHITELIST:
+                            should_confirm_barge_in = True
+                            confirm_reason = f"whitelist_match={normalized_text}"
+                        else:
+                            confirm_reason = f"not_confirmed (wc={word_count}, not_in_whitelist)"
+                        
+                        # Apply guards
+                        if should_confirm_barge_in and is_in_echo_window:
+                            should_confirm_barge_in = False
+                            confirm_reason += " BLOCKED:echo_window"
+                            logger.info(f"[BARGE-IN] Confirmation blocked by echo window ({time_since_ai_audio:.0f}ms)")
+                        
+                        if should_confirm_barge_in:
+                            # CONFIRMED BARGE-IN - Cancel AI response
+                            logger.info(f"[BARGE-IN] ✅ CONFIRMED: {confirm_reason} text='{text[:40]}...'")
+                            
+                            # Cancel active AI response
+                            cancelled_id = self.active_response_id
+                            if cancelled_id and self.realtime_client:
+                                try:
+                                    await self.realtime_client.cancel_response(cancelled_id)
+                                    self._mark_response_cancelled_locally(cancelled_id, "confirmed_barge_in")
+                                    logger.info(f"[BARGE-IN] Cancelled AI response: {cancelled_id[:20]}...")
+                                    
+                                    # Clear state
+                                    self.active_response_id = None
+                                    self.is_ai_speaking_event.clear()
+                                    self.speaking = False
+                                    
+                                    # Clear TX queue to stop audio playback
+                                    try:
+                                        while not self.tx_q.empty():
+                                            try:
+                                                self.tx_q.get_nowait()
+                                            except:
+                                                break
+                                        logger.info(f"[BARGE-IN] TX queue cleared")
+                                    except Exception as clear_err:
+                                        logger.warning(f"[BARGE-IN] Failed to clear TX queue: {clear_err}")
+                                    
+                                    # Mark barge-in confirmed
+                                    self.barge_in_active = True
+                                    self.user_has_spoken = True
+                                    
+                                except Exception as cancel_err:
+                                    logger.error(f"[BARGE-IN] Failed to cancel response: {cancel_err}")
+                        else:
+                            # NOT CONFIRMED - Keep AI speaking
+                            logger.info(f"[BARGE-IN] ❌ NOT CONFIRMED: {confirm_reason} text='{text[:40]}...'")
+                            # Don't cancel AI - let it continue speaking
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
