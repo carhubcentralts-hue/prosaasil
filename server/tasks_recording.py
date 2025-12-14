@@ -156,6 +156,12 @@ def process_recording_async(form_data):
         except Exception as e:
             log.error(f"[OFFLINE_STT] Error getting recording from service: {e}")
             print(f"❌ [OFFLINE_STT] Error getting recording: {e}")
+            # 🔥 CRITICAL FIX: Rollback on DB errors
+            try:
+                from server.db import db
+                db.session.rollback()
+            except:
+                pass
         
         if not audio_file:
             print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline processing")
@@ -269,6 +275,12 @@ def process_recording_async(form_data):
                         log.info(f"📊 Using business context: {business_name} ({business_type})")
             except Exception as e:
                 log.warning(f"⚠️ Could not get business context for summary: {e}")
+                # 🔥 CRITICAL FIX: Rollback on DB errors
+                try:
+                    from server.db import db
+                    db.session.rollback()
+                except:
+                    pass
             
             summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
             log.info(f"✅ Dynamic summary generated from {transcript_source}: {summary[:50]}...")
@@ -299,6 +311,12 @@ def process_recording_async(form_data):
             except Exception as e:
                 print(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
                 log.warning(f"[OFFLINE_EXTRACT] Could not check existing extraction: {e}")
+                # 🔥 CRITICAL FIX: Rollback on DB errors
+                try:
+                    from server.db import db
+                    db.session.rollback()
+                except:
+                    pass
         
         if not skip_extraction:
             # 🔥 SMART FALLBACK: Choose best text for extraction
@@ -362,7 +380,11 @@ def process_recording_async(form_data):
             final_transcript=final_transcript,
             extracted_service=extracted_service,
             extracted_city=extracted_city,
-            extraction_confidence=extraction_confidence
+            extraction_confidence=extraction_confidence,
+            # 🔥 BUILD 342: Pass recording metadata
+            audio_bytes_len=audio_bytes_len,
+            audio_duration_sec=audio_duration_sec,
+            transcript_source=transcript_source
         )
         
         log.info("✅ Recording processed successfully: CallSid=%s", call_sid)
@@ -459,7 +481,8 @@ def transcribe_hebrew(audio_file):
         return ""
 
 def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None, summary=None,
-                   final_transcript=None, extracted_service=None, extracted_city=None, extraction_confidence=None):
+                   final_transcript=None, extracted_service=None, extracted_city=None, extraction_confidence=None,
+                   audio_bytes_len=None, audio_duration_sec=None, transcript_source=None):
     """✨ שמור שיחה + תמלול + סיכום + 🆕 POST-CALL EXTRACTION ל-DB + יצירת לקוח/ליד אוטומטית"""
     try:
         # ✅ Use PostgreSQL + SQLAlchemy instead of SQLite
@@ -509,6 +532,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         log.warning(f"Call log already exists (race condition): {call_sid}")
                         call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                     else:
+                        db.session.rollback()
                         raise
             else:
                 # עדכן תמלול וסיכום לCall קיים
@@ -687,6 +711,12 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
         
     except Exception as e:
         log.error("DB save + AI processing failed: %s", e)
+        # 🔥 CRITICAL FIX: Rollback on DB errors to prevent InFailedSqlTransaction
+        try:
+            from server.db import db
+            db.session.rollback()
+        except:
+            pass
 
 def _identify_business_for_call(to_number, from_number):
     """זהה עסק לפי מספרי הטלפון בשיחה - חכם

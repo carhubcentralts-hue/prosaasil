@@ -101,6 +101,7 @@ def dashboard_stats():
             ).count()
         except Exception as e:
             logger.error(f"Error in calls_in_range query: {e}")
+            db.session.rollback()
             calls_in_range = 0
         
         try:
@@ -110,6 +111,7 @@ def dashboard_stats():
             ).count()
         except Exception as e:
             logger.error(f"Error in calls_last7d query: {e}")
+            db.session.rollback()
             calls_last7d = 0
         
         # Real average handle time
@@ -125,6 +127,7 @@ def dashboard_stats():
             ).scalar() or 0
         except Exception as e:
             logger.error(f"Error in whatsapp_in_range query: {e}")
+            db.session.rollback()
             whatsapp_in_range = 0
         
         try:
@@ -135,6 +138,7 @@ def dashboard_stats():
             ).scalar() or 0
         except Exception as e:
             logger.error(f"Error in whatsapp_last7d query: {e}")
+            db.session.rollback()
             whatsapp_last7d = 0
         
         try:
@@ -145,6 +149,7 @@ def dashboard_stats():
             ).scalar() or 0
         except Exception as e:
             logger.error(f"Error in unread query: {e}")
+            db.session.rollback()
             unread = 0
         
         # BUILD 135: Real revenue stats - FILTERED by tenant_id
@@ -167,6 +172,7 @@ def dashboard_stats():
             else:
                 logger.error(f"Unexpected Payment query error: {e}")
                 revenue_degraded = True
+            db.session.rollback()
             
         try:
             revenue_ytd = Payment.query.with_entities(func.sum(Payment.amount)).filter(
@@ -181,6 +187,7 @@ def dashboard_stats():
             else:
                 logger.error(f"Unexpected Payment YTD query error: {e}")
                 revenue_degraded = True
+            db.session.rollback()
         
         return jsonify({
             "calls": {
@@ -208,6 +215,7 @@ def dashboard_stats():
     except Exception as e:
         logger.error(f"Error in dashboard_stats: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
+        db.session.rollback()
         return jsonify({"error": "internal_server_error"}), 500
 
 @api_adapter_bp.route('/api/dashboard/activity', methods=['GET'])
@@ -255,6 +263,7 @@ def dashboard_activity():
             ).limit(20).all()
         except Exception as e:
             logger.error(f"Error fetching whatsapp messages: {e}")
+            db.session.rollback()
             recent_whatsapp = []
         
         # BUILD 135: Get recent calls - FILTERED by tenant_id and date
@@ -268,6 +277,7 @@ def dashboard_activity():
             ).limit(20).all()
         except Exception as e:
             logger.error(f"Error fetching calls: {e}")
+            db.session.rollback()
             recent_calls = []
         
         activities = []
@@ -291,6 +301,7 @@ def dashboard_activity():
                             phone_to_lead[phone] = lead.id if lead else None
                         except Exception as lead_err:
                             logger.warning(f"Lead lookup failed for tenant={tenant_id}, phone={phone}: {lead_err}")
+                            db.session.rollback()
                             phone_to_lead[phone] = None
                     lead_id = phone_to_lead.get(phone)
                 
@@ -316,6 +327,7 @@ def dashboard_activity():
                             phone_to_lead[phone] = lead.id if lead else None
                         except Exception as lead_err:
                             logger.warning(f"Lead lookup failed for call tenant={tenant_id}, phone={phone}: {lead_err}")
+                            db.session.rollback()
                             phone_to_lead[phone] = None
                     lead_id = phone_to_lead.get(phone)
                 
@@ -337,6 +349,7 @@ def dashboard_activity():
         
     except Exception as e:
         logger.error(f"Error in dashboard_activity: {e}")
+        db.session.rollback()
         return jsonify({"error": "internal_server_error"}), 500
 
 # === ADMIN ENDPOINTS ===
@@ -386,4 +399,5 @@ def admin_stats():
         
     except Exception as e:
         logger.error(f"Error in admin_stats: {e}")
+        db.session.rollback()
         return jsonify({"error": "internal_server_error"}), 500
