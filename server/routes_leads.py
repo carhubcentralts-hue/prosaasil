@@ -211,125 +211,139 @@ def get_valid_statuses_for_business(business_id):
 def list_leads():
     """List leads with filtering and pagination"""
     
-    user = get_current_user()
-    is_system_admin = user.get('role') == 'system_admin' if user else False
-    
-    # BUILD 135: ONLY system_admin can see ALL leads
-    if is_system_admin:
-        # System admin sees all leads across all businesses
-        query = Lead.query
-    else:
-        # BUILD 135: owner/admin/agent see only their tenant's leads
-        tenant_id = get_current_tenant()
-        if not tenant_id:
-            return jsonify({"error": "No tenant access"}), 403
-        query = Lead.query.filter_by(tenant_id=tenant_id)
-    
-    # Parse query parameters
-    status_filter = request.args.get('status', '')
-    source_filter = request.args.get('source', '')
-    owner_filter = request.args.get('owner', '')
-    outbound_list_id = request.args.get('outbound_list_id', '')
-    direction_filter = request.args.get('direction', '')  # inbound|outbound|all
-    q_filter = request.args.get('q', '')  # Search query
-    from_date = request.args.get('from', '')
-    to_date = request.args.get('to', '')
-    page = int(request.args.get('page', 1))
-    page_size = min(int(request.args.get('pageSize', 50)), 100)  # Max 100 per page
-    
-    # Apply filters
-    if status_filter:
-        # ✅ FIXED: Case-insensitive status filtering for legacy compatibility
-        query = query.filter(func.lower(Lead.status) == status_filter.lower())
-    
-    if source_filter:
-        if source_filter == 'phone':
-            phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
-            query = query.filter(Lead.source.in_(phone_sources))
-        elif source_filter == 'whatsapp':
-            whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
-            query = query.filter(Lead.source.in_(whatsapp_sources))
-    
-    if owner_filter:
-        query = query.filter(Lead.owner_user_id == owner_filter)
-    
-    if outbound_list_id:
-        query = query.filter(Lead.outbound_list_id == int(outbound_list_id))
-    
-    if direction_filter and direction_filter != 'all':
-        # Filter by call direction (inbound/outbound)
-        query = query.filter(Lead.last_call_direction == direction_filter)
-    
-    if q_filter:
-        # ✅ BUILD 170: Search only by name or phone number (partial match)
-        # Remove email from search, phone partial match works (e.g., "075" finds any number containing "075")
-        search_term = f"%{q_filter}%"
-        query = query.filter(
-            or_(
-                Lead.first_name.ilike(search_term),
-                Lead.last_name.ilike(search_term),
-                Lead.phone_e164.ilike(search_term)
+    try:
+        user = get_current_user()
+        is_system_admin = user.get('role') == 'system_admin' if user else False
+        
+        # BUILD 135: ONLY system_admin can see ALL leads
+        if is_system_admin:
+            # System admin sees all leads across all businesses
+            query = Lead.query
+        else:
+            # BUILD 135: owner/admin/agent see only their tenant's leads
+            tenant_id = get_current_tenant()
+            if not tenant_id:
+                return jsonify({"error": "No tenant access"}), 403
+            query = Lead.query.filter_by(tenant_id=tenant_id)
+        
+        # Parse query parameters
+        status_filter = request.args.get('status', '')
+        source_filter = request.args.get('source', '')
+        owner_filter = request.args.get('owner', '')
+        outbound_list_id = request.args.get('outbound_list_id', '')
+        direction_filter = request.args.get('direction', '')  # inbound|outbound|all
+        q_filter = request.args.get('q', '')  # Search query
+        from_date = request.args.get('from', '')
+        to_date = request.args.get('to', '')
+        page = int(request.args.get('page', 1))
+        page_size = min(int(request.args.get('pageSize', 50)), 100)  # Max 100 per page
+        
+        # Apply filters
+        if status_filter:
+            # ✅ FIXED: Case-insensitive status filtering for legacy compatibility
+            query = query.filter(func.lower(Lead.status) == status_filter.lower())
+        
+        if source_filter:
+            if source_filter == 'phone':
+                phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
+                query = query.filter(Lead.source.in_(phone_sources))
+            elif source_filter == 'whatsapp':
+                whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
+                query = query.filter(Lead.source.in_(whatsapp_sources))
+        
+        if owner_filter:
+            query = query.filter(Lead.owner_user_id == owner_filter)
+        
+        if outbound_list_id:
+            query = query.filter(Lead.outbound_list_id == int(outbound_list_id))
+        
+        if direction_filter and direction_filter != 'all':
+            # Filter by call direction (inbound/outbound)
+            query = query.filter(Lead.last_call_direction == direction_filter)
+        
+        if q_filter:
+            # ✅ BUILD 170: Search only by name or phone number (partial match)
+            # Remove email from search, phone partial match works (e.g., "075" finds any number containing "075")
+            search_term = f"%{q_filter}%"
+            query = query.filter(
+                or_(
+                    Lead.first_name.ilike(search_term),
+                    Lead.last_name.ilike(search_term),
+                    Lead.phone_e164.ilike(search_term)
+                )
             )
-        )
-    
-    if from_date:
-        try:
-            from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
-            query = query.filter(Lead.created_at >= from_dt)
-        except ValueError:
-            pass
-    
-    if to_date:
-        try:
-            to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
-            query = query.filter(Lead.created_at <= to_dt)
-        except ValueError:
-            pass
-    
-    # Order by created_at DESC for faster sorting (indexed column)
-    # BUILD 174: Performance optimization - avoid ORDER BY on multiple columns
-    query = query.order_by(Lead.created_at.desc())
-    
-    # Pagination - BUILD 174: Optimize count query
-    offset = (page - 1) * page_size
-    
-    # Use a lighter count query - only count IDs (faster)
-    count_query = query.with_entities(Lead.id)
-    total = count_query.count()
-    
-    # Fetch leads with pagination
-    leads = query.offset(offset).limit(page_size).all()
-    
-    # Format response
-    items = []
-    for lead in leads:
-        items.append({
-            "id": lead.id,
-            "first_name": lead.first_name,
-            "last_name": lead.last_name,
-            "full_name": lead.full_name,
-            "phone_e164": lead.phone_e164,
-            "display_phone": lead.display_phone,
-            "email": lead.email,
-            "status": lead.status,
-            "source": normalize_source(lead.source),
-            "owner_user_id": lead.owner_user_id,
-            "outbound_list_id": lead.outbound_list_id,
-            "last_call_direction": lead.last_call_direction,
-            "summary": lead.summary,
-            "tags": lead.tags or [],
-            "created_at": lead.created_at.isoformat() if lead.created_at else None,
-            "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
-            "last_contact_at": lead.last_contact_at.isoformat() if lead.last_contact_at else None
+        
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+                query = query.filter(Lead.created_at >= from_dt)
+            except ValueError:
+                pass
+        
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+                query = query.filter(Lead.created_at <= to_dt)
+            except ValueError:
+                pass
+        
+        # Order by created_at DESC for faster sorting (indexed column)
+        # BUILD 174: Performance optimization - avoid ORDER BY on multiple columns
+        query = query.order_by(Lead.created_at.desc())
+        
+        # Pagination - BUILD 174: Optimize count query
+        offset = (page - 1) * page_size
+        
+        # Use a lighter count query - only count IDs (faster)
+        count_query = query.with_entities(Lead.id)
+        total = count_query.count()
+        
+        # Fetch leads with pagination
+        leads = query.offset(offset).limit(page_size).all()
+        
+        # Format response
+        items = []
+        for lead in leads:
+            items.append({
+                "id": lead.id,
+                "first_name": lead.first_name,
+                "last_name": lead.last_name,
+                "full_name": lead.full_name,
+                "phone_e164": lead.phone_e164,
+                "display_phone": lead.display_phone,
+                "email": lead.email,
+                "status": lead.status,
+                "source": normalize_source(lead.source),
+                "owner_user_id": lead.owner_user_id,
+                "outbound_list_id": lead.outbound_list_id,
+                "last_call_direction": lead.last_call_direction,
+                "summary": lead.summary,
+                "tags": lead.tags or [],
+                "created_at": lead.created_at.isoformat() if lead.created_at else None,
+                "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
+                "last_contact_at": lead.last_contact_at.isoformat() if lead.last_contact_at else None
+            })
+        
+        return jsonify({
+            "items": items,
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+            "totalPages": (total + page_size - 1) // page_size
         })
-    
-    return jsonify({
-        "items": items,
-        "total": total,
-        "page": page,
-        "pageSize": page_size,
-        "totalPages": (total + page_size - 1) // page_size
-    })
+    except Exception as e:
+        # 🔒 DB RESILIENCE: Catch schema mismatch errors (e.g., missing last_call_direction column)
+        import psycopg2.errors
+        if isinstance(e, psycopg2.errors.UndefinedColumn) or 'last_call_direction does not exist' in str(e):
+            log.error(f"❌ Database schema mismatch: last_call_direction column missing. Please run migrations. Error: {e}")
+            return jsonify({
+                "error": "Database schema outdated",
+                "message": "Please run database migrations to add missing columns",
+                "details": "Column 'last_call_direction' does not exist in leads table"
+            }), 500
+        # Re-raise other exceptions
+        log.error(f"❌ Unexpected error in list_leads: {e}")
+        raise
 
 @leads_bp.route("/api/leads", methods=["POST"])
 @require_api_auth()  # BUILD 137: Use proper decorator that sets g.user and g.tenant
