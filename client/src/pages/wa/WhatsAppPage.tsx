@@ -103,6 +103,7 @@ export function WhatsAppPage() {
   // State management
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState<WhatsAppThread[]>([]);
+  const [filteredThreads, setFilteredThreads] = useState<WhatsAppThread[]>([]);
   const [selectedThread, setSelectedThread] = useState<WhatsAppThread | null>(null);
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({
     provider: 'unknown',
@@ -119,6 +120,10 @@ export function WhatsAppPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messages, setMessages] = useState<WhatsAppMessageData[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'active' | 'unread' | 'closed'>('all');
   
   // Settings and prompt editing state
   const [showSettings, setShowSettings] = useState(false);
@@ -332,14 +337,47 @@ export function WhatsAppPage() {
       }));
       
       setThreads(transformedThreads);
+      setFilteredThreads(transformedThreads); // Initialize filtered threads
     } catch (error) {
       console.error('Error loading threads:', error);
       // Fallback to empty array if API fails
       setThreads([]);
+      setFilteredThreads([]);
     } finally {
       setLoading(false);
     }
   };
+
+  // Filter threads based on search and filter type
+  useEffect(() => {
+    let filtered = [...threads];
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(thread =>
+        thread.name.toLowerCase().includes(query) ||
+        thread.phone.toLowerCase().includes(query) ||
+        thread.lastMessage.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply type filter
+    switch (filterType) {
+      case 'active':
+        filtered = filtered.filter(thread => !thread.is_closed);
+        break;
+      case 'unread':
+        filtered = filtered.filter(thread => thread.unread > 0);
+        break;
+      case 'closed':
+        filtered = filtered.filter(thread => thread.is_closed);
+        break;
+      // 'all' - no additional filtering
+    }
+    
+    setFilteredThreads(filtered);
+  }, [threads, searchQuery, filterType]);
 
   const loadPrompts = async () => {
     try {
@@ -870,7 +908,7 @@ export function WhatsAppPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Conversations List */}
         <div className="lg:col-span-1">
-          <Card className="p-4 h-[500px] flex flex-col">
+          <Card className="p-4 h-[600px] flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="font-semibold text-slate-900">שיחות</h2>
               <div className="flex items-center gap-2">
@@ -883,12 +921,68 @@ export function WhatsAppPage() {
                 >
                   <RefreshCw className="h-4 w-4" />
                 </Button>
-                <Badge variant="secondary">{threads.length}</Badge>
+                <Badge variant="secondary">{filteredThreads.length}</Badge>
               </div>
             </div>
             
+            {/* Search Bar */}
+            <div className="mb-3">
+              <input
+                type="text"
+                placeholder="חיפוש שיחות..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                dir="rtl"
+              />
+            </div>
+            
+            {/* Filter Buttons */}
+            <div className="flex gap-2 mb-3 flex-wrap">
+              <button
+                onClick={() => setFilterType('all')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                הכל ({threads.length})
+              </button>
+              <button
+                onClick={() => setFilterType('active')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'active'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                פעילים ({threads.filter(t => !t.is_closed).length})
+              </button>
+              <button
+                onClick={() => setFilterType('unread')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'unread'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                לא נקראו ({threads.filter(t => t.unread > 0).length})
+              </button>
+              <button
+                onClick={() => setFilterType('closed')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'closed'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                נסגרו ({threads.filter(t => t.is_closed).length})
+              </button>
+            </div>
+            
             <div className="space-y-3 flex-1 overflow-y-auto">
-              {threads.map((thread) => (
+              {filteredThreads.map((thread) => (
                 <div
                   key={thread.id}
                   className={`p-4 rounded-lg cursor-pointer transition-all border ${
@@ -938,10 +1032,14 @@ export function WhatsAppPage() {
                 </div>
               ))}
               
-              {threads.length === 0 && (
+              {filteredThreads.length === 0 && (
                 <div className="text-center py-8 text-slate-500">
                   <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                  <p>אין שיחות פעילות</p>
+                  {searchQuery || filterType !== 'all' ? (
+                    <p>לא נמצאו שיחות התואמות את החיפוש</p>
+                  ) : (
+                    <p>אין שיחות פעילות</p>
+                  )}
                 </div>
               )}
             </div>
@@ -951,7 +1049,7 @@ export function WhatsAppPage() {
         {/* Chat Area */}
         <div className="lg:col-span-2">
           {selectedThread ? (
-            <Card className="p-0 h-[500px] flex flex-col">
+            <Card className="p-0 h-[600px] flex flex-col">
               {/* Chat Header */}
               <div className="p-4 border-b border-slate-200 bg-green-50">
                 <div className="flex justify-between items-center">
