@@ -1187,7 +1187,10 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
                                      rms_snapshot: float, noise_floor: float,
                                      ai_speaking: bool = False, 
                                      last_ai_audio_start_ms: float = 0,
-                                     last_hallucination: str = "") -> bool:
+                                     last_hallucination: str = "",
+                                     candidate_user_speaking: bool = False,
+                                     local_vad_voice_frames: int = 0,
+                                     last_ai_transcript: str = "") -> bool:
     """
     🎯 STT GUARD: Validate if a Realtime API utterance should be accepted
     
@@ -1203,6 +1206,9 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         ai_speaking: Whether AI is currently speaking
         last_ai_audio_start_ms: Time since AI audio started (ms)
         last_hallucination: Last rejected hallucination text (to prevent repeats)
+        candidate_user_speaking: Whether user speech was detected (from speech_started event)
+        local_vad_voice_frames: Number of consecutive voice frames detected by local VAD
+        last_ai_transcript: Last AI transcript for similarity check
         
     Returns:
         True if utterance should be accepted, False if it should be rejected
@@ -1229,13 +1235,40 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         )
         return False
     
-    # 4) NEW: Echo suppression window - reject if AI is speaking AND <200ms since audio started
+    # 4) Echo suppression window - reject if AI is speaking AND <200ms since audio started
+    # 🔥 FIX: Add bypass logic to prevent dropping real user speech
+    # Bypass echo_window if ANY of these conditions are met:
+    # 1. candidate_user_speaking == True (speech_started event fired)
+    # 2. local_vad_voice_frames >= 8 (160ms+ of sustained speech)
+    # 3. Text is new content (not similar to last AI transcript)
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
-        logger.info(
-            f"[STT_FILTER] drop reason=echo_window value={last_ai_audio_start_ms:.0f} "
-            f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:20]}...'"
-        )
-        return False
+        # Check bypass conditions
+        has_user_speech_candidate = candidate_user_speaking
+        has_sustained_vad = local_vad_voice_frames >= 8  # 8 frames = 160ms
+        
+        # Simple similarity check: text not in last AI transcript
+        is_new_content = True
+        if last_ai_transcript and stt_text:
+            # Check if stt_text is a substring of last AI transcript (indicates echo)
+            stt_normalized = stt_text.strip().lower()
+            ai_normalized = last_ai_transcript.strip().lower()
+            is_new_content = stt_normalized not in ai_normalized
+        
+        # Bypass if ANY condition is met
+        should_bypass_echo_window = has_user_speech_candidate or has_sustained_vad or is_new_content
+        
+        if should_bypass_echo_window:
+            logger.info(
+                f"[STT_GUARD] Accepted (echo_window bypass: candidate_user_speaking={candidate_user_speaking}, "
+                f"local_vad_frames={local_vad_voice_frames}, is_new_content={is_new_content}) text='{stt_text[:30]}...'"
+            )
+        else:
+            # No bypass - drop as echo
+            logger.info(
+                f"[STT_FILTER] drop reason=echo_window value={last_ai_audio_start_ms:.0f} "
+                f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:20]}...'"
+            )
+            return False
     
     # 5) NEW: Minimum word count - reject single words (prevents "היי", "מה", "למה" hallucinations)
     # BUT: Allow valid short Hebrew phrases with normal RMS (not requiring high RMS)
@@ -1626,6 +1659,7 @@ class MediaStreamHandler:
         self._last_hallucination = ""  # Last rejected hallucination (to prevent repeats)
         self._last_ai_audio_start_ts = None  # When AI audio started (for echo suppression)
         self._last_ai_audio_ts = None  # Track last AI audio sent (for ECHO_GUARD at speech_started level)
+        self._last_ai_transcript_text = ""  # Last AI transcript text (for echo_window similarity check)
         
         # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
         self._consecutive_ai_responses = 0
@@ -2832,17 +2866,77 @@ Greet briefly. Then WAIT for customer to speak."""
                 # Always keep preroll buffer updated for potential barge-in
                 _preroll_buffer.append(audio_chunk)
                 
+                # 🔥 FIX: Run LOCAL VAD BEFORE half-duplex check
+                # This ensures we detect barge-in even when AI is speaking
+                # Decode audio chunk to calculate RMS and update VAD counters
+                try:
+                    import base64
+                    pcm16_bytes = base64.b64decode(audio_chunk)
+                    
+                    # Calculate RMS for this frame
+                    if len(pcm16_bytes) >= 2:
+                        # Convert bytes to 16-bit samples
+                        import struct
+                        sample_count = len(pcm16_bytes) // 2
+                        samples = struct.unpack(f'<{sample_count}h', pcm16_bytes)
+                        
+                        # Calculate RMS
+                        sum_squares = sum(s * s for s in samples)
+                        mean_square = sum_squares / sample_count if sample_count > 0 else 0
+                        frame_rms = math.sqrt(mean_square)
+                        
+                        # Update recent RMS (used for validation)
+                        self._recent_audio_rms = frame_rms
+                        
+                        # Update local VAD counters
+                        if not hasattr(self, '_local_vad_voice_frames'):
+                            self._local_vad_voice_frames = 0
+                        if not hasattr(self, '_local_vad_silence_frames'):
+                            self._local_vad_silence_frames = 0
+                        
+                        # Get noise floor for comparison
+                        noise_floor = getattr(self, 'noise_floor', 100.0)
+                        speech_threshold = max(noise_floor * 3.0, ECHO_GATE_MIN_RMS)
+                        
+                        # Update VAD frame counters
+                        if frame_rms > speech_threshold:
+                            self._local_vad_voice_frames += 1
+                            self._local_vad_silence_frames = 0
+                        else:
+                            self._local_vad_silence_frames += 1
+                            # Decay voice frames slowly
+                            if self._local_vad_voice_frames > 0:
+                                self._local_vad_voice_frames = max(0, self._local_vad_voice_frames - 1)
+                except Exception as vad_err:
+                    # Don't crash if VAD fails - just log and continue
+                    if _frames_in % 100 == 0:  # Log occasionally to avoid spam
+                        logger.warning(f"[LOCAL_VAD] Failed to process frame: {vad_err}")
+                
                 # Check if AI is currently speaking (via active_response_id or is_ai_speaking_event)
                 ai_currently_speaking = (
                     self.active_response_id is not None or 
                     self.is_ai_speaking_event.is_set()
                 )
                 
+                # 🔥 FIX: Check if local VAD detected sustained speech (barge-in candidate)
+                # If we have 8-12 consecutive voice frames, trigger barge-in
+                local_vad_frames = getattr(self, '_local_vad_voice_frames', 0)
+                if ai_currently_speaking and not self._barge_pending and not self._barge_confirmed:
+                    # Check if local VAD reached threshold (8-12 frames = 160-240ms)
+                    if local_vad_frames >= 8:
+                        # CANDIDATE BARGE-IN detected by local VAD!
+                        self._barge_pending = True
+                        self._flush_preroll = True
+                        logger.info(
+                            f"🔶 [LOCAL_VAD] CANDIDATE barge-in detected: {local_vad_frames} voice_frames "
+                            f"→ enabling forward + flush_preroll"
+                        )
+                
                 if ai_currently_speaking and not self._barge_pending and not self._barge_confirmed:
                     # HALF-DUPLEX: AI is speaking and no barge-in in progress
                     # DO NOT send to OpenAI - just keep in preroll buffer
                     if _frames_in % 50 == 0:  # Log every 50 frames to avoid spam
-                        print(f"🎤 [HALF-DUPLEX] Blocking audio to OpenAI - AI speaking (response_id={self.active_response_id[:15] if self.active_response_id else 'N/A'})")
+                        print(f"🎤 [HALF-DUPLEX] Blocking audio to OpenAI - AI speaking (response_id={self.active_response_id[:15] if self.active_response_id else 'N/A'}, vad_frames={local_vad_frames})")
                     # Track as blocked
                     self._stats_audio_blocked += 1
                     _frames_dropped += 1
@@ -4613,6 +4707,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
+                        # 🔥 FIX: Save last AI transcript for echo_window similarity check
+                        self._last_ai_transcript_text = transcript
                         # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
                         # Removing this call to prevent loop (NLP should only analyze user input)
                         
@@ -4829,6 +4925,15 @@ Greet briefly. Then WAIT for customer to speak."""
                     if ai_speaking and self._last_ai_audio_start_ts:
                         time_since_ai_audio_start_ms = (now_sec - self._last_ai_audio_start_ts) * 1000
                     
+                    # 🔥 NEW: Get echo_window bypass parameters
+                    candidate_user_speaking = getattr(self, '_candidate_user_speaking', False)
+                    # Use _local_vad_voice_frames from audio sender task (more reliable)
+                    local_vad_voice_frames = getattr(self, '_local_vad_voice_frames', 0)
+                    # Fallback to _echo_gate_consec_frames if _local_vad not available
+                    if local_vad_voice_frames == 0:
+                        local_vad_voice_frames = getattr(self, '_echo_gate_consec_frames', 0)
+                    last_ai_transcript = getattr(self, '_last_ai_transcript_text', '')
+                    
                     # 🔥 PRE-COMPUTE: Check filler status once (used in both hallucination and success paths)
                     is_filler_only = not is_valid_transcript(text)
                     
@@ -4843,7 +4948,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         noise_floor=current_noise_floor,
                         ai_speaking=ai_speaking,
                         last_ai_audio_start_ms=time_since_ai_audio_start_ms,
-                        last_hallucination=self._last_hallucination
+                        last_hallucination=self._last_hallucination,
+                        candidate_user_speaking=candidate_user_speaking,
+                        local_vad_voice_frames=local_vad_voice_frames,
+                        last_ai_transcript=last_ai_transcript
                     )
                     
                     if not accept_utterance:
