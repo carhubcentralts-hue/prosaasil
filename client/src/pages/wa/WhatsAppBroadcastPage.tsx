@@ -150,12 +150,14 @@ export function WhatsAppBroadcastPage() {
 
   const loadStatuses = async () => {
     try {
-      const response = await http.get<{ statuses: Array<{ name: string }> }>('/api/business/current/statuses');
-      setAvailableStatuses(response.statuses.map(s => s.name));
+      const response = await http.get<{ items: Array<{ name: string; label: string }> }>('/api/statuses');
+      // Use items array from the response (standard format)
+      const statusList = response.items || [];
+      setAvailableStatuses(statusList.map(s => s.name));
     } catch (error) {
       console.error('Error loading statuses:', error);
       // Fallback to common statuses
-      setAvailableStatuses(['חדש', 'פעיל', 'לא מעוניין', 'הצלחה']);
+      setAvailableStatuses(['new', 'contacted', 'qualified', 'won']);
     }
   };
 
@@ -177,16 +179,26 @@ export function WhatsAppBroadcastPage() {
   const loadLeads = async () => {
     try {
       setLoadingLeads(true);
-      const params: any = { page: 1, pageSize: 1000 }; // Get all leads
+      
+      // Build query parameters properly
+      const params = new URLSearchParams();
+      params.append('page', '1');
+      params.append('pageSize', '1000'); // Get all leads
       
       if (selectedStatuses.length > 0) {
-        params['statuses[]'] = selectedStatuses;
+        // Add each status as a separate parameter
+        selectedStatuses.forEach(status => {
+          params.append('status', status);
+        });
       }
       if (leadSearchTerm.trim()) {
-        params.search = leadSearchTerm.trim();
+        params.append('q', leadSearchTerm.trim());
       }
       
-      const response = await http.get<{ leads: Array<{id: number; name: string; phone_e164: string; status: string}> }>('/api/leads', { params });
+      const queryString = params.toString();
+      const url = `/api/leads${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await http.get<{ leads: Array<{id: number; name: string; phone_e164: string; status: string}> }>(url);
       const loadedLeads = response.leads || [];
       setLeads(loadedLeads.map(l => ({ id: l.id, name: l.name, phone: l.phone_e164, status: l.status })));
       
