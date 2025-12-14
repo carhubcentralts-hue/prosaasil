@@ -4,7 +4,7 @@
 # Verifies all critical API endpoints are accessible
 # ===========================================
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -112,8 +112,8 @@ route_count=$(echo "$routes_json" | grep -o '"api_routes_count":[0-9]*' | grep -
 
 if [ "$route_count" -gt 0 ]; then
     echo -e "${GREEN}✓ Found $route_count API routes${NC}"
-    # List critical routes
-    echo "Critical routes registered:"
+    # List critical routes (first 20 for brevity)
+    echo "Critical routes registered (first 20):"
     echo "$routes_json" | grep -o '"/api/[^"]*"' | sort | uniq | head -20
 else
     echo -e "${RED}✗ No API routes found or endpoint not accessible${NC}"

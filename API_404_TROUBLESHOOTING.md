@@ -73,11 +73,14 @@ docker logs prosaas-frontend
 ```
 
 **Fix:**
-Verify nginx has proper `/api/` routing:
+Verify nginx has proper `/api/` routing with trailing slashes. Trailing slashes are critical because:
+- `location /api/` matches `/api/*` URLs
+- `proxy_pass http://backend:5000/api/;` preserves the full path including `/api/`
+- Without trailing slashes, nginx may strip or duplicate path segments
 
 ```nginx
 location /api/ {
-    proxy_pass http://backend:5000/api/;  # Note trailing slashes!
+    proxy_pass http://backend:5000/api/;  # Note trailing slashes on both!
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
