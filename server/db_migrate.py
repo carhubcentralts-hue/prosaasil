@@ -910,6 +910,69 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 36: BUILD 350 - Add last_call_direction to leads for inbound/outbound filtering
+    # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + index + backfill
+    if check_table_exists('leads'):
+        from sqlalchemy import text
+        
+        try:
+            # Use DO block to add column, index, and backfill in one transaction
+            db.session.execute(text("""
+                DO $$
+                BEGIN
+                    -- Add last_call_direction column if it doesn't exist
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'leads' AND column_name = 'last_call_direction'
+                    ) THEN
+                        ALTER TABLE leads ADD COLUMN last_call_direction VARCHAR(16);
+                        RAISE NOTICE 'Added leads.last_call_direction';
+                    END IF;
+                END;
+                $$;
+            """))
+            
+            # Create index for performance (idempotent)
+            db.session.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_leads_last_call_direction 
+                ON leads(last_call_direction)
+            """))
+            
+            # Backfill last_call_direction from call_log table
+            # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
+            # This determines the lead's origin (inbound vs outbound)
+            # ⚠️ PERFORMANCE: For very large datasets (>100K calls), this may take time
+            # but it's a one-time operation and uses indexed columns (lead_id, created_at)
+            checkpoint("Backfilling last_call_direction from call_log...")
+            if check_table_exists('call_log'):
+                backfill_result = db.session.execute(text("""
+                    WITH first_calls AS (
+                        SELECT DISTINCT ON (cl.lead_id) 
+                            cl.lead_id,
+                            cl.direction,
+                            cl.created_at
+                        FROM call_log cl
+                        WHERE cl.lead_id IS NOT NULL 
+                          AND cl.direction IS NOT NULL
+                          AND cl.direction IN ('inbound', 'outbound')
+                        ORDER BY cl.lead_id, cl.created_at ASC
+                    )
+                    UPDATE leads l
+                    SET last_call_direction = fc.direction
+                    FROM first_calls fc
+                    WHERE l.id = fc.lead_id
+                      AND l.last_call_direction IS NULL
+                """))
+                rows_updated = backfill_result.rowcount
+                checkpoint(f"✅ Backfilled last_call_direction for {rows_updated} leads (using FIRST call direction)")
+            
+            migrations_applied.append("add_leads_last_call_direction")
+            log.info("✅ Applied migration 36: add_leads_last_call_direction - Inbound/outbound filtering support")
+        except Exception as e:
+            log.error(f"❌ Migration 36 failed: {e}")
+            db.session.rollback()
+            raise
+    
     checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()

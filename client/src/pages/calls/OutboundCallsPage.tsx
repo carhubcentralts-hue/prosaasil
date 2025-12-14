@@ -1,4 +1,5 @@
 import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Phone, 
@@ -88,6 +89,7 @@ type TabType = 'existing' | 'imported';
 type ViewMode = 'table' | 'kanban';
 
 export function OutboundCallsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -131,11 +133,25 @@ export function OutboundCallsPage() {
     }
   }, [statusesData]);
 
-  const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery<{ leads: Lead[] }>({
-    queryKey: ['/api/leads', searchQuery],
+  const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery({
+    queryKey: ['/api/leads', 'outbound', searchQuery],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        direction: 'outbound',
+        page: '1',
+        pageSize: '100',
+      });
+      
+      if (searchQuery) {
+        params.append('q', searchQuery);
+      }
+
+      return await http.get(`/api/leads?${params.toString()}`);
+    },
     enabled: activeTab === 'existing',
     select: (data: any) => {
       if (!data) return { leads: [] };
+      // Try different response formats for backward compatibility
       if (Array.isArray(data)) return { leads: data };
       if (data.items && Array.isArray(data.items)) return { leads: data.items };
       if (data.leads && Array.isArray(data.leads)) return { leads: data.leads };
@@ -389,7 +405,7 @@ export function OutboundCallsPage() {
           <PhoneOutgoing className="h-8 w-8 text-blue-600" />
           <div>
             <h1 className="text-2xl font-bold text-gray-900">שיחות יוצאות</h1>
-            <p className="text-sm text-gray-500">בחר לידים והפעל שיחות AI יוצאות</p>
+            <p className="text-sm text-gray-500">לידים שמקורם משיחות יוצאות + ניהול רשימות ייבוא</p>
           </div>
         </div>
         
@@ -482,7 +498,7 @@ export function OutboundCallsPage() {
         >
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4" />
-            לידים קיימים
+            לידים יוצאים
           </div>
         </button>
         <button

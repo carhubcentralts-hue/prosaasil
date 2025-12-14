@@ -596,10 +596,18 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 else:
                     log.info(f"[AutoStatus] ℹ️ No confident status match for lead {lead.id} - keeping status as '{old_status}'")
                 
-                # 5. ✨ שמירת הסיכום בליד + עדכון last_contact_at + last_call_direction (ALWAYS updated, even if status didn't change)
+                # 5. ✨ שמירת הסיכום בליד + עדכון last_contact_at + last_call_direction
                 lead.summary = summary  # סיכום קצר (10-30 מילים)
                 lead.last_contact_at = datetime.utcnow()  # Update last contact time
-                lead.last_call_direction = call_direction  # Update call direction for filtering (inbound/outbound)
+                
+                # 🔒 CRITICAL: Set last_call_direction ONCE on first interaction, NEVER override
+                # This ensures inbound leads stay inbound even after outbound follow-ups, and vice versa
+                if lead.last_call_direction is None:
+                    lead.last_call_direction = call_direction
+                    log.info(f"🎯 Set lead {lead.id} direction to '{call_direction}' (first interaction)")
+                else:
+                    log.info(f"ℹ️ Lead {lead.id} direction already set to '{lead.last_call_direction}' (not overriding with '{call_direction}')")
+                
                 lead.notes = f"סיכום: {conversation_summary.get('summary', '')}\n" + (lead.notes or "")
                 
                 db.session.commit()
