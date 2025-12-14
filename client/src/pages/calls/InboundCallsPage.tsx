@@ -6,6 +6,7 @@ import { http } from '../../services/http';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
+import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
 import { LeadKanbanView } from '../Leads/components/LeadKanbanView';
 import LeadCard from '../Leads/components/LeadCard';
 
@@ -46,6 +47,7 @@ export function InboundCallsPage() {
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('kanban');
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const pageSize = 25;
 
   // Fetch lead statuses for Kanban
@@ -57,7 +59,7 @@ export function InboundCallsPage() {
 
   // Fetch inbound leads
   const { data: leadsResponse, isLoading: leadsLoading, error } = useQuery({
-    queryKey: ['/api/leads', 'inbound', page, searchQuery],
+    queryKey: ['/api/leads', 'inbound', page, searchQuery, selectedStatuses],
     queryFn: async () => {
       const params = new URLSearchParams({
         direction: 'inbound',
@@ -67,6 +69,13 @@ export function InboundCallsPage() {
       
       if (searchQuery) {
         params.append('q', searchQuery);
+      }
+
+      // Add multi-status filter
+      if (selectedStatuses.length > 0) {
+        selectedStatuses.forEach(status => {
+          params.append('statuses[]', status);
+        });
       }
 
       return await http.get(`/api/leads?${params.toString()}`);
@@ -214,21 +223,35 @@ export function InboundCallsPage() {
         </div>
       </div>
 
-      {/* Search */}
+      {/* Search and Filters */}
       <Card className="p-4">
-        <div className="relative">
-          <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
-          <Input
-            type="search"
-            placeholder="חפש לפי שם או טלפון..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(1);
-            }}
-            className="w-full pl-3 pr-10"
-            data-testid="input-search-inbound"
-          />
+        <div className="flex gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
+            <Input
+              type="search"
+              placeholder="חפש לפי שם או טלפון..."
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+              className="w-full pl-3 pr-10"
+              data-testid="input-search-inbound"
+            />
+          </div>
+          
+          {/* Status Filter */}
+          {viewMode === 'list' && statuses.length > 0 && (
+            <div className="w-64">
+              <MultiStatusSelect
+                statuses={statuses}
+                selectedStatuses={selectedStatuses}
+                onChange={setSelectedStatuses}
+                placeholder="סנן לפי סטטוס"
+              />
+            </div>
+          )}
         </div>
       </Card>
 

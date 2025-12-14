@@ -290,6 +290,9 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
               console.log('Action:', result.metadata?.action);
             }, 300);
           }
+        } else {
+          // Fallback: if no path is provided, log warning
+          console.warn('Search result has no path:', result);
         }
         break;
       default:

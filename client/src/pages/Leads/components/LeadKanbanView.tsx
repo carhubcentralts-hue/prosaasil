@@ -102,7 +102,15 @@ export function LeadKanbanView({
     setActiveId(null);
     setIsDragging(false);
 
-    if (!over || isUpdating) return;
+    if (!over) {
+      console.log('⚠️ Drag ended with no drop target');
+      return;
+    }
+    
+    if (isUpdating) {
+      console.log('⚠️ Already updating, ignoring drag');
+      return;
+    }
 
     const leadId = active.id as number;
     const newStatusIdentifier = over.id; // This should be status.name (string)
@@ -118,17 +126,22 @@ export function LeadKanbanView({
     const newStatusName = targetStatus.name; // Use the name from the status object
     
     const lead = leads.find(l => l.id === leadId);
-    if (!lead) return;
+    if (!lead) {
+      console.error('❌ Lead not found:', leadId);
+      return;
+    }
 
     // Only update if status actually changed
     const currentStatus = lead.status?.toLowerCase() || 'new';
     if (currentStatus === newStatusName.toLowerCase()) {
+      console.log('ℹ️ Status unchanged, ignoring drag');
       return;
     }
 
     try {
       setIsUpdating(true);
-      console.log(`🔵 LeadKanban: Moving lead ${leadId} from ${currentStatus} to ${newStatusName}`);
+      const currentLeadsInTarget = leadsByStatus[newStatusName] || [];
+      console.log(`🔵 LeadKanban: Moving lead ${leadId} from ${currentStatus} to ${newStatusName} (target has ${currentLeadsInTarget.length} leads)`);
       // Call the parent's status change handler (optimistic update handled there)
       await onStatusChange(leadId, newStatusName);
       console.log(`✅ LeadKanban: Successfully moved lead ${leadId} to ${newStatusName}`);
