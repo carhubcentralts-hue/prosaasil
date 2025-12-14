@@ -10612,6 +10612,307 @@ Greet briefly. Then WAIT for customer to speak."""
                 })
                 await client.send_event({"type": "response.create"})
         
+        elif function_name == "check_availability":
+            # 🔥 CHECK AVAILABILITY: Validate slot availability before booking
+            try:
+                args = json.loads(arguments_str)
+                print(f"📅 [CHECK_AVAIL] Request from AI: {args}")
+                
+                business_id = args.get("business_id") or getattr(self, 'business_id', None)
+                service = args.get("service", "").strip()
+                date_str = args.get("date", "").strip()  # YYYY-MM-DD
+                time_window = args.get("time_window", "").strip()  # HH:MM or 'morning'/'afternoon'/'evening'
+                duration = args.get("duration")
+                timezone_str = args.get("timezone", "Asia/Jerusalem")
+                
+                if not business_id or not service or not date_str:
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "available": False,
+                                "error_code": "missing_parameters",
+                                "message": "נדרשים פרטי שירות, תאריך ועסק"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Parse date and get business policy
+                from datetime import datetime, timedelta
+                import pytz
+                from server.policy.business_policy import get_business_policy
+                
+                policy = get_business_policy(business_id)
+                tz = pytz.timezone(policy.tz)
+                
+                # Use policy duration if not provided
+                if not duration:
+                    duration = policy.slot_size_min
+                
+                # Parse time window
+                # If time_window is HH:MM, use it directly
+                # If it's 'morning'/'afternoon'/'evening', convert to time range
+                time_slots = []
+                if ':' in time_window:
+                    # Specific time provided
+                    time_slots = [time_window]
+                elif time_window.lower() in ['בוקר', 'morning']:
+                    time_slots = ['09:00', '10:00', '11:00', '12:00']
+                elif time_window.lower() in ['צהריים', 'afternoon']:
+                    time_slots = ['13:00', '14:00', '15:00', '16:00']
+                elif time_window.lower() in ['ערב', 'evening']:
+                    time_slots = ['17:00', '18:00', '19:00', '20:00']
+                else:
+                    # Default: try common business hours
+                    time_slots = ['09:00', '12:00', '15:00', '18:00']
+                
+                # Check availability for each time slot
+                available_slots = []
+                for time_str in time_slots:
+                    try:
+                        datetime_str = f"{date_str} {time_str}"
+                        requested_dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
+                        requested_dt = tz.localize(requested_dt)
+                        
+                        # Check if slot is available
+                        is_available = validate_appointment_slot(business_id, requested_dt)
+                        if is_available:
+                            available_slots.append({
+                                "time": time_str,
+                                "datetime_iso": requested_dt.isoformat()
+                            })
+                    except Exception as slot_err:
+                        print(f"⚠️ [CHECK_AVAIL] Error checking slot {time_str}: {slot_err}")
+                        continue
+                
+                if available_slots:
+                    # Found available slots
+                    print(f"✅ [CHECK_AVAIL] Found {len(available_slots)} available slot(s)")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "available": True,
+                                "slots": available_slots,
+                                "service": service,
+                                "date": date_str,
+                                "message": f"נמצאו {len(available_slots)} מועדים פנויים"
+                            })
+                        }
+                    })
+                else:
+                    # No available slots
+                    print(f"❌ [CHECK_AVAIL] No available slots for {date_str} {time_window}")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "available": False,
+                                "message": "אין מועדים פנויים בזמן המבוקש",
+                                "suggestion": "נסה תאריך אחר או שעה אחרת"
+                            })
+                        }
+                    })
+                
+                await client.send_event({"type": "response.create"})
+                
+            except Exception as e:
+                print(f"❌ [CHECK_AVAIL] Error: {e}")
+                import traceback
+                traceback.print_exc()
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({
+                            "available": False,
+                            "error_code": "server_error",
+                            "message": "שגיאה בבדיקת זמינות"
+                        })
+                    }
+                })
+                await client.send_event({"type": "response.create"})
+        
+        elif function_name == "book_appointment":
+            # 🔥 BOOK APPOINTMENT: Actually create the appointment after availability check
+            try:
+                args = json.loads(arguments_str)
+                print(f"📅 [BOOK_APPT] Request from AI: {args}")
+                
+                business_id = args.get("business_id") or getattr(self, 'business_id', None)
+                service = args.get("service", "").strip()
+                datetime_iso = args.get("datetime", "").strip()  # ISO 8601 format
+                duration = args.get("duration")
+                customer_name = args.get("customer_name", "").strip()
+                customer_phone = args.get("customer_phone", "").strip()
+                notes = args.get("notes", "").strip()
+                
+                # Use phone from call context if not provided
+                if not customer_phone:
+                    customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                
+                # Validate required fields
+                if not all([business_id, service, datetime_iso, customer_name, customer_phone]):
+                    missing = []
+                    if not business_id: missing.append("business_id")
+                    if not service: missing.append("service")
+                    if not datetime_iso: missing.append("datetime")
+                    if not customer_name: missing.append("customer_name")
+                    if not customer_phone: missing.append("customer_phone")
+                    
+                    print(f"❌ [BOOK_APPT] Missing required fields: {missing}")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "missing_fields",
+                                "missing_fields": missing,
+                                "message": "חסרים פרטים נדרשים ליצירת הפגישה"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Check if already created appointment in this session
+                if getattr(self, '_appointment_created_this_session', False):
+                    print(f"⚠️ [BOOK_APPT] Already created appointment in this session - blocking duplicate")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "appointment_already_created",
+                                "message": "כבר נוצרה פגישה בשיחה הזו"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Parse datetime
+                from datetime import datetime, timedelta
+                import pytz
+                from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+                from server.policy.business_policy import get_business_policy
+                
+                policy = get_business_policy(business_id)
+                tz = pytz.timezone(policy.tz)
+                
+                # Parse ISO datetime
+                requested_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
+                if requested_dt.tzinfo is None:
+                    requested_dt = tz.localize(requested_dt)
+                else:
+                    requested_dt = requested_dt.astimezone(tz)
+                
+                # Use policy duration if not provided
+                if not duration:
+                    duration = policy.slot_size_min
+                
+                # Calculate end time
+                end_dt = requested_dt + timedelta(minutes=duration)
+                
+                print(f"📅 [BOOK_APPT] Creating: {requested_dt.isoformat()} -> {end_dt.isoformat()}")
+                
+                # Create appointment using unified implementation
+                input_data = CreateAppointmentInput(
+                    business_id=business_id,
+                    customer_name=customer_name,
+                    customer_phone=customer_phone,
+                    treatment_type=service,
+                    start_iso=requested_dt.isoformat(),
+                    end_iso=end_dt.isoformat(),
+                    notes=notes or "Scheduled via phone call",
+                    source="realtime_phone"
+                )
+                
+                context = {
+                    "customer_phone": customer_phone,
+                    "channel": "phone"
+                }
+                
+                # Call unified implementation
+                result = _calendar_create_appointment_impl(input_data, context=context, session=self)
+                
+                # Handle result
+                if hasattr(result, 'appointment_id'):
+                    # Success - CreateAppointmentOutput
+                    appt_id = result.appointment_id
+                    print(f"✅ [BOOK_APPT] SUCCESS! ID={appt_id}, status={result.status}")
+                    
+                    # Mark as created to prevent duplicates
+                    self._appointment_created_this_session = True
+                    
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": True,
+                                "appointment_id": appt_id,
+                                "start_time": requested_dt.isoformat(),
+                                "end_time": end_dt.isoformat(),
+                                "customer_name": customer_name,
+                                "message": f"הפגישה נקבעה בהצלחה ל-{requested_dt.strftime('%d/%m/%Y')} בשעה {requested_dt.strftime('%H:%M')}"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                else:
+                    # Error or unexpected format
+                    error_msg = "שגיאה ביצירת הפגישה"
+                    if isinstance(result, dict):
+                        error_msg = result.get("message", error_msg)
+                    
+                    print(f"❌ [BOOK_APPT] Failed: {error_msg}")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "creation_failed",
+                                "message": error_msg
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                
+            except Exception as e:
+                print(f"❌ [BOOK_APPT] Error: {e}")
+                import traceback
+                traceback.print_exc()
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({
+                            "success": False,
+                            "error_code": "server_error",
+                            "message": "שגיאה ביצירת הפגישה"
+                        })
+                    }
+                })
+                await client.send_event({"type": "response.create"})
+        
         else:
             print(f"⚠️ [BUILD 313] Unknown function: {function_name}")
     
