@@ -269,9 +269,9 @@ export function WhatsAppBroadcastPage() {
       return;
     }
     
-    // NEW: Validate audience source
+    // NEW: Validate audience source with better error messages
     if (audienceSource === 'leads' && selectedLeadIds.length === 0) {
-      alert('יש לבחור לפחות ליד אחד');
+      alert(`יש לבחור לפחות ליד אחד לשליחה.\n\nכרגע יש ${leads.length} לידים זמינים, אך לא נבחר אף אחד.\nאנא סמן לידים מהרשימה או לחץ "בחר הכל".`);
       return;
     }
     if (audienceSource === 'import-list' && !selectedImportListId) {
@@ -282,6 +282,20 @@ export function WhatsAppBroadcastPage() {
       alert('יש להעלות קובץ CSV');
       return;
     }
+
+    // Additional validation - ensure recipient count is > 0
+    if (recipientCount === 0) {
+      alert('אין נמענים לשליחה. אנא בחר לידים, רשימת ייבוא או העלה קובץ CSV.');
+      return;
+    }
+
+    console.log('📤 Sending broadcast:', {
+      audienceSource,
+      selectedLeadIds: selectedLeadIds.length,
+      recipientCount,
+      messageType,
+      provider
+    });
 
     try {
       setSending(true);

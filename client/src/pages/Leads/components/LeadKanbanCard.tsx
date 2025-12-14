@@ -110,7 +110,8 @@ export function LeadKanbanCard({
             checked={isSelected}
             readOnly
             aria-label={`בחר ליד ${lead.full_name || lead.first_name || 'ללא שם'}`}
-            className="accent-blue-600 pointer-events-auto h-4 w-4 rounded border-gray-300"
+            className="accent-blue-600 pointer-events-auto h-4 w-4 rounded border-gray-300 cursor-pointer"
+            style={{ accentColor: '#2563eb' }}
           />
         </label>
 

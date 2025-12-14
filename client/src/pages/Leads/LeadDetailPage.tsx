@@ -419,9 +419,9 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           />
         )}
         {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
-        {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} />}
+        {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
-        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
+        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
         {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
       </div>
 
@@ -732,8 +732,9 @@ function ConversationTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsApp:
   );
 }
 
-function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) {
+function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; loading?: boolean; leadId: number; onRefresh: () => void }) {
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${seconds} שניות`;
@@ -769,6 +770,22 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
     } catch (error) {
       console.error('Error downloading recording:', error);
       alert('שגיאה בהורדת ההקלטה');
+    }
+  };
+
+  const handleDeleteCall = async (callId: string) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק שיחה זו? פעולה זו תמחק גם את ההקלטה והתמליל.')) return;
+    
+    try {
+      setDeleting(callId);
+      await http.delete(`/api/calls/${callId}`);
+      onRefresh();
+      alert('השיחה נמחקה בהצלחה');
+    } catch (err) {
+      console.error('Failed to delete call:', err);
+      alert('שגיאה במחיקת השיחה');
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -823,12 +840,30 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
                         </div>
                       </div>
                     </div>
-                    <button
-                      onClick={() => setExpandedCallId(isExpanded ? null : call.id)}
-                      className="p-2 hover:bg-gray-200 rounded-full transition-colors"
-                    >
-                      <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCall(call.id);
+                        }}
+                        disabled={deleting === call.id}
+                        className="p-2 hover:bg-red-100 rounded-full transition-colors"
+                        data-testid={`button-delete-call-${call.id}`}
+                        title="מחק שיחה"
+                      >
+                        {deleting === call.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setExpandedCallId(isExpanded ? null : call.id)}
+                        className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                      >
+                        <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1367,7 +1402,40 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
   );
 }
 
-function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders: LeadReminder[]; onOpenReminder: () => void; onEditReminder: (reminder: LeadReminder) => void }) {
+function RemindersTab({ reminders, onOpenReminder, onEditReminder, leadId, onRefresh }: { reminders: LeadReminder[]; onOpenReminder: () => void; onEditReminder: (reminder: LeadReminder) => void; leadId: number; onRefresh: () => void }) {
+  const [completing, setCompleting] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
+
+  const handleCompleteReminder = async (reminderId: number) => {
+    try {
+      setCompleting(reminderId);
+      await http.patch(`/api/leads/${leadId}/reminders/${reminderId}`, {
+        completed_at: new Date().toISOString()
+      });
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to complete reminder:', err);
+      alert('שגיאה בסימון התזכורת כהושלמה');
+    } finally {
+      setCompleting(null);
+    }
+  };
+
+  const handleDeleteReminder = async (reminderId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק תזכורת זו?')) return;
+    
+    try {
+      setDeleting(reminderId);
+      await http.delete(`/api/leads/${leadId}/reminders/${reminderId}`);
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to delete reminder:', err);
+      alert('שגיאה במחיקת התזכורת');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
@@ -1387,11 +1455,20 @@ function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders
         <div className="space-y-3">
           {reminders.map((reminder) => (
             <div key={reminder.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-              {reminder.completed_at ? (
-                <CheckCircle2 className="w-5 h-5 text-green-500" />
-              ) : (
-                <Circle className="w-5 h-5 text-gray-400" />
-              )}
+              <button
+                onClick={() => !reminder.completed_at && handleCompleteReminder(reminder.id)}
+                disabled={completing === reminder.id || !!reminder.completed_at}
+                className="flex-shrink-0"
+                data-testid={`button-complete-reminder-${reminder.id}`}
+              >
+                {completing === reminder.id ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                ) : reminder.completed_at ? (
+                  <CheckCircle2 className="w-5 h-5 text-green-500" />
+                ) : (
+                  <Circle className="w-5 h-5 text-gray-400 hover:text-green-500 transition-colors cursor-pointer" />
+                )}
+              </button>
               <div className="flex-1 min-w-0">
                 <p className={`text-sm ${reminder.completed_at ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                   {reminder.note}
@@ -1403,13 +1480,27 @@ function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => onEditReminder(reminder)}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-                data-testid={`button-edit-reminder-${reminder.id}`}
-              >
-                <Pencil className="w-4 h-4 text-gray-600" />
-              </button>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => onEditReminder(reminder)}
+                  className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                  data-testid={`button-edit-reminder-${reminder.id}`}
+                >
+                  <Pencil className="w-4 h-4 text-gray-600" />
+                </button>
+                <button
+                  onClick={() => handleDeleteReminder(reminder.id)}
+                  disabled={deleting === reminder.id}
+                  className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                  data-testid={`button-delete-reminder-${reminder.id}`}
+                >
+                  {deleting === reminder.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  )}
+                </button>
+              </div>
             </div>
           ))}
         </div>
