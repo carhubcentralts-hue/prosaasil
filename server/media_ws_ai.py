@@ -1104,6 +1104,28 @@ INTERRUPT_WHITELIST = {
     "חכה", "רגע רגע", "סליחה", "לא לא", "תודה", "די תודה", "שקט"
 }
 
+# 🔥 INTENT-AWARE BARGE-IN: Single-token validation constants
+# These constants define meaningful single-token intents that should trigger barge-in confirmation
+# Performance optimization: Defined at module level to avoid recreation on every call
+
+# Hebrew numeric words (both masculine and feminine forms)
+HEBREW_NUMERIC_WORDS = {
+    'אחד', 'אחת', 'שתיים', 'שניים', 'שלוש', 'שלושה',
+    'ארבע', 'ארבעה', 'חמש', 'חמישה', 'שש', 'שישה',
+    'שבע', 'שבעה', 'שמונה', 'תשע', 'תשעה', 'עשר', 'עשרה'
+}
+
+# Confirmation words (single-token responses that have meaning)
+INTENT_CONFIRMATION_WORDS = {
+    'כן', 'לא', 'רגע', 'שנייה', 'שניה', 'הלו', 'עצור', 'תעצור'
+}
+
+# Timing/scheduling words (single-token time references)
+INTENT_TIMING_WORDS = {
+    'היום', 'מחר', 'בערב', 'בבוקר', 'בצהריים', 'בלילה',
+    'ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'
+}
+
 # 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
 GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
@@ -3696,6 +3718,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         # DON'T cancel AI yet - wait for STT to confirm this is real speech
                         # The cancellation will happen in input_audio_transcription.completed handler
                         # ⚠️ CRITICAL: NO TX_CLEAR/flush here! Only in Confirmed stage (transcription.completed)
+                        # Skip to next event - STT validation will determine if this is a real barge-in
                         continue
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
@@ -4919,24 +4942,20 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         is_intent_aware_token = False
                         if word_count == 1:
-                            # Check if it's a number (digits)
-                            import re
+                            # Check if it's a number (digits) - regex already imported at module level
                             if re.match(r'^\d+$', normalized_text):
                                 is_intent_aware_token = True
                                 confirm_reason = f"number={normalized_text}"
-                            # Check if it's a Hebrew numeric word
-                            elif normalized_text in ['אחד', 'אחת', 'שתיים', 'שניים', 'שלוש', 'שלושה', 
-                                                     'ארבע', 'ארבעה', 'חמש', 'חמישה', 'שש', 'שישה',
-                                                     'שבע', 'שבעה', 'שמונה', 'תשע', 'תשעה', 'עשר', 'עשרה']:
+                            # Check if it's a Hebrew numeric word (using module-level constant)
+                            elif normalized_text in HEBREW_NUMERIC_WORDS:
                                 is_intent_aware_token = True
                                 confirm_reason = f"hebrew_number={normalized_text}"
-                            # Check if it's a confirmation word
-                            elif normalized_text in ['כן', 'לא', 'רגע', 'שנייה', 'שניה', 'הלו', 'עצור', 'תעצור']:
+                            # Check if it's a confirmation word (using module-level constant)
+                            elif normalized_text in INTENT_CONFIRMATION_WORDS:
                                 is_intent_aware_token = True
                                 confirm_reason = f"confirmation={normalized_text}"
-                            # Check if it's a timing word
-                            elif normalized_text in ['היום', 'מחר', 'בערב', 'בבוקר', 'בצהריים', 'בלילה',
-                                                     'ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת']:
+                            # Check if it's a timing word (using module-level constant)
+                            elif normalized_text in INTENT_TIMING_WORDS:
                                 is_intent_aware_token = True
                                 confirm_reason = f"timing={normalized_text}"
                             # Check interrupt whitelist (existing logic)
