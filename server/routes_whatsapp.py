@@ -1,4 +1,4 @@
-import os, requests, logging
+import os, requests, logging, csv, io
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
@@ -1761,46 +1761,43 @@ def create_broadcast():
             # From CSV file (with validation)
             csv_file = request.files.get('csv_file')
             if csv_file:
-            import csv
-            import io
-            
-            # Validate file size (max 5MB)
-            MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
-            csv_file.seek(0, 2)  # Seek to end
-            file_size = csv_file.tell()
-            csv_file.seek(0)  # Seek back to start
-            
-            if file_size > MAX_FILE_SIZE:
-                return jsonify({
-                    'success': False,
-                    'message': 'קובץ גדול מדי (מקסימום 5MB)'
-                }), 400
-            
-            # Read and parse CSV with row limit
-            MAX_ROWS = 10000  # Max 10,000 recipients
-            try:
-                stream = io.StringIO(csv_file.stream.read().decode("UTF8"), newline=None)
-                csv_reader = csv.DictReader(stream)
+                # Validate file size (max 5MB)
+                MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+                csv_file.seek(0, 2)  # Seek to end
+                file_size = csv_file.tell()
+                csv_file.seek(0)  # Seek back to start
                 
-                row_count = 0
-                for row in csv_reader:
-                    row_count += 1
-                    if row_count > MAX_ROWS:
-                        log.warning(f"CSV row limit exceeded: {row_count} > {MAX_ROWS}")
-                        break
+                if file_size > MAX_FILE_SIZE:
+                    return jsonify({
+                        'success': False,
+                        'message': 'קובץ גדול מדי (מקסימום 5MB)'
+                    }), 400
+                
+                # Read and parse CSV with row limit
+                MAX_ROWS = 10000  # Max 10,000 recipients
+                try:
+                    stream = io.StringIO(csv_file.stream.read().decode("UTF8"), newline=None)
+                    csv_reader = csv.DictReader(stream)
                     
-                    phone = row.get('phone', '').strip()
-                    if phone:
-                        recipients.append({
-                            'phone': phone,
-                            'lead_id': None
-                        })
-            except Exception as csv_err:
-                log.error(f"CSV parsing error: {csv_err}")
-                return jsonify({
-                    'success': False,
-                    'message': 'שגיאה בקריאת קובץ CSV'
-                }), 400
+                    row_count = 0
+                    for row in csv_reader:
+                        row_count += 1
+                        if row_count > MAX_ROWS:
+                            log.warning(f"CSV row limit exceeded: {row_count} > {MAX_ROWS}")
+                            break
+                        
+                        phone = row.get('phone', '').strip()
+                        if phone:
+                            recipients.append({
+                                'phone': phone,
+                                'lead_id': None
+                            })
+                except Exception as csv_err:
+                    log.error(f"CSV parsing error: {csv_err}")
+                    return jsonify({
+                        'success': False,
+                        'message': 'שגיאה בקריאת קובץ CSV'
+                    }), 400
         
         if len(recipients) == 0:
             return jsonify({
