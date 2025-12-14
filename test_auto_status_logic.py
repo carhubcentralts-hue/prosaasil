@@ -11,7 +11,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def test_auto_status_keyword_matching():
-    """Test keyword matching logic"""
+    """
+    Test keyword matching logic
+    
+    Note: This test uses the private _map_from_keywords method to test
+    keyword matching in isolation without database dependencies.
+    In production code, always use the public suggest_status() method.
+    """
     print("=" * 80)
     print("TEST: Auto-Status Keyword Matching")
     print("=" * 80)

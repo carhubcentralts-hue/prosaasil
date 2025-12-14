@@ -336,12 +336,13 @@ def verify_both_flows_inbound_outbound(app):
     
     has_auto_status = 'suggest_lead_status_from_call' in source
     has_direction_param = 'call_direction' in source
-    no_conditional_block = 'if call_direction ==' not in source or 'if direction ==' not in source
+    # Check if there are NO direction-based conditionals that would block auto-status
+    has_direction_conditionals = 'if call_direction ==' in source and 'if direction ==' in source
     
     print("Code inspection:")
     print(f"  - Has auto-status call: {'✅' if has_auto_status else '❌'}")
     print(f"  - Uses call_direction: {'✅' if has_direction_param else '❌'}")
-    print(f"  - No direction-based conditionals: {'✅' if no_conditional_block else '❌'}")
+    print(f"  - No direction-based blocking: {'✅' if not has_direction_conditionals else '❌'}")
     print()
     
     # Check database for actual evidence
