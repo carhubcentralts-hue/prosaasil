@@ -330,6 +330,8 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
     Uses GPT-4o-transcribe with optimized settings for maximum Hebrew accuracy.
     Falls back to whisper-1 if GPT-4o-transcribe is not available.
     
+    NOTE: Converts audio to optimal format (WAV 16kHz mono) before transcription.
+    
     Args:
         audio_file_path: Path to the audio file (MP3/WAV)
         call_sid: Call SID for logging
@@ -341,11 +343,80 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         logger.error(f"[OFFLINE_STT] Audio file not found: {audio_file_path}")
         return None
     
+    # Initialize converted_file early to ensure it's in scope for cleanup
+    converted_file = None
+    
     try:
         file_size = os.path.getsize(audio_file_path)
         logger.info(f"[OFFLINE_STT] Starting transcription for call {call_sid}")
         logger.info(f"[OFFLINE_STT] File: {audio_file_path}, size: {file_size} bytes")
         print(f"[OFFLINE_STT] 🎧 Using GPT-4o transcribe for {call_sid}, size={file_size} bytes")
+        
+        # Convert audio to optimal format for transcription
+        # WAV 16kHz mono PCM is the best format for STT quality
+        file_to_transcribe = audio_file_path
+        
+        try:
+            import subprocess
+            import tempfile
+            
+            # Check if ffmpeg is available
+            try:
+                subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True, timeout=5)
+                ffmpeg_available = True
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                ffmpeg_available = False
+                logger.warning("[OFFLINE_STT] ffmpeg not available, using original audio file")
+            
+            if ffmpeg_available:
+                # Create temporary file for converted audio
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                    converted_file = tmp_file.name
+                
+                # Convert to WAV 16kHz mono PCM using ffmpeg
+                # -ac 1: mono (single channel)
+                # -ar 16000: 16kHz sample rate (optimal for speech recognition)
+                # -c:a pcm_s16le: PCM 16-bit little-endian (uncompressed, best quality)
+                # -y: overwrite output file
+                conversion_cmd = [
+                    'ffmpeg',
+                    '-i', audio_file_path,
+                    '-ac', '1',              # mono
+                    '-ar', '16000',          # 16kHz
+                    '-c:a', 'pcm_s16le',     # PCM 16-bit
+                    '-y',                    # overwrite
+                    converted_file
+                ]
+                
+                logger.info(f"[OFFLINE_STT] Converting audio to WAV 16kHz mono for {call_sid}")
+                result = subprocess.run(
+                    conversion_cmd,
+                    capture_output=True,
+                    timeout=60,  # 60 seconds max for conversion
+                    text=True
+                )
+                
+                if result.returncode == 0:
+                    converted_size = os.path.getsize(converted_file)
+                    logger.info(f"[OFFLINE_STT] ✅ Audio converted: {file_size} → {converted_size} bytes (WAV 16kHz mono)")
+                    print(f"[OFFLINE_STT] ✅ Audio converted to optimal format (WAV 16kHz mono)")
+                    file_to_transcribe = converted_file
+                else:
+                    logger.warning(f"[OFFLINE_STT] Audio conversion failed: {result.stderr}")
+                    print(f"⚠️ [OFFLINE_STT] Audio conversion failed, using original file")
+                    # Clean up failed conversion file
+                    if os.path.exists(converted_file):
+                        os.unlink(converted_file)
+                    converted_file = None
+        except Exception as conv_error:
+            logger.warning(f"[OFFLINE_STT] Audio conversion error: {conv_error}")
+            print(f"⚠️ [OFFLINE_STT] Audio conversion error, using original file: {conv_error}")
+            if converted_file and os.path.exists(converted_file):
+                try:
+                    os.unlink(converted_file)
+                except:
+                    pass
+            converted_file = None
         
         # Get OpenAI client
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -377,7 +448,8 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                     f"אל תוסיף או תמציא מידע שלא נאמר."
                 )
                 
-                with open(audio_file_path, 'rb') as audio_file:
+                # 🔥 BUILD 342: Use converted file if available (WAV 16kHz mono)
+                with open(file_to_transcribe, 'rb') as audio_file:
                     transcript_response = client.audio.transcriptions.create(
                         model=model,
                         file=audio_file,
@@ -418,10 +490,24 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         if not transcript_text or len(transcript_text) < 10:
             logger.warning(f"[OFFLINE_STT] Transcription too short or empty: {len(transcript_text or '')} chars")
             print(f"⚠️ [OFFLINE_STT] Transcription too short or empty: {len(transcript_text or '')} chars")
+            # Clean up converted file if exists
+            if converted_file and os.path.exists(converted_file):
+                try:
+                    os.unlink(converted_file)
+                except:
+                    pass
             return None
         
         logger.info(f"[OFFLINE_STT] Transcription complete: {len(transcript_text)} chars")
         logger.info(f"[OFFLINE_STT] Transcript preview: {transcript_text[:150]!r}")
+        
+        # 🔥 BUILD 342: Clean up converted file after successful transcription
+        if converted_file and os.path.exists(converted_file):
+            try:
+                os.unlink(converted_file)
+                logger.info(f"[OFFLINE_STT] Cleaned up converted audio file")
+            except Exception as cleanup_error:
+                logger.warning(f"[OFFLINE_STT] Failed to cleanup converted file: {cleanup_error}")
         
         return transcript_text
         
@@ -430,4 +516,10 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         print(f"❌ [OFFLINE_STT] Transcription failed for {call_sid}: {e}")
         import traceback
         traceback.print_exc()
+        # Clean up converted file if exists (converted_file initialized at function start)
+        if converted_file and os.path.exists(converted_file):
+            try:
+                os.unlink(converted_file)
+            except:
+                pass
         return None

@@ -689,7 +689,11 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
         log.error("DB save + AI processing failed: %s", e)
 
 def _identify_business_for_call(to_number, from_number):
-    """זהה עסק לפי מספרי הטלפון בשיחה - חכם"""
+    """זהה עסק לפי מספרי הטלפון בשיחה - חכם
+    
+    🔥 CRITICAL FIX: Use phone_e164 column (not phone_number property) for ilike queries.
+    phone_number is a Python @property that wraps phone_e164, not a database column.
+    """
     from server.models_sql import Business
     from sqlalchemy import or_
     
@@ -698,12 +702,10 @@ def _identify_business_for_call(to_number, from_number):
         # נקה את המספר מסימנים מיוחדים
         clean_to = to_number.replace('+', '').replace('-', '').replace(' ', '')
         
+        # 🔥 FIX: Use phone_e164 (DB column), not phone_number (Python property)
         # חפש עסק שהמספר שלו תואם למספר הנכנס
         business = Business.query.filter(
-            or_(
-                Business.phone_number.ilike(f'%{clean_to[-10:]}%'),  # 10 ספרות אחרונות
-                Business.phone_e164.ilike(f'%{clean_to[-10:]}%')
-            )
+            Business.phone_e164.ilike(f'%{clean_to[-10:]}%')  # 10 ספרות אחרונות
         ).first()
         
         if business:
@@ -714,11 +716,9 @@ def _identify_business_for_call(to_number, from_number):
     if from_number:
         clean_from = from_number.replace('+', '').replace('-', '').replace(' ', '')
         
+        # 🔥 FIX: Use phone_e164 (DB column), not phone_number (Python property)
         business = Business.query.filter(
-            or_(
-                Business.phone_number.ilike(f'%{clean_from[-10:]}%'),
-                Business.phone_e164.ilike(f'%{clean_from[-10:]}%')
-            )
+            Business.phone_e164.ilike(f'%{clean_from[-10:]}%')
         ).first()
         
         if business:

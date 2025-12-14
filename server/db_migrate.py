@@ -1005,6 +1005,20 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 38: BUILD 342 - Add recording_sid to call_log for Twilio recording tracking
+    # 🔒 CRITICAL FIX: This column is referenced in code but missing from DB
+    if check_table_exists('call_log') and not check_column_exists('call_log', 'recording_sid'):
+        checkpoint("Migration 38: Adding recording_sid column to call_log table")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN recording_sid VARCHAR(64)"))
+            migrations_applied.append('add_call_log_recording_sid')
+            log.info("✅ Applied migration 38: add_call_log_recording_sid - Fix post-call pipeline crash")
+        except Exception as e:
+            log.error(f"❌ Migration 38 failed: {e}")
+            db.session.rollback()
+            raise
+    
     checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()
