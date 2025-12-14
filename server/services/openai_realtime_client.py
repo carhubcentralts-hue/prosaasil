@@ -292,8 +292,9 @@ class OpenAIRealtimeClient:
         voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = None,  # 🔥 MASTER FIX: Default from config
-        silence_duration_ms: int = None,  # 🔥 MASTER FIX: Default from config
+        vad_threshold: float = None,  # 🔥 BUILD 341: Default from config
+        silence_duration_ms: int = None,  # 🔥 BUILD 341: Default from config
+        prefix_padding_ms: int = None,  # 🔥 BUILD 341: Default from config
         temperature: float = 0.18,
         max_tokens: int = 300,
         transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
@@ -310,26 +311,31 @@ class OpenAIRealtimeClient:
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
             vad_threshold: Voice activity detection threshold (0-1), defaults to SERVER_VAD_THRESHOLD from config
             silence_duration_ms: Silence duration to detect end of speech, defaults to SERVER_VAD_SILENCE_MS from config
+            prefix_padding_ms: Audio padding before speech starts, defaults to SERVER_VAD_PREFIX_PADDING_MS from config
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
         """
-        # 🔥 MASTER FIX: Use tuned defaults from config
-        if vad_threshold is None or silence_duration_ms is None:
+        # 🔥 BUILD 341: Use tuned defaults from config
+        if vad_threshold is None or silence_duration_ms is None or prefix_padding_ms is None:
             try:
-                from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
+                from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS, SERVER_VAD_PREFIX_PADDING_MS
                 if vad_threshold is None:
                     vad_threshold = SERVER_VAD_THRESHOLD
                 if silence_duration_ms is None:
                     silence_duration_ms = SERVER_VAD_SILENCE_MS
-                logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms")
+                if prefix_padding_ms is None:
+                    prefix_padding_ms = SERVER_VAD_PREFIX_PADDING_MS
+                logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
             except ImportError:
                 # Fallback if config not available
                 if vad_threshold is None:
-                    vad_threshold = 0.72
+                    vad_threshold = 0.60
                 if silence_duration_ms is None:
-                    silence_duration_ms = 380
-                logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms")
+                    silence_duration_ms = 900
+                if prefix_padding_ms is None:
+                    prefix_padding_ms = 400
+                logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
         # 🔥 BUILD 202: TRANSCRIPTION IMPROVEMENTS FOR HEBREW
         # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
         # - Add dynamic prompt with business vocabulary (names, cities, services)
@@ -355,10 +361,11 @@ class OpenAIRealtimeClient:
             # ✅ MANDATORY: Internal transcription for audio comprehension
             # DO NOT remove this - AI will be completely silent without it!
             "input_audio_transcription": transcription_config,
-            # 🔥 BUILD 202: Removed prefix_padding_ms - not supported by SDK, caused crashes
+            # 🔥 BUILD 341: Enhanced VAD configuration with prefix_padding_ms
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": vad_threshold,
+                "prefix_padding_ms": prefix_padding_ms,
                 "silence_duration_ms": silence_duration_ms
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses

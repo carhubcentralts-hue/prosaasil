@@ -77,16 +77,16 @@ try:
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = True   # BUILD 332: RE-ENABLED with higher FPS limit
+    COST_EFFICIENT_MODE = True   # BUILD 341: RE-ENABLED with higher FPS limit
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 48  # BUILD 332: 48 FPS = 96% audio (balanced: quality + cost)
+    COST_MAX_FPS = 70  # BUILD 341: 70 FPS = headroom for jitter
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
-    MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
-    MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
+    MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
+    MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
     AUDIO_CONFIG = {
         "simple_mode": True,
@@ -1067,6 +1067,11 @@ MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word
 ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
 ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
+
+# 🔥 BUILD 341: Minimum transcription length to mark user_has_spoken
+# Requirement: At least 2 characters after cleanup (not just whitespace/single char)
+# This prevents state progression on meaningless single-character transcriptions
+MIN_TRANSCRIPTION_LENGTH = 2
 
 # 🔥 SIMPLE_MODE: Early user_has_spoken detection threshold
 # 1.5x multiplier provides confident speech detection: 
@@ -2656,6 +2661,13 @@ Greet briefly. Then WAIT for customer to speak."""
         _greeting_block_logged = False
         _greeting_resumed_logged = False
         
+        # 🔥 BUILD 341: FRAME METRICS - Track all frames for quality monitoring
+        _frames_in = 0        # Total frames received from queue
+        _frames_sent = 0      # Total frames sent to OpenAI
+        _frames_dropped = 0   # Total frames dropped (FPS limit or other)
+        _metrics_last_log = time.time()
+        _metrics_log_interval = 5.0  # Log every 5 seconds
+        
         # 🔥 BUILD 318: FPS LIMITER - Prevent sending too many frames/second
         # This is a critical cost optimization - limits frames to COST_MAX_FPS per second
         _fps_frame_count = 0
@@ -2684,6 +2696,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
+                # 🔥 BUILD 341: Count incoming frames
+                _frames_in += 1
+                
                 # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
                 # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
@@ -2696,6 +2711,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         _greeting_block_logged = True
                     # 🔥 BUILD 200: Track blocked audio stats
                     self._stats_audio_blocked += 1
+                    # 🔥 BUILD 341: Count as dropped
+                    _frames_dropped += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
                 elif _greeting_block_logged and not _greeting_resumed_logged:
@@ -2715,12 +2732,16 @@ Greet briefly. Then WAIT for customer to speak."""
                     _fps_window_start = current_time
                     _fps_throttle_logged = False
                 
-                # Check if we've exceeded FPS limit
+                # 🔥 BUILD 341: FPS LIMITER FIX - Changed to >= to drop at exactly the limit
+                # Allow frames 1-70 (when _fps_frame_count is 0-69 before increment)
+                # Drop frame 71+ (when _fps_frame_count is 70+ before increment)
                 if COST_EFFICIENT_MODE and _fps_frame_count >= COST_MAX_FPS:
-                    # Skip this frame - we're over the limit
+                    # Skip this frame - we're at or over the limit
                     if not _fps_throttle_logged:
                         print(f"💰 [FPS LIMIT] Throttling audio - {_fps_frame_count} frames this second (max={COST_MAX_FPS})")
                         _fps_throttle_logged = True
+                    # 🔥 BUILD 341: Count as dropped
+                    _frames_dropped += 1
                     continue
                 
                 _fps_frame_count += 1
@@ -2791,6 +2812,18 @@ Greet briefly. Then WAIT for customer to speak."""
                 if not hasattr(self, '_user_speech_start') or self._user_speech_start is None:
                     self._user_speech_start = time.time()
                 self.realtime_audio_in_chunks += 1
+                
+                # 🔥 BUILD 341: Count frames sent and log metrics periodically
+                _frames_sent += 1
+                
+                # Log metrics every 5 seconds
+                current_time = time.time()
+                if current_time - _metrics_last_log >= _metrics_log_interval:
+                    call_duration = current_time - _call_start_time
+                    print(f"📊 [FRAME_METRICS] StreamSid={self.stream_sid} | "
+                          f"frames_in={_frames_in}, frames_sent={_frames_sent}, frames_dropped={_frames_dropped} | "
+                          f"call_duration={call_duration:.1f}s")
+                    _metrics_last_log = current_time
                 
                 # 🔥 BUILD 200: Track audio sent stats
                 self._stats_audio_sent += 1
@@ -3468,33 +3501,16 @@ Greet briefly. Then WAIT for customer to speak."""
                         continue
                     
                     # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
-                    # 🔥 FIX: In SIMPLE_MODE, mark user_has_spoken=True on speech_started if RMS is high
-                    # This prevents the guard from blocking responses when first utterance is hallucinated
+                    # 🔥 BUILD 341: REMOVED early user_has_spoken=True on RMS detection
+                    # Problem: Was setting user_has_spoken=True based on RMS before getting actual transcription
+                    # Fix: Only set user_has_spoken=True after receiving valid final transcription text
                     print(f"🎤 [REALTIME] Speech started - marking as candidate (will validate on transcription)")
                     self._candidate_user_speaking = True
                     self._utterance_start_ts = time.time()
                     self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
                     self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
                     
-                    # 🔥 FIX: Set user_has_spoken=True early when real speech is detected
-                    # Even if STT later produces hallucination, we know user is trying to speak
-                    # This prevents the guard from blocking legitimate responses
-                    if SIMPLE_MODE and not self.user_has_spoken:
-                        # Check if this is real speech (high RMS + sufficient duration)
-                        utterance_rms = self._utterance_start_rms
-                        utterance_noise_floor = self._utterance_start_noise_floor
-                        rms_delta = utterance_rms - utterance_noise_floor
-                        
-                        # If RMS is significantly above noise floor, mark as user speaking
-                        # Use higher threshold than normal since this is just to open the conversation
-                        if rms_delta >= MIN_RMS_DELTA * SIMPLE_MODE_RMS_MULTIPLIER:
-                            logger.info(
-                                f"[STT_DECISION] Speech detected with high RMS - marking user_has_spoken=True early | "
-                                f"rms={utterance_rms:.1f}, noise_floor={utterance_noise_floor:.1f}, delta={rms_delta:.1f}"
-                            )
-                            self.user_has_spoken = True
-                    
-                    # Note: user_has_spoken may be set here (SIMPLE_MODE) or in transcription.completed after validation
+                    # Note: user_has_spoken will be set ONLY in transcription.completed after full validation
                     if self._post_greeting_window_active:
                         self._post_greeting_heard_user = True
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
@@ -4725,12 +4741,15 @@ Greet briefly. Then WAIT for customer to speak."""
                         f"text_len={len(text)}"
                     )
                     
-                    # 🔥 FIX BUG 4: Set user_has_spoken ONLY after validated transcription
+                    # 🔥 BUILD 341: Set user_has_spoken ONLY after validated transcription with meaningful text
                     # This ensures all guards pass before we mark user as having spoken
-                    # Additional check: Only set if we have meaningful content (passed all STT guards)
-                    if not self.user_has_spoken and text and len(text.strip()) > 0:
+                    # Minimum requirement: At least MIN_TRANSCRIPTION_LENGTH characters after cleanup
+                    if not self.user_has_spoken and text and len(text.strip()) >= MIN_TRANSCRIPTION_LENGTH:
                         self.user_has_spoken = True
-                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
+                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...', len={len(text.strip())})")
+                    elif not self.user_has_spoken and text:
+                        # Log when we get text but it's too short to count
+                        print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call

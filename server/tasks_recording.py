@@ -7,12 +7,19 @@ import os
 import requests
 import logging
 import queue
+import wave
+import contextlib
 from threading import Thread
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.exc import OperationalError, DisconnectionError
 
 log = logging.getLogger("tasks.recording")
+
+# 🔥 BUILD 342: Transcript source constants
+TRANSCRIPT_SOURCE_RECORDING = "recording"  # Transcribed from recording file
+TRANSCRIPT_SOURCE_REALTIME = "realtime"    # Using realtime transcript
+TRANSCRIPT_SOURCE_FAILED = "failed"        # Transcription attempt failed
 
 # ✅ Global queue for recording jobs - single shared instance
 RECORDING_QUEUE = queue.Queue()
@@ -165,8 +172,32 @@ def process_recording_async(form_data):
         extracted_city = None
         extraction_confidence = None
         
+        # 🔥 BUILD 342: Track recording metadata to verify actual transcription from file
+        audio_bytes_len = None
+        audio_duration_sec = None
+        transcript_source = None
+        
         if audio_file and os.path.exists(audio_file):
             try:
+                # 🔥 BUILD 342: Get audio file metadata
+                audio_bytes_len = os.path.getsize(audio_file)
+                log.info(f"[OFFLINE_STT] Recording file size: {audio_bytes_len} bytes")
+                
+                # Try to get duration from audio file
+                try:
+                    with contextlib.closing(wave.open(audio_file, 'r')) as f:
+                        frames = f.getnframes()
+                        rate = f.getframerate()
+                        audio_duration_sec = frames / float(rate)
+                        log.info(f"[OFFLINE_STT] Audio duration: {audio_duration_sec:.2f} seconds")
+                except Exception as duration_error:
+                    # WAV parsing failed, try alternative method or skip duration
+                    log.warning(f"[OFFLINE_STT] Could not determine audio duration: {duration_error}")
+                    # Set approximate duration based on call_log.duration if available
+                    if call_log and call_log.duration:
+                        audio_duration_sec = float(call_log.duration)
+                        log.info(f"[OFFLINE_STT] Using call duration as fallback: {audio_duration_sec}s")
+                
                 from server.services.lead_extraction_service import transcribe_recording_with_whisper, extract_lead_from_transcript
                 
                 # Get full offline transcript (higher quality than realtime)
@@ -180,10 +211,12 @@ def process_recording_async(form_data):
                     print(f"⚠️ [OFFLINE_STT] Empty or invalid transcript for {call_sid} - NOT updating call_log.final_transcript")
                     log.warning(f"[OFFLINE_STT] Transcription returned empty/invalid result: {len(final_transcript or '')} chars")
                     final_transcript = None  # Set to None so we don't save empty string
+                    transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed transcription
                 else:
                     # Success - we have a valid transcript!
                     print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
                     log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
+                    transcript_source = TRANSCRIPT_SOURCE_RECORDING  # 🔥 BUILD 342: Mark as recording-based
                     
                     # 🔥 NOTE: City/Service extraction moved to AFTER summary generation
                     # We extract from the summary, not from raw transcript (more accurate!)
@@ -198,9 +231,12 @@ def process_recording_async(form_data):
                 extracted_service = None
                 extracted_city = None
                 extraction_confidence = None
+                transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed
         else:
             print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline transcription")
             log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
+            # 🔥 BUILD 342: If no audio file, will use realtime transcript as fallback
+            transcript_source = None  # Will be set to TRANSCRIPT_SOURCE_REALTIME later if we use realtime transcript
         
         # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
         # 🔥 CRITICAL: Use final_transcript (high-quality Whisper) if available, fallback to realtime transcription
@@ -456,6 +492,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     call_log.extracted_service = extracted_service
                     call_log.extracted_city = extracted_city
                     call_log.extraction_confidence = extraction_confidence
+                    # 🔥 BUILD 342: Recording quality metadata
+                    call_log.audio_bytes_len = audio_bytes_len
+                    call_log.audio_duration_sec = audio_duration_sec
+                    call_log.transcript_source = transcript_source
                     call_log.status = "processed"
                     call_log.created_at = datetime.utcnow()
                     
@@ -483,6 +523,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 call_log.extracted_service = extracted_service
                 call_log.extracted_city = extracted_city
                 call_log.extraction_confidence = extraction_confidence
+                # 🔥 BUILD 342: Recording quality metadata
+                call_log.audio_bytes_len = audio_bytes_len
+                call_log.audio_duration_sec = audio_duration_sec
+                call_log.transcript_source = transcript_source
                 call_log.status = "processed"
                 call_log.updated_at = datetime.utcnow()
             
@@ -494,6 +538,14 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 print(f"[OFFLINE_STT] ✅ Saved final_transcript ({len(final_transcript)} chars) for {call_sid}")
             else:
                 print(f"[OFFLINE_STT] ℹ️ No offline transcript saved for {call_sid} (empty or failed)")
+            
+            # 🔥 BUILD 342: Log recording quality metadata for verification
+            if audio_bytes_len and audio_bytes_len > 0:
+                print(f"[BUILD 342] ✅ Recording metadata: bytes={audio_bytes_len}, duration={audio_duration_sec:.2f}s, source={transcript_source}")
+                log.info(f"[BUILD 342] Recording quality: bytes={audio_bytes_len}, duration={audio_duration_sec}, source={transcript_source}")
+            else:
+                print(f"[BUILD 342] ⚠️ No recording file downloaded (audio_bytes_len={audio_bytes_len})")
+                log.warning(f"[BUILD 342] No valid recording file for {call_sid}")
             
             if extracted_service or extracted_city:
                 print(f"[OFFLINE_STT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence}")

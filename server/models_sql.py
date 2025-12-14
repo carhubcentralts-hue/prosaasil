@@ -88,6 +88,7 @@ class CallLog(db.Model):
     duration = db.Column(db.Integer, default=0)  # ✅ BUILD 106: Call duration in seconds
     call_status = db.Column(db.String(32), default="in-progress")  # ✅ BUILD 90: Legacy field for production DB compatibility
     recording_url = db.Column(db.String(512))
+    recording_sid = db.Column(db.String(64), nullable=True)  # 🔥 BUILD 342: Twilio Recording SID
     transcription = db.Column(db.Text)
     summary = db.Column(db.Text)  # ✨ סיכום חכם קצר של השיחה (80-150 מילים) - BUILD 106
     status = db.Column(db.String(32), default="received")
@@ -97,6 +98,11 @@ class CallLog(db.Model):
     extracted_service = db.Column(db.String(255), nullable=True)  # Service type extracted from transcript
     extracted_city = db.Column(db.String(255), nullable=True)  # City extracted from transcript
     extraction_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
+    
+    # 🔥 BUILD 342: Recording Quality Metadata - Verify actual recording transcription
+    audio_bytes_len = db.Column(db.Integer, nullable=True)  # Recording file size in bytes (>0 = valid download)
+    audio_duration_sec = db.Column(db.Float, nullable=True)  # Recording duration in seconds from metadata
+    transcript_source = db.Column(db.String(32), nullable=True)  # "recording"/"realtime" - source of final_transcript
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
