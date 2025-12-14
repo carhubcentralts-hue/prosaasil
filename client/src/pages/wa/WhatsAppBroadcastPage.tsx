@@ -122,6 +122,8 @@ export function WhatsAppBroadcastPage() {
     loadCampaigns();
     loadStatuses();
     loadImportLists();
+    // 🔥 FIX: Load ALL leads on initial page load (no filters)
+    loadLeads();
   }, []);
 
   const loadTemplates = async () => {
@@ -205,9 +207,9 @@ export function WhatsAppBroadcastPage() {
       const queryString = params.toString();
       const url = `/api/leads${queryString ? `?${queryString}` : ''}`;
       
-      // 🔥 FIX: Backend returns 'items', not 'leads'
-      const response = await http.get<{ items: Array<{id: number; full_name: string; phone_e164: string; status: string}> }>(url);
-      const loadedLeads = response.items || [];
+      // 🔥 FIX: Support both 'items' (regular endpoint) and 'leads' (admin endpoint) formats
+      const response = await http.get<{ items?: Array<{id: number; full_name: string; phone_e164: string; status: string}>; leads?: Array<{id: number; full_name: string; phone_e164: string; status: string}> }>(url);
+      const loadedLeads = response.items || response.leads || [];
       
       // 🔥 FIX: Only include leads with valid phone numbers (E.164 format)
       const leadsWithPhone = loadedLeads.filter(l => l.phone_e164 && l.phone_e164.trim());
@@ -630,7 +632,12 @@ export function WhatsAppBroadcastPage() {
                         <RefreshCw className="h-5 w-5 animate-spin mx-auto text-slate-400" />
                       </div>
                     ) : leads.length === 0 ? (
-                      <p className="text-sm text-slate-500 py-4 text-center">לא נמצאו לידים</p>
+                      <div className="text-center py-6 px-4">
+                        <p className="text-sm text-slate-600 mb-2">לא נמצאו לידים עם מספרי טלפון</p>
+                        <p className="text-xs text-slate-500">
+                          נסה לסנן לפי סטטוס אחר או נקה את החיפוש
+                        </p>
+                      </div>
                     ) : (
                       <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-lg">
                         {leads.slice(0, 50).map(lead => (
