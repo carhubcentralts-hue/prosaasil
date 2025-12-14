@@ -21,6 +21,7 @@ import {
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
+import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
@@ -91,6 +92,7 @@ export function OutboundCallsPage() {
   // Existing leads state
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [callResults, setCallResults] = useState<CallResult[]>([]);
   
@@ -125,7 +127,7 @@ export function OutboundCallsPage() {
   }, [statusesData]);
 
   const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery({
-    queryKey: ['/api/leads', 'system', searchQuery],
+    queryKey: ['/api/leads', 'system', searchQuery, selectedStatuses],
     queryFn: async () => {
       const params = new URLSearchParams({
         page: '1',
@@ -134,6 +136,13 @@ export function OutboundCallsPage() {
       
       if (searchQuery) {
         params.append('q', searchQuery);
+      }
+
+      // Add multi-status filter
+      if (selectedStatuses.length > 0) {
+        selectedStatuses.forEach(status => {
+          params.append('statuses[]', status);
+        });
       }
 
       return await http.get(`/api/leads?${params.toString()}`);
@@ -152,7 +161,7 @@ export function OutboundCallsPage() {
 
   // Query for active outbound leads (leads assigned to outbound campaign)
   const { data: activeLeadsData, isLoading: activeLoading, error: activeError } = useQuery({
-    queryKey: ['/api/leads', 'active-outbound', searchQuery],
+    queryKey: ['/api/leads', 'active-outbound', searchQuery, selectedStatuses],
     queryFn: async () => {
       const params = new URLSearchParams({
         direction: 'outbound',
@@ -162,6 +171,13 @@ export function OutboundCallsPage() {
       
       if (searchQuery) {
         params.append('q', searchQuery);
+      }
+
+      // Add multi-status filter
+      if (selectedStatuses.length > 0) {
+        selectedStatuses.forEach(status => {
+          params.append('statuses[]', status);
+        });
       }
 
       return await http.get(`/api/leads?${params.toString()}`);
@@ -667,20 +683,33 @@ export function OutboundCallsPage() {
           {/* Table View */}
           {viewMode === 'table' && (
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <Users className="h-5 w-5" />
                 בחירת לידים ({selectedLeads.length}/{Math.min(3, availableSlots)})
               </h3>
-              <div className="relative">
-                <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="חיפוש לפי שם או טלפון..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pr-10 w-64"
-                  data-testid="input-lead-search"
-                />
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                {viewMode === 'table' && (
+                  <div className="w-full sm:w-48">
+                    <MultiStatusSelect
+                      statuses={statuses}
+                      selectedStatuses={selectedStatuses}
+                      onChange={setSelectedStatuses}
+                      placeholder="סנן לפי סטטוס"
+                      data-testid="outbound-status-filter"
+                    />
+                  </div>
+                )}
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="חיפוש לפי שם או טלפון..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pr-10 w-full"
+                    data-testid="input-lead-search"
+                  />
+                </div>
               </div>
             </div>
 
@@ -797,20 +826,31 @@ export function OutboundCallsPage() {
           {/* Table View */}
           {viewMode === 'table' && (
           <Card className="p-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <PhoneOutgoing className="h-5 w-5" />
                 לידים פעילים לשיחות יוצאות
               </h3>
-              <div className="relative">
-                <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="חיפוש לפי שם או טלפון..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pr-10 w-64"
-                  data-testid="input-lead-search"
-                />
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <div className="w-full sm:w-48">
+                  <MultiStatusSelect
+                    statuses={statuses}
+                    selectedStatuses={selectedStatuses}
+                    onChange={setSelectedStatuses}
+                    placeholder="סנן לפי סטטוס"
+                    data-testid="active-status-filter"
+                  />
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="חיפוש לפי שם או טלפון..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pr-10 w-full"
+                    data-testid="input-lead-search"
+                  />
+                </div>
               </div>
             </div>
 
