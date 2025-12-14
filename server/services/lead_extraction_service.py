@@ -330,7 +330,7 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
     Uses GPT-4o-transcribe with optimized settings for maximum Hebrew accuracy.
     Falls back to whisper-1 if GPT-4o-transcribe is not available.
     
-    🔥 BUILD 342: Converts audio to optimal format (WAV 16kHz mono) before transcription.
+    NOTE: Converts audio to optimal format (WAV 16kHz mono) before transcription.
     
     Args:
         audio_file_path: Path to the audio file (MP3/WAV)
@@ -343,15 +343,17 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         logger.error(f"[OFFLINE_STT] Audio file not found: {audio_file_path}")
         return None
     
+    # Initialize converted_file early to ensure it's in scope for cleanup
+    converted_file = None
+    
     try:
         file_size = os.path.getsize(audio_file_path)
         logger.info(f"[OFFLINE_STT] Starting transcription for call {call_sid}")
         logger.info(f"[OFFLINE_STT] File: {audio_file_path}, size: {file_size} bytes")
         print(f"[OFFLINE_STT] 🎧 Using GPT-4o transcribe for {call_sid}, size={file_size} bytes")
         
-        # 🔥 BUILD 342: Convert audio to optimal format for transcription
+        # Convert audio to optimal format for transcription
         # WAV 16kHz mono PCM is the best format for STT quality
-        converted_file = None
         file_to_transcribe = audio_file_path
         
         try:
@@ -514,8 +516,8 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
         print(f"❌ [OFFLINE_STT] Transcription failed for {call_sid}: {e}")
         import traceback
         traceback.print_exc()
-        # Clean up converted file if exists
-        if 'converted_file' in locals() and converted_file and os.path.exists(converted_file):
+        # Clean up converted file if exists (converted_file initialized at function start)
+        if converted_file and os.path.exists(converted_file):
             try:
                 os.unlink(converted_file)
             except:
