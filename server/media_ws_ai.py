@@ -2781,6 +2781,10 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         print(f"[PIPELINE] LIVE AUDIO PIPELINE ACTIVE: Twilio → realtime_audio_in_queue → send_audio_chunk (single path)")
         
+        # Import modules needed for local VAD processing
+        import base64
+        import struct
+        
         # 🛡️ BUILD 168.5: Track if we've logged the greeting block message
         _greeting_block_logged = False
         _greeting_resumed_logged = False
@@ -2870,13 +2874,11 @@ Greet briefly. Then WAIT for customer to speak."""
                 # This ensures we detect barge-in even when AI is speaking
                 # Decode audio chunk to calculate RMS and update VAD counters
                 try:
-                    import base64
                     pcm16_bytes = base64.b64decode(audio_chunk)
                     
                     # Calculate RMS for this frame
                     if len(pcm16_bytes) >= 2:
                         # Convert bytes to 16-bit samples
-                        import struct
                         sample_count = len(pcm16_bytes) // 2
                         samples = struct.unpack(f'<{sample_count}h', pcm16_bytes)
                         
