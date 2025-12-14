@@ -2003,11 +2003,11 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       const fd = new FormData();
       fd.append('file', file);
       
-      const response = await http.post(`/api/leads/${lead.id}/attachments`, fd, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      }) as any;
+      // Use request method directly to pass FormData
+      const response = await http.request<any>(`/api/leads/${lead.id}/attachments`, {
+        method: 'POST',
+        body: fd
+      });
       
       if (response && response.id) {
         // Add attachment info to note content
