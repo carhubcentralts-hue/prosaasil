@@ -348,6 +348,7 @@ def list_leads():
         })
     except Exception as e:
         # 🔒 DB RESILIENCE: Catch schema mismatch errors (e.g., missing last_call_direction column)
+        db.session.rollback()
         if PSYCOPG2_AVAILABLE and (isinstance(e, psycopg2.errors.UndefinedColumn) or 'last_call_direction does not exist' in str(e)):
             log.error(f"❌ Database schema mismatch: last_call_direction column missing. Please run migrations. Error: {e}")
             return jsonify({
@@ -1664,15 +1665,22 @@ def create_lead_note(lead_id):
         return jsonify({"error": "Lead not found"}), 404
     
     data = request.get_json()
-    if not data or not data.get('content', '').strip():
-        return jsonify({"error": "Note content is required"}), 400
+    # 🔥 FIX: Allow notes with just attachments (no text content required)
+    # The frontend will send placeholder text if only files are attached
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    content = data.get('content', '').strip()
+    if not content:
+        # If no content provided, use empty string (frontend should send placeholder)
+        content = ''
     
     user = get_current_user()
     
     note = LeadNote()
     note.lead_id = lead_id
     note.tenant_id = tenant_id
-    note.content = data['content'].strip()
+    note.content = content
     note.attachments = data.get('attachments', [])
     note.created_by = user.get('id') if user else None
     
@@ -1928,6 +1936,7 @@ def upload_lead_attachment(lead_id):
         }), 201
         
     except Exception as e:
+        db.session.rollback()
         log.error(f"Error uploading attachment: {e}")
         # Clean up file if database insert failed
         if os.path.exists(file_path):
