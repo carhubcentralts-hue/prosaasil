@@ -941,6 +941,8 @@ def apply_migrations():
             # Backfill last_call_direction from call_log table
             # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
             # This determines the lead's origin (inbound vs outbound)
+            # ⚠️ PERFORMANCE: For very large datasets (>100K calls), this may take time
+            # but it's a one-time operation and uses indexed columns (lead_id, created_at)
             checkpoint("Backfilling last_call_direction from call_log...")
             if check_table_exists('call_log'):
                 backfill_result = db.session.execute(text("""
@@ -959,7 +961,7 @@ def apply_migrations():
                     SET last_call_direction = fc.direction
                     FROM first_calls fc
                     WHERE l.id = fc.lead_id
-                      AND (l.last_call_direction IS NULL OR l.last_call_direction = '')
+                      AND l.last_call_direction IS NULL
                 """))
                 rows_updated = backfill_result.rowcount
                 checkpoint(f"✅ Backfilled last_call_direction for {rows_updated} leads (using FIRST call direction)")

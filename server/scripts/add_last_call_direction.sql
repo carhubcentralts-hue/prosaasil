@@ -58,7 +58,7 @@ BEGIN
     SET last_call_direction = fc.direction
     FROM first_calls fc
     WHERE l.id = fc.lead_id
-      AND (l.last_call_direction IS NULL OR l.last_call_direction = '');
+      AND l.last_call_direction IS NULL;
     
     GET DIAGNOSTICS rows_updated = ROW_COUNT;
     RAISE NOTICE 'Backfilled last_call_direction for % leads', rows_updated;

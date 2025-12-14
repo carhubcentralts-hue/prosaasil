@@ -11,6 +11,14 @@ from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
 import logging
 
+# Import psycopg2 for database error handling
+try:
+    import psycopg2.errors
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+    logging.warning("psycopg2 not available - some error handling may be limited")
+
 log = logging.getLogger(__name__)
 
 leads_bp = Blueprint("leads_bp", __name__)
@@ -333,8 +341,7 @@ def list_leads():
         })
     except Exception as e:
         # 🔒 DB RESILIENCE: Catch schema mismatch errors (e.g., missing last_call_direction column)
-        import psycopg2.errors
-        if isinstance(e, psycopg2.errors.UndefinedColumn) or 'last_call_direction does not exist' in str(e):
+        if PSYCOPG2_AVAILABLE and (isinstance(e, psycopg2.errors.UndefinedColumn) or 'last_call_direction does not exist' in str(e)):
             log.error(f"❌ Database schema mismatch: last_call_direction column missing. Please run migrations. Error: {e}")
             return jsonify({
                 "error": "Database schema outdated",

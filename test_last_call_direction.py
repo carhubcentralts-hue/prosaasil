@@ -134,7 +134,13 @@ def main():
         print("   Please set DATABASE_URL to run tests")
         sys.exit(1)
     
-    print(f"Database: {os.getenv('DATABASE_URL').split('@')[1] if '@' in os.getenv('DATABASE_URL') else 'sqlite'}")
+    # Mask sensitive database info
+    db_url = os.getenv('DATABASE_URL', '')
+    if '@' in db_url:
+        # Show only that it's configured, not the actual host
+        print("Database: [configured]")
+    else:
+        print("Database: [not properly configured]")
     print()
     
     tests = [
