@@ -9,15 +9,17 @@ These 3 scenarios verify the audio framing fix handles edge cases correctly unde
 **Objective**: Verify consistent 50fps timing even when server is under CPU/IO stress
 
 **How to Test**:
-1. Make 2-3 concurrent calls to load the server
-2. Monitor logs for `[TX_METRICS]` during active speech
-3. Check metrics across all concurrent calls
+1. Create real CPU/IO load: 2-3 concurrent calls + `stress-ng`/large download/`ffmpeg` running in parallel
+2. This ensures testing actual CPU/IO contention, not just concurrency
+3. Monitor logs for `[TX_METRICS]` during active speech
+4. Check metrics across all concurrent calls
 
 **Expected Results**:
 - ✅ `fps ≈ 50` consistently (47-52 is acceptable)
 - ✅ `max_gap_ms < 60ms` (ideally 20-40ms)
 - ✅ Metrics stable across all concurrent calls
 - ✅ No degradation even under load
+- ✅ `frames_dropped=0` in `[CALL_METRICS]` at end of call (critical - this was the root symptom)
 
 **Implementation Coverage**:
 - **Clocked sender** (line 11672-11684): Time-based scheduling ensures 50fps regardless of processing delays
@@ -37,12 +39,14 @@ The clock-based approach uses `time.monotonic()` which measures wall-clock time,
 1. Trigger a long AI response (ask for detailed explanation)
 2. Interrupt mid-sentence by speaking
 3. Listen for any audio remnants or jumps
+4. Check logs for proper flush sequence
 
 **Expected Results**:
 - ✅ No audio fragments from interrupted sentence
 - ✅ Immediate transition to new response
 - ✅ No "jumps" forward/backward in audio
 - ✅ Clean cutover without clicks or pops
+- ✅ **MUST see** `🧹 [BARGE-IN FLUSH] ... Buffer: ...` log **BEFORE** next `response.created` or AI speech resumes (ensures flush happens before resume, preventing fragment leakage)
 
 **Implementation Coverage**:
 - **Queue flushing** (line 2993-2997): Clears both `realtime_audio_out_queue` and `tx_q`
@@ -72,6 +76,7 @@ This ensures zero remnants from the interrupted response.
 - ✅ Smooth audio playback across all responses
 - ✅ Clock resets cleanly between responses
 - ✅ First frame of new response paced normally
+- ❌ **Burst detected if**: `fps > 60` even for one second, OR `frames` jumps abnormally right after new response starts (e.g., 50→80→50 pattern indicates burst)
 
 **Implementation Coverage**:
 - **Clock reset on empty** (line 11654-11656): When queue empties, `next_send = time.monotonic()`
