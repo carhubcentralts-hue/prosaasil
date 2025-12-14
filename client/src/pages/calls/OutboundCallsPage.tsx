@@ -215,7 +215,6 @@ export function OutboundCallsPage() {
     display_phone: imported.phone,
     status: imported.status || 'new',
     source: 'phone' as const,  // Imported leads are phone leads
-    summary: imported.notes || undefined,
     notes: imported.notes || undefined,
     created_at: imported.created_at || new Date().toISOString(),
     updated_at: imported.created_at || new Date().toISOString(),
