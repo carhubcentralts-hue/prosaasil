@@ -175,7 +175,7 @@ export function InboundCallsPage() {
       {/* Search */}
       <Card className="p-4">
         <div className="relative">
-          <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
           <Input
             type="search"
             placeholder="חפש לפי שם או טלפון..."
@@ -184,7 +184,7 @@ export function InboundCallsPage() {
               setSearchQuery(e.target.value);
               setPage(1);
             }}
-            className="w-full pr-10"
+            className="w-full pl-3 pr-10"
             data-testid="input-search-inbound"
           />
         </div>

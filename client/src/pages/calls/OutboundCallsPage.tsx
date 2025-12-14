@@ -151,8 +151,9 @@ export function OutboundCallsPage() {
     enabled: activeTab === 'existing',
     select: (data: any) => {
       if (!data) return { leads: [] };
-      if (data.items && Array.isArray(data.items)) return { leads: data.items };
+      // Try different response formats for backward compatibility
       if (Array.isArray(data)) return { leads: data };
+      if (data.items && Array.isArray(data.items)) return { leads: data.items };
       if (data.leads && Array.isArray(data.leads)) return { leads: data.leads };
       return { leads: [] };
     },
