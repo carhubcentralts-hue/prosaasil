@@ -198,28 +198,84 @@ def debug_routes():
     """
     🔧 Debug endpoint - Lists all registered Flask routes
     Useful for troubleshooting 404 issues in production
+    
+    Security: Only available in development or for system_admin
     """
     try:
         from flask import current_app
+        from server.auth_api import require_api_auth
         
-        routes = []
+        # Check if in development mode or user is system_admin
+        is_dev = os.getenv('FLASK_ENV') == 'development' or os.getenv('MIGRATION_MODE') == '1'
+        
+        if not is_dev:
+            # In production, require system_admin role
+            user = session.get('al_user') or session.get('user')
+            if not user or user.get('role') != 'system_admin':
+                return jsonify({
+                    'error': 'forbidden',
+                    'message': 'This endpoint is only available to system administrators'
+                }), 403
+        
+        # Critical endpoints that MUST exist
+        critical_endpoints = [
+            '/api/health',
+            '/api/dashboard/stats',
+            '/api/dashboard/activity',
+            '/api/business/current',
+            '/api/notifications',
+            '/api/admin/businesses',
+            '/api/search',
+            '/api/whatsapp/status',
+            '/api/whatsapp/templates',
+            '/api/whatsapp/broadcasts',
+            '/api/crm/threads',
+            '/api/statuses',
+            '/api/leads',
+        ]
+        
+        # Get all registered routes
+        all_routes = []
+        critical_status = {}
+        
         for rule in current_app.url_map.iter_rules():
-            routes.append({
-                'endpoint': rule.endpoint,
-                'methods': list(rule.methods - {'HEAD', 'OPTIONS'}),  # Remove implicit methods
-                'path': str(rule)
-            })
+            route_path = str(rule)
+            route_info = {
+                'path': route_path,
+                'methods': list(rule.methods - {'HEAD', 'OPTIONS'}),
+                'endpoint': rule.endpoint
+            }
+            all_routes.append(route_info)
+            
+            # Check if this is a critical endpoint
+            for critical in critical_endpoints:
+                if route_path == critical or route_path.startswith(critical):
+                    critical_status[critical] = True
         
-        # Sort by path for easier reading
-        routes.sort(key=lambda x: x['path'])
+        # Mark missing critical endpoints
+        for critical in critical_endpoints:
+            if critical not in critical_status:
+                critical_status[critical] = False
         
-        # Filter to only show API routes for security
-        api_routes = [r for r in routes if '/api/' in r['path'] or r['path'].startswith('/api')]
+        # Filter to only show API routes
+        api_routes = [r for r in all_routes if '/api/' in r['path']]
+        api_routes.sort(key=lambda x: x['path'])
+        
+        # Count critical endpoints status
+        critical_ok = sum(1 for v in critical_status.values() if v)
+        critical_total = len(critical_endpoints)
         
         return jsonify({
-            'total_routes': len(routes),
+            'status': 'ok' if critical_ok == critical_total else 'degraded',
+            'total_routes': len(all_routes),
             'api_routes_count': len(api_routes),
-            'api_routes': api_routes,
+            'critical_endpoints': {
+                'total': critical_total,
+                'registered': critical_ok,
+                'missing': critical_total - critical_ok,
+                'status': critical_status
+            },
+            'api_routes': api_routes[:50] if not is_dev else api_routes,  # Limit in production
             'timestamp': datetime.now().isoformat()
         }), 200
         

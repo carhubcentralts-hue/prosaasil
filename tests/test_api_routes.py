@@ -77,29 +77,20 @@ def test_critical_routes_exist():
     
     missing_routes = []
     
+    # Maximum routes to show in debug output
+    MAX_DEBUG_ROUTES = 50
+    
     for endpoint in critical_endpoints:
-        # Check if exact route exists OR if parameterized version exists
+        # Check if exact route exists
         found = False
         
-        # Check exact match first
-        if endpoint in routes:
-            found = True
-        else:
-            # Check for parameterized routes (e.g., /api/leads/<int:lead_id>)
-            # by checking if any registered route starts with the base path
-            for route in routes.keys():
-                # Remove trailing slash for comparison
-                route_clean = route.rstrip('/')
-                endpoint_clean = endpoint.rstrip('/')
-                
-                if route_clean == endpoint_clean:
-                    found = True
-                    break
-                
-                # For routes like /api/whatsapp/summaries, check if base exists
-                if endpoint_clean in route_clean or route_clean.startswith(endpoint_clean):
-                    found = True
-                    break
+        # Exact match (with or without trailing slash)
+        endpoint_clean = endpoint.rstrip('/')
+        for route in routes.keys():
+            route_clean = route.rstrip('/')
+            if route_clean == endpoint_clean:
+                found = True
+                break
         
         if not found:
             missing_routes.append(endpoint)
@@ -107,7 +98,7 @@ def test_critical_routes_exist():
     # Print all API routes for debugging
     api_routes = [r for r in routes.keys() if '/api/' in r]
     print(f"\n=== Registered API Routes ({len(api_routes)}) ===")
-    for route in sorted(api_routes)[:50]:  # Print first 50 for debugging
+    for route in sorted(api_routes)[:MAX_DEBUG_ROUTES]:  # Print first MAX_DEBUG_ROUTES for debugging
         print(f"  {route} -> {routes[route]}")
     
     # Assert all critical routes exist
