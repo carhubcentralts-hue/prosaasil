@@ -199,7 +199,7 @@ class LeadAutoStatusService:
         if 'NOT_RELEVANT' not in scores:
             interested_keywords = [
                 'מעוניין', 'כן רוצה', 'תשלח פרטים', 'תשלחו פרטים', 'דברו איתי', 'מתאים לי',
-                'interested', 'yes please', 'send details', 'call me back',
+                'interested', 'yes please', 'send details', 'call me back', 'sounds good', 'sounds interesting',
                 'אני רוצה', 'נשמע טוב', 'נשמע מעניין', 'בואו נדבר', 'יכול להיות מעניין',
                 'תן הצעה', 'תתקשרו', 'כן', 'נשמע', 'יפה'
             ]

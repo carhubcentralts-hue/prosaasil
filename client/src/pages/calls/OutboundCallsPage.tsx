@@ -1,4 +1,4 @@
-import React, { useState, useRef, ChangeEvent } from 'react';
+import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Phone, 
@@ -13,19 +13,32 @@ import {
   Upload,
   Trash2,
   FileSpreadsheet,
-  Download
+  Download,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
 import { http } from '../../services/http';
+import { OutboundKanbanView } from './components/OutboundKanbanView';
 
 interface Lead {
   id: number;
   full_name: string;
   phone_e164: string;
   status: string;
+  summary?: string;
+  last_contact_at?: string;
   created_at: string;
+}
+
+interface LeadStatus {
+  name: string;
+  label: string;
+  color: string;
+  order_index: number;
+  is_system?: boolean;
 }
 
 interface ImportedLead {
@@ -72,13 +85,15 @@ interface ImportedLeadsResponse {
 }
 
 type TabType = 'existing' | 'imported';
+type ViewMode = 'table' | 'kanban';
 
 export function OutboundCallsPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Tab state
+  // Tab and view state
   const [activeTab, setActiveTab] = useState<TabType>('existing');
+  const [viewMode, setViewMode] = useState<ViewMode>('kanban'); // Default to Kanban
   
   // Existing leads state
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
@@ -103,6 +118,19 @@ export function OutboundCallsPage() {
     retry: 1,
   });
 
+  // Fetch lead statuses for Kanban
+  const { data: statusesData, isLoading: statusesLoading } = useQuery<LeadStatus[]>({
+    queryKey: ['/api/lead-statuses'],
+    enabled: viewMode === 'kanban',
+    retry: 1,
+  });
+
+  useEffect(() => {
+    if (statusesData) {
+      console.log('[OutboundCallsPage] ✅ Lead statuses loaded:', statusesData);
+    }
+  }, [statusesData]);
+
   const { data: leadsData, isLoading: leadsLoading, error: leadsError } = useQuery<{ leads: Lead[] }>({
     queryKey: ['/api/leads', searchQuery],
     enabled: activeTab === 'existing',
@@ -115,6 +143,12 @@ export function OutboundCallsPage() {
     },
     retry: 1,
   });
+
+  useEffect(() => {
+    if (leadsData?.leads) {
+      console.log('[OutboundCallsPage] ✅ Leads loaded:', leadsData.leads.length, 'leads');
+    }
+  }, [leadsData]);
 
   const { data: importedLeadsData, isLoading: importedLoading, refetch: refetchImported } = useQuery<ImportedLeadsResponse>({
     queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery],
@@ -200,6 +234,20 @@ export function OutboundCallsPage() {
     },
   });
 
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ leadId, newStatus }: { leadId: number; newStatus: string }) => {
+      console.log(`[OutboundCallsPage] Updating lead ${leadId} status to ${newStatus}`);
+      return await http.patch(`/api/leads/${leadId}/status`, { status: newStatus });
+    },
+    onSuccess: (data, variables) => {
+      console.log(`[OutboundCallsPage] ✅ Status updated for lead ${variables.leadId}`);
+      queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
+    },
+    onError: (error, variables) => {
+      console.error(`[OutboundCallsPage] ❌ Failed to update status for lead ${variables.leadId}:`, error);
+    },
+  });
+
   // Handlers
   const handleToggleLead = (leadId: number) => {
     setSelectedLeads(prev => {
@@ -266,6 +314,24 @@ export function OutboundCallsPage() {
     }
   };
 
+  const handleLeadSelect = (leadId: number, isShiftKey?: boolean) => {
+    setSelectedLeads(prev => {
+      if (prev.includes(leadId)) {
+        return prev.filter(id => id !== leadId);
+      }
+      const maxSelectable = Math.min(3, availableSlots);
+      if (prev.length >= maxSelectable) {
+        return prev;
+      }
+      return [...prev, leadId];
+    });
+  };
+
+  const handleStatusChange = async (leadId: number, newStatus: string) => {
+    console.log(`[OutboundCallsPage] handleStatusChange called: lead=${leadId}, newStatus=${newStatus}`);
+    await updateStatusMutation.mutateAsync({ leadId, newStatus });
+  };
+
   const filteredLeads = (Array.isArray(leads) ? leads : []).filter((lead: Lead) => {
     if (!lead) return false;
     if (!searchQuery) return lead.phone_e164;
@@ -288,6 +354,15 @@ export function OutboundCallsPage() {
 
   const totalPages = Math.ceil(totalImported / pageSize);
 
+  const statuses = statusesData || [];
+  const selectedLeadIdsSet = new Set(selectedLeads);
+
+  // Log on component mount
+  useEffect(() => {
+    console.log('[OutboundCallsPage] 🎯 Component mounted');
+    console.log('[OutboundCallsPage] Default view mode:', viewMode);
+  }, []);
+
   return (
     <div className="p-6 space-y-6" dir="rtl">
       {/* Header */}
@@ -301,6 +376,42 @@ export function OutboundCallsPage() {
         </div>
         
         <div className="flex items-center gap-4">
+          {/* View Mode Toggle */}
+          {activeTab === 'existing' && !showResults && (
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => {
+                  console.log('[OutboundCallsPage] Switching to Kanban view');
+                  setViewMode('kanban');
+                }}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                  viewMode === 'kanban'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+                data-testid="button-kanban-view"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                Kanban
+              </button>
+              <button
+                onClick={() => {
+                  console.log('[OutboundCallsPage] Switching to Table view');
+                  setViewMode('table');
+                }}
+                className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                  viewMode === 'table'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+                data-testid="button-table-view"
+              >
+                <List className="h-4 w-4" />
+                רשימה
+              </button>
+            </div>
+          )}
+          
           {counts && (
             <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-100 px-4 py-2 rounded-lg">
               <Phone className="h-4 w-4" />
@@ -426,6 +537,34 @@ export function OutboundCallsPage() {
       {/* Existing Leads Tab */}
       {!showResults && activeTab === 'existing' && (
         <div className="space-y-4">
+          {/* Kanban View */}
+          {viewMode === 'kanban' && (
+            <>
+              {(leadsLoading || statusesLoading) ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
+                </div>
+              ) : statuses.length === 0 ? (
+                <Card className="p-8 text-center text-gray-500">
+                  לא נמצאו סטטוסים. יש להגדיר סטטוסים במערכת.
+                </Card>
+              ) : (
+                <div className="min-h-[600px]">
+                  <OutboundKanbanView
+                    leads={filteredLeads}
+                    statuses={statuses}
+                    loading={leadsLoading}
+                    selectedLeadIds={selectedLeadIdsSet}
+                    onLeadSelect={handleLeadSelect}
+                    onStatusChange={handleStatusChange}
+                  />
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Table View */}
+          {viewMode === 'table' && (
           <Card className="p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold flex items-center gap-2">
@@ -484,6 +623,7 @@ export function OutboundCallsPage() {
               </div>
             )}
           </Card>
+          )}
 
           <div className="flex justify-center">
             <Button
