@@ -78,6 +78,9 @@ interface ImportedLeadsResponse {
 }
 
 type TabType = 'system' | 'active' | 'imported';
+
+// Default number of available call slots when counts haven't loaded yet
+const DEFAULT_AVAILABLE_SLOTS = 3;
 type ViewMode = 'table' | 'kanban';
 
 export function OutboundCallsPage() {
@@ -413,7 +416,7 @@ export function OutboundCallsPage() {
       if (prev.includes(leadId)) {
         return prev.filter(id => id !== leadId);
       }
-      const maxSelectable = Math.min(3, availableSlots);
+      const maxSelectable = Math.min(DEFAULT_AVAILABLE_SLOTS, availableSlots);
       if (prev.length >= maxSelectable) {
         return prev;
       }
@@ -422,7 +425,7 @@ export function OutboundCallsPage() {
   };
 
   const handleSelectAll = (leadIds: number[]) => {
-    const maxSelectable = Math.min(3, availableSlots);
+    const maxSelectable = Math.min(DEFAULT_AVAILABLE_SLOTS, availableSlots);
     // Select up to max selectable leads from the provided list
     setSelectedLeads(leadIds.slice(0, maxSelectable));
   };
@@ -458,7 +461,7 @@ export function OutboundCallsPage() {
 
   const availableSlots = counts 
     ? Math.min(counts.max_outbound - counts.active_outbound, counts.max_total - counts.active_total)
-    : 3;
+    : DEFAULT_AVAILABLE_SLOTS;
 
   const totalPages = Math.ceil(totalImported / pageSize);
 

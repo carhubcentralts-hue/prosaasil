@@ -84,10 +84,6 @@ export function OutboundLeadCard({
     e.preventDefault();
     onSelect(lead.id, e.shiftKey);
   };
-  
-  const handleCheckboxChange = () => {
-    // Handled by onClick above
-  };
 
   const handleCardClick = (e: React.MouseEvent) => {
     // Don't trigger card click if clicking on checkbox area or drag handle
@@ -122,7 +118,7 @@ export function OutboundLeadCard({
           className="mt-0.5"
           data-checkbox-wrapper
         >
-          <Checkbox checked={isSelected} onChange={handleCheckboxChange} />
+          <Checkbox checked={isSelected} onChange={() => {}} />
         </div>
 
         {/* Content */}
