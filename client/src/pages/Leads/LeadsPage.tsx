@@ -8,6 +8,7 @@ import { Badge } from '../../shared/components/Badge';
 import { Checkbox } from '../../shared/components/ui/Checkbox';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../shared/components/ui/Table';
 import { Select, SelectOption } from '../../shared/components/ui/Select';
+import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
 import LeadCreateModal from './components/LeadCreateModal';
 import StatusManagementModal from './components/StatusManagementModal';
 import { useLeads } from './hooks/useLeads';
@@ -34,7 +35,6 @@ export default function LeadsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [editingStatus, setEditingStatus] = useState<number | null>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -615,66 +615,15 @@ export default function LeadsPage() {
                   </TableCell>
                   
                   <TableCell data-testid={`text-status-${lead.id}`} className="min-w-[130px]">
-                    {editingStatus === lead.id ? (
-                      <div onClick={(e) => e.stopPropagation()} className="relative">
-                        {/* Overlay to close dropdown when clicking outside */}
-                        <div 
-                          className="fixed inset-0 z-10" 
-                          onClick={() => setEditingStatus(null)}
-                        />
-                        {/* Custom dropdown with colored dots - same as LeadDetailPage */}
-                        <div className="absolute top-0 right-0 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20" data-testid={`dropdown-status-${lead.id}`}>
-                          {statuses.length > 0 ? (
-                            statuses.map((status) => (
-                              <button
-                                key={status.id}
-                                onClick={() => handleStatusChange(lead.id, status.name as LeadStatus)}
-                                className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 flex items-center gap-2 ${
-                                  status.name.toLowerCase() === lead.status.toLowerCase() ? 'bg-blue-50' : ''
-                                }`}
-                                data-testid={`status-option-${status.name}`}
-                              >
-                                <span 
-                                  className="w-3 h-3 rounded-full flex-shrink-0" 
-                                  style={{ backgroundColor: getStatusDotColor(status.color) }}
-                                />
-                                <span className="flex-1">{status.label}</span>
-                                {status.name.toLowerCase() === lead.status.toLowerCase() && (
-                                  <span className="text-blue-600">✓</span>
-                                )}
-                              </button>
-                            ))
-                          ) : (
-                            <div className="px-4 py-2 text-sm text-gray-500">טוען סטטוסים...</div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="relative group flex items-center gap-2">
-                        <div 
-                          className={`${getStatusColor(lead.status, statuses)} cursor-pointer hover:opacity-80 hover:scale-105 text-xs px-3 py-1.5 transition-all duration-200 hover:ring-2 hover:ring-blue-400 hover:shadow-md rounded-full inline-flex items-center gap-1.5 font-medium`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            console.log('Status badge clicked for lead', lead.id);
-                            setEditingStatus(lead.id);
-                          }}
-                          data-testid={`badge-status-${lead.id}`}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          <span 
-                            className="w-2 h-2 rounded-full flex-shrink-0" 
-                            style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status, statuses)) }}
-                          />
-                          {getStatusLabel(lead.status, statuses)}
-                          <Edit className="w-3 h-3 opacity-70" />
-                        </div>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none shadow-lg">
-                          לחץ לשינוי סטטוס
-                        </div>
-                      </div>
-                    )}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <StatusDropdown
+                        currentStatus={lead.status}
+                        statuses={statuses}
+                        onStatusChange={(newStatus) => handleStatusChange(lead.id, newStatus as LeadStatus)}
+                        size="sm"
+                        data-testid={`status-dropdown-${lead.id}`}
+                      />
+                    </div>
                   </TableCell>
                   
                   <TableCell data-testid={`text-source-${lead.id}`} className="min-w-[90px]">
@@ -917,7 +866,7 @@ export default function LeadsPage() {
                 className={`cursor-pointer hover:shadow-md transition-shadow ${selectedLeadIds.has(lead.id) ? 'ring-2 ring-blue-500' : ''}`}
                 onClick={(e) => {
                   // Only navigate if we're not clicking on status badge, checkbox, or action buttons
-                  if (!e.defaultPrevented && editingStatus !== lead.id) {
+                  if (!e.defaultPrevented) {
                     navigate(`/app/leads/${lead.id}`);
                   }
                 }}
@@ -954,65 +903,13 @@ export default function LeadsPage() {
                   </div>
                   <div className="flex-shrink-0">
                     <div onClick={(e) => e.stopPropagation()}>
-                      {editingStatus === lead.id ? (
-                        <div className="relative">
-                          {/* Overlay to close dropdown when clicking outside */}
-                          <div 
-                            className="fixed inset-0 z-10" 
-                            onClick={() => setEditingStatus(null)}
-                          />
-                          {/* Custom dropdown with colored dots - same as desktop */}
-                          <div className="absolute top-0 left-0 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20" data-testid={`dropdown-status-mobile-${lead.id}`}>
-                            {statuses.length > 0 ? (
-                              statuses.map((status) => (
-                                <button
-                                  key={status.id}
-                                  onClick={() => handleStatusChange(lead.id, status.name as LeadStatus)}
-                                  className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 flex items-center gap-2 ${
-                                    status.name.toLowerCase() === lead.status.toLowerCase() ? 'bg-blue-50' : ''
-                                  }`}
-                                  data-testid={`status-option-mobile-${status.name}`}
-                                >
-                                  <span 
-                                    className="w-3 h-3 rounded-full flex-shrink-0" 
-                                    style={{ backgroundColor: getStatusDotColor(status.color) }}
-                                  />
-                                  <span className="flex-1">{status.label}</span>
-                                  {status.name.toLowerCase() === lead.status.toLowerCase() && (
-                                    <span className="text-blue-600">✓</span>
-                                  )}
-                                </button>
-                              ))
-                            ) : (
-                              <div className="px-4 py-2 text-sm text-gray-500">טוען סטטוסים...</div>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="relative group">
-                          <div className="flex items-center gap-2">
-                            <div 
-                              className={`${getStatusColor(lead.status, statuses)} cursor-pointer hover:opacity-80 text-xs px-3 py-2 transition-all duration-200 rounded-full inline-flex items-center gap-1.5 font-medium`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                console.log('Mobile status badge clicked for lead', lead.id);
-                                setEditingStatus(lead.id);
-                              }}
-                              data-testid={`badge-status-mobile-${lead.id}`}
-                              role="button"
-                              tabIndex={0}
-                            >
-                              <span 
-                                className="w-2 h-2 rounded-full flex-shrink-0" 
-                                style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status, statuses)) }}
-                              />
-                              {getStatusLabel(lead.status, statuses)}
-                            </div>
-                            <span className="text-xs text-gray-400">לחץ לעריכה</span>
-                          </div>
-                        </div>
-                      )}
+                      <StatusDropdown
+                        currentStatus={lead.status}
+                        statuses={statuses}
+                        onStatusChange={(newStatus) => handleStatusChange(lead.id, newStatus as LeadStatus)}
+                        size="sm"
+                        data-testid={`status-dropdown-mobile-${lead.id}`}
+                      />
                     </div>
                   </div>
                 </div>

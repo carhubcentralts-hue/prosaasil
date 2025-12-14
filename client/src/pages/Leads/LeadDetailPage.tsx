@@ -7,6 +7,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
+import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
@@ -50,8 +51,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   
   // Status management - use shared hook for consistent statuses
   const { statuses, refreshStatuses } = useStatuses();
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const [statusSaving, setStatusSaving] = useState(false);
   
   // Data for each tab
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -193,18 +192,14 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const updateLeadStatus = async (newStatus: string) => {
     if (!lead) return;
     
-    setStatusSaving(true);
     try {
       await http.post(`/api/leads/${lead.id}/status`, { status: newStatus });
       setLead({ ...lead, status: newStatus });
-      setStatusDropdownOpen(false);
     } catch (err) {
       console.error('Failed to update status:', err);
-    } finally {
-      setStatusSaving(false);
+      throw err; // Re-throw so StatusDropdown can handle it
     }
   };
-
 
 
   if (loading) {
@@ -231,53 +226,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     );
   }
 
-  const StatusDropdown = () => (
-    <div className="relative">
-      <button
-        onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-        disabled={statusSaving}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${getStatusColor(lead.status, statuses)} hover:opacity-80 transition-opacity`}
-        data-testid="status-dropdown-trigger"
-      >
-        {statusSaving ? (
-          <Loader2 className="w-3 h-3 animate-spin" />
-        ) : null}
-        {getStatusLabel(lead.status, statuses)}
-        <ChevronDown className="w-3 h-3" />
-      </button>
-      
-      {statusDropdownOpen && (
-        <>
-          <div 
-            className="fixed inset-0 z-10" 
-            onClick={() => setStatusDropdownOpen(false)}
-          />
-          <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20" data-testid="status-dropdown-menu">
-            {statuses.length > 0 ? (
-              statuses.map((status) => (
-                <button
-                  key={status.id}
-                  onClick={() => updateLeadStatus(status.name)}
-                  className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 flex items-center gap-2 ${
-                    status.name.toLowerCase() === lead.status.toLowerCase() ? 'bg-gray-50' : ''
-                  }`}
-                  data-testid={`status-option-${status.name}`}
-                >
-                  <span 
-                    className="w-3 h-3 rounded-full" 
-                    style={{ backgroundColor: status.color || '#gray' }}
-                  />
-                  {status.label}
-                </button>
-              ))
-            ) : (
-              <div className="px-4 py-2 text-sm text-gray-500">טוען סטטוסים...</div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -307,7 +255,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <StatusDropdown />
+              <StatusDropdown
+                currentStatus={lead.status}
+                statuses={statuses}
+                onStatusChange={updateLeadStatus}
+                data-testid="status-dropdown"
+              />
               <Button 
                 size="sm" 
                 onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
@@ -347,7 +300,13 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 חזור
               </Button>
-              <StatusDropdown />
+              <StatusDropdown
+                currentStatus={lead.status}
+                statuses={statuses}
+                onStatusChange={updateLeadStatus}
+                size="sm"
+                data-testid="status-dropdown-mobile"
+              />
             </div>
             <div className="text-center mb-4">
               <h1 className="text-lg font-semibold text-gray-900" data-testid="text-lead-name-mobile">
