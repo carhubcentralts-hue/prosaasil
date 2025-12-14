@@ -13,6 +13,15 @@ os.environ['APP_START_TIME'] = str(int(APP_START_TIME))
 
 health_bp = Blueprint('health', __name__)
 
+@health_bp.route('/api/health', methods=['GET'])
+def api_health():
+    """API health check endpoint"""
+    return jsonify({
+        "status": "ok",
+        "service": "prosaasil-api",
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
 @health_bp.route('/healthz', methods=['GET'])
 def healthz_endpoint():
     """Basic health check"""
