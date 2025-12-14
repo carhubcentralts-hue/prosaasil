@@ -3496,33 +3496,16 @@ Greet briefly. Then WAIT for customer to speak."""
                         continue
                     
                     # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
-                    # 🔥 FIX: In SIMPLE_MODE, mark user_has_spoken=True on speech_started if RMS is high
-                    # This prevents the guard from blocking responses when first utterance is hallucinated
+                    # 🔥 BUILD 341: REMOVED early user_has_spoken=True on RMS detection
+                    # Problem: Was setting user_has_spoken=True based on RMS before getting actual transcription
+                    # Fix: Only set user_has_spoken=True after receiving valid final transcription text
                     print(f"🎤 [REALTIME] Speech started - marking as candidate (will validate on transcription)")
                     self._candidate_user_speaking = True
                     self._utterance_start_ts = time.time()
                     self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
                     self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
                     
-                    # 🔥 FIX: Set user_has_spoken=True early when real speech is detected
-                    # Even if STT later produces hallucination, we know user is trying to speak
-                    # This prevents the guard from blocking legitimate responses
-                    if SIMPLE_MODE and not self.user_has_spoken:
-                        # Check if this is real speech (high RMS + sufficient duration)
-                        utterance_rms = self._utterance_start_rms
-                        utterance_noise_floor = self._utterance_start_noise_floor
-                        rms_delta = utterance_rms - utterance_noise_floor
-                        
-                        # If RMS is significantly above noise floor, mark as user speaking
-                        # Use higher threshold than normal since this is just to open the conversation
-                        if rms_delta >= MIN_RMS_DELTA * SIMPLE_MODE_RMS_MULTIPLIER:
-                            logger.info(
-                                f"[STT_DECISION] Speech detected with high RMS - marking user_has_spoken=True early | "
-                                f"rms={utterance_rms:.1f}, noise_floor={utterance_noise_floor:.1f}, delta={rms_delta:.1f}"
-                            )
-                            self.user_has_spoken = True
-                    
-                    # Note: user_has_spoken may be set here (SIMPLE_MODE) or in transcription.completed after validation
+                    # Note: user_has_spoken will be set ONLY in transcription.completed after full validation
                     if self._post_greeting_window_active:
                         self._post_greeting_heard_user = True
                     # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
@@ -4753,12 +4736,15 @@ Greet briefly. Then WAIT for customer to speak."""
                         f"text_len={len(text)}"
                     )
                     
-                    # 🔥 FIX BUG 4: Set user_has_spoken ONLY after validated transcription
+                    # 🔥 BUILD 341: Set user_has_spoken ONLY after validated transcription with meaningful text
                     # This ensures all guards pass before we mark user as having spoken
-                    # Additional check: Only set if we have meaningful content (passed all STT guards)
-                    if not self.user_has_spoken and text and len(text.strip()) > 0:
+                    # Minimum requirement: At least 2 characters after cleanup (not just whitespace/single char)
+                    if not self.user_has_spoken and text and len(text.strip()) >= 2:
                         self.user_has_spoken = True
-                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...')")
+                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...', len={len(text.strip())})")
+                    elif not self.user_has_spoken and text:
+                        # Log when we get text but it's too short to count
+                        print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >=2): '{text}'")
                     
                     # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
                     # is_filler_only already computed above, no duplicate function call

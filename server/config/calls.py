@@ -37,10 +37,11 @@ MAX_REALTIME_SECONDS_PER_CALL = 600  # Max 10 minutes per call
 MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 MASTER FIX: SERVER-SIDE VAD THRESHOLDS for OpenAI Realtime API
+# 🔥 BUILD 341: OPTIMIZED VAD THRESHOLDS - Prevent premature cutoff and hallucinations
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.72  # Balanced threshold for Hebrew speech detection
-SERVER_VAD_SILENCE_MS = 380  # Silence duration to detect end of speech (ms)
+SERVER_VAD_THRESHOLD = 0.60         # Lowered from 0.72 - better sensitivity for quiet speech
+SERVER_VAD_SILENCE_MS = 900         # Increased from 380ms - don't cut off mid-sentence
+SERVER_VAD_PREFIX_PADDING_MS = 400  # Capture audio before speech starts
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
