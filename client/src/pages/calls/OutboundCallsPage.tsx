@@ -1,4 +1,5 @@
 import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Phone, 
@@ -88,6 +89,7 @@ type TabType = 'existing' | 'imported';
 type ViewMode = 'table' | 'kanban';
 
 export function OutboundCallsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   

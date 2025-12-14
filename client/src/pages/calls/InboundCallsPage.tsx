@@ -1,65 +1,64 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, User, Clock, MessageSquare, Loader2, Search } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Phone, Loader2, Search, LayoutGrid, List, CheckSquare } from 'lucide-react';
 import { http } from '../../services/http';
+import { Button } from '../../shared/components/ui/Button';
+import { Card } from '../../shared/components/ui/Card';
+import { Input } from '../../shared/components/ui/Input';
+import { LeadKanbanView } from '../Leads/components/LeadKanbanView';
+import LeadCard from '../Leads/components/LeadCard';
 
-// Simple UI components
-const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`border border-gray-200 rounded-lg bg-white shadow-sm ${className}`}>{children}</div>
-);
-
-const Button = ({ children, className = "", variant = "default", ...props }: {
-  children: React.ReactNode;
-  className?: string;
-  variant?: "default" | "outline";
-  [key: string]: any;
-}) => {
-  const baseClasses = "px-4 py-2 rounded-md font-medium transition-colors inline-flex items-center disabled:opacity-50";
-  const variantClasses = {
-    default: "bg-blue-600 text-white hover:bg-blue-700",
-    outline: "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-  };
-  return (
-    <button className={`${baseClasses} ${variantClasses[variant]} ${className}`} {...props}>
-      {children}
-    </button>
-  );
-};
-
-const Badge = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <span className={`px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800 ${className}`}>
-    {children}
-  </span>
-);
-
-// Lead interface
+// Lead interface aligned with main Leads page
 interface Lead {
   id: number;
   full_name: string;
+  first_name?: string;
+  last_name?: string;
   phone_e164: string;
   display_phone: string;
+  email?: string;
   status: string;
+  source: string;
   summary?: string;
+  notes?: string;
+  tags?: string[];
   last_contact_at: string;
   created_at: string;
+  owner_user_id?: number;
+  last_call_direction?: string;
 }
+
+interface LeadStatus {
+  name: string;
+  label: string;
+  color: string;
+  order_index: number;
+  is_system?: boolean;
+}
+
+type ViewMode = 'kanban' | 'list';
 
 export function InboundCallsPage() {
   const navigate = useNavigate();
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [viewMode, setViewMode] = useState<ViewMode>('kanban');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const pageSize = 25;
 
-  useEffect(() => {
-    loadInboundLeads();
-  }, [page, searchQuery]);
+  // Fetch lead statuses for Kanban
+  const { data: statusesData, isLoading: statusesLoading } = useQuery<LeadStatus[]>({
+    queryKey: ['/api/lead-statuses'],
+    enabled: viewMode === 'kanban',
+    retry: 1,
+  });
 
-  const loadInboundLeads = async () => {
-    try {
-      setLoading(true);
+  // Fetch inbound leads
+  const { data: leadsResponse, isLoading: leadsLoading, error } = useQuery({
+    queryKey: ['/api/leads', 'inbound', page, searchQuery],
+    queryFn: async () => {
       const params = new URLSearchParams({
         direction: 'inbound',
         page: page.toString(),
@@ -70,52 +69,46 @@ export function InboundCallsPage() {
         params.append('q', searchQuery);
       }
 
-      const response = await http.get(`/api/leads?${params.toString()}`);
-      
-      if (response && typeof response === 'object') {
-        const items = (response as any).items || [];
-        setLeads(items);
-        const total = (response as any).total || 0;
-        setTotalPages(Math.ceil(total / pageSize));
-      } else {
-        setLeads([]);
-        setTotalPages(1);
-      }
-    } catch (error) {
-      console.error('Error loading inbound leads:', error);
-      setLeads([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return await http.get(`/api/leads?${params.toString()}`);
+    },
+    retry: 1,
+  });
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ leadId, newStatus }: { leadId: number; newStatus: string }) => {
+      return await http.patch(`/api/leads/${leadId}/status`, { status: newStatus });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
+    },
+  });
 
-    if (diffMins < 60) {
-      return `לפני ${diffMins} דקות`;
-    } else if (diffHours < 24) {
-      return `לפני ${diffHours} שעות`;
-    } else if (diffDays < 7) {
-      return `לפני ${diffDays} ימים`;
-    } else {
-      return date.toLocaleDateString('he-IL', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
-    }
-  };
+  const leads: Lead[] = (leadsResponse as any)?.items || [];
+  const total = (leadsResponse as any)?.total || 0;
+  const totalPages = Math.ceil(total / pageSize);
+  const statuses = statusesData || [];
 
   const handleLeadClick = (leadId: number) => {
     navigate(`/app/leads/${leadId}`);
   };
+
+  const handleLeadSelect = (leadId: number) => {
+    setSelectedLeadIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleStatusChange = async (leadId: number, newStatus: string) => {
+    await updateStatusMutation.mutateAsync({ leadId, newStatus });
+  };
+
+  const loading = leadsLoading || statusesLoading;
 
   if (loading && leads.length === 0) {
     return (
@@ -135,8 +128,47 @@ export function InboundCallsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">שיחות נכנסות</h1>
-            <p className="text-slate-600 mt-1">לידים שנוצרו משיחות נכנסות למערכת</p>
+            <p className="text-slate-600 mt-1">לידים שמקורם משיחות נכנסות</p>
           </div>
+        </div>
+
+        {/* View Mode Toggle */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                viewMode === 'kanban'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+              data-testid="button-kanban-view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+              Kanban
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                viewMode === 'list'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+              data-testid="button-list-view"
+            >
+              <List className="h-4 w-4" />
+              רשימה
+            </button>
+          </div>
+          
+          {selectedLeadIds.size > 0 && (
+            <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-lg">
+              <CheckSquare className="h-4 w-4 text-blue-600" />
+              <span className="text-sm text-blue-900">
+                {selectedLeadIds.size} נבחרו
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -144,7 +176,7 @@ export function InboundCallsPage() {
       <Card className="p-4">
         <div className="relative">
           <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
+          <Input
             type="search"
             placeholder="חפש לפי שם או טלפון..."
             value={searchQuery}
@@ -152,14 +184,21 @@ export function InboundCallsPage() {
               setSearchQuery(e.target.value);
               setPage(1);
             }}
-            className="w-full pr-10 px-3 py-2 border border-slate-300 rounded-md"
+            className="w-full pr-10"
             data-testid="input-search-inbound"
           />
         </div>
       </Card>
 
-      {/* Leads List */}
-      {leads.length === 0 ? (
+      {/* Error State */}
+      {error && (
+        <Card className="p-4 bg-red-50 border-red-200">
+          <p className="text-red-800">שגיאה בטעינת הנתונים. אנא רענן את הדף.</p>
+        </Card>
+      )}
+
+      {/* Empty State */}
+      {!loading && leads.length === 0 && (
         <Card className="p-12 text-center">
           <Phone className="h-12 w-12 mx-auto mb-4 text-slate-400" />
           <h3 className="text-lg font-medium text-slate-900 mb-2">אין שיחות נכנסות</h3>
@@ -167,46 +206,32 @@ export function InboundCallsPage() {
             {searchQuery ? 'לא נמצאו לידים התואמים לחיפוש' : 'עדיין לא היו שיחות נכנסות במערכת'}
           </p>
         </Card>
-      ) : (
+      )}
+
+      {/* Kanban View */}
+      {!loading && leads.length > 0 && viewMode === 'kanban' && (
+        <div className="min-h-[600px]">
+          <LeadKanbanView
+            leads={leads}
+            statuses={statuses}
+            loading={loading}
+            selectedLeadIds={selectedLeadIds}
+            onLeadSelect={handleLeadSelect}
+            onLeadClick={handleLeadClick}
+            onStatusChange={handleStatusChange}
+          />
+        </div>
+      )}
+
+      {/* List View */}
+      {!loading && leads.length > 0 && viewMode === 'list' && (
         <div className="grid grid-cols-1 gap-4">
           {leads.map((lead) => (
-            <Card
+            <LeadCard
               key={lead.id}
-              className="p-4 hover:shadow-md transition-shadow cursor-pointer"
+              lead={lead}
               onClick={() => handleLeadClick(lead.id)}
-              data-testid={`lead-card-${lead.id}`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3 flex-1">
-                  <div className="p-2 bg-green-100 rounded-full">
-                    <User className="h-5 w-5 text-green-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-medium text-slate-900 text-lg">
-                        {lead.full_name || 'לקוח אלמוני'}
-                      </h3>
-                      <Badge>{lead.status}</Badge>
-                    </div>
-                    <p className="text-sm text-slate-600 mb-2" dir="ltr">
-                      {lead.display_phone || lead.phone_e164}
-                    </p>
-                    {lead.summary && (
-                      <div className="flex items-start gap-2 mb-2">
-                        <MessageSquare className="h-4 w-4 text-slate-400 mt-0.5 flex-shrink-0" />
-                        <p className="text-sm text-slate-700 line-clamp-2">
-                          {lead.summary}
-                        </p>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <Clock className="h-3 w-3" />
-                      <span>{formatDate(lead.last_contact_at || lead.created_at)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Card>
+            />
           ))}
         </div>
       )}
@@ -215,7 +240,7 @@ export function InboundCallsPage() {
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-4">
           <Button
-            variant="outline"
+            variant="secondary"
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page === 1}
             data-testid="button-prev-page"
@@ -226,7 +251,7 @@ export function InboundCallsPage() {
             עמוד {page} מתוך {totalPages}
           </span>
           <Button
-            variant="outline"
+            variant="secondary"
             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
             data-testid="button-next-page"
