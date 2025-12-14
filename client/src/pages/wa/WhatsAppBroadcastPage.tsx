@@ -97,6 +97,19 @@ export function WhatsAppBroadcastPage() {
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   
+  // NEW: Audience source selection
+  const [audienceSource, setAudienceSource] = useState<'leads' | 'import-list' | 'csv'>('leads');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<number[]>([]);
+  const [selectedImportListId, setSelectedImportListId] = useState<number | null>(null);
+  const [importLists, setImportLists] = useState<Array<{id: number; name: string; current_leads: number}>>([]);
+  const [loadingImportLists, setLoadingImportLists] = useState(false);
+  
+  // NEW: Lead selection with search/filters
+  const [leadSearchTerm, setLeadSearchTerm] = useState('');
+  const [leads, setLeads] = useState<Array<{id: number; name: string; phone: string; status: string}>>([]);
+  const [loadingLeads, setLoadingLeads] = useState(false);
+  const [recipientCount, setRecipientCount] = useState(0);
+  
   // Campaign history
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
@@ -108,6 +121,7 @@ export function WhatsAppBroadcastPage() {
     loadTemplates();
     loadCampaigns();
     loadStatuses();
+    loadImportLists();
   }, []);
 
   const loadTemplates = async () => {
@@ -145,6 +159,74 @@ export function WhatsAppBroadcastPage() {
     }
   };
 
+  // NEW: Load import lists
+  const loadImportLists = async () => {
+    try {
+      setLoadingImportLists(true);
+      const response = await http.get<{ lists: Array<{id: number; name: string; current_leads: number}> }>('/api/outbound/import-lists');
+      setImportLists(response.lists || []);
+    } catch (error) {
+      console.error('Error loading import lists:', error);
+      setImportLists([]);
+    } finally {
+      setLoadingImportLists(false);
+    }
+  };
+
+  // NEW: Load leads with filters
+  const loadLeads = async () => {
+    try {
+      setLoadingLeads(true);
+      const params: any = { page: 1, pageSize: 1000 }; // Get all leads
+      
+      if (selectedStatuses.length > 0) {
+        params['statuses[]'] = selectedStatuses;
+      }
+      if (leadSearchTerm.trim()) {
+        params.search = leadSearchTerm.trim();
+      }
+      
+      const response = await http.get<{ leads: Array<{id: number; name: string; phone_e164: string; status: string}> }>('/api/leads', { params });
+      const loadedLeads = response.leads || [];
+      setLeads(loadedLeads.map(l => ({ id: l.id, name: l.name, phone: l.phone_e164, status: l.status })));
+      
+      // Calculate recipient count based on audience source
+      updateRecipientCount(loadedLeads.length);
+    } catch (error) {
+      console.error('Error loading leads:', error);
+      setLeads([]);
+    } finally {
+      setLoadingLeads(false);
+    }
+  };
+
+  // NEW: Update recipient count based on audience source
+  const updateRecipientCount = (count?: number) => {
+    if (audienceSource === 'leads') {
+      setRecipientCount(selectedLeadIds.length || count || 0);
+    } else if (audienceSource === 'import-list' && selectedImportListId) {
+      const list = importLists.find(l => l.id === selectedImportListId);
+      setRecipientCount(list?.current_leads || 0);
+    } else if (audienceSource === 'csv' && csvFile) {
+      // CSV count would need parsing, for now show as 1
+      setRecipientCount(1);
+    } else {
+      setRecipientCount(0);
+    }
+  };
+
+  // Load leads when filters change
+  useEffect(() => {
+    if (audienceSource === 'leads') {
+      loadLeads();
+    }
+  }, [selectedStatuses, leadSearchTerm, audienceSource]);
+
+  // Update recipient count when selection changes
+  useEffect(() => {
+    updateRecipientCount();
+  }, [selectedLeadIds, selectedImportListId, csvFile, audienceSource, importLists]);
+
   const handleSendBroadcast = async () => {
     if (messageType === 'template' && !selectedTemplate) {
       alert('יש לבחור תבנית');
@@ -156,8 +238,17 @@ export function WhatsAppBroadcastPage() {
       return;
     }
     
-    if (selectedStatuses.length === 0 && !csvFile) {
-      alert('יש לבחור קהל יעד (סטטוסים או קובץ CSV)');
+    // NEW: Validate audience source
+    if (audienceSource === 'leads' && selectedLeadIds.length === 0) {
+      alert('יש לבחור לפחות ליד אחד');
+      return;
+    }
+    if (audienceSource === 'import-list' && !selectedImportListId) {
+      alert('יש לבחור רשימת ייבוא');
+      return;
+    }
+    if (audienceSource === 'csv' && !csvFile) {
+      alert('יש להעלות קובץ CSV');
       return;
     }
 
@@ -167,6 +258,7 @@ export function WhatsAppBroadcastPage() {
       const formData = new FormData();
       formData.append('provider', provider);
       formData.append('message_type', messageType);
+      formData.append('audience_source', audienceSource);
       
       if (messageType === 'template' && selectedTemplate) {
         formData.append('template_id', selectedTemplate.id);
@@ -175,6 +267,16 @@ export function WhatsAppBroadcastPage() {
         formData.append('message_text', messageText);
       }
       
+      // NEW: Add audience data based on source
+      if (audienceSource === 'leads') {
+        formData.append('lead_ids', JSON.stringify(selectedLeadIds));
+      } else if (audienceSource === 'import-list') {
+        formData.append('import_list_id', String(selectedImportListId));
+      } else if (audienceSource === 'csv' && csvFile) {
+        formData.append('csv_file', csvFile);
+      }
+      
+      // Legacy: Keep status filter for backward compatibility
       if (selectedStatuses.length > 0) {
         formData.append('statuses', JSON.stringify(selectedStatuses));
       }
@@ -400,48 +502,202 @@ export function WhatsAppBroadcastPage() {
             <Card className="p-6">
               <h2 className="text-lg font-semibold mb-4">בחירת קהל</h2>
               
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">
+              {/* NEW: Audience Source Selector */}
+              <div className="space-y-4 mb-6">
+                <label className="block text-sm font-medium mb-2">מקור הקהל</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => setAudienceSource('leads')}
+                    className={`px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                      audienceSource === 'leads'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Users className="h-4 w-4 inline ml-1" />
+                    לידים מהמערכת
+                  </button>
+                  <button
+                    onClick={() => setAudienceSource('import-list')}
+                    className={`px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                      audienceSource === 'import-list'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
                     <Filter className="h-4 w-4 inline ml-1" />
-                    לפי סטטוסים
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {availableStatuses.map(status => (
-                      <button
-                        key={status}
-                        onClick={() => toggleStatus(status)}
-                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                          selectedStatuses.includes(status)
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
-                      >
-                        {status}
-                      </button>
-                    ))}
+                    רשימת ייבוא
+                  </button>
+                  <button
+                    onClick={() => setAudienceSource('csv')}
+                    className={`px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                      audienceSource === 'csv'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    <Upload className="h-4 w-4 inline ml-1" />
+                    העלאת CSV
+                  </button>
+                </div>
+              </div>
+
+              {/* Leads from System */}
+              {audienceSource === 'leads' && (
+                <div className="space-y-4">
+                  {/* Search */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">חיפוש לידים</label>
+                    <input
+                      type="text"
+                      placeholder="חפש לפי שם או טלפון..."
+                      value={leadSearchTerm}
+                      onChange={(e) => setLeadSearchTerm(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Status Filters */}
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      <Filter className="h-4 w-4 inline ml-1" />
+                      סנן לפי סטטוסים
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {availableStatuses.map(status => (
+                        <button
+                          key={status}
+                          onClick={() => toggleStatus(status)}
+                          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                            selectedStatuses.includes(status)
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Lead Selection */}
+                  <div className="border-t pt-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-sm font-medium">לידים זמינים</label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setSelectedLeadIds(leads.map(l => l.id))}
+                          className="text-xs text-blue-600 hover:text-blue-700"
+                        >
+                          בחר הכל
+                        </button>
+                        <button
+                          onClick={() => setSelectedLeadIds([])}
+                          className="text-xs text-slate-600 hover:text-slate-700"
+                        >
+                          נקה בחירה
+                        </button>
+                      </div>
+                    </div>
+                    {loadingLeads ? (
+                      <div className="text-center py-4">
+                        <RefreshCw className="h-5 w-5 animate-spin mx-auto text-slate-400" />
+                      </div>
+                    ) : leads.length === 0 ? (
+                      <p className="text-sm text-slate-500 py-4 text-center">לא נמצאו לידים</p>
+                    ) : (
+                      <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-lg">
+                        {leads.slice(0, 50).map(lead => (
+                          <label key={lead.id} className="flex items-center p-2 hover:bg-slate-50 cursor-pointer border-b last:border-b-0">
+                            <input
+                              type="checkbox"
+                              checked={selectedLeadIds.includes(lead.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedLeadIds([...selectedLeadIds, lead.id]);
+                                } else {
+                                  setSelectedLeadIds(selectedLeadIds.filter(id => id !== lead.id));
+                                }
+                              }}
+                              className="ml-2"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm font-medium">{lead.name}</div>
+                              <div className="text-xs text-slate-500">{lead.phone} • {lead.status}</div>
+                            </div>
+                          </label>
+                        ))}
+                        {leads.length > 50 && (
+                          <div className="p-2 text-xs text-slate-500 text-center">
+                            מציג 50 מתוך {leads.length} לידים. השתמש בסינון לצמצם את התוצאות.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                
-                <div className="border-t pt-4">
-                  <label className="block text-sm font-medium mb-2">
-                    <Upload className="h-4 w-4 inline ml-1" />
-                    העלה CSV (אופציונלי)
-                  </label>
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                    className="block w-full text-sm text-slate-500
-                      file:mr-4 file:py-2 file:px-4
-                      file:rounded-md file:border-0
-                      file:text-sm file:font-semibold
-                      file:bg-blue-50 file:text-blue-700
-                      hover:file:bg-blue-100"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    קובץ CSV עם עמודת "phone" לכל מספר טלפון
-                  </p>
+              )}
+
+              {/* Import List Selection */}
+              {audienceSource === 'import-list' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">בחר רשימת ייבוא</label>
+                    {loadingImportLists ? (
+                      <div className="text-center py-4">
+                        <RefreshCw className="h-5 w-5 animate-spin mx-auto text-slate-400" />
+                      </div>
+                    ) : importLists.length === 0 ? (
+                      <p className="text-sm text-slate-500 py-4 text-center">אין רשימות ייבוא זמינות</p>
+                    ) : (
+                      <select
+                        value={selectedImportListId || ''}
+                        onChange={(e) => setSelectedImportListId(e.target.value ? Number(e.target.value) : null)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">בחר רשימה...</option>
+                        {importLists.map(list => (
+                          <option key={list.id} value={list.id}>
+                            {list.name} ({list.current_leads} לידים)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* CSV Upload */}
+              {audienceSource === 'csv' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      <Upload className="h-4 w-4 inline ml-1" />
+                      העלה קובץ CSV
+                    </label>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                      className="block w-full text-sm text-slate-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-md file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700
+                        hover:file:bg-blue-100"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">
+                      קובץ CSV עם עמודת "phone" לכל מספר טלפון
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Recipient Counter */}
+              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-blue-900">נמענים נבחרו:</span>
+                  <span className="text-lg font-bold text-blue-600">{recipientCount}</span>
                 </div>
               </div>
             </Card>
@@ -473,12 +729,15 @@ export function WhatsAppBroadcastPage() {
               <h2 className="text-lg font-semibold mb-4">סטטיסטיקה משוערת</h2>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-600">סטטוסים נבחרים:</span>
-                  <span className="font-medium">{selectedStatuses.length}</span>
+                  <span className="text-slate-600">מקור קהל:</span>
+                  <span className="font-medium">
+                    {audienceSource === 'leads' ? 'לידים מהמערכת' : 
+                     audienceSource === 'import-list' ? 'רשימת ייבוא' : 'CSV'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-600">קובץ CSV:</span>
-                  <span className="font-medium">{csvFile ? 'כן' : 'לא'}</span>
+                  <span className="text-slate-600">נמענים:</span>
+                  <span className="font-medium text-blue-600">{recipientCount}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-600">ספק:</span>
