@@ -13,10 +13,18 @@ Production database is missing the `last_call_direction` column in the `leads` t
 - **What it does**:
   - Adds `last_call_direction VARCHAR(16)` column to `leads` table
   - Creates index `idx_leads_last_call_direction` for performance
-  - Backfills data from `call_log` table (latest call direction per lead)
+  - **Backfills data from FIRST call** (not latest) to determine lead origin
   - Fully idempotent (can run multiple times safely)
 
-### 2. Error Handling Added
+### 2. Direction Assignment Logic (CRITICAL FIX)
+- **File**: `server/tasks_recording.py`
+- **What it does**:
+  - Sets `last_call_direction` ONCE on first interaction
+  - **NEVER overrides** on subsequent calls
+  - Ensures inbound leads stay inbound even after outbound follow-ups
+  - Ensures outbound leads stay outbound even after inbound callbacks
+
+### 3. Error Handling Added
 - **File**: `server/routes_leads.py`
 - **What it does**:
   - Wraps `/api/leads` endpoint in try/except
@@ -81,8 +89,8 @@ ADD COLUMN IF NOT EXISTS last_call_direction VARCHAR(16);
 CREATE INDEX IF NOT EXISTS idx_leads_last_call_direction
 ON public.leads (last_call_direction);
 
--- Backfill from call_log (most recent call per lead)
-WITH latest_calls AS (
+-- Backfill from call_log (FIRST call per lead to determine origin)
+WITH first_calls AS (
     SELECT DISTINCT ON (cl.lead_id) 
         cl.lead_id,
         cl.direction,
@@ -90,12 +98,13 @@ WITH latest_calls AS (
     FROM call_log cl
     WHERE cl.lead_id IS NOT NULL 
       AND cl.direction IS NOT NULL
-    ORDER BY cl.lead_id, cl.created_at DESC
+      AND cl.direction IN ('inbound', 'outbound')
+    ORDER BY cl.lead_id, cl.created_at ASC  -- ASC = FIRST call
 )
 UPDATE leads l
-SET last_call_direction = lc.direction
-FROM latest_calls lc
-WHERE l.id = lc.lead_id
+SET last_call_direction = fc.direction
+FROM first_calls fc
+WHERE l.id = fc.lead_id
   AND (l.last_call_direction IS NULL OR l.last_call_direction = '');
 
 COMMIT;
@@ -192,6 +201,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 - ❌ UI shows "Internal server error"
 - ❌ Lead counts don't display
 - ❌ Cannot filter by call direction
+- ❌ Direction changes on every new call (inconsistent)
 
 ### After Fix:
 - ✅ All endpoints return 200
@@ -199,6 +209,35 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 - ✅ UI displays lead counts correctly
 - ✅ Direction filtering works (inbound/outbound/all)
 - ✅ Graceful error handling if column still missing
+- ✅ **Direction set ONCE on first interaction, never changes**
+- ✅ Inbound leads stay inbound even after outbound follow-ups
+- ✅ Outbound leads stay outbound even after inbound callbacks
+
+## 🎯 Direction Logic Explained
+
+**Critical Rule**: `last_call_direction` represents the **origin** of the lead, not the most recent call.
+
+### Examples:
+
+1. **Inbound Lead** (customer calls business first):
+   - First call: Customer → Business (inbound) ✅ `last_call_direction = 'inbound'`
+   - Follow-up: Business → Customer (outbound) ⚠️ `last_call_direction` stays 'inbound'
+   - Result: Lead appears in "Inbound Calls" page forever
+
+2. **Outbound Lead** (business calls customer first):
+   - First call: Business → Customer (outbound) ✅ `last_call_direction = 'outbound'`
+   - Callback: Customer → Business (inbound) ⚠️ `last_call_direction` stays 'outbound'
+   - Result: Lead appears in "Outbound Calls" page forever
+
+3. **New Lead** (no calls yet):
+   - Status: `last_call_direction = NULL`
+   - First call determines the origin permanently
+
+### Why This Matters:
+
+- **Consistent filtering**: Inbound/Outbound pages show leads by origin, not by latest call
+- **Analytics accuracy**: Count how many leads came from inbound vs outbound campaigns
+- **User expectations**: "Inbound Calls" = customers who called us first
 
 ## 🔍 Root Cause Analysis
 
