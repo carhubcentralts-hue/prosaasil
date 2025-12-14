@@ -931,47 +931,76 @@ export function OutboundCallsPage() {
             </div>
           </Card>
 
-          {/* Imported Leads Table */}
-          <Card className="p-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                לידים מיובאים ({selectedImportedLeads.length}/{Math.min(3, availableSlots)})
-              </h3>
-              <div className="flex items-center gap-3">
-                {selectedImportedLeads.length > 0 && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleBulkDelete}
-                    disabled={bulkDeleteMutation.isPending}
-                    data-testid="button-bulk-delete"
-                  >
-                    {bulkDeleteMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <>
-                        <Trash2 className="h-4 w-4 ml-1" />
-                        מחק נבחרים ({selectedImportedLeads.length})
-                      </>
-                    )}
-                  </Button>
-                )}
-                <div className="relative">
-                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="חיפוש..."
-                    value={importedSearchQuery}
-                    onChange={(e) => {
-                      setImportedSearchQuery(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="pr-10 w-48"
-                    data-testid="input-imported-search"
+          {/* Imported Leads Display - Kanban or Table */}
+          {viewMode === 'kanban' ? (
+            <>
+              {(importedLoading || statusesLoading) ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-12 w-12 animate-spin text-gray-400" />
+                </div>
+              ) : statuses.length === 0 ? (
+                <Card className="p-8 text-center text-gray-500">
+                  לא נמצאו סטטוסים. יש להגדיר סטטוסים במערכת.
+                </Card>
+              ) : importedLeadsAsLeads.length === 0 ? (
+                <Card className="p-8 text-center text-gray-500">
+                  עדיין לא יובאו לידים
+                </Card>
+              ) : (
+                <div className="min-h-[600px]">
+                  <OutboundKanbanView
+                    leads={importedLeadsAsLeads}
+                    statuses={statuses}
+                    loading={importedLoading}
+                    selectedLeadIds={new Set()} // No selection in Kanban for imported
+                    onLeadSelect={() => {}} // No selection in Kanban for imported
+                    onLeadClick={handleLeadClick}
+                    onStatusChange={handleStatusChange}
                   />
                 </div>
+              )}
+            </>
+          ) : (
+            <Card className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  לידים מיובאים ({selectedImportedLeads.length}/{Math.min(3, availableSlots)})
+                </h3>
+                <div className="flex items-center gap-3">
+                  {selectedImportedLeads.length > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleBulkDelete}
+                      disabled={bulkDeleteMutation.isPending}
+                      data-testid="button-bulk-delete"
+                    >
+                      {bulkDeleteMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Trash2 className="h-4 w-4 ml-1" />
+                          מחק נבחרים ({selectedImportedLeads.length})
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  <div className="relative">
+                    <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="חיפוש..."
+                      value={importedSearchQuery}
+                      onChange={(e) => {
+                        setImportedSearchQuery(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="pr-10 w-48"
+                      data-testid="input-imported-search"
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
 
             {importedLoading ? (
               <div className="flex justify-center py-8">
@@ -1091,7 +1120,8 @@ export function OutboundCallsPage() {
                 )}
               </>
             )}
-          </Card>
+            </Card>
+          )}
 
           {/* Start Calls Button for Imported Leads */}
           <div className="flex justify-center">
