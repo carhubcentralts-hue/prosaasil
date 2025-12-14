@@ -548,11 +548,43 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # 3. ✨ סיכום חכם של השיחה (שימוש בסיכום שכבר יצרנו!)
                 conversation_summary = ci.generate_conversation_summary(transcription)
                 
-                # 4. ✨ עדכון סטטוס אוטומטי
-                new_status = ci.auto_update_lead_status(lead, conversation_summary)
+                # 4. ✨ עדכון סטטוס אוטומטי - שימוש בשירות החדש
+                # Get call direction from call_log
+                call_direction = call_log.direction if call_log else "inbound"
                 
-                # 5. ✨ שמירת הסיכום בליד (summary מה-GPT + notes עם פרטים)
+                # Use new auto-status service
+                from server.services.lead_auto_status_service import suggest_lead_status_from_call
+                suggested_status = suggest_lead_status_from_call(
+                    tenant_id=call_log.business_id,
+                    lead_id=lead.id,
+                    call_direction=call_direction,
+                    call_summary=summary,  # AI-generated summary
+                    call_transcript=final_transcript or transcription
+                )
+                
+                if suggested_status:
+                    old_status = lead.status
+                    lead.status = suggested_status
+                    
+                    # Create activity for auto status change
+                    from server.models_sql import LeadActivity
+                    activity = LeadActivity()
+                    activity.lead_id = lead.id
+                    activity.type = "status_change"
+                    activity.payload = {
+                        "from": old_status,
+                        "to": suggested_status,
+                        "source": f"auto_{call_direction}",
+                        "call_sid": call_sid
+                    }
+                    activity.at = datetime.utcnow()
+                    db.session.add(activity)
+                    
+                    log.info(f"[AutoStatus] Updated lead {lead.id} status: {old_status} → {suggested_status} (source: {call_direction})")
+                
+                # 5. ✨ שמירת הסיכום בליד + עדכון last_contact_at
                 lead.summary = summary  # סיכום קצר (10-30 מילים)
+                lead.last_contact_at = datetime.utcnow()  # Update last contact time
                 lead.notes = f"סיכום: {conversation_summary.get('summary', '')}\n" + (lead.notes or "")
                 
                 db.session.commit()

@@ -767,3 +767,57 @@ class AgentTrace(db.Model):
     
     def __repr__(self):
         return f"<AgentTrace {self.id} - {self.agent_type} - {self.tool_count} tools>"
+
+
+class OutboundCallRun(db.Model):
+    """Bulk outbound calling campaign/run tracking"""
+    __tablename__ = "outbound_call_runs"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    outbound_list_id = db.Column(db.Integer, db.ForeignKey("outbound_lead_lists.id"), nullable=True)
+    
+    # Configuration
+    concurrency = db.Column(db.Integer, default=3)
+    total_leads = db.Column(db.Integer, default=0)
+    
+    # Progress tracking
+    queued_count = db.Column(db.Integer, default=0)
+    in_progress_count = db.Column(db.Integer, default=0)
+    completed_count = db.Column(db.Integer, default=0)
+    failed_count = db.Column(db.Integer, default=0)
+    
+    # Status
+    status = db.Column(db.String(32), default="running")  # running|completed|failed|cancelled
+    last_error = db.Column(db.Text)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+
+
+class OutboundCallJob(db.Model):
+    """Individual call job within a bulk run"""
+    __tablename__ = "outbound_call_jobs"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    run_id = db.Column(db.Integer, db.ForeignKey("outbound_call_runs.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True)
+    
+    # Status
+    status = db.Column(db.String(32), default="queued", index=True)  # queued|calling|completed|failed
+    error_message = db.Column(db.Text)
+    
+    # Call details
+    call_sid = db.Column(db.String(64))
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    run = db.relationship("OutboundCallRun", backref="jobs")
+    lead = db.relationship("Lead")
