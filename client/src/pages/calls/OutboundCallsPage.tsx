@@ -421,6 +421,16 @@ export function OutboundCallsPage() {
     });
   };
 
+  const handleSelectAll = (leadIds: number[]) => {
+    const maxSelectable = Math.min(3, availableSlots);
+    // Select up to max selectable leads from the provided list
+    setSelectedLeads(leadIds.slice(0, maxSelectable));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedLeads([]);
+  };
+
   const handleStatusChange = async (leadId: number, newStatus: string) => {
     console.log(`[OutboundCallsPage] handleStatusChange called: lead=${leadId}, newStatus=${newStatus}`);
     await updateStatusMutation.mutateAsync({ leadId, newStatus });
@@ -674,6 +684,8 @@ export function OutboundCallsPage() {
                     onLeadSelect={handleLeadSelect}
                     onLeadClick={handleLeadClick}
                     onStatusChange={handleStatusChange}
+                    onSelectAll={handleSelectAll}
+                    onClearSelection={handleClearSelection}
                   />
                 </div>
               )}
@@ -817,6 +829,8 @@ export function OutboundCallsPage() {
                     onLeadSelect={handleLeadSelect}
                     onLeadClick={handleLeadClick}
                     onStatusChange={handleStatusChange}
+                    onSelectAll={handleSelectAll}
+                    onClearSelection={handleClearSelection}
                   />
                 </div>
               )}
@@ -997,6 +1011,8 @@ export function OutboundCallsPage() {
                     onLeadSelect={(leadId) => handleToggleImportedLead(leadId)}
                     onLeadClick={handleLeadClick}
                     onStatusChange={handleStatusChange}
+                    onSelectAll={handleSelectAll}
+                    onClearSelection={handleClearSelection}
                   />
                 </div>
               )}
