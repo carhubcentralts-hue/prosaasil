@@ -7,12 +7,19 @@ import os
 import requests
 import logging
 import queue
+import wave
+import contextlib
 from threading import Thread
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.exc import OperationalError, DisconnectionError
 
 log = logging.getLogger("tasks.recording")
+
+# 🔥 BUILD 342: Transcript source constants
+TRANSCRIPT_SOURCE_RECORDING = "recording"  # Transcribed from recording file
+TRANSCRIPT_SOURCE_REALTIME = "realtime"    # Using realtime transcript
+TRANSCRIPT_SOURCE_FAILED = "failed"        # Transcription attempt failed
 
 # ✅ Global queue for recording jobs - single shared instance
 RECORDING_QUEUE = queue.Queue()
@@ -178,8 +185,6 @@ def process_recording_async(form_data):
                 
                 # Try to get duration from audio file
                 try:
-                    import wave
-                    import contextlib
                     with contextlib.closing(wave.open(audio_file, 'r')) as f:
                         frames = f.getnframes()
                         rate = f.getframerate()
@@ -206,12 +211,12 @@ def process_recording_async(form_data):
                     print(f"⚠️ [OFFLINE_STT] Empty or invalid transcript for {call_sid} - NOT updating call_log.final_transcript")
                     log.warning(f"[OFFLINE_STT] Transcription returned empty/invalid result: {len(final_transcript or '')} chars")
                     final_transcript = None  # Set to None so we don't save empty string
-                    transcript_source = "failed"  # 🔥 BUILD 342: Mark as failed transcription
+                    transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed transcription
                 else:
                     # Success - we have a valid transcript!
                     print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
                     log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
-                    transcript_source = "recording"  # 🔥 BUILD 342: Mark as recording-based
+                    transcript_source = TRANSCRIPT_SOURCE_RECORDING  # 🔥 BUILD 342: Mark as recording-based
                     
                     # 🔥 NOTE: City/Service extraction moved to AFTER summary generation
                     # We extract from the summary, not from raw transcript (more accurate!)
@@ -226,12 +231,12 @@ def process_recording_async(form_data):
                 extracted_service = None
                 extracted_city = None
                 extraction_confidence = None
-                transcript_source = "failed"  # 🔥 BUILD 342: Mark as failed
+                transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed
         else:
             print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline transcription")
             log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
             # 🔥 BUILD 342: If no audio file, will use realtime transcript as fallback
-            transcript_source = None  # Will be set to "realtime" later if we use realtime transcript
+            transcript_source = None  # Will be set to TRANSCRIPT_SOURCE_REALTIME later if we use realtime transcript
         
         # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
         # 🔥 CRITICAL: Use final_transcript (high-quality Whisper) if available, fallback to realtime transcription

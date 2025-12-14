@@ -10,6 +10,21 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
+# 🔥 BUILD 342: Business vocabulary for better Hebrew transcription
+# Common service types and Israeli cities to improve STT accuracy
+HEBREW_BUSINESS_VOCABULARY = {
+    "services": [
+        "פורץ מנעולים", "חשמלאי", "אינסטלטור", "נקיון", "שרברב",
+        "מנעולן", "טכנאי", "תיקון", "התקנה", "שירות", "בדיקה"
+    ],
+    "cities": [
+        "תל אביב", "ירושלים", "חיפה", "באר שבע", "פתח תקווה",
+        "ראשון לציון", "אשדוד", "נתניה", "בני ברק", "חולון",
+        "רמת גן", "בת ים", "הרצליה", "כפר סבא", "מודיעין",
+        "בית שאן", "מצפה רמון", "אילת", "טבריה", "צפת"
+    ]
+}
+
 def extract_city_and_service_from_summary(summary_text: str) -> dict:
     """
     חילוץ עיר ותחום שירות מטקסט שיחה (סיכום או תמלול).
@@ -350,13 +365,16 @@ def transcribe_recording_with_whisper(audio_file_path: str, call_sid: str) -> Op
                 print(f"[OFFLINE_STT] Attempting transcription with {model_desc}")
                 
                 # 🔥 BUILD 342: Enhanced prompt with business vocabulary hints
-                # Include common Hebrew service terms and city names to improve accuracy
+                # Build prompt dynamically from vocabulary constants
+                services_text = ", ".join(HEBREW_BUSINESS_VOCABULARY["services"][:5])  # First 5 services
+                cities_text = ", ".join(HEBREW_BUSINESS_VOCABULARY["cities"][:10])     # First 10 cities
+                
                 business_vocabulary_prompt = (
-                    "תמלל מילה במילה שיחת טלפון בעברית בין לקוח לנציג שירות. "
-                    "תכתוב בעברית תקנית עם פיסוק. "
-                    "השיחה עוסקת בבקשת שירות (למשל: פורץ מנעולים, חשמלאי, אינסטלטור, נקיון) "
-                    "ומיקום (ערים בישראל כמו: תל אביב, ירושלים, חיפה, באר שבע, בית שאן, מצפה רמון). "
-                    "אל תוסיף או תמציא מידע שלא נאמר."
+                    f"תמלל מילה במילה שיחת טלפון בעברית בין לקוח לנציג שירות. "
+                    f"תכתוב בעברית תקנית עם פיסוק. "
+                    f"השיחה עוסקת בבקשת שירות (למשל: {services_text}) "
+                    f"ומיקום (ערים בישראל כמו: {cities_text}). "
+                    f"אל תוסיף או תמציא מידע שלא נאמר."
                 )
                 
                 with open(audio_file_path, 'rb') as audio_file:
