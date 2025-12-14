@@ -1915,6 +1915,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1940,12 +1941,38 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     
     setSaving(true);
     try {
+      // First, create the note
       const response = await http.post<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes`, {
         content: newNoteContent.trim()
       });
+      
       if (response.success) {
-        setNotes([response.note, ...notes]);
+        const newNote = response.note;
+        
+        // Then upload any pending files to the note
+        if (pendingFiles.length > 0) {
+          for (const file of pendingFiles) {
+            try {
+              const fd = new FormData();
+              fd.append('file', file);
+              
+              await http.request<any>(`/api/leads/${lead.id}/notes/${newNote.id}/upload`, {
+                method: 'POST',
+                body: fd
+              });
+            } catch (error) {
+              console.error(`Failed to upload file ${file.name}:`, error);
+            }
+          }
+          
+          // Refresh notes to get updated attachments
+          await fetchNotes();
+        } else {
+          setNotes([newNote, ...notes]);
+        }
+        
         setNewNoteContent('');
+        setPendingFiles([]);
       }
     } catch (error) {
       console.error('Failed to save note:', error);
@@ -1985,7 +2012,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -1997,33 +2024,19 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       return;
     }
 
-    // Upload the file
-    setSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      
-      // Use request method directly to pass FormData
-      const response = await http.request<any>(`/api/leads/${lead.id}/attachments`, {
-        method: 'POST',
-        body: fd
-      });
-      
-      if (response && response.id) {
-        // Add attachment info to note content
-        const attachmentText = `\n[קובץ מצורף: ${response.filename}]`;
-        setNewNoteContent(prev => prev + attachmentText);
-        
-        // Show success feedback
-        alert(`הקובץ "${response.filename}" הועלה בהצלחה!`);
-      }
-    } catch (error) {
-      console.error('Failed to upload file:', error);
-      alert('שגיאה בהעלאת הקובץ');
-    } finally {
-      setSaving(false);
-      e.target.value = '';
-    }
+    // Add file to pending files (will be uploaded when note is saved)
+    setPendingFiles(prev => [...prev, file]);
+    
+    // Add file name to note content
+    const attachmentText = `\n📎 ${file.name}`;
+    setNewNoteContent(prev => prev + attachmentText);
+    
+    // Clear the input
+    e.target.value = '';
+  };
+  
+  const handleRemovePendingFile = (index: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const startEditing = (note: LeadNoteItem) => {
@@ -2105,6 +2118,29 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
           dir="rtl"
           data-testid="textarea-new-note"
         />
+        
+        {/* Show pending files */}
+        {pendingFiles.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {pendingFiles.map((file, index) => (
+              <div key={index} className="flex items-center justify-between bg-blue-50 p-2 rounded text-sm">
+                <div className="flex items-center gap-2">
+                  <File className="w-4 h-4 text-blue-600" />
+                  <span className="text-blue-900">{file.name}</span>
+                  <span className="text-blue-600 text-xs">({(file.size / 1024).toFixed(1)} KB)</span>
+                </div>
+                <button
+                  onClick={() => handleRemovePendingFile(index)}
+                  className="text-red-500 hover:text-red-700"
+                  title="הסר קובץ"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        
         <div className="flex items-center justify-between mt-3">
           <div className="flex items-center gap-2">
             <button
