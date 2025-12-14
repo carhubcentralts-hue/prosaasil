@@ -29,6 +29,7 @@ def list_calls():
         search = request.args.get('search', '').strip()
         status = request.args.get('status', 'all')
         direction = request.args.get('direction', 'all')
+        lead_id = request.args.get('lead_id', '').strip()
         limit = min(int(request.args.get('limit', 50)), 100)  # Max 100
         offset = int(request.args.get('offset', 0))
         
@@ -43,6 +44,10 @@ def list_calls():
         query = Call.query.filter(Call.business_id == business_id)
         
         # Apply filters
+        if lead_id:
+            # Filter by lead_id if provided
+            query = query.filter(Call.lead_id == int(lead_id))
+        
         if search:
             # ✅ Search in both final_transcript (offline) and transcription (realtime)
             search_conditions = [

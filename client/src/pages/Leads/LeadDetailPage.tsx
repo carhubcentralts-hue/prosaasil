@@ -78,8 +78,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setLoading(false);
       
       // Fire calls and appointments fetches independently (each has its own error handling)
+      fetchCalls(id);
       if (response.phone_e164) {
-        fetchCalls(response.phone_e164);
         fetchAppointments(response.phone_e164);
       }
     } catch (err) {
@@ -89,20 +89,21 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     }
   };
 
-  const fetchCalls = async (phone: string) => {
+  const fetchCalls = async (leadId: string) => {
     try {
       setLoadingCalls(true);
-      const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?search=${encodeURIComponent(phone)}`);
+      // Use lead_id filter for more accurate results
+      const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?lead_id=${leadId}`);
       if (response.success && response.calls) {
         const leadCalls: LeadCall[] = response.calls.map((call: any) => ({
-          id: call.call_sid || call.id,
-          lead_id: parseInt(id || '0'),
+          id: call.sid || call.call_sid || call.id,
+          lead_id: parseInt(leadId),
           call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
           duration: call.duration || 0,
           recording_url: call.recording_url,
           notes: call.transcription || '',
           summary: call.summary || '',
-          created_at: call.created_at,
+          created_at: call.created_at || call.at,
           status: call.status
         }));
         setCalls(leadCalls);
@@ -732,6 +733,45 @@ function ConversationTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsApp:
 }
 
 function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) {
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+
+  const formatDuration = (seconds: number) => {
+    if (seconds < 60) return `${seconds} שניות`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')} דקות`;
+  };
+
+  const handleDownload = async (callId: string) => {
+    try {
+      // Use the download endpoint with proper auth
+      const response = await fetch(`/api/calls/${callId}/download`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to download recording');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `recording-${callId}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading recording:', error);
+      alert('שגיאה בהורדת ההקלטה');
+    }
+  };
+
   return (
     <Card className="p-4 sm:p-6">
       <h3 className="text-lg font-medium text-gray-900 mb-4">היסטוריית שיחות טלפון</h3>
@@ -741,33 +781,113 @@ function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) 
           <span className="text-sm text-gray-500 mr-2">טוען שיחות...</span>
         </div>
       ) : calls.length === 0 ? (
-        <p className="text-sm text-gray-500">אין שיחות טלפון</p>
+        <div className="text-center py-8">
+          <Phone className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-sm text-gray-500">אין שיחות טלפון עדיין</p>
+        </div>
       ) : (
-        <div className="space-y-4">
-          {calls.map((call) => (
-            <div key={call.id} className="p-4 bg-gray-50 rounded-lg" data-testid={`call-${call.id}`}>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 mb-3">
-                <div className="flex items-center space-x-3">
-                  <Phone className={`w-5 h-5 ${call.call_type === 'incoming' ? 'text-green-500' : 'text-blue-500'}`} />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {call.call_type === 'incoming' ? 'שיחה נכנסת' : 'שיחה יוצאת'}
-                    </p>
-                    <p className="text-xs text-gray-500">{formatDate(call.created_at)}</p>
+        <div className="space-y-3">
+          {calls.map((call) => {
+            const isExpanded = expandedCallId === call.id;
+            const hasRecording = Boolean(call.recording_url);
+            const hasTranscript = Boolean(call.notes);
+            const hasSummary = Boolean(call.summary);
+
+            return (
+              <div key={call.id} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`call-${call.id}`}>
+                {/* Call Header */}
+                <div className="p-4 bg-gray-50 hover:bg-gray-100 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className={`p-2 rounded-full ${call.call_type === 'incoming' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                        <Phone className={`w-4 h-4 ${call.call_type === 'incoming' ? 'text-green-600' : 'text-blue-600'}`} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">
+                          {call.call_type === 'incoming' ? 'שיחה נכנסת' : 'שיחה יוצאת'}
+                        </p>
+                        <p className="text-xs text-gray-500">{formatDate(call.created_at)}</p>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-medium text-gray-700">{formatDuration(call.duration)}</p>
+                        <div className="flex gap-1 mt-1">
+                          {hasRecording && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">הקלטה</span>
+                          )}
+                          {hasTranscript && (
+                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">תמליל</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setExpandedCallId(isExpanded ? null : call.id)}
+                      className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                    >
+                      <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                    </button>
                   </div>
                 </div>
-                <div className="text-right sm:text-left">
-                  <p className="text-sm text-gray-900">{call.duration} שניות</p>
-                </div>
+
+                {/* Expanded Details */}
+                {isExpanded && (
+                  <div className="p-4 space-y-4 bg-white border-t border-gray-200">
+                    {/* Recording Player */}
+                    {hasRecording ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-gray-700">הקלטת שיחה</p>
+                          <button
+                            onClick={() => handleDownload(call.id)}
+                            className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            הורד
+                          </button>
+                        </div>
+                        <audio controls className="w-full" src={`/api/calls/${call.id}/download`}>
+                          הדפדפן שלך לא תומך בנגן אודיו
+                        </audio>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-xs text-yellow-800">הקלטה לא זמינה (פגה תוקף או נמחקה)</p>
+                      </div>
+                    )}
+
+                    {/* Summary */}
+                    {hasSummary && (
+                      <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                        <p className="text-xs font-medium text-blue-800 mb-2">סיכום שיחה</p>
+                        <p className="text-sm text-blue-900 whitespace-pre-wrap">{call.summary}</p>
+                      </div>
+                    )}
+
+                    {/* Transcript */}
+                    {hasTranscript && (
+                      <div>
+                        <details className="group">
+                          <summary className="cursor-pointer text-xs font-medium text-gray-700 hover:text-gray-900 flex items-center gap-1">
+                            <ChevronDown className="w-3 h-3 group-open:rotate-180 transition-transform" />
+                            תמליל מלא
+                          </summary>
+                          <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap">{call.notes}</p>
+                          </div>
+                        </details>
+                      </div>
+                    )}
+
+                    {!hasSummary && !hasTranscript && !hasRecording && (
+                      <p className="text-xs text-gray-500 text-center py-4">אין פרטים נוספים זמינים לשיחה זו</p>
+                    )}
+                  </div>
+                )}
               </div>
-              {call.summary && (
-                <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                  <p className="text-xs font-medium text-blue-800 mb-1">סיכום שיחה:</p>
-                  <p className="text-sm text-blue-900">{call.summary}</p>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
