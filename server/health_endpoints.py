@@ -192,3 +192,39 @@ def db_check():
         "is_production": os.getenv('REPLIT_DEPLOYMENT') == '1',
         "timestamp": datetime.now().isoformat()
     }), 200
+
+@health_bp.route('/api/debug/routes', methods=['GET'])
+def debug_routes():
+    """
+    🔧 Debug endpoint - Lists all registered Flask routes
+    Useful for troubleshooting 404 issues in production
+    """
+    try:
+        from flask import current_app
+        
+        routes = []
+        for rule in current_app.url_map.iter_rules():
+            routes.append({
+                'endpoint': rule.endpoint,
+                'methods': list(rule.methods - {'HEAD', 'OPTIONS'}),  # Remove implicit methods
+                'path': str(rule)
+            })
+        
+        # Sort by path for easier reading
+        routes.sort(key=lambda x: x['path'])
+        
+        # Filter to only show API routes for security
+        api_routes = [r for r in routes if '/api/' in r['path'] or r['path'].startswith('/api')]
+        
+        return jsonify({
+            'total_routes': len(routes),
+            'api_routes_count': len(api_routes),
+            'api_routes': api_routes,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
