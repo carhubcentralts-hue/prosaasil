@@ -247,9 +247,12 @@ def debug_routes():
             }
             all_routes.append(route_info)
             
-            # Check if this is a critical endpoint
+            # Check if this is a critical endpoint (exact match only)
             for critical in critical_endpoints:
-                if route_path == critical or route_path.startswith(critical):
+                # Exact match with or without trailing slash
+                route_clean = route_path.rstrip('/')
+                critical_clean = critical.rstrip('/')
+                if route_clean == critical_clean:
                     critical_status[critical] = True
         
         # Mark missing critical endpoints

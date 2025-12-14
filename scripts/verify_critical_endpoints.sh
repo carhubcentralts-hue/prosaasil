@@ -34,7 +34,7 @@ test_endpoint() {
     echo -n "Testing ${name}... "
     
     # Get status code
-    status=$(curl -s -o /dev/null -w "%{http_code}" -L "${url}" 2>/dev/null || echo "000")
+    status=$(curl -s -o /dev/null -w "%{http_code}" "${url}" 2>/dev/null || echo "000")
     
     # Check status
     if [ "$status" = "200" ]; then
