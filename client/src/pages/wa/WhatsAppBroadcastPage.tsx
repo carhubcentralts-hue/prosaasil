@@ -114,8 +114,8 @@ export function WhatsAppBroadcastPage() {
   const [campaigns, setCampaigns] = useState<BroadcastCampaign[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   
-  // Status options from CRM
-  const [availableStatuses, setAvailableStatuses] = useState<string[]>([]);
+  // Status options from CRM - store full status objects for labels
+  const [availableStatuses, setAvailableStatuses] = useState<Array<{ name: string; label: string }>>([]);
 
   useEffect(() => {
     loadTemplates();
@@ -151,13 +151,18 @@ export function WhatsAppBroadcastPage() {
   const loadStatuses = async () => {
     try {
       const response = await http.get<{ items: Array<{ name: string; label: string }> }>('/api/statuses');
-      // Use items array from the response (standard format)
+      // Use items array from the response (standard format) - keep full objects for labels
       const statusList = response.items || [];
-      setAvailableStatuses(statusList.map(s => s.name));
+      setAvailableStatuses(statusList);
     } catch (error) {
       console.error('Error loading statuses:', error);
-      // Fallback to common statuses
-      setAvailableStatuses(['new', 'contacted', 'qualified', 'won']);
+      // Fallback to common statuses with Hebrew labels
+      setAvailableStatuses([
+        { name: 'new', label: 'חדש' },
+        { name: 'contacted', label: 'יצרנו קשר' },
+        { name: 'qualified', label: 'מתאים' },
+        { name: 'won', label: 'נצחנו' }
+      ]);
     }
   };
 
@@ -323,11 +328,11 @@ export function WhatsAppBroadcastPage() {
     }
   };
 
-  const toggleStatus = (status: string) => {
-    if (selectedStatuses.includes(status)) {
-      setSelectedStatuses(selectedStatuses.filter(s => s !== status));
+  const toggleStatus = (statusName: string) => {
+    if (selectedStatuses.includes(statusName)) {
+      setSelectedStatuses(selectedStatuses.filter(s => s !== statusName));
     } else {
-      setSelectedStatuses([...selectedStatuses, status]);
+      setSelectedStatuses([...selectedStatuses, statusName]);
     }
   };
 
@@ -580,15 +585,15 @@ export function WhatsAppBroadcastPage() {
                     <div className="flex flex-wrap gap-2">
                       {availableStatuses.map(status => (
                         <button
-                          key={status}
-                          onClick={() => toggleStatus(status)}
+                          key={status.name}
+                          onClick={() => toggleStatus(status.name)}
                           className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                            selectedStatuses.includes(status)
+                            selectedStatuses.includes(status.name)
                               ? 'bg-blue-600 text-white'
                               : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                           }`}
                         >
-                          {status}
+                          {status.label}
                         </button>
                       ))}
                     </div>
