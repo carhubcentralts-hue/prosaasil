@@ -601,7 +601,16 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 lead.last_contact_at = datetime.utcnow()  # Update last contact time
                 
                 # 🔒 CRITICAL: Set last_call_direction ONCE on first interaction, NEVER override
-                # This ensures inbound leads stay inbound even after outbound follow-ups, and vice versa
+                # 
+                # GOLDEN RULE (חוק זהב):
+                # last_call_direction is determined ONLY by the FIRST call to/from the lead.
+                # Once set, it NEVER changes, regardless of subsequent call directions.
+                # 
+                # Examples:
+                # - Outbound call → Lead answers → Later calls back: Lead remains OUTBOUND
+                # - Customer calls in → Later we call them: Lead remains INBOUND
+                # 
+                # This ensures proper classification for filtering and reporting in the UI.
                 if lead.last_call_direction is None:
                     lead.last_call_direction = call_direction
                     log.info(f"🎯 Set lead {lead.id} direction to '{call_direction}' (first interaction)")
