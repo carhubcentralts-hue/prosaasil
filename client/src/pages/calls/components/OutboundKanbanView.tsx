@@ -62,6 +62,7 @@ export function OutboundKanbanView({
 }: OutboundKanbanViewProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -112,7 +113,7 @@ export function OutboundKanbanView({
     setActiveId(null);
     setIsDragging(false);
 
-    if (!over || !onStatusChange) return;
+    if (!over || !onStatusChange || isUpdating) return;
 
     const leadId = active.id as number;
     const newStatusName = String(over.id); // Ensure it's a string
@@ -126,8 +127,17 @@ export function OutboundKanbanView({
       return;
     }
 
-    // Call the status change handler
-    await onStatusChange(leadId, newStatusName);
+    try {
+      setIsUpdating(true);
+      console.log(`🔵 OutboundKanban: Moving lead ${leadId} from ${currentStatus} to ${newStatusName}`);
+      // Call the status change handler
+      await onStatusChange(leadId, newStatusName);
+      console.log(`✅ OutboundKanban: Successfully moved lead ${leadId} to ${newStatusName}`);
+    } catch (error) {
+      console.error(`❌ OutboundKanban: Failed to move lead ${leadId}:`, error);
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   if (loading && leads.length === 0) {

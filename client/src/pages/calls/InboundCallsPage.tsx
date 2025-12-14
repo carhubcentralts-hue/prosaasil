@@ -84,7 +84,35 @@ export function InboundCallsPage() {
       console.log('🔵 Kanban status update:', { leadId, newStatus, type: typeof newStatus });
       return await http.post(`/api/leads/${leadId}/status`, { status: newStatus });
     },
+    onMutate: async ({ leadId, newStatus }) => {
+      // Cancel outgoing queries to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ['/api/leads', 'inbound'] });
+      
+      // Snapshot previous value for rollback
+      const previousLeads = queryClient.getQueryData(['/api/leads', 'inbound', page, searchQuery]);
+      
+      // Optimistically update to new status
+      queryClient.setQueryData(['/api/leads', 'inbound', page, searchQuery], (old: any) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.map((lead: any) =>
+            lead.id === leadId ? { ...lead, status: newStatus } : lead
+          ),
+        };
+      });
+      
+      return { previousLeads };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousLeads) {
+        queryClient.setQueryData(['/api/leads', 'inbound', page, searchQuery], context.previousLeads);
+      }
+      console.error('❌ Failed to update lead status:', err);
+    },
     onSuccess: () => {
+      // Refetch to sync with server - invalidate all leads queries
       queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
     },
   });
