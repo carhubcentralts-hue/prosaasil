@@ -104,18 +104,19 @@ export function LeadKanbanView({
     if (!over) return;
 
     const leadId = active.id as number;
-    const newStatus = over.id as string;
+    const newStatusName = String(over.id); // Ensure it's a string
     
     const lead = leads.find(l => l.id === leadId);
     if (!lead) return;
 
     // Only update if status actually changed
-    if (lead.status?.toLowerCase() === newStatus.toLowerCase()) {
+    const currentStatus = lead.status?.toLowerCase() || 'new';
+    if (currentStatus === newStatusName.toLowerCase()) {
       return;
     }
 
     // Call the parent's status change handler (optimistic update handled there)
-    await onStatusChange(leadId, newStatus);
+    await onStatusChange(leadId, newStatusName);
   };
 
   if (loading && leads.length === 0) {

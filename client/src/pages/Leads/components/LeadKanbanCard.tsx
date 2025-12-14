@@ -3,7 +3,6 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Phone, Clock, GripVertical } from 'lucide-react';
 import { Lead } from '../types';
-import { Checkbox } from '../../../shared/components/ui/Checkbox';
 
 interface LeadKanbanCardProps {
   lead: Lead;
@@ -70,10 +69,16 @@ export function LeadKanbanCard({
 
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     onSelect(lead.id);
   };
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't trigger card click if clicking on checkbox area or drag handle
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-checkbox-wrapper]') || target.closest('[data-drag-handle]')) {
+      return;
+    }
     if (!isDragOverlay) {
       onClick(lead.id);
     }
@@ -86,16 +91,27 @@ export function LeadKanbanCard({
       className={`
         bg-white rounded-lg border shadow-sm p-3
         hover:shadow-md transition-shadow cursor-pointer
-        ${isSelected ? 'ring-2 ring-blue-500' : ''}
+        ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : ''}
         ${isDragOverlay ? 'shadow-xl' : ''}
       `}
       onClick={handleCardClick}
     >
       <div className="flex items-start gap-2">
         {/* Checkbox */}
-        <div onClick={handleCheckboxClick} className="mt-0.5">
-          <Checkbox checked={isSelected} onChange={() => onSelect(lead.id)} />
-        </div>
+        <label
+          data-checkbox-wrapper
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={handleCheckboxClick}
+          className="flex items-center gap-2 cursor-pointer mt-0.5"
+        >
+          <input
+            type="checkbox"
+            checked={isSelected}
+            readOnly
+            className="accent-blue-600 pointer-events-auto h-4 w-4 rounded border-gray-300"
+          />
+        </label>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
@@ -129,7 +145,12 @@ export function LeadKanbanCard({
         </div>
 
         {/* Drag Handle */}
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing mt-1">
+        <div 
+          {...attributes} 
+          {...listeners} 
+          className="cursor-grab active:cursor-grabbing mt-1"
+          data-drag-handle
+        >
           <GripVertical className="w-4 h-4 text-gray-400" />
         </div>
       </div>

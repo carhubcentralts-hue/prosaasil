@@ -104,6 +104,14 @@ export function InboundCallsPage() {
     });
   };
 
+  const handleSelectMany = (leadIds: number[]) => {
+    setSelectedLeadIds(new Set(leadIds));
+  };
+
+  const handleClearSelection = () => {
+    setSelectedLeadIds(new Set());
+  };
+
   const handleStatusChange = async (leadId: number, newStatus: string) => {
     await updateStatusMutation.mutateAsync({ leadId, newStatus });
   };
@@ -219,6 +227,8 @@ export function InboundCallsPage() {
             onLeadSelect={handleLeadSelect}
             onLeadClick={handleLeadClick}
             onStatusChange={handleStatusChange}
+            onSelectMany={handleSelectMany}
+            onClearSelection={handleClearSelection}
           />
         </div>
       )}
