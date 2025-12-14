@@ -2975,6 +2975,7 @@ Greet briefly. Then WAIT for customer to speak."""
         BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing:
           - realtime_audio_out_queue: Audio from OpenAI waiting to be sent to TX queue
           - tx_q: Audio waiting to be sent to Twilio
+          - _ai_audio_buf: Partial frame buffer in audio framer
         """
         # Flush OpenAI → TX queue (audio from OpenAI not yet in TX queue)
         openai_queue_before = self.realtime_audio_out_queue.qsize()
@@ -2996,7 +2997,18 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception:
             pass
         
-        print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | reason={reason or 'UNKNOWN'}")
+        # 🎯 VERIFICATION FIX: Clear audio framer buffer to prevent old audio fragments
+        # This ensures no partial frames (<160 bytes) leak into next AI response
+        buffer_bytes_cleared = 0
+        if hasattr(self, '_ai_audio_buf'):
+            buffer_bytes_cleared = len(self._ai_audio_buf)
+            self._ai_audio_buf.clear()
+        
+        if buffer_bytes_cleared > 0:
+            print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | Buffer: {buffer_bytes_cleared}B | reason={reason or 'UNKNOWN'}")
+        else:
+            print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | reason={reason or 'UNKNOWN'}")
+        
         return tx_flushed + openai_flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -11660,7 +11672,15 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🎯 TASK B: Wait until deadline before sending
                 now = time.monotonic()
                 delay = next_send - now
-                if delay > 0:
+                
+                # 🎯 VERIFICATION FIX: Prevent clock runaway if CPU was delayed
+                # If we're already behind schedule (now > next_send), resync to now
+                # This prevents sleep(-X) errors and burst catch-up attempts
+                if delay < 0:
+                    # We're behind - skip the sleep and resync clock
+                    next_send = now
+                elif delay > 0:
+                    # Normal case - sleep until deadline
                     time.sleep(delay)
                 
                 # Send the frame
