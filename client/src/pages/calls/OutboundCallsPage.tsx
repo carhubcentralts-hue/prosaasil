@@ -316,7 +316,9 @@ export function OutboundCallsPage() {
   
   const handleSelectAllImported = () => {
     const maxSelectable = Math.min(3, availableSlots);
-    if (selectedImportedLeads.length === Math.min(importedLeads.length, maxSelectable)) {
+    const selectableCount = Math.min(importedLeads.length, maxSelectable);
+    
+    if (selectedImportedLeads.length === selectableCount) {
       // Deselect all
       setSelectedImportedLeads([]);
     } else {
@@ -821,10 +823,11 @@ export function OutboundCallsPage() {
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
-                              checked={selectedImportedLeads.length > 0 && selectedImportedLeads.length === Math.min(importedLeads.length, Math.min(3, availableSlots))}
+                              checked={selectedImportedLeads.length > 0 && selectedImportedLeads.length === Math.min(importedLeads.length, 3, availableSlots)}
                               onChange={handleSelectAllImported}
                               className="h-4 w-4 rounded border-gray-300"
                               data-testid="checkbox-select-all-imported"
+                              aria-label="בחר את כל הלידים"
                             />
                             <span>בחירה</span>
                           </div>
