@@ -70,13 +70,18 @@ class HebrewTTSLive:
         self.tts_cache: Dict[str, bytes] = {}
         
     def _ensure_client(self):
-        """Lazy initialization of TTS client"""
+        """Lazy initialization of TTS client - only if credentials are available"""
         if self.client is None:
+            # Check if GCP credentials are configured before trying to initialize
+            if not os.getenv('GOOGLE_APPLICATION_CREDENTIALS') and not os.getenv('GCP_PROJECT_ID'):
+                log.warning("⚠️ GCP TTS not configured (no credentials) - TTS will be unavailable")
+                return False
+            
             try:
                 self.client = texttospeech.TextToSpeechClient()
-                log.info("Google Cloud TTS client initialized")
+                log.info("✅ Google Cloud TTS client initialized")
             except Exception as e:
-                log.error(f"Failed to initialize TTS client: {e}")
+                log.warning(f"⚠️ Failed to initialize TTS client (credentials not found or invalid): {e}")
                 self.client = None
                 return False
         return True

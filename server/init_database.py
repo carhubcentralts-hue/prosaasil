@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 def initialize_production_database():
     """
     Initialize production database with essential data
+    - Creates system business for global admin
     - Creates default business if none exists
     - Creates admin user if none exists
-    - Links admin to business
+    - Links admin to system business
     - Creates default lead statuses
     
     This runs automatically on app startup and is idempotent (safe to run multiple times)
@@ -26,11 +27,45 @@ def initialize_production_database():
         print("🔧 Starting database initialization...")
         logger.info("🔧 Starting database initialization...")
         
-        # 1. Ensure at least one business exists
-        business = Business.query.first()
+        # 0. Ensure System business exists for system_admin (FIX for business_id NOT NULL)
+        system_business = Business.query.filter_by(name="System").first()
+        if not system_business:
+            print("🏢 Creating System business for global admin...")
+            logger.info("🏢 Creating System business for global admin...")
+            system_business = Business(
+                name="System",
+                business_type="system",
+                phone_e164="+972000000000",
+                whatsapp_number="+972000000000",
+                greeting_message="System",
+                whatsapp_greeting="System",
+                system_prompt="System business for administrative purposes",
+                voice_message="System",
+                is_active=True,
+                calls_enabled=False,
+                crm_enabled=False,
+                whatsapp_enabled=False,
+                phone_permissions=False,
+                whatsapp_permissions=False,
+                payments_enabled=False,
+                default_provider="paypal",
+                working_hours="24/7",
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.session.add(system_business)
+            db.session.commit()
+            print(f"✅ Created System business (ID: {system_business.id})")
+            logger.info(f"✅ Created System business (ID: {system_business.id})")
+        else:
+            print(f"✅ System business exists (ID: {system_business.id})")
+            logger.info(f"✅ System business exists (ID: {system_business.id})")
+        
+        # 1. Ensure at least one regular business exists
+        business = Business.query.filter(Business.name != "System").first()
         if not business:
-            print("📊 No business found, creating default business...")
-            logger.info("📊 No business found, creating default business...")
+            print("📊 No regular business found, creating default business...")
+            logger.info("📊 No regular business found, creating default business...")
             business = Business(
                 name="עסק ראשי",
                 business_type="general",  # 🔥 BUILD 200: Generic default
@@ -57,10 +92,10 @@ def initialize_production_database():
             print(f"✅ Created default business: {business.name} (ID: {business.id})")
             logger.info(f"✅ Created default business: {business.name} (ID: {business.id})")
         else:
-            print(f"✅ Business exists: {business.name} (ID: {business.id})")
-            logger.info(f"✅ Business exists: {business.name} (ID: {business.id})")
+            print(f"✅ Regular business exists: {business.name} (ID: {business.id})")
+            logger.info(f"✅ Regular business exists: {business.name} (ID: {business.id})")
         
-        # 2. Ensure system admin user exists (BUILD 124: Updated to system_admin role)
+        # 2. Ensure system admin user exists (FIXED: must have business_id)
         admin = User.query.filter_by(email='admin@admin.com').first()
         if not admin:
             print("👤 No system admin user found, creating system_admin...")
@@ -71,45 +106,43 @@ def initialize_production_database():
                 email='admin@admin.com',
                 password_hash=password_hash,
                 name='System Administrator',
-                role='system_admin',  # ✅ Updated from 'admin' to 'system_admin'
-                business_id=None,  # ✅ BUILD 141: system_admin is GLOBAL, not tied to any business
+                role='system_admin',
+                business_id=system_business.id,  # ✅ FIXED: Link to System business (not None)
                 is_active=True,
                 created_at=datetime.utcnow()
             )
             db.session.add(admin)
             db.session.commit()
-            print(f"✅ Created system admin user: admin@admin.com (ID: {admin.id})")
-            logger.info(f"✅ Created system admin user: admin@admin.com (ID: {admin.id})")
+            print(f"✅ Created system admin user: admin@admin.com (ID: {admin.id}, business_id: {admin.business_id})")
+            logger.info(f"✅ Created system admin user: admin@admin.com (ID: {admin.id}, business_id: {admin.business_id})")
         else:
             print(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role}, business_id: {admin.business_id})")
             logger.info(f"✅ System admin user exists: {admin.email} (ID: {admin.id}, role: {admin.role}, business_id: {admin.business_id})")
             
-            # ✅ BUILD 141: ONLY modify admin@admin.com, not other users!
-            # 3. Ensure correct role and REMOVE business_id for system_admin (BUILD 141)
+            # ✅ Ensure system_admin is linked to System business
             updates_needed = False
             
-            # BUILD 141: REMOVE business_id from system_admin (they should be global)
-            if admin.role == 'system_admin' and admin.business_id is not None:
-                print("🔓 Unlinking system_admin from business (making global)...")
-                logger.info("🔓 Unlinking system_admin from business (making global)...")
-                admin.business_id = None
+            # Link to System business if not already
+            if admin.role == 'system_admin' and admin.business_id != system_business.id:
+                print(f"🔗 Linking system_admin to System business (ID: {system_business.id})...")
+                logger.info(f"🔗 Linking system_admin to System business (ID: {system_business.id})...")
+                admin.business_id = system_business.id
                 updates_needed = True
             
-            # ✅ BUILD 141: ONLY upgrade admin@admin.com role, not other admins!
-            # This ONLY applies to admin@admin.com user, not business owners/admins
+            # ✅ ONLY upgrade admin@admin.com role, not other admins!
             if admin.role in ['admin', 'manager']:
                 print(f"📝 Upgrading admin@admin.com role from '{admin.role}' to 'system_admin'...")
                 logger.info(f"📝 Upgrading admin@admin.com role from '{admin.role}' to 'system_admin'...")
                 admin.role = 'system_admin'
-                admin.business_id = None  # ✅ BUILD 141: Also remove business_id when upgrading
+                admin.business_id = system_business.id  # ✅ Link to System business
                 updates_needed = True
             
             if updates_needed:
                 db.session.commit()
-                print(f"✅ Admin (admin@admin.com) updated successfully (now global)")
-                logger.info(f"✅ Admin (admin@admin.com) updated successfully (now global)")
+                print(f"✅ Admin (admin@admin.com) updated successfully")
+                logger.info(f"✅ Admin (admin@admin.com) updated successfully")
         
-        # ✅ BUILD 141: Print all users for debugging
+        # ✅ Print all users for debugging
         all_users = User.query.all()
         print(f"\n📊 Total users in database: {len(all_users)}")
         logger.info(f"📊 Total users in database: {len(all_users)}")
@@ -117,7 +150,7 @@ def initialize_production_database():
             print(f"  - User {u.id}: {u.email} | role={u.role} | business_id={u.business_id}")
             logger.info(f"  - User {u.id}: {u.email} | role={u.role} | business_id={u.business_id}")
         
-        # 4. Ensure default lead statuses exist for this business
+        # 4. Ensure default lead statuses exist for the regular business (not System)
         existing_statuses = LeadStatus.query.filter_by(business_id=business.id).count()
         if existing_statuses == 0:
             print("📋 No lead statuses found, creating defaults...")
