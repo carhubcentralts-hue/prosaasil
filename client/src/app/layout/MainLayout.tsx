@@ -633,11 +633,11 @@ export function MainLayout() {
         />
       )}
 
-      {/* Search Modal - Temporarily disabled until API is implemented */}
-      {/* <SearchModal
+      {/* Search Modal - Now enabled with working API */}
+      <SearchModal
         isOpen={searchModalOpen}
         onClose={() => setSearchModalOpen(false)}
-      /> */}
+      />
       </div>
     </div>
   );
