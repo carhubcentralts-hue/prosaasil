@@ -64,7 +64,9 @@ def global_search():
                     'leads': [],
                     'calls': [],
                     'whatsapp': [],
-                    'contacts': []
+                    'contacts': [],
+                    'pages': [],
+                    'settings': []
                 },
                 'total': 0
             })
@@ -74,15 +76,20 @@ def global_search():
         query = query.replace('%', '').replace('_', '').replace('\\', '')[:100]  # Max 100 chars
         
         # Parse types filter
-        types_param = request.args.get('types', 'leads,calls,whatsapp,contacts')
-        search_types = [t.strip() for t in types_param.split(',')]
+        types_param = request.args.get('types', 'all')
+        if types_param == 'all':
+            search_types = ['leads', 'calls', 'whatsapp', 'contacts', 'pages', 'settings']
+        else:
+            search_types = [t.strip() for t in types_param.split(',')]
         limit = request.args.get('limit', 5, type=int)
         
         results = {
             'leads': [],
             'calls': [],
             'whatsapp': [],
-            'contacts': []
+            'contacts': [],
+            'pages': [],
+            'settings': []
         }
         
         # Search in Leads
@@ -214,6 +221,72 @@ def global_search():
                     })
             except Exception as e:
                 log.error(f"Error searching contacts: {e}")
+        
+        # Search in System Pages (דפים במערכת)
+        if 'pages' in search_types or types_param == 'all' or not types_param:
+            SYSTEM_PAGES = [
+                {'id': 'leads', 'title': 'לידים', 'description': 'ניהול לידים ולקוחות', 'keywords': ['לידים', 'לקוחות', 'leads', 'crm'], 'path': '/app/leads', 'category': 'ניהול'},
+                {'id': 'calls', 'title': 'שיחות טלפון', 'description': 'שיחות נכנסות ויוצאות', 'keywords': ['שיחות', 'טלפון', 'calls'], 'path': '/app/calls', 'category': 'תקשורת'},
+                {'id': 'inbound', 'title': 'שיחות נכנסות', 'description': 'שיחות נכנסות', 'keywords': ['נכנס', 'inbound'], 'path': '/app/calls', 'category': 'תקשורת'},
+                {'id': 'outbound', 'title': 'שיחות יוצאות', 'description': 'שיחות יוצאות', 'keywords': ['יוצא', 'outbound'], 'path': '/app/outbound-calls', 'category': 'תקשורת'},
+                {'id': 'whatsapp', 'title': 'WhatsApp', 'description': 'שיחות WhatsApp', 'keywords': ['whatsapp', 'ווצאפ'], 'path': '/app/whatsapp', 'category': 'תקשורת'},
+                {'id': 'broadcast', 'title': 'תפוצת WhatsApp', 'description': 'שלח הודעות המוניות', 'keywords': ['תפוצה', 'broadcast'], 'path': '/app/whatsapp-broadcast', 'category': 'תקשורת'},
+                {'id': 'crm', 'title': 'משימות', 'description': 'ניהול משימות', 'keywords': ['משימות', 'tasks', 'crm'], 'path': '/app/crm', 'category': 'ניהול'},
+                {'id': 'users', 'title': 'ניהול משתמשים', 'description': 'ניהול משתמשים והרשאות', 'keywords': ['משתמשים', 'users'], 'path': '/app/users', 'category': 'הגדרות'},
+                {'id': 'settings', 'title': 'הגדרות מערכת', 'description': 'הגדרות כלליות', 'keywords': ['הגדרות', 'settings'], 'path': '/app/settings', 'category': 'הגדרות'},
+                {'id': 'businesses', 'title': 'ניהול עסקים', 'description': 'ניהול עסקים (מנהל מערכת)', 'keywords': ['עסקים', 'businesses'], 'path': '/app/admin/businesses', 'category': 'ניהול', 'roles': ['system_admin']},
+            ]
+            
+            query_lower = query.lower()
+            for page in SYSTEM_PAGES:
+                # Check role access
+                if 'roles' in page and user_role not in page.get('roles', []):
+                    continue
+                
+                # Search in title, description, keywords
+                if (query_lower in page['title'].lower() or
+                    query_lower in page['description'].lower() or
+                    any(query_lower in kw.lower() for kw in page['keywords'])):
+                    results['pages'].append({
+                        'id': page['id'],
+                        'type': 'function',
+                        'title': page['title'],
+                        'subtitle': page['category'],
+                        'description': page['description'],
+                        'metadata': {
+                            'path': page['path'],
+                            'category': page['category']
+                        }
+                    })
+        
+        # Search in Settings (הגדרות)
+        if 'settings' in search_types or types_param == 'all' or not types_param:
+            SYSTEM_SETTINGS = [
+                {'id': 'webhook', 'title': 'Webhook', 'description': 'הגדרות Webhook ל-Twilio', 'keywords': ['webhook', 'twilio'], 'path': '/app/settings', 'section': 'integrations'},
+                {'id': 'ai-prompts', 'title': 'AI Prompts', 'description': 'הגדרות פרומפטים ל-AI', 'keywords': ['ai', 'prompts', 'בינה מלאכותית'], 'path': '/app/settings', 'section': 'ai'},
+                {'id': 'phone', 'title': 'מספרי טלפון', 'description': 'ניהול מספרי טלפון', 'keywords': ['טלפון', 'phone', 'numbers'], 'path': '/app/settings', 'section': 'phone'},
+                {'id': 'whatsapp-config', 'title': 'הגדרות WhatsApp', 'description': 'Meta Cloud API / Baileys', 'keywords': ['whatsapp', 'meta', 'baileys'], 'path': '/app/settings', 'section': 'whatsapp'},
+                {'id': 'statuses', 'title': 'ניהול סטטוסים', 'description': 'ניהול סטטוסים של לידים', 'keywords': ['סטטוסים', 'statuses', 'pipeline'], 'path': '/app/leads', 'action': 'open-status-modal'},
+            ]
+            
+            query_lower = query.lower()
+            for setting in SYSTEM_SETTINGS:
+                # Search in title, description, keywords
+                if (query_lower in setting['title'].lower() or
+                    query_lower in setting['description'].lower() or
+                    any(query_lower in kw.lower() for kw in setting['keywords'])):
+                    results['settings'].append({
+                        'id': setting['id'],
+                        'type': 'function',
+                        'title': setting['title'],
+                        'subtitle': 'הגדרות',
+                        'description': setting['description'],
+                        'metadata': {
+                            'path': setting['path'],
+                            'section': setting.get('section'),
+                            'action': setting.get('action')
+                        }
+                    })
         
         # Calculate total results
         total = sum(len(results[t]) for t in results)
