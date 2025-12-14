@@ -1692,35 +1692,75 @@ def create_broadcast():
         template_id = request.form.get('template_id')
         template_name = request.form.get('template_name')
         message_text = request.form.get('message_text', '')
+        audience_source = request.form.get('audience_source', 'legacy')  # NEW: leads, import-list, csv, or legacy
         statuses_json = request.form.get('statuses', '[]')
+        lead_ids_json = request.form.get('lead_ids', '[]')  # NEW: Direct lead IDs
+        import_list_id = request.form.get('import_list_id')  # NEW: Import list ID
         
-        # Parse statuses
+        # Parse JSON parameters
         try:
             statuses = json.loads(statuses_json)
         except:
             statuses = []
         
-        # Get recipients based on filters
+        try:
+            lead_ids = json.loads(lead_ids_json)
+        except:
+            lead_ids = []
+        
+        # Get recipients based on audience source
         recipients = []
         
-        # From CRM filters (statuses)
-        if statuses:
+        # NEW: Direct lead selection from system
+        if audience_source == 'leads' and lead_ids:
             leads = Lead.query.filter(
-                Lead.business_id == business_id,
-                Lead.status.in_(statuses),
-                Lead.phone.isnot(None)
+                Lead.tenant_id == business_id,
+                Lead.id.in_(lead_ids),
+                Lead.phone_e164.isnot(None)
             ).all()
             
             for lead in leads:
-                if lead.phone:
+                if lead.phone_e164:
                     recipients.append({
-                        'phone': lead.phone,
+                        'phone': lead.phone_e164,
                         'lead_id': lead.id
                     })
         
-        # From CSV file (with validation)
-        csv_file = request.files.get('csv_file')
-        if csv_file:
+        # NEW: Import list selection
+        elif audience_source == 'import-list' and import_list_id:
+            leads = Lead.query.filter(
+                Lead.tenant_id == business_id,
+                Lead.outbound_list_id == int(import_list_id),
+                Lead.phone_e164.isnot(None)
+            ).all()
+            
+            for lead in leads:
+                if lead.phone_e164:
+                    recipients.append({
+                        'phone': lead.phone_e164,
+                        'lead_id': lead.id
+                    })
+        
+        # CSV file upload
+        elif audience_source == 'csv' or (not audience_source or audience_source == 'legacy'):
+            # Legacy: From CRM filters (statuses) - backward compatibility
+            if statuses:
+                leads = Lead.query.filter(
+                    Lead.tenant_id == business_id,
+                    Lead.status.in_(statuses),
+                    Lead.phone_e164.isnot(None)
+                ).all()
+                
+                for lead in leads:
+                    if lead.phone_e164:
+                        recipients.append({
+                            'phone': lead.phone_e164,
+                            'lead_id': lead.id
+                        })
+            
+            # From CSV file (with validation)
+            csv_file = request.files.get('csv_file')
+            if csv_file:
             import csv
             import io
             

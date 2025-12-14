@@ -266,6 +266,21 @@ export function MainLayout() {
     };
   }, [userMenuOpen]);
 
+  // Keyboard shortcut for search (Ctrl+K / Cmd+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchModalOpen(true);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   // Removed handleExitImpersonation - now handled by ImpersonationBanner component
 
   return (
@@ -422,16 +437,15 @@ export function MainLayout() {
 
               {/* Right side - Action buttons + User */}
               <div className="flex items-center space-x-reverse space-x-2">
-                {/* Quick Search - Temporarily hidden - Search API needs to be implemented
+                {/* Global Search - Now enabled with Ctrl+K shortcut */}
                 <button
                   className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative"
                   onClick={() => setSearchModalOpen(true)}
                   data-testid="button-search"
-                  title="חיפוש מהיר"
+                  title="חיפוש מהיר (Ctrl+K)"
                 >
                   <Search className="h-5 w-5" />
                 </button>
-                */}
 
                 {/* Notifications */}
                 <button
