@@ -1104,6 +1104,28 @@ INTERRUPT_WHITELIST = {
     "חכה", "רגע רגע", "סליחה", "לא לא", "תודה", "די תודה", "שקט"
 }
 
+# 🔥 INTENT-AWARE BARGE-IN: Single-token validation constants
+# These constants define meaningful single-token intents that should trigger barge-in confirmation
+# Performance optimization: Defined at module level to avoid recreation on every call
+
+# Hebrew numeric words (both masculine and feminine forms)
+HEBREW_NUMERIC_WORDS = {
+    'אחד', 'אחת', 'שתיים', 'שניים', 'שלוש', 'שלושה',
+    'ארבע', 'ארבעה', 'חמש', 'חמישה', 'שש', 'שישה',
+    'שבע', 'שבעה', 'שמונה', 'תשע', 'תשעה', 'עשר', 'עשרה'
+}
+
+# Confirmation words (single-token responses that have meaning)
+INTENT_CONFIRMATION_WORDS = {
+    'כן', 'לא', 'רגע', 'שנייה', 'שניה', 'הלו', 'עצור', 'תעצור'
+}
+
+# Timing/scheduling words (single-token time references)
+INTENT_TIMING_WORDS = {
+    'היום', 'מחר', 'בערב', 'בבוקר', 'בצהריים', 'בלילה',
+    'ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'
+}
+
 # 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
 GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
@@ -1825,11 +1847,13 @@ class MediaStreamHandler:
         
         Realtime phone calls policy:
         - Default: NO tools (pure conversation)
-        - If business has appointments enabled: ONLY appointment scheduling tool
+        - If business has appointments enabled: TWO appointment tools
+          1. check_availability: Check slot availability
+          2. book_appointment: Actually book the appointment
         - Never: city tools, lead tools, WhatsApp tools, AgentKit tools
         
         Returns:
-            list[dict]: Tool schemas for OpenAI Realtime (empty list or appointment tool only)
+            list[dict]: Tool schemas for OpenAI Realtime (empty list or 2 appointment tools)
         """
         tools = []
         
@@ -1852,36 +1876,88 @@ class MediaStreamHandler:
                 enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
                 
                 if call_goal == 'appointment' and enable_scheduling:
-                    # Appointment tool schema
-                    appointment_tool = {
+                    # 🔥 TWO SEPARATE TOOLS as per problem statement:
+                    # Tool 1: check_availability - Check if slot is available
+                    check_availability_tool = {
                         "type": "function",
-                        "name": "schedule_appointment",
-                        "description": "Schedule an appointment when customer confirms time and provides required details",
+                        "name": "check_availability",
+                        "description": "Check if an appointment slot is available for a specific service, date, time, and duration",
                         "parameters": {
                             "type": "object",
                             "properties": {
+                                "service": {
+                                    "type": "string",
+                                    "description": "Type of service requested"
+                                },
+                                "date": {
+                                    "type": "string",
+                                    "description": "Appointment date in YYYY-MM-DD format"
+                                },
+                                "time_window": {
+                                    "type": "string",
+                                    "description": "Preferred time (HH:MM format, 24-hour) or time window (e.g., 'morning', 'afternoon', 'evening')"
+                                },
+                                "duration": {
+                                    "type": "integer",
+                                    "description": "Appointment duration in minutes (default: business slot_size_min)"
+                                },
+                                "timezone": {
+                                    "type": "string",
+                                    "description": "Timezone (default: Asia/Jerusalem)"
+                                },
+                                "business_id": {
+                                    "type": "integer",
+                                    "description": "Business ID"
+                                }
+                            },
+                            "required": ["service", "date", "business_id"]
+                        }
+                    }
+                    
+                    # Tool 2: book_appointment - Actually create the appointment
+                    book_appointment_tool = {
+                        "type": "function",
+                        "name": "book_appointment",
+                        "description": "Book an appointment after confirming availability. MUST check availability first with check_availability tool.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "service": {
+                                    "type": "string",
+                                    "description": "Type of service requested"
+                                },
+                                "datetime": {
+                                    "type": "string",
+                                    "description": "Full appointment date and time in ISO 8601 format (e.g., '2025-11-17T18:00:00')"
+                                },
+                                "duration": {
+                                    "type": "integer",
+                                    "description": "Appointment duration in minutes"
+                                },
                                 "customer_name": {
                                     "type": "string",
                                     "description": "Customer's full name"
                                 },
-                                "appointment_date": {
+                                "customer_phone": {
                                     "type": "string",
-                                    "description": "Appointment date in YYYY-MM-DD format"
+                                    "description": "Customer's phone number in E.164 format"
                                 },
-                                "appointment_time": {
+                                "notes": {
                                     "type": "string",
-                                    "description": "Appointment time in HH:MM format (24-hour)"
+                                    "description": "Optional notes or special requests"
                                 },
-                                "service_type": {
-                                    "type": "string",
-                                    "description": "Type of service requested"
+                                "business_id": {
+                                    "type": "integer",
+                                    "description": "Business ID"
                                 }
                             },
-                            "required": ["customer_name", "appointment_date", "appointment_time"]
+                            "required": ["service", "datetime", "customer_name", "customer_phone", "business_id"]
                         }
                     }
-                    tools.append(appointment_tool)
-                    logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
+                    
+                    tools.append(check_availability_tool)
+                    tools.append(book_appointment_tool)
+                    logger.info(f"[TOOLS][REALTIME] TWO appointment tools ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
                 else:
                     logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}, scheduling={enable_scheduling}) - no tools for business {business_id}")
                 
@@ -3641,63 +3717,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"[BARGE-IN] Audio forwarding enabled - waiting for STT confirmation...")
                         # DON'T cancel AI yet - wait for STT to confirm this is real speech
                         # The cancellation will happen in input_audio_transcription.completed handler
+                        # ⚠️ CRITICAL: NO TX_CLEAR/flush here! Only in Confirmed stage (transcription.completed)
+                        # Skip to next event - STT validation will determine if this is a real barge-in
                         continue
-                        if cancelled_id and self.realtime_client:
-                            try:
-                                # Use asyncio.wait_for with 0.5s timeout to avoid blocking
-                                await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(cancelled_id),
-                                    timeout=0.5
-                                )
-                                self._mark_response_cancelled_locally(cancelled_id, "speech_started")
-                                print(f"[BARGE_IN] Cancelled AI response: response_id={cancelled_id[:20]}...")
-                            except asyncio.TimeoutError:
-                                print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
-                            except Exception as e:
-                                print(f"   ⚠️ Error cancelling response: {e}")
-                        elif not cancelled_id:
-                            print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
-                        elif not self.realtime_client:
-                            print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
-                        
-                        # 2) Clear local guards (ALWAYS, even if cancel failed)
-                        # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
-                        self.active_response_id = None
-                        self.response_pending_event.clear()
-                        self.is_ai_speaking_event.clear()
-                        self.speaking = False
-                        self.has_pending_ai_response = False
-                        print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
-                        
-                        # ═══════════════════════════════════════════════════════════════════
-                        # 🎯 TASK C.1: Flush TX queue ONLY on confirmed barge-in (Master QA)
-                        # This only runs when actual user speech is detected during AI speech
-                        # ═══════════════════════════════════════════════════════════════════
-                        # 3) Flush both audio queues so NO old audio reaches Twilio
-                        openai_q_before = self.realtime_audio_out_queue.qsize()
-                        tx_q_before = self.tx_q.qsize()
-                        try:
-                            flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
-                        except Exception as e:
-                            print(f"   ⚠️ Error flushing TX queue: {e}")
-                            flushed_count = 0
-                        
-                        # Calculate and log comprehensive barge-in metrics
-                        barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
-                        
-                        # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
-                        # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
-                        logger.info(
-                            f"[BARGE-IN] Real user interrupt detected – "
-                            f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
-                            f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
-                            f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
-                            f"latency={barge_in_latency_ms:.1f}ms"
-                        )
-                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, {flushed_count} frames flushed")
-                        
-                        # 🔥 METRICS: Increment barge-in counter
-                        self._barge_in_event_count += 1
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
@@ -4911,14 +4933,44 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Determine if barge-in should be confirmed
                         should_confirm_barge_in = False
                         
+                        # 🔥 INTENT-AWARE BARGE-IN: Accept single-token for meaningful intents
+                        # Problem statement requirement: אישור חכם של STT במקום "2 מילים או כלום"
+                        # Accept single-token if it's:
+                        # - Numbers/time: digits or numeric words in Hebrew
+                        # - Confirmations: כן/לא/רגע/שנייה/הלו/עצור/תעצור
+                        # - Timing words: היום/מחר/בערב/בבוקר + weekdays
+                        
+                        is_intent_aware_token = False
+                        if word_count == 1:
+                            # Check if it's a number (digits) - regex already imported at module level
+                            if re.match(r'^\d+$', normalized_text):
+                                is_intent_aware_token = True
+                                confirm_reason = f"number={normalized_text}"
+                            # Check if it's a Hebrew numeric word (using module-level constant)
+                            elif normalized_text in HEBREW_NUMERIC_WORDS:
+                                is_intent_aware_token = True
+                                confirm_reason = f"hebrew_number={normalized_text}"
+                            # Check if it's a confirmation word (using module-level constant)
+                            elif normalized_text in INTENT_CONFIRMATION_WORDS:
+                                is_intent_aware_token = True
+                                confirm_reason = f"confirmation={normalized_text}"
+                            # Check if it's a timing word (using module-level constant)
+                            elif normalized_text in INTENT_TIMING_WORDS:
+                                is_intent_aware_token = True
+                                confirm_reason = f"timing={normalized_text}"
+                            # Check interrupt whitelist (existing logic)
+                            elif normalized_text in INTERRUPT_WHITELIST:
+                                is_intent_aware_token = True
+                                confirm_reason = f"whitelist_match={normalized_text}"
+                        
                         if word_count >= 2:
                             should_confirm_barge_in = True
                             confirm_reason = f"word_count={word_count}"
-                        elif word_count == 1 and normalized_text in INTERRUPT_WHITELIST:
+                        elif is_intent_aware_token:
                             should_confirm_barge_in = True
-                            confirm_reason = f"whitelist_match={normalized_text}"
+                            # confirm_reason already set above
                         else:
-                            confirm_reason = f"not_confirmed (wc={word_count}, not_in_whitelist)"
+                            confirm_reason = f"not_confirmed (wc={word_count}, not_intent_aware)"
                         
                         # Apply guards
                         if should_confirm_barge_in and is_in_echo_window:
@@ -4943,16 +4995,13 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self.is_ai_speaking_event.clear()
                                     self.speaking = False
                                     
-                                    # Clear TX queue to stop audio playback
+                                    # 🔥 CONFIRMED BARGE-IN: Flush TX queue to stop audio playback
+                                    # This is the ONLY place where TX_CLEAR happens during barge-in
                                     try:
-                                        while not self.tx_q.empty():
-                                            try:
-                                                self.tx_q.get_nowait()
-                                            except:
-                                                break
-                                        logger.info(f"[BARGE-IN] TX queue cleared")
+                                        flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN_CONFIRMED")
+                                        logger.info(f"[BARGE-IN] ✅ CONFIRMED flush: {flushed_count} frames cleared")
                                     except Exception as clear_err:
-                                        logger.warning(f"[BARGE-IN] Failed to clear TX queue: {clear_err}")
+                                        logger.warning(f"[BARGE-IN] Failed to flush TX queue: {clear_err}")
                                     
                                     # Mark barge-in confirmed
                                     self.barge_in_active = True
@@ -7995,6 +8044,49 @@ Greet briefly. Then WAIT for customer to speak."""
             limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
             print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 CLEANUP FLAGS: Reset all state flags to prevent cross-call contamination
+            # ═══════════════════════════════════════════════════════════════════════
+            # This is critical for preventing bugs like "stuck barge_pending" affecting next call
+            print(f"🧹 [CLEANUP] Resetting all state flags...")
+            
+            # Barge-in flags
+            if hasattr(self, '_barge_pending'):
+                self._barge_pending = False
+            if hasattr(self, '_barge_confirmed'):
+                self._barge_confirmed = False
+            if hasattr(self, '_flush_preroll'):
+                self._flush_preroll = False
+            self.barge_in_active = False
+            self._barge_in_started_ts = None
+            if hasattr(self, '_barge_in_event_count'):
+                self._barge_in_event_count = 0
+            if hasattr(self, '_barge_in_debug_counter'):
+                self._barge_in_debug_counter = 0
+            
+            # STT/Turn flags
+            if hasattr(self, '_candidate_user_speaking'):
+                self._candidate_user_speaking = False
+            if hasattr(self, '_utterance_start_ts'):
+                self._utterance_start_ts = None
+            if hasattr(self, '_realtime_speech_active'):
+                self._realtime_speech_active = False
+            if hasattr(self, '_realtime_speech_started_ts'):
+                self._realtime_speech_started_ts = None
+            
+            # Appointment flags
+            if hasattr(self, '_appointment_created_this_session'):
+                self._appointment_created_this_session = False
+            
+            # Response/AI state
+            self.active_response_id = None
+            self.response_pending_event.clear()
+            self.is_ai_speaking_event.clear()
+            self.speaking = False
+            self.has_pending_ai_response = False
+            
+            print(f"✅ [CLEANUP] All state flags reset successfully")
+            
             # 🔥 FIX: Guard against double-close
             try:
                 if not self._ws_closed:
@@ -10577,6 +10669,336 @@ Greet briefly. Then WAIT for customer to speak."""
                         "output": json.dumps({
                             "success": False,
                             "error_code": "invalid_arguments"
+                        })
+                    }
+                })
+                await client.send_event({"type": "response.create"})
+        
+        elif function_name == "check_availability":
+            # 🔥 CHECK AVAILABILITY: Validate slot availability before booking
+            try:
+                args = json.loads(arguments_str)
+                print(f"📅 [CHECK_AVAIL] Request from AI: {args}")
+                
+                business_id = args.get("business_id") or getattr(self, 'business_id', None)
+                service = args.get("service", "").strip()
+                date_str = args.get("date", "").strip()  # YYYY-MM-DD
+                time_window = args.get("time_window", "").strip()  # HH:MM or 'morning'/'afternoon'/'evening'
+                duration = args.get("duration")
+                timezone_str = args.get("timezone", "Asia/Jerusalem")
+                
+                if not business_id or not service or not date_str:
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "available": False,
+                                "error_code": "missing_parameters",
+                                "message": "נדרשים פרטי שירות, תאריך ועסק"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # 🔥 WRAP IN APP CONTEXT - Critical for DB access
+                from datetime import datetime, timedelta
+                import pytz
+                from server.policy.business_policy import get_business_policy
+                
+                app = _get_flask_app()
+                with app.app_context():
+                    policy = get_business_policy(business_id)
+                    tz = pytz.timezone(policy.tz)
+                    
+                    # Use policy duration if not provided
+                    if not duration:
+                        duration = policy.slot_size_min
+                    
+                    # Parse time window
+                    # If time_window is HH:MM, use it directly
+                    # If it's 'morning'/'afternoon'/'evening', convert to time range
+                    time_slots = []
+                    if ':' in time_window:
+                        # Specific time provided
+                        time_slots = [time_window]
+                    elif time_window.lower() in ['בוקר', 'morning']:
+                        time_slots = ['09:00', '10:00', '11:00', '12:00']
+                    elif time_window.lower() in ['צהריים', 'afternoon']:
+                        time_slots = ['13:00', '14:00', '15:00', '16:00']
+                    elif time_window.lower() in ['ערב', 'evening']:
+                        time_slots = ['17:00', '18:00', '19:00', '20:00']
+                    else:
+                        # Default: try common business hours
+                        time_slots = ['09:00', '12:00', '15:00', '18:00']
+                    
+                    # Check availability for each time slot
+                    available_slots = []
+                    for time_str in time_slots:
+                        try:
+                            datetime_str = f"{date_str} {time_str}"
+                            requested_dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
+                            requested_dt = tz.localize(requested_dt)
+                            
+                            # Check if slot is available
+                            is_available = validate_appointment_slot(business_id, requested_dt)
+                            if is_available:
+                                available_slots.append({
+                                    "time": time_str,
+                                    "datetime_iso": requested_dt.isoformat()
+                                })
+                        except Exception as slot_err:
+                            print(f"⚠️ [CHECK_AVAIL] Error checking slot {time_str}: {slot_err}")
+                            continue
+                    
+                    if available_slots:
+                        # Found available slots
+                        print(f"✅ [CHECK_AVAIL] Found {len(available_slots)} available slot(s)")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "available": True,
+                                    "slots": available_slots,
+                                    "service": service,
+                                    "date": date_str,
+                                    "message": f"נמצאו {len(available_slots)} מועדים פנויים"
+                                })
+                            }
+                        })
+                    else:
+                        # No available slots
+                        print(f"❌ [CHECK_AVAIL] No available slots for {date_str} {time_window}")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "available": False,
+                                    "message": "אין מועדים פנויים בזמן המבוקש",
+                                    "suggestion": "נסה תאריך אחר או שעה אחרת"
+                                })
+                            }
+                        })
+                    
+                    await client.send_event({"type": "response.create"})
+                
+            except Exception as e:
+                # 🔥 FALLBACK: Tool failed - log clearly and return fallback response
+                print(f"❌ [CHECK_AVAIL] APPT_TOOL_FAILED: {e}")
+                import traceback
+                traceback.print_exc()
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({
+                            "available": False,
+                            "error_code": "server_error",
+                            "message": "שגיאה בבדיקת זמינות - לקחתי את הפרטים ונציג יחזור אליך"
+                        })
+                    }
+                })
+                await client.send_event({"type": "response.create"})
+        
+        elif function_name == "book_appointment":
+            # 🔥 BOOK APPOINTMENT: Actually create the appointment after availability check
+            try:
+                args = json.loads(arguments_str)
+                print(f"📅 [BOOK_APPT] Request from AI: {args}")
+                
+                business_id = args.get("business_id") or getattr(self, 'business_id', None)
+                service = args.get("service", "").strip()
+                datetime_iso = args.get("datetime", "").strip()  # ISO 8601 format
+                duration = args.get("duration")
+                customer_name = args.get("customer_name", "").strip()
+                customer_phone = args.get("customer_phone", "").strip()
+                notes = args.get("notes", "").strip()
+                
+                # Use phone from call context if not provided
+                if not customer_phone:
+                    customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
+                
+                # Validate required fields
+                if not all([business_id, service, datetime_iso, customer_name, customer_phone]):
+                    missing = []
+                    if not business_id: missing.append("business_id")
+                    if not service: missing.append("service")
+                    if not datetime_iso: missing.append("datetime")
+                    if not customer_name: missing.append("customer_name")
+                    if not customer_phone: missing.append("customer_phone")
+                    
+                    print(f"❌ [BOOK_APPT] Missing required fields: {missing}")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "missing_fields",
+                                "missing_fields": missing,
+                                "message": "חסרים פרטים נדרשים ליצירת הפגישה"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Check if already created appointment in this session
+                if getattr(self, '_appointment_created_this_session', False):
+                    print(f"⚠️ [BOOK_APPT] Already created appointment in this session - blocking duplicate")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error_code": "appointment_already_created",
+                                "message": "כבר נוצרה פגישה בשיחה הזו"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # 🔥 WRAP IN APP CONTEXT - Critical for DB access
+                # Import once at module level to avoid repeated imports
+                from datetime import datetime, timedelta
+                import pytz
+                from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+                from server.policy.business_policy import get_business_policy
+                
+                app = _get_flask_app()
+                with app.app_context():
+                    policy = get_business_policy(business_id)
+                    tz = pytz.timezone(policy.tz)
+                    
+                    # Parse ISO datetime - handle both Z suffix and explicit timezone
+                    # Using fromisoformat after normalizing Z to +00:00
+                    try:
+                        requested_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
+                    except ValueError:
+                        # Fallback for malformed ISO strings
+                        print(f"⚠️ [BOOK_APPT] Invalid ISO format: {datetime_iso}, attempting manual parse")
+                        # Try parsing as YYYY-MM-DDTHH:MM:SS
+                        requested_dt = datetime.strptime(datetime_iso[:19], "%Y-%m-%dT%H:%M:%S")
+                    
+                    if requested_dt.tzinfo is None:
+                        requested_dt = tz.localize(requested_dt)
+                    else:
+                        requested_dt = requested_dt.astimezone(tz)
+                    
+                    # Use policy duration if not provided
+                    if not duration:
+                        duration = policy.slot_size_min
+                    
+                    # Calculate end time
+                    end_dt = requested_dt + timedelta(minutes=duration)
+                    
+                    print(f"📅 [BOOK_APPT] Creating: {requested_dt.isoformat()} -> {end_dt.isoformat()}")
+                    
+                    # Create appointment using unified implementation
+                    input_data = CreateAppointmentInput(
+                        business_id=business_id,
+                        customer_name=customer_name,
+                        customer_phone=customer_phone,
+                        treatment_type=service,
+                        start_iso=requested_dt.isoformat(),
+                        end_iso=end_dt.isoformat(),
+                        notes=notes or "Scheduled via phone call",
+                        source="realtime_phone"
+                    )
+                    
+                    context = {
+                        "customer_phone": customer_phone,
+                        "channel": "phone"
+                    }
+                    
+                    # Call unified implementation
+                    result = _calendar_create_appointment_impl(input_data, context=context, session=self)
+                    
+                    # Handle result
+                    if hasattr(result, 'appointment_id'):
+                        # Success - CreateAppointmentOutput
+                        appt_id = result.appointment_id
+                        print(f"✅ [BOOK_APPT] SUCCESS! ID={appt_id}, status={result.status}")
+                        
+                        # Mark as created to prevent duplicates
+                        self._appointment_created_this_session = True
+                        
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": True,
+                                    "appointment_id": appt_id,
+                                    "start_time": requested_dt.isoformat(),
+                                    "end_time": end_dt.isoformat(),
+                                    "customer_name": customer_name,
+                                    "message": f"הפגישה נקבעה בהצלחה ל-{requested_dt.strftime('%d/%m/%Y')} בשעה {requested_dt.strftime('%H:%M')}"
+                                })
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                    else:
+                        # Error or unexpected format
+                        error_msg = "שגיאה ביצירת הפגישה"
+                        if isinstance(result, dict):
+                            error_msg = result.get("message", error_msg)
+                        
+                        print(f"❌ [BOOK_APPT] Failed: {error_msg}")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "creation_failed",
+                                    "message": error_msg
+                                })
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                
+            except Exception as e:
+                # 🔥 FALLBACK: Tool failed - log clearly and return fallback response
+                print(f"❌ [BOOK_APPT] APPT_TOOL_FAILED: {e}")
+                import traceback
+                traceback.print_exc()
+                
+                # 🔥 FALLBACK_LEAD_CREATED: Ensure lead exists for manual processing
+                # Note: Lead should already exist from ensure_lead() at call start
+                # Verify and create if needed for safety
+                print(f"📋 [BOOK_APPT] FALLBACK_LEAD_CREATED: Verifying lead exists for manual processing")
+                try:
+                    # Ensure lead is saved (idempotent - won't create duplicate)
+                    if hasattr(self, 'ensure_lead') and callable(self.ensure_lead):
+                        self.ensure_lead()
+                        print(f"✅ [BOOK_APPT] Lead verified/created for follow-up")
+                except Exception as lead_err:
+                    print(f"⚠️ [BOOK_APPT] Could not verify lead: {lead_err}")
+                    # Continue anyway - rep can still call back using caller ID
+                
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({
+                            "success": False,
+                            "error_code": "server_error",
+                            "message": "לקחתי את הפרטים שלך ונציג יחזור אליך לאישור התור. תודה!"
                         })
                     }
                 })
