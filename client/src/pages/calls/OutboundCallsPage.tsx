@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   List
 } from 'lucide-react';
+import { formatDateOnly } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
@@ -1176,7 +1177,7 @@ export function OutboundCallsPage() {
                             </td>
                             <td className="py-3 px-2 text-gray-500">
                               {lead.created_at 
-                                ? new Date(lead.created_at).toLocaleDateString('he-IL')
+                                ? formatDateOnly(lead.created_at)
                                 : '-'}
                             </td>
                             <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>

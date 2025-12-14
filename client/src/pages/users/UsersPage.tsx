@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Users, UserPlus, Shield, Edit, Trash2, Mail, Phone, CheckSquare, Square, X } from 'lucide-react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 const Card = ({ children, className = "" }: any) => (
   <div className={`border border-gray-200 rounded-lg bg-white ${className}`}>{children}</div>
@@ -571,7 +574,7 @@ export function UsersPage() {
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-900">
                       {user.last_login 
-                        ? new Date(user.last_login).toLocaleString('he-IL')
+                        ? formatDate(user.last_login)
                         : 'לא התחבר'
                       }
                     </td>
@@ -660,7 +663,7 @@ export function UsersPage() {
                         </Badge>
                         <span className="text-xs text-gray-400">
                           {user.last_login 
-                            ? new Date(user.last_login).toLocaleDateString('he-IL')
+                            ? formatDateOnly(user.last_login)
                             : 'לא התחבר'
                           }
                         </span>

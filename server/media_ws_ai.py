@@ -1236,11 +1236,12 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         return False
     
     # 4) Echo suppression window - reject if AI is speaking AND <200ms since audio started
-    # 🔥 FIX: Add bypass logic to prevent dropping real user speech
+    # 🔥 C1 REQUIREMENT: Enhanced bypass logic for fast user responses (0.1-0.3s)
     # Bypass echo_window if ANY of these conditions are met:
     # 1. candidate_user_speaking == True (speech_started event fired)
     # 2. local_vad_voice_frames >= 8 (160ms+ of sustained speech)
     # 3. Text is new content (not similar to last AI transcript)
+    # 4. C1: Utterance duration >= 100ms (fast but real response like "בית שאן")
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
         # Check bypass conditions
         has_user_speech_candidate = candidate_user_speaking
@@ -1254,13 +1255,35 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
             ai_normalized = last_ai_transcript.strip().lower()
             is_new_content = stt_normalized not in ai_normalized
         
+        # 🎯 C1: Fast response bypass - if utterance is >=100ms and has real Hebrew content, allow it
+        # This catches fast answers like "בית שאן" (0.1-0.3s after "איזו עיר?")
+        is_fast_but_real_response = (
+            utterance_ms >= 100 and  # At least 100ms duration
+            len(stt_text.strip()) >= 3 and  # At least 3 chars
+            any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in stt_text)  # Has Hebrew characters
+        )
+        
         # Bypass if ANY condition is met
-        should_bypass_echo_window = has_user_speech_candidate or has_sustained_vad or is_new_content
+        should_bypass_echo_window = (
+            has_user_speech_candidate or 
+            has_sustained_vad or 
+            is_new_content or 
+            is_fast_but_real_response
+        )
         
         if should_bypass_echo_window:
+            bypass_reasons = []
+            if has_user_speech_candidate:
+                bypass_reasons.append("candidate_user_speaking")
+            if has_sustained_vad:
+                bypass_reasons.append(f"sustained_vad_{local_vad_voice_frames}frames")
+            if is_new_content:
+                bypass_reasons.append("new_content")
+            if is_fast_but_real_response:
+                bypass_reasons.append(f"fast_response_{utterance_ms:.0f}ms")
+            
             logger.info(
-                f"[STT_GUARD] Accepted (echo_window bypass: candidate_user_speaking={candidate_user_speaking}, "
-                f"local_vad_frames={local_vad_voice_frames}, is_new_content={is_new_content}) text='{stt_text[:30]}...'"
+                f"[C1 STT_GUARD] Accepted (echo_window bypass: {', '.join(bypass_reasons)}) text='{stt_text[:30]}...'"
             )
         else:
             # No bypass - drop as echo
@@ -1991,9 +2014,21 @@ class MediaStreamHandler:
                     
                     tools.append(check_availability_tool)
                     tools.append(book_appointment_tool)
-                    logger.info(f"[TOOLS][REALTIME] TWO appointment tools ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
+                    # 🎯 D1 REQUIREMENT: Log tool activation with conditions
+                    logger.info(
+                        f"[D1 TOOLS ENABLED] business_id={business_id}, "
+                        f"call_goal={call_goal}, "
+                        f"enable_calendar_scheduling={enable_scheduling}, "
+                        f"tools_count={len(tools)} (check_availability + book_appointment)"
+                    )
                 else:
-                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}, scheduling={enable_scheduling}) - no tools for business {business_id}")
+                    # 🎯 D1 REQUIREMENT: Log why tools are NOT enabled
+                    logger.info(
+                        f"[D1 TOOLS DISABLED] business_id={business_id}, "
+                        f"call_goal={call_goal} (need='appointment'), "
+                        f"enable_calendar_scheduling={enable_scheduling} (need=True), "
+                        f"tools_count=0"
+                    )
                 
         except Exception as e:
             logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
@@ -3476,6 +3511,23 @@ Greet briefly. Then WAIT for customer to speak."""
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}", flush=True)
+                        
+                        # 🎯 B3 REQUIREMENT: Detect OpenAI turn_detected cancellations
+                        # These indicate audio is reaching OpenAI during AI speech (should not happen with half-duplex)
+                        if status == "cancelled":
+                            cancellation_reason = status_details.get("reason") if status_details else None
+                            if cancellation_reason == "turn_detected":
+                                # Check if this was after a confirmed barge-in
+                                has_confirmed_barge = getattr(self, '_barge_confirmed', False)
+                                if not has_confirmed_barge:
+                                    logger.warning(
+                                        f"⚠️ [B3 VIOLATION] OpenAI turn_detected cancellation WITHOUT confirmed barge-in! "
+                                        f"response_id={resp_id[:20]}... - Audio is leaking to OpenAI during AI speech"
+                                    )
+                                else:
+                                    logger.info(f"✅ [B3] turn_detected after confirmed barge-in (expected): response_id={resp_id[:20]}...")
+                            else:
+                                logger.info(f"[RESPONSE] Cancelled: reason={cancellation_reason}, response_id={resp_id[:20]}...")
                         # Log output items to see if audio was included
                         for i, item in enumerate(output[:3]):  # First 3 items
                             item_type = item.get("type", "?")
@@ -3521,7 +3573,21 @@ Greet briefly. Then WAIT for customer to speak."""
                                 
                                 print(f"✅ [PROMPT UPGRADE] Successfully upgraded to FULL prompt in {upgrade_duration}ms")
                                 print(f"   └─ AI now has complete business context for rest of conversation")
-                                logger.info(f"[PROMPT UPGRADE] Upgraded business_id={self.business_id} in {upgrade_duration}ms")
+                                # 🎯 E1 REQUIREMENT: Log business_id and policy verification
+                                business_id = getattr(self, 'business_id', 'UNKNOWN')
+                                call_config = getattr(self, 'call_config', None)
+                                policy_info = {}
+                                if call_config:
+                                    policy_info = {
+                                        'call_goal': getattr(call_config, 'call_goal', 'N/A'),
+                                        'enable_calendar_scheduling': getattr(call_config, 'enable_calendar_scheduling', False),
+                                        'confirm_before_hangup': getattr(call_config, 'confirm_before_hangup', True),
+                                    }
+                                logger.info(
+                                    f"[E1 PROMPT UPGRADE] business_id={business_id}, "
+                                    f"upgrade_duration_ms={upgrade_duration}, "
+                                    f"policy={policy_info}"
+                                )
                                 
                             except Exception as upgrade_err:
                                 logger.error(f"❌ [PROMPT UPGRADE] Failed to upgrade prompt: {upgrade_err}")
@@ -4493,9 +4559,10 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self._verification_prompt_sent = False
                         
                         # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
-                        # 🚫 DISABLED: Loop detection disabled via ENABLE_LOOP_DETECT flag
+                        # 🚫 LOOP DETECTION: Controlled by ENABLE_LOOP_DETECT flag
+                        # 🎯 G REQUIREMENT: Anti-Loop Guard - Detect same question asked twice in a row
                         is_repeating = False
-                        if ENABLE_LOOP_DETECT:
+                        if ENABLE_LOOP_DETECT or True:  # G: Always enable anti-loop for production
                             # Added: length floor to avoid false positives on short confirmations
                             MIN_LENGTH_FOR_SIMILARITY = 15  # Don't compare short confirmations
                             
@@ -4514,17 +4581,36 @@ Greet briefly. Then WAIT for customer to speak."""
                             if len(self._last_ai_responses) > 5:
                                 self._last_ai_responses.pop(0)  # Keep only last 5
                             
-                            # Check for semantic repetition (similarity > 70% with any of last 3 responses)
-                            # 🔥 ARCHITECT FIX: Only check if responses are long enough (avoid short template FP)
+                            # 🎯 G REQUIREMENT: Check for CONSECUTIVE duplicate questions (same question 2x in a row)
+                            # This catches "איזו עיר?" "איזו עיר?" loops where AI doesn't let user speak
                             if len(self._last_ai_responses) >= 2 and len(transcript) >= MIN_LENGTH_FOR_SIMILARITY:
-                                for prev_response in self._last_ai_responses[:-1]:
-                                    if len(prev_response) < MIN_LENGTH_FOR_SIMILARITY:
-                                        continue  # Skip short responses
-                                    similarity = _text_similarity(transcript, prev_response)
-                                    if similarity > 0.70:
+                                last_response = self._last_ai_responses[-2]  # Previous response (before current)
+                                if len(last_response) >= MIN_LENGTH_FOR_SIMILARITY:
+                                    similarity = _text_similarity(transcript, last_response)
+                                    # 🎯 G: If current response is >85% similar to previous → LOOP DETECTED
+                                    if similarity > 0.85:
                                         is_repeating = True
-                                        print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
-                                        break
+                                        logger.warning(
+                                            f"⚠️ [G ANTI-LOOP] Duplicate question detected! "
+                                            f"Similarity={similarity:.0%} | "
+                                            f"Current: '{transcript[:50]}...' | "
+                                            f"Previous: '{last_response[:50]}...'"
+                                        )
+                                        # 🎯 G: Force pause to let user speak
+                                        asyncio.create_task(self._send_server_event_to_ai(
+                                            "[SYSTEM] אתה שואל את אותה שאלה שוב. המתן לתשובת הלקוח לפני שאתה ממשיך. הקשב בסבלנות."
+                                        ))
+                                
+                                # Also check if similar to any of last 3 (general loop detection)
+                                if not is_repeating:
+                                    for prev_response in self._last_ai_responses[:-1]:
+                                        if len(prev_response) < MIN_LENGTH_FOR_SIMILARITY:
+                                            continue  # Skip short responses
+                                        similarity = _text_similarity(transcript, prev_response)
+                                        if similarity > 0.70:
+                                            is_repeating = True
+                                            print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
+                                            break
                         
                         # 🔥 BUILD 169.1: MISHEARING DETECTION (Architect: reduced to 2 for better UX)
                         # 🚫 DISABLED: Loop detection disabled via ENABLE_LOOP_DETECT flag
@@ -8129,20 +8215,30 @@ Greet briefly. Then WAIT for customer to speak."""
                     pass
             
             # ✅ CRITICAL: Wait for all background threads to complete
+            # 🎯 F2 REQUIREMENT: Proper thread cleanup - no stuck threads
             # This prevents crashes when threads access DB after WebSocket closes
             if hasattr(self, 'background_threads') and self.background_threads:
                 print(f"🧹 Waiting for {len(self.background_threads)} background threads...")
                 for i, thread in enumerate(self.background_threads):
                     if thread.is_alive():
                         try:
-                            thread.join(timeout=3.0)  # Max 3 seconds per thread
+                            # 🎯 F2: Give threads reasonable time to finish (5s per thread)
+                            thread.join(timeout=5.0)
                             if thread.is_alive():
-                                print(f"⚠️ Background thread {i} still running after timeout")
+                                logger.warning(
+                                    f"⚠️ [F2 VIOLATION] Background thread {i} ({thread.name if hasattr(thread, 'name') else 'unnamed'}) "
+                                    f"still running after 5s timeout - thread may be stuck!"
+                                )
                             else:
                                 print(f"✅ Background thread {i} completed")
                         except Exception as e:
-                            print(f"❌ Error joining thread {i}: {e}")
-                print(f"✅ All background threads cleanup complete")
+                            logger.error(f"❌ Error joining thread {i}: {e}")
+                # 🎯 F2: Log summary of thread cleanup status
+                alive_count = sum(1 for t in self.background_threads if t.is_alive())
+                if alive_count > 0:
+                    logger.warning(f"⚠️ [F2 VIOLATION] {alive_count}/{len(self.background_threads)} threads still alive after cleanup")
+                else:
+                    print(f"✅ All background threads cleanup complete")
             
             # 💰 CALCULATE AND LOG CALL COST
             if USE_REALTIME_API:
@@ -8204,18 +8300,31 @@ Greet briefly. Then WAIT for customer to speak."""
             
             print(f"✅ [CLEANUP] All state flags reset successfully")
             
-            # 🔥 FIX: Guard against double-close
+            # 🔥 F3 REQUIREMENT: WebSocket close with proper error handling
+            # Guard against double-close and handle ASGI errors gracefully
             try:
-                if not self._ws_closed:
-                    self.ws.close()
-                    self._ws_closed = True
+                if not self._ws_closed and hasattr(self.ws, 'close'):
+                    # Check if websocket is still open before attempting close
+                    try:
+                        self.ws.close()
+                        self._ws_closed = True
+                        print(f"✅ [F3] WebSocket closed successfully")
+                    except AttributeError as ae:
+                        # Handle "SyncWebSocketWrapper has no close" error
+                        if 'close' in str(ae).lower():
+                            logger.debug(f"[F3] WebSocket wrapper doesn't support close() - connection already terminated")
+                            self._ws_closed = True
+                        else:
+                            raise
             except Exception as e:
-                # Catch "websocket.close" ASGI error and reduce to debug
+                # 🎯 F3: Catch "websocket.close" ASGI error and reduce to debug
                 error_msg = str(e).lower()
-                if 'websocket.close' in error_msg or 'asgi' in error_msg:
-                    print(f"[DEBUG] Websocket already closed (expected): {e}")
+                if 'websocket.close' in error_msg or 'asgi' in error_msg or 'syncwebsocketwrapper' in error_msg:
+                    logger.debug(f"[F3] Websocket already closed (expected): {e}")
+                    self._ws_closed = True
                 else:
-                    print(f"Error in final websocket close: {e}")
+                    logger.error(f"[F3] Unexpected error in websocket close: {e}")
+                    # Don't re-raise - continue with cleanup
             # Mark as ended
             if hasattr(self, 'call_sid') and self.call_sid:
                 stream_registry.clear(self.call_sid)
@@ -10906,8 +11015,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     await client.send_event({"type": "response.create"})
                 
             except Exception as e:
-                # 🔥 FALLBACK: Tool failed - log clearly and return fallback response
+                # 🎯 D5 REQUIREMENT: Fallback error handling for check_availability
                 print(f"❌ [CHECK_AVAIL] APPT_TOOL_FAILED: {e}")
+                logger.error(f"[D5 CHECK_AVAIL_FAILED] Exception in check_availability: {e}")
                 import traceback
                 traceback.print_exc()
                 await client.send_event({
@@ -11000,6 +11110,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # Parse ISO datetime - handle both Z suffix and explicit timezone
                     # Using fromisoformat after normalizing Z to +00:00
+                    # 🎯 D4 REQUIREMENT: Verify timezone correctness (Asia/Jerusalem +02:00)
                     try:
                         requested_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
                     except ValueError:
@@ -11008,10 +11119,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Try parsing as YYYY-MM-DDTHH:MM:SS
                         requested_dt = datetime.strptime(datetime_iso[:19], "%Y-%m-%dT%H:%M:%S")
                     
+                    # 🎯 D4: Normalize to business timezone
                     if requested_dt.tzinfo is None:
                         requested_dt = tz.localize(requested_dt)
+                        logger.info(f"[D4 TIMEZONE] Localized naive datetime to {tz}: {requested_dt.isoformat()}")
                     else:
                         requested_dt = requested_dt.astimezone(tz)
+                        logger.info(f"[D4 TIMEZONE] Converted to {tz}: {requested_dt.isoformat()}")
                     
                     # Use policy duration if not provided
                     if not duration:
@@ -11089,8 +11203,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         await client.send_event({"type": "response.create"})
                 
             except Exception as e:
-                # 🔥 FALLBACK: Tool failed - log clearly and return fallback response
+                # 🎯 D5 REQUIREMENT: Fallback path logging
+                # APPT_TOOL_FAILED → FALLBACK_LEAD_CREATED → AI says "לקחתי פרטים ונציג יחזור"
                 print(f"❌ [BOOK_APPT] APPT_TOOL_FAILED: {e}")
+                logger.error(f"[D5 APPT_TOOL_FAILED] Exception in book_appointment: {e}")
                 import traceback
                 traceback.print_exc()
                 
@@ -11098,12 +11214,15 @@ Greet briefly. Then WAIT for customer to speak."""
                 # Note: Lead should already exist from ensure_lead() at call start
                 # Verify and create if needed for safety
                 print(f"📋 [BOOK_APPT] FALLBACK_LEAD_CREATED: Verifying lead exists for manual processing")
+                logger.info(f"[D5 FALLBACK_LEAD_CREATED] Activating fallback flow - ensuring lead exists")
                 try:
                     # Ensure lead is saved (idempotent - won't create duplicate)
                     if hasattr(self, 'ensure_lead') and callable(self.ensure_lead):
                         self.ensure_lead()
                         print(f"✅ [BOOK_APPT] Lead verified/created for follow-up")
+                        logger.info(f"[D5 FALLBACK_LEAD_CREATED] Lead saved successfully for manual processing")
                 except Exception as lead_err:
+                    logger.error(f"⚠️ [D5 FALLBACK_LEAD_CREATED] Could not verify lead: {lead_err}")
                     print(f"⚠️ [BOOK_APPT] Could not verify lead: {lead_err}")
                     # Continue anyway - rep can still call back using caller ID
                 
@@ -12264,10 +12383,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     queue_size = self.tx_q.qsize()
                     queue_maxsize = self.tx_q.maxsize
                     actual_fps = frames_sent_last_sec  # Frames sent in last second
-                    # 🎯 TASK D: Only log if interesting (queue filling or gaps detected)
-                    queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
-                    if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
-                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                    # 🎯 A1 REQUIREMENT: ALWAYS log TX_METRICS for production monitoring
+                    # fps should be ≈50 (47-52), max_gap_ms should be <60ms
+                    print(f"[TX_METRICS] fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, frames={frames_sent_last_sec}, q={queue_size}/{queue_maxsize}", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useParams, useNavigate } from 'react-router-dom';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   ArrowRight, 
   Bot, 
@@ -11,7 +13,9 @@ import {
   History
 } from 'lucide-react';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useAuth } from '../../features/auth/hooks';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 interface PromptData {
   calls_prompt: string;

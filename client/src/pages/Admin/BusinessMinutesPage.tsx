@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useQuery } from '@tanstack/react-query';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   Clock, 
   Phone, 
@@ -12,6 +14,7 @@ import {
   Download
 } from 'lucide-react';
 import { cn } from '../../shared/utils/cn';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 interface DirectionBreakdown {
   inbound_seconds: number;
@@ -252,7 +255,7 @@ export function BusinessMinutesPage() {
           {data?.date_range && (
             <div className="flex items-center gap-2">
               <div className="text-sm text-slate-500">
-                מציג: {new Date(data.date_range.from).toLocaleDateString('he-IL')} - {new Date(data.date_range.to).toLocaleDateString('he-IL')}
+                מציג: {formatDateOnly(data.date_range.from)} - {formatDateOnly(data.date_range.to)}
               </div>
               <span className="text-xs text-slate-400">
                 ({Math.ceil((new Date(data.date_range.to).getTime() - new Date(data.date_range.from).getTime()) / (1000 * 60 * 60 * 24)) + 1} ימים)
