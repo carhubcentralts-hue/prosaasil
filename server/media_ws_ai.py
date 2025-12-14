@@ -3978,6 +3978,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # 🎯 TASK A: Clear audio framer buffer on response completion
                     # Any leftover bytes < 160 are discarded (not padded) to avoid artifacts
+                    # Defensive: hasattr check in case event arrives before initialization
                     if hasattr(self, '_ai_audio_buf'):
                         remnants = len(self._ai_audio_buf)
                         if remnants > 0:
@@ -6683,18 +6684,20 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.realtime_tx_frames += 1
                     except queue.Full:
                         # 🎯 TASK C: Queue full is a critical error (shouldn't happen with 1000 size)
-                        # Log but don't drop - wait for TX loop to drain
+                        # This is a LAST RESORT fallback for severe pathological cases
+                        # Normal operation should never hit this with 20s buffer + clocked sender
                         now = time.time()
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
-                            print(f"❌ [AUDIO CRITICAL] TX queue completely full ({queue_maxsize}) - waiting for drain")
+                            print(f"❌ [AUDIO CRITICAL] TX queue completely full ({queue_maxsize}) - attempting blocking put")
                             self._last_full_error = now
-                        # Put with blocking wait (up to 100ms) to avoid losing audio
+                        # Blocking put with timeout - backpressure to prevent drops
+                        # This slows down audio framing to match TX consumption rate
                         try:
-                            self.tx_q.put(twilio_frame, timeout=0.1)
+                            self.tx_q.put(twilio_frame, timeout=0.2)
                             self.realtime_tx_frames += 1
                         except queue.Full:
-                            # Still full after waiting - drop THIS frame only
-                            print(f"❌ [AUDIO DROP] Frame lost after wait - severe TX slowdown")
+                            # Still full after 200ms wait - severe TX slowdown, drop THIS frame only
+                            print(f"❌ [AUDIO DROP] Frame lost after 200ms wait - severe TX bottleneck")
                     
             except queue.Empty:
                 continue
@@ -11686,6 +11689,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 next_send += FRAME_SEC
                 
                 # 🎯 TASK B: Reset clock if queue was empty (prevents drift during pauses)
+                # Note: Small race condition possible, but harmless - just resets clock as safety
                 if self.tx_q.empty():
                     next_send = time.monotonic()
                 
