@@ -1,5 +1,6 @@
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import { CheckSquare, Square } from 'lucide-react';
 import { Lead } from '../types';
 
 interface LeadStatus {
@@ -15,13 +16,19 @@ interface LeadKanbanColumnProps {
   leads: Lead[];
   isDraggingOver: boolean;
   children: React.ReactNode;
+  selectedLeadIds?: Set<number>;
+  onSelectAll?: (leadIds: number[]) => void;
+  onClearSelection?: () => void;
 }
 
 export function LeadKanbanColumn({
   status,
   leads,
   isDraggingOver,
-  children
+  children,
+  selectedLeadIds = new Set(),
+  onSelectAll,
+  onClearSelection
 }: LeadKanbanColumnProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: status.name,
@@ -34,6 +41,21 @@ export function LeadKanbanColumn({
   const textColorClass = status.color.includes('text-')
     ? status.color.split(' ').find(c => c.startsWith('text-'))
     : 'text-gray-800';
+
+  // Check if all leads in this column are selected
+  const leadIds = leads.map(l => l.id);
+  const allSelected = leadIds.length > 0 && leadIds.every(id => selectedLeadIds.has(id));
+  const someSelected = leadIds.some(id => selectedLeadIds.has(id));
+
+  const handleSelectToggle = () => {
+    if (allSelected && onClearSelection) {
+      // Deselect only this column's leads
+      onClearSelection();
+    } else if (onSelectAll) {
+      // Select all leads in this column
+      onSelectAll(leadIds);
+    }
+  };
 
   return (
     <div className="flex-shrink-0 w-80 flex flex-col">
@@ -48,6 +70,23 @@ export function LeadKanbanColumn({
               ({leads.length})
             </span>
           </div>
+          
+          {/* Select All button */}
+          {leads.length > 0 && onSelectAll && (
+            <button
+              onClick={handleSelectToggle}
+              className={`p-1 rounded hover:bg-black/10 transition-colors ${textColorClass}`}
+              title={allSelected ? 'נקה בחירה' : 'בחר הכל'}
+            >
+              {allSelected ? (
+                <CheckSquare className="w-4 h-4" />
+              ) : someSelected ? (
+                <CheckSquare className="w-4 h-4 opacity-50" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
+            </button>
+          )}
         </div>
       </div>
 

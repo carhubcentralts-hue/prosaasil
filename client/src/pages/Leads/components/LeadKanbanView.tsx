@@ -34,6 +34,8 @@ interface LeadKanbanViewProps {
   onLeadSelect: (leadId: number) => void;
   onLeadClick: (leadId: number) => void;
   onStatusChange: (leadId: number, newStatus: string) => Promise<void>;
+  onSelectMany?: (leadIds: number[]) => void;
+  onClearSelection?: () => void;
 }
 
 export function LeadKanbanView({
@@ -43,7 +45,9 @@ export function LeadKanbanView({
   selectedLeadIds,
   onLeadSelect,
   onLeadClick,
-  onStatusChange
+  onStatusChange,
+  onSelectMany,
+  onClearSelection
 }: LeadKanbanViewProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -140,6 +144,21 @@ export function LeadKanbanView({
               status={status}
               leads={statusLeads}
               isDraggingOver={isDragging}
+              selectedLeadIds={selectedLeadIds}
+              onSelectAll={onSelectMany}
+              onClearSelection={() => {
+                // Clear only this column's leads
+                if (onClearSelection) {
+                  const idsToKeep = Array.from(selectedLeadIds).filter(id => 
+                    !leadIds.includes(id)
+                  );
+                  if (idsToKeep.length === 0) {
+                    onClearSelection();
+                  } else if (onSelectMany) {
+                    onSelectMany(idsToKeep);
+                  }
+                }
+              }}
             >
               <SortableContext
                 items={leadIds}
