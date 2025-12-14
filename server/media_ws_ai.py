@@ -1498,11 +1498,10 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
-        # Small queue (150-250 frames = 3-5s) allows quick interruption while preventing underruns
-        # On barge-in, we flush the entire queue anyway, so large buffers just add latency
-        # 🔧 NEW FIX: Reduced to 250 frames (~5s) for <300ms barge-in response
-        self.tx_q = queue.Queue(maxsize=250)  # 250 frames = 5s buffer (balanced: smooth + responsive)
+        # 🔥 TASK C: Increased from 250 to 1000 frames (20s buffer) to prevent frame drops
+        # Larger buffer absorbs jitter and prevents "fast speech" from dropped frames
+        # IMPORTANT: With clocked sender (TASK B), queue size doesn't add latency
+        self.tx_q = queue.Queue(maxsize=1000)  # 1000 frames = 20s buffer (prevents drops)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -1693,6 +1692,9 @@ class MediaStreamHandler:
         self._stats_audio_blocked = 0  # Total audio chunks blocked (greeting, etc.)
         self._stats_last_log_ts = 0  # Last time we logged pipeline status
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
+        
+        # 🎯 TASK A: Audio Framer - Buffer for segmenting variable-sized deltas into 160-byte frames
+        self._ai_audio_buf = bytearray()  # Accumulates audio bytes from OpenAI
         
         # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
         # 🔥 CRITICAL HOTFIX: Import MUSIC_MODE_ENABLED flag
@@ -2973,6 +2975,7 @@ Greet briefly. Then WAIT for customer to speak."""
         BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing:
           - realtime_audio_out_queue: Audio from OpenAI waiting to be sent to TX queue
           - tx_q: Audio waiting to be sent to Twilio
+          - _ai_audio_buf: Partial frame buffer in audio framer
         """
         # Flush OpenAI → TX queue (audio from OpenAI not yet in TX queue)
         openai_queue_before = self.realtime_audio_out_queue.qsize()
@@ -2994,7 +2997,18 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception:
             pass
         
-        print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | reason={reason or 'UNKNOWN'}")
+        # 🎯 VERIFICATION FIX: Clear audio framer buffer to prevent old audio fragments
+        # This ensures no partial frames (<160 bytes) leak into next AI response
+        buffer_bytes_cleared = 0
+        if hasattr(self, '_ai_audio_buf'):
+            buffer_bytes_cleared = len(self._ai_audio_buf)
+            self._ai_audio_buf.clear()
+        
+        if buffer_bytes_cleared > 0:
+            print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | Buffer: {buffer_bytes_cleared}B | reason={reason or 'UNKNOWN'}")
+        else:
+            print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | reason={reason or 'UNKNOWN'}")
+        
         return tx_flushed + openai_flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -3974,6 +3988,15 @@ Greet briefly. Then WAIT for customer to speak."""
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
+                    # 🎯 TASK A: Clear audio framer buffer on response completion
+                    # Any leftover bytes < 160 are discarded (not padded) to avoid artifacts
+                    # Defensive: hasattr check in case event arrives before initialization
+                    if hasattr(self, '_ai_audio_buf'):
+                        remnants = len(self._ai_audio_buf)
+                        if remnants > 0:
+                            print(f"🧹 [AUDIO_FRAMER] Clearing {remnants} remnant bytes on audio.done")
+                        self._ai_audio_buf.clear()
+                    
                     # 🎯 FIX A: Complete greeting mode after FIRST response only
                     if self.greeting_mode_active and not self.greeting_completed:
                         greeting_end_ts = time.time()
@@ -6588,9 +6611,15 @@ Greet briefly. Then WAIT for customer to speak."""
         thread.start()
     
     def _realtime_audio_out_loop(self):
-        """⚡ BUILD 168.2: Optimized audio bridge - minimal logging
+        """⚡ TASK A+B: Audio Framer + Clocked Sender for Twilio
         
-        🔥 PART C DEBUG: Added logging to trace tx=0 issues
+        TASK A: Segments OpenAI audio deltas into fixed 160-byte frames (20ms @ 8kHz μ-law)
+        - Variable-sized deltas are accumulated in _ai_audio_buf
+        - Extracted in 160-byte chunks for precise frame timing
+        - Remnants are cleared on audio completion
+        
+        TASK B: No clocking here - TX loop handles timing with 20ms pacing
+        This loop just frames and enqueues at maximum speed
         """
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
@@ -6602,7 +6631,6 @@ Greet briefly. Then WAIT for customer to speak."""
         _frames_skipped_no_stream_sid = 0
         
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
-        audio_buffer = b''  # Rolling buffer for incomplete frames
         
         _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
@@ -6610,14 +6638,16 @@ Greet briefly. Then WAIT for customer to speak."""
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
                 if audio_b64 is None:
-                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - exiting loop (frames_enqueued={self.realtime_tx_frames})", flush=True)
+                    # End sentinel - clear remnants and exit
+                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - clearing remnants (frames_enqueued={self.realtime_tx_frames})", flush=True)
+                    self._ai_audio_buf.clear()
                     break
                 
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # 🔥 PART C: Log first frame and stream_sid state
+                # 🔥 PART C: Log first chunk and stream_sid state
                 if not _first_frame_logged:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
                     _first_frame_logged = True
@@ -6625,14 +6655,19 @@ Greet briefly. Then WAIT for customer to speak."""
                 if not self.stream_sid:
                     _frames_skipped_no_stream_sid += 1
                     if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
-                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping frame - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
+                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping chunk - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
                     continue
                 
-                audio_buffer += chunk_bytes
+                # ═══════════════════════════════════════════════════════════════════
+                # 🎯 TASK A: Audio Framer - Segment into 160-byte frames
+                # ═══════════════════════════════════════════════════════════════════
+                # Accumulate incoming bytes
+                self._ai_audio_buf.extend(chunk_bytes)
                 
-                while len(audio_buffer) >= TWILIO_FRAME_SIZE:
-                    frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
-                    audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]
+                # Extract complete 160-byte frames
+                while len(self._ai_audio_buf) >= TWILIO_FRAME_SIZE:
+                    frame_bytes = bytes(self._ai_audio_buf[:TWILIO_FRAME_SIZE])
+                    del self._ai_audio_buf[:TWILIO_FRAME_SIZE]
                     
                     frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
                     twilio_frame = {
@@ -6642,39 +6677,44 @@ Greet briefly. Then WAIT for customer to speak."""
                     }
                     
                     try:
-                        # ═══════════════════════════════════════════════════════════════════════
-                        # 🎯 FIX B: NO MORE DROPPING FRAMES - Just warn at high watermark
-                        # OLD: Dropped oldest frames at 90% → caused mid-sentence audio cuts
-                        # NEW: Warn at 80%, let TX loop drain naturally (20ms pacing)
-                        # ═══════════════════════════════════════════════════════════════════════
+                        # ═══════════════════════════════════════════════════════════
+                        # 🎯 TASK C: NO MORE DROPPING - Just warn at high watermark
+                        # ═══════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize  # Now 1000 frames = 20s
-                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80% (800 frames)
+                        high_watermark = int(queue_maxsize * 0.5)  # Warn at 50% (500 frames)
                         
                         if queue_size >= high_watermark:
                             # Log warning (throttled), but DO NOT drop frames
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (80%) - letting TX loop drain")
+                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (50%) - TX loop draining")
                                 self._last_overflow_warning = now
                         
-                        # Enqueue frame - let TX loop handle timing
+                        # Enqueue frame - TX loop handles timing
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # 🎯 FIX B: If queue is REALLY full (shouldn't happen with 1000 maxsize)
-                        # Log error and skip THIS frame (newest), not oldest
-                        # This preserves sentence continuity better than dropping oldest
+                        # 🎯 TASK C: Queue full is a critical error (shouldn't happen with 1000 size)
+                        # This is a LAST RESORT fallback for severe pathological cases
+                        # Normal operation should never hit this with 20s buffer + clocked sender
                         now = time.time()
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
-                            print(f"❌ [AUDIO FULL] TX queue completely full ({queue_maxsize}) - dropping NEWEST frame to preserve continuity")
+                            print(f"❌ [AUDIO CRITICAL] TX queue completely full ({queue_maxsize}) - attempting blocking put")
                             self._last_full_error = now
-                        # Skip this frame (drop newest, not oldest)
+                        # Blocking put with timeout - backpressure to prevent drops
+                        # This slows down audio framing to match TX consumption rate
+                        try:
+                            self.tx_q.put(twilio_frame, timeout=0.2)
+                            self.realtime_tx_frames += 1
+                        except queue.Full:
+                            # Still full after 200ms wait - severe TX slowdown, drop THIS frame only
+                            print(f"❌ [AUDIO DROP] Frame lost after 200ms wait - severe TX bottleneck")
                     
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.error(f"[AUDIO] Bridge error: {e}")
+                logger.error(f"[AUDIO] Framer error: {e}")
                 break
 
     def _calculate_and_log_cost(self):
@@ -11570,10 +11610,16 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _tx_loop(self):
         """
-        ⚡ BUILD 115.1 FINAL: Production-grade TX loop
-        - Precise 20ms/frame timing with next_deadline
-        - Back-pressure at 90% threshold
-        - Real-time telemetry (fps/q/drops)
+        🎯 TASK B: Clocked Sender - Precise 20ms frame pacing
+        
+        Implements time-based scheduling to send exactly 50 frames/second (20ms intervals).
+        This prevents bursts and gaps that cause "fast speech" artifacts.
+        
+        Features:
+        - next_send deadline tracks when next frame should be sent
+        - Sleeps until deadline to maintain precise timing
+        - Resets clock when queue is empty (no audio to send)
+        - Never sends faster than 50fps, even with backlog
         
         🔥 PART C DEBUG: Added logging to trace first frame sent to Twilio
         🎯 TASK 0.4: Enhanced logging for Master BUG HUNT
@@ -11581,9 +11627,10 @@ Greet briefly. Then WAIT for customer to speak."""
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
         _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
-        # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
-        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
-        next_deadline = time.monotonic()
+        # 🎯 TASK B: Clocked sender timing
+        FRAME_SEC = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms = 0.020 seconds
+        next_send = time.monotonic()  # Start clock immediately
+        
         tx_count = 0
         frames_sent_total = 0
         frames_blocked_total = 0
@@ -11592,7 +11639,7 @@ Greet briefly. Then WAIT for customer to speak."""
         _first_frame_sent = False
         
         # ═══════════════════════════════════════════════════════════════════════════
-        # 🎯 TASK D.1: TX timing metrics to detect stutters (Master QA)
+        # 🎯 TASK D: TX timing metrics - log per-second, not per-frame
         # ═══════════════════════════════════════════════════════════════════════════
         frames_sent_last_sec = 0
         drops_last_sec = 0
@@ -11604,6 +11651,8 @@ Greet briefly. Then WAIT for customer to speak."""
             try:
                 item = self.tx_q.get(timeout=0.5)
             except queue.Empty:
+                # Queue empty - reset clock to avoid drift
+                next_send = time.monotonic()
                 continue
             
             if item.get("type") == "end":
@@ -11618,27 +11667,25 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Handle "media" event (both old format and new Realtime format)
             if item.get("type") == "media" or item.get("event") == "media":
-                # 🔥 Support both formats:
-                # Old: {"type": "media", "payload": "..."}
-                # New Realtime: {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
                 queue_size = self.tx_q.qsize()
                 
-                # 🔍 DEBUG: Log what format we received
-                if tx_count < 3:
-                    print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
+                # 🎯 TASK B: Wait until deadline before sending
+                now = time.monotonic()
+                delay = next_send - now
                 
-                # If already has correct format (from Realtime), send as-is
+                # 🎯 VERIFICATION FIX: Prevent clock runaway if CPU was delayed
+                # If we're already behind schedule (now > next_send), resync to now
+                # This prevents sleep(-X) errors and burst catch-up attempts
+                if delay < 0:
+                    # We're behind - skip the sleep and resync clock
+                    next_send = now
+                elif delay > 0:
+                    # Normal case - sleep until deadline
+                    time.sleep(delay)
+                
+                # Send the frame
                 if item.get("event") == "media" and "media" in item:
                     success = self._ws_send(json.dumps(item))
-                    if tx_count < 3:
-                        print(f"[TX_LOOP] Sent Realtime format: success={success}")
-                    if success:
-                        self.tx += 1  # ✅ Increment tx counter!
-                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
-                        if not _first_frame_sent:
-                            _first_frame_sent = True
-                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 else:
                     # Old format - convert
                     success = self._ws_send(json.dumps({
@@ -11646,41 +11693,39 @@ Greet briefly. Then WAIT for customer to speak."""
                         "streamSid": self.stream_sid,
                         "media": {"payload": item["payload"]}
                     }))
-                    if tx_count < 3:
-                        print(f"[TX_LOOP] Sent old format (converted): success={success}")
-                    if success:
-                        self.tx += 1  # ✅ Increment tx counter!
-                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
-                        if not _first_frame_sent:
-                            _first_frame_sent = True
-                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
+                
+                if success:
+                    self.tx += 1  # ✅ Increment tx counter!
+                    frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
+                    # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                    if not _first_frame_sent:
+                        _first_frame_sent = True
+                        _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 
                 tx_count += 1
                 frames_sent_last_sec += 1
                 
-                # ⚡ Precise timing with next_deadline
-                next_deadline += FRAME_INTERVAL
-                delay = next_deadline - time.monotonic()
-                if delay > 0:
-                    time.sleep(delay)
-                else:
-                    # Missed deadline - resync
-                    next_deadline = time.monotonic()
+                # ⚡ TASK B: Advance deadline by FRAME_SEC (20ms)
+                next_send += FRAME_SEC
                 
-                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
+                # 🎯 TASK B: Reset clock if queue was empty (prevents drift during pauses)
+                # Note: Small race condition possible, but harmless - just resets clock as safety
+                if self.tx_q.empty():
+                    next_send = time.monotonic()
+                
+                # 🎯 TASK D: Track frame-to-frame interval for gap detection
                 now = time.monotonic()
                 frame_gap_ms = (now - last_frame_time) * 1000.0
                 if frame_gap_ms > max_gap_ms:
                     max_gap_ms = frame_gap_ms
                 last_frame_time = now
                 
-                # ⚡ Telemetry: Print stats every second with max_gap_ms
+                # ⚡ TASK D: Telemetry - Print stats every second (not per-frame!)
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
                     queue_maxsize = self.tx_q.maxsize
                     actual_fps = frames_sent_last_sec  # Frames sent in last second
-                    # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
+                    # 🎯 TASK D: Only log if interesting (queue filling or gaps detected)
                     queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
                     if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
                         print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
