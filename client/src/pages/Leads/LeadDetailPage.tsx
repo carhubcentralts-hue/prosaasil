@@ -1951,6 +1951,8 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
         
         // Then upload any pending files to the note
         if (pendingFiles.length > 0) {
+          const uploadResults: { file: File; success: boolean }[] = [];
+          
           for (const file of pendingFiles) {
             try {
               const fd = new FormData();
@@ -1960,9 +1962,18 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                 method: 'POST',
                 body: fd
               });
+              uploadResults.push({ file, success: true });
             } catch (error) {
               console.error(`Failed to upload file ${file.name}:`, error);
+              uploadResults.push({ file, success: false });
             }
+          }
+          
+          // Check for failed uploads
+          const failedUploads = uploadResults.filter(r => !r.success);
+          if (failedUploads.length > 0) {
+            const failedNames = failedUploads.map(r => r.file.name).join(', ');
+            alert(`שגיאה בהעלאת קבצים: ${failedNames}`);
           }
           
           // Refresh notes to get updated attachments
@@ -2024,12 +2035,16 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       return;
     }
 
+    // Validate file name length and characters
+    const fileName = file.name;
+    if (fileName.length > 100) {
+      alert('שם הקובץ ארוך מדי (מקסימום 100 תווים)');
+      e.target.value = '';
+      return;
+    }
+
     // Add file to pending files (will be uploaded when note is saved)
     setPendingFiles(prev => [...prev, file]);
-    
-    // Add file name to note content
-    const attachmentText = `\n📎 ${file.name}`;
-    setNewNoteContent(prev => prev + attachmentText);
     
     // Clear the input
     e.target.value = '';
