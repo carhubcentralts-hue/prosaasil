@@ -101,7 +101,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
           duration: call.duration || 0,
           recording_url: call.recording_url,
-          notes: call.transcript || call.transcription || '',  // ✅ Try both transcript and transcription
+          notes: call.transcript || call.transcription || '',  // Try both transcript and transcription fields
           summary: call.summary || '',
           created_at: call.created_at || call.at,
           status: call.status

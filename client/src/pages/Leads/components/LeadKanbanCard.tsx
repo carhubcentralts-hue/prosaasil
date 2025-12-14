@@ -109,6 +109,7 @@ export function LeadKanbanCard({
             type="checkbox"
             checked={isSelected}
             readOnly
+            aria-label={`בחר ליד ${lead.full_name || lead.first_name || 'ללא שם'}`}
             className="accent-blue-600 pointer-events-auto h-4 w-4 rounded border-gray-300"
           />
         </label>
