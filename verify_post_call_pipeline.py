@@ -3,6 +3,16 @@
 Post-Call Pipeline Verification Script
 =====================================
 
+⚠️  IMPORTANT: Run this script inside the backend container only!
+    This script requires Flask and database access.
+    
+    To run in Docker:
+        docker exec -it prosaas-backend python verify_post_call_pipeline.py
+    
+    Or enter the container and run:
+        docker exec -it prosaas-backend bash
+        python verify_post_call_pipeline.py
+
 Verifies that all post-call pipeline fixes are working correctly:
 1. Database schema (recording_sid column)
 2. Business identification (phone_e164 usage)
@@ -12,7 +22,7 @@ Verifies that all post-call pipeline fixes are working correctly:
 6. Extraction working
 7. Webhook sent
 
-Usage:
+Usage (inside backend container):
     python verify_post_call_pipeline.py
 """
 import os

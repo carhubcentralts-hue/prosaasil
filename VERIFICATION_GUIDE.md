@@ -3,6 +3,25 @@
 
 This guide helps you verify the post-call pipeline is working correctly in production.
 
+## ⚠️ IMPORTANT: Run Commands Inside Backend Container
+
+For Docker deployments, all verification commands should be run inside the backend container:
+
+```bash
+# Enter the container
+docker exec -it prosaas-backend bash
+
+# Then run any verification commands
+```
+
+Or run commands directly:
+```bash
+docker exec -it prosaas-backend python verify_post_call_pipeline.py
+docker exec -it prosaas-backend ffmpeg -version
+```
+
+---
+
 ## 0️⃣ PREFLIGHT CHECKS (Before Making Test Calls)
 
 ### 0A. Database Migration - recording_sid Column
@@ -27,25 +46,24 @@ WHERE table_name='call_log' AND column_name='recording_sid';
 
 ---
 
-### 0B. ffmpeg Availability (Optional but Recommended)
+### 0B. ffmpeg Availability (REQUIRED for Perfect Transcription)
 
 Check if ffmpeg is installed:
 
 ```bash
-# In backend container or server
-ffmpeg -version
+# In backend container
+docker exec -it prosaas-backend ffmpeg -version
 ```
 
-✅ **PASS:** Shows ffmpeg version
-⚠️  **FALLBACK:** Not installed → Will use original audio (still works, just lower quality)
+✅ **PASS:** Shows ffmpeg version (ffmpeg is included in Dockerfile.backend)
+❌ **FAIL:** Not installed → Rebuild Docker image with updated Dockerfile.backend
 
-**To install (recommended):**
+**Note:** ffmpeg is now included in `Dockerfile.backend` for optimal transcription quality.
+If you're upgrading, rebuild the backend container:
+
 ```bash
-# Ubuntu/Debian
-apt-get update && apt-get install -y ffmpeg
-
-# Alpine (Docker)
-apk add ffmpeg
+docker-compose build backend
+docker-compose up -d backend
 ```
 
 ---
