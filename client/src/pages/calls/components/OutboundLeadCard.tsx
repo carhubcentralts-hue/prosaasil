@@ -2,6 +2,7 @@ import React from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Phone, Clock, GripVertical } from 'lucide-react';
+import { formatRelativeTime } from '../../../shared/utils/format';
 
 interface Lead {
   id: number;
@@ -45,28 +46,8 @@ export function OutboundLeadCard({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const formatRelativeTime = (dateString: string | null | undefined): string => {
-    if (!dateString) return 'אף פעם';
-    
-    try {
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMins / 60);
-      const diffDays = Math.floor(diffHours / 24);
-      
-      if (diffMins < 1) return 'כרגע';
-      if (diffMins < 60) return `לפני ${diffMins} דקות`;
-      if (diffHours < 24) return `לפני ${diffHours} שעות`;
-      if (diffDays === 1) return 'אתמול';
-      if (diffDays < 7) return `לפני ${diffDays} ימים`;
-      if (diffDays < 30) return `לפני ${Math.floor(diffDays / 7)} שבועות`;
-      return `לפני ${Math.floor(diffDays / 30)} חודשים`;
-    } catch {
-      return 'אף פעם';
-    }
-  };
+  // 🎯 REMOVED: Use centralized formatRelativeTime from utils with timezone fix
+  // const formatRelativeTime = (dateString: string | null | undefined): string => { ... }
 
   const formatPhone = (phone: string | null | undefined): string => {
     if (!phone) return '';

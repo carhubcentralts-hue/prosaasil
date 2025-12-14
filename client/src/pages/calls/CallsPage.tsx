@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { Phone, PlayCircle, Clock, User, MessageSquare, ExternalLink, Download, Trash2, Calendar, FileText, Volume2, AlertTriangle, Edit, Save, X } from 'lucide-react';
 import { http } from '../../services/http';
+import { formatDate as formatDateUtil, formatDuration } from '../../shared/utils/format';
 
 // Debounce hook for search optimization
 function useDebounce<T>(value: T, delay: number): T {
@@ -282,22 +283,11 @@ export function CallsPage() {
     }
   };
 
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // 🎯 REMOVED: Use centralized formatDuration from utils
+  // const formatDuration = (seconds: number) => { ... }
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('he-IL', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  // 🎯 REMOVED: Use centralized formatDate from utils with timezone fix
+  // const formatDate = (dateString: string) => { ... }
 
   const getDaysUntilExpiry = (expiresAt?: string) => {
     if (!expiresAt) return null;
@@ -568,7 +558,7 @@ export function CallsPage() {
                         <div>
                           <p className="font-medium text-slate-900">{call.lead_name || 'לקוח אלמוני'}</p>
                           <p className="text-sm text-slate-500">{call.from_e164}</p>
-                          <p className="text-xs text-slate-400">{formatDate(call.at)}</p>
+                          <p className="text-xs text-slate-400">{formatDateUtil(call.at)}</p>
                         </div>
                       </div>
                     </td>
@@ -690,7 +680,7 @@ export function CallsPage() {
                       <div>
                         <p className="font-medium text-slate-900">{call.lead_name || 'לקוח אלמוני'}</p>
                         <p className="text-sm text-slate-500">{call.from_e164}</p>
-                        <p className="text-xs text-slate-400">{formatDate(call.at)}</p>
+                        <p className="text-xs text-slate-400">{formatDateUtil(call.at)}</p>
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -843,7 +833,7 @@ export function CallsPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-700">תאריך</p>
-                  <p className="text-slate-900">{formatDate(selectedCall.at)}</p>
+                  <p className="text-slate-900">{formatDateUtil(selectedCall.at)}</p>
                 </div>
               </div>
 

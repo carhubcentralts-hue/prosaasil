@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server, ArrowRight, Power, Smile, Paperclip, Image, File } from 'lucide-react';
 import QRCodeReact from 'react-qr-code';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
@@ -336,7 +337,7 @@ export function WhatsAppPage() {
         phone: thread.phone_e164 || thread.phone || '',
         lastMessage: thread.lastMessage || thread.last_message || '',
         unread: thread.unread_count || thread.unread || 0,
-        time: thread.time || (thread.last_activity ? new Date(thread.last_activity).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : ''),
+        time: thread.time || (thread.last_activity ? formatTimeOnly(thread.last_activity) : ''),
         is_closed: thread.is_closed || false,
         summary: thread.is_closed ? 'לחץ לצפייה בסיכום' : undefined  // Only for closed conversations
       }));
