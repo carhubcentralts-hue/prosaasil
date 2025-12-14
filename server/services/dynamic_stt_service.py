@@ -33,12 +33,72 @@ class STTEnhancement:
     semantic_fix_applied: bool
 
 
+def _empty_vocabulary() -> Dict[str, Any]:
+    """Return empty vocabulary structure"""
+    return {
+        "services": [],
+        "staff": [],
+        "products": [],
+        "locations": [],
+        "business_name": "",
+        "business_type": "general",
+        "business_context": ""
+    }
+
+
+def _load_vocabulary_from_db(business_id: int, now: float) -> Dict[str, Any]:
+    """Helper to load vocabulary from DB (assumes app context exists)"""
+    from server.models_sql import BusinessSettings, Business
+    
+    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+    business = Business.query.get(business_id)
+    
+    vocab = {
+        "services": [],
+        "staff": [],
+        "products": [],
+        "locations": [],
+        "business_name": business.name if business else "",
+        "business_type": business.business_type if business else "general",
+        "business_context": ""
+    }
+    
+    if settings:
+        # Load vocabulary JSON
+        if settings.stt_vocabulary_json:
+            try:
+                stt_vocab = settings.stt_vocabulary_json
+                if isinstance(stt_vocab, str):
+                    stt_vocab = json.loads(stt_vocab)
+                
+                vocab["services"] = stt_vocab.get("services", [])
+                vocab["staff"] = stt_vocab.get("staff", [])
+                vocab["products"] = stt_vocab.get("products", [])
+                vocab["locations"] = stt_vocab.get("locations", [])
+                logger.info(f"✅ [STT-VOCAB] Loaded vocabulary for business {business_id}: "
+                           f"{len(vocab['services'])} services, {len(vocab['staff'])} staff")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"⚠️ [STT-VOCAB] Invalid JSON for business {business_id}: {e}")
+        
+        # Load business context
+        if settings.business_context:
+            vocab["business_context"] = settings.business_context
+    
+    # Cache result
+    _vocabulary_cache[business_id] = vocab
+    _cache_expiry[business_id] = now + CACHE_TTL_SECONDS
+    
+    return vocab
+
+
 def get_business_vocabulary(business_id: int) -> Dict[str, Any]:
     """
     Load business vocabulary from database
     
     Returns dict with keys: services, staff, products, locations, business_name, business_type, business_context
     All 100% from DB - no hardcoded values
+    
+    🔥 FIX: Safely handles calls from realtime thread (no app context)
     """
     import time
     
@@ -49,59 +109,26 @@ def get_business_vocabulary(business_id: int) -> Dict[str, Any]:
             return _vocabulary_cache[business_id]
     
     try:
-        from server.models_sql import BusinessSettings, Business
+        from flask import has_app_context
         
-        settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
-        business = Business.query.get(business_id)
-        
-        vocab = {
-            "services": [],
-            "staff": [],
-            "products": [],
-            "locations": [],
-            "business_name": business.name if business else "",
-            "business_type": business.business_type if business else "general",
-            "business_context": ""
-        }
-        
-        if settings:
-            # Load vocabulary JSON
-            if settings.stt_vocabulary_json:
-                try:
-                    stt_vocab = settings.stt_vocabulary_json
-                    if isinstance(stt_vocab, str):
-                        stt_vocab = json.loads(stt_vocab)
-                    
-                    vocab["services"] = stt_vocab.get("services", [])
-                    vocab["staff"] = stt_vocab.get("staff", [])
-                    vocab["products"] = stt_vocab.get("products", [])
-                    vocab["locations"] = stt_vocab.get("locations", [])
-                    logger.info(f"✅ [STT-VOCAB] Loaded vocabulary for business {business_id}: "
-                               f"{len(vocab['services'])} services, {len(vocab['staff'])} staff")
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(f"⚠️ [STT-VOCAB] Invalid JSON for business {business_id}: {e}")
-            
-            # Load business context
-            if settings.business_context:
-                vocab["business_context"] = settings.business_context
-        
-        # Cache result
-        _vocabulary_cache[business_id] = vocab
-        _cache_expiry[business_id] = now + CACHE_TTL_SECONDS
-        
-        return vocab
-        
+        # 🔥 FIX: If no app context (realtime thread), try to get it
+        if not has_app_context():
+            try:
+                from server.app_factory import get_process_app
+                app = get_process_app()
+                with app.app_context():
+                    return _load_vocabulary_from_db(business_id, now)
+            except Exception as ctx_err:
+                logger.warning(f"⚠️ [STT-VOCAB] No app context for business {business_id}: {ctx_err}")
+                # Return empty vocab on failure
+                return _empty_vocabulary()
+        else:
+            # Already have app context
+            return _load_vocabulary_from_db(business_id, now)
+                
     except Exception as e:
         logger.error(f"❌ [STT-VOCAB] Failed to load vocabulary for business {business_id}: {e}")
-        return {
-            "services": [],
-            "staff": [],
-            "products": [],
-            "locations": [],
-            "business_name": "",
-            "business_type": "general",
-            "business_context": ""
-        }
+        return _empty_vocabulary()
 
 
 def build_dynamic_stt_prompt(business_id: int, active_task: str = "") -> str:
