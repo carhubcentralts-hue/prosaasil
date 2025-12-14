@@ -49,6 +49,7 @@ server/routes_intelligence.py
 server/routes_leads.py
 server/routes_outbound.py
 server/routes_receipts_contracts.py
+server/routes_search.py
 server/routes_status_management.py
 server/routes_twilio.py
 server/routes_user_management.py
@@ -83,10 +84,13 @@ server/scripts/fix_faq_patterns.py
 server/scripts/init_seed_data.py
 server/scripts/migrate_admin_roles.py
 server/scripts/migrate_users_to_owners.py
+server/scripts/smoke_api.py
+server/scripts/verify_blueprints.py
 server/services/agent_cache.py
 server/services/ai_service.py
 server/services/appointment_nlp.py
 server/services/appointment_parser.py
+server/services/broadcast_worker.py
 server/services/business_resolver.py
 server/services/call_limiter.py
 server/services/city_normalizer.py
@@ -103,6 +107,7 @@ server/services/hebrew_ssml_builder.py
 server/services/hebrew_stt_validator.py
 server/services/invoice_service.py
 server/services/lazy_services.py
+server/services/lead_auto_status_service.py
 server/services/lead_extraction_service.py
 server/services/meta_whatsapp_client.py
 server/services/mulaw_fast.py
@@ -131,3 +136,4 @@ server/utils/safe_thread.py
 services/whatsapp/baileys_service.js
 services/whatsapp/package-lock.json
 services/whatsapp/package.json
+tests/test_api_routes.py
