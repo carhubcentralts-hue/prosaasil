@@ -313,6 +313,18 @@ export function OutboundCallsPage() {
       bulkDeleteMutation.mutate(selectedImportedLeads);
     }
   };
+  
+  const handleSelectAllImported = () => {
+    const maxSelectable = Math.min(3, availableSlots);
+    if (selectedImportedLeads.length === Math.min(importedLeads.length, maxSelectable)) {
+      // Deselect all
+      setSelectedImportedLeads([]);
+    } else {
+      // Select up to max
+      const leadsToSelect = importedLeads.slice(0, maxSelectable).map(l => l.id);
+      setSelectedImportedLeads(leadsToSelect);
+    }
+  };
 
   const handleLeadSelect = (leadId: number, isShiftKey?: boolean) => {
     setSelectedLeads(prev => {
@@ -330,6 +342,10 @@ export function OutboundCallsPage() {
   const handleStatusChange = async (leadId: number, newStatus: string) => {
     console.log(`[OutboundCallsPage] handleStatusChange called: lead=${leadId}, newStatus=${newStatus}`);
     await updateStatusMutation.mutateAsync({ leadId, newStatus });
+  };
+
+  const handleLeadClick = (leadId: number) => {
+    navigate(`/app/leads/${leadId}`);
   };
 
   const filteredLeads = (Array.isArray(leads) ? leads : []).filter((lead: Lead) => {
@@ -556,6 +572,7 @@ export function OutboundCallsPage() {
                     loading={leadsLoading}
                     selectedLeadIds={selectedLeadIdsSet}
                     onLeadSelect={handleLeadSelect}
+                    onLeadClick={handleLeadClick}
                     onStatusChange={handleStatusChange}
                   />
                 </div>
@@ -600,23 +617,29 @@ export function OutboundCallsPage() {
                   return (
                   <div
                     key={lead.id}
-                    className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
+                    className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
                       selectedLeads.includes(lead.id)
                         ? 'bg-blue-50 border-blue-300'
                         : 'bg-white border-gray-200 hover:bg-gray-50'
-                    } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    onClick={() => !isDisabled && handleToggleLead(lead.id)}
+                    } ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
                     data-testid={`lead-select-${lead.id}`}
                   >
-                    <div>
+                    <div 
+                      className="flex-1"
+                      onClick={() => !isDisabled && handleLeadClick(lead.id)}
+                    >
                       <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
                       <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
-                      {selectedLeads.includes(lead.id) && (
-                        <CheckCircle2 className="h-5 w-5 text-blue-600" />
-                      )}
+                      <div onClick={(e) => { e.stopPropagation(); !isDisabled && handleToggleLead(lead.id); }}>
+                        {selectedLeads.includes(lead.id) ? (
+                          <CheckCircle2 className="h-5 w-5 text-blue-600 cursor-pointer" />
+                        ) : (
+                          <div className="h-5 w-5 border-2 border-gray-300 rounded cursor-pointer"></div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );})}
@@ -794,7 +817,18 @@ export function OutboundCallsPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="text-right py-3 px-2 font-medium">בחירה</th>
+                        <th className="text-right py-3 px-2 font-medium">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedImportedLeads.length > 0 && selectedImportedLeads.length === Math.min(importedLeads.length, Math.min(3, availableSlots))}
+                              onChange={handleSelectAllImported}
+                              className="h-4 w-4 rounded border-gray-300"
+                              data-testid="checkbox-select-all-imported"
+                            />
+                            <span>בחירה</span>
+                          </div>
+                        </th>
                         <th className="text-right py-3 px-2 font-medium">שם</th>
                         <th className="text-right py-3 px-2 font-medium">טלפון</th>
                         <th className="text-right py-3 px-2 font-medium">סטטוס</th>
@@ -812,10 +846,11 @@ export function OutboundCallsPage() {
                         return (
                           <tr 
                             key={lead.id} 
-                            className={`border-b hover:bg-gray-50 ${isSelected ? 'bg-blue-50' : ''}`}
+                            className={`border-b hover:bg-gray-50 cursor-pointer ${isSelected ? 'bg-blue-50' : ''}`}
                             data-testid={`imported-lead-row-${lead.id}`}
+                            onClick={() => handleLeadClick(lead.id)}
                           >
-                            <td className="py-3 px-2">
+                            <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
                               <input
                                 type="checkbox"
                                 checked={isSelected}
@@ -838,7 +873,7 @@ export function OutboundCallsPage() {
                                 ? new Date(lead.created_at).toLocaleDateString('he-IL')
                                 : '-'}
                             </td>
-                            <td className="py-3 px-2">
+                            <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
                               <button
                                 onClick={() => handleDeleteLead(lead.id)}
                                 className="text-red-500 hover:text-red-700 p-1"
@@ -847,6 +882,9 @@ export function OutboundCallsPage() {
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
+                            </td>
+                          </tr>
+                        );
                             </td>
                           </tr>
                         );
