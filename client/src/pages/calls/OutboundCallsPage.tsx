@@ -885,9 +885,6 @@ export function OutboundCallsPage() {
                             </td>
                           </tr>
                         );
-                            </td>
-                          </tr>
-                        );
                       })}
                     </tbody>
                   </table>
