@@ -511,9 +511,14 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     from_number, call_sid, transcription
                 )
                 
-                # עדכון CallLog עם customer_id
+                # עדכון CallLog עם customer_id ו-lead_id
                 if customer:
                     call_log.customer_id = customer.id
+                
+                # 🔥 CRITICAL FIX: Link call to lead
+                if lead:
+                    call_log.lead_id = lead.id
+                    log.info(f"✅ Linked call {call_sid} to lead {lead.id}")
                 
                 # 🆕 POST-CALL: Update Lead with extracted service/city (if extraction succeeded)
                 if lead and (extracted_service or extracted_city):

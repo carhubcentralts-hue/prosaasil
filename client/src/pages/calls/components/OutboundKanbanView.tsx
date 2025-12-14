@@ -45,6 +45,8 @@ interface OutboundKanbanViewProps {
   onLeadSelect: (leadId: number, isShiftKey?: boolean) => void;
   onLeadClick?: (leadId: number) => void;
   onStatusChange?: (leadId: number, newStatus: string) => Promise<void>;
+  onSelectAll?: (leadIds: number[]) => void;
+  onClearSelection?: () => void;
 }
 
 export function OutboundKanbanView({
@@ -54,7 +56,9 @@ export function OutboundKanbanView({
   selectedLeadIds,
   onLeadSelect,
   onLeadClick,
-  onStatusChange
+  onStatusChange,
+  onSelectAll,
+  onClearSelection
 }: OutboundKanbanViewProps) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -152,6 +156,9 @@ export function OutboundKanbanView({
               leads={statusLeads}
               isDraggingOver={isDragging}
               selectedCount={statusLeads.filter(l => selectedLeadIds.has(l.id)).length}
+              selectedLeadIds={selectedLeadIds}
+              onSelectAll={onSelectAll}
+              onClearSelection={onClearSelection}
             >
               <SortableContext
                 items={leadIds}
