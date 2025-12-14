@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useParams, useNavigate } from 'react-router-dom';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   ArrowRight, 
   Building2, 
@@ -14,7 +13,6 @@ import {
   UserCheck
 } from 'lucide-react';
 import { businessAPI } from '../../features/businesses/api';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 interface BusinessOverview {
   id: number;
@@ -254,4 +252,3 @@ export function BusinessViewPage() {
       {/* BUILD 183: Recent Activity section removed per user request */}
     </div>
   );
-}

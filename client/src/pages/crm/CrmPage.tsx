@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle, Trash2, Loader2 } from 'lucide-react';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useNotifications } from '../../shared/contexts/NotificationContext';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (

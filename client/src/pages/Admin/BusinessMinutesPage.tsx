@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useQuery } from '@tanstack/react-query';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   Clock, 
   Phone, 
@@ -14,7 +13,6 @@ import {
   Download
 } from 'lucide-react';
 import { cn } from '../../shared/utils/cn';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 interface DirectionBreakdown {
   inbound_seconds: number;

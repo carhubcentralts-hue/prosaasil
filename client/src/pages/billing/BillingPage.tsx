@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X, PenTool, MessageSquare } from 'lucide-react';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { SignatureCanvas } from '../../components/SignatureCanvas';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -1221,4 +1218,3 @@ export function BillingPage() {
       )}
     </div>
   );
-}

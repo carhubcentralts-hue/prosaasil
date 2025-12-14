@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useNavigate } from 'react-router-dom';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   Bot, 
   Phone, 
@@ -15,11 +14,8 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { Card } from '../../shared/components/ui/Card';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
-import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 interface BusinessPrompt {
   business_id: number;
@@ -284,4 +280,3 @@ export function AdminPromptsOverviewPage() {
       </div>
     </div>
   );
-}
