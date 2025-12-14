@@ -104,7 +104,17 @@ export function LeadKanbanView({
     if (!over) return;
 
     const leadId = active.id as number;
-    const newStatusName = String(over.id); // Ensure it's a string
+    const newStatusIdentifier = over.id; // This should be status.name (string)
+    
+    // ✅ FIX BUG #1: Ensure we're using status NAME, not index or ID
+    // Find the actual status object to get its name
+    const targetStatus = statuses.find(s => s.name === String(newStatusIdentifier));
+    if (!targetStatus) {
+      console.error('❌ Invalid status identifier:', newStatusIdentifier);
+      return;
+    }
+    
+    const newStatusName = targetStatus.name; // Use the name from the status object
     
     const lead = leads.find(l => l.id === leadId);
     if (!lead) return;
@@ -115,6 +125,8 @@ export function LeadKanbanView({
       return;
     }
 
+    console.log('🔵 Kanban drag:', { leadId, from: currentStatus, to: newStatusName, type: typeof newStatusName });
+    
     // Call the parent's status change handler (optimistic update handled there)
     await onStatusChange(leadId, newStatusName);
   };

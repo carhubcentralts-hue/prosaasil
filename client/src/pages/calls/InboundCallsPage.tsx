@@ -76,7 +76,13 @@ export function InboundCallsPage() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ leadId, newStatus }: { leadId: number; newStatus: string }) => {
-      return await http.patch(`/api/leads/${leadId}/status`, { status: newStatus });
+      // ✅ FIX BUG #1: Ensure status is always a string, never a number
+      if (typeof newStatus !== 'string') {
+        console.error('❌ Invalid status type in Kanban:', typeof newStatus, newStatus);
+        throw new Error('סטטוס לא תקין');
+      }
+      console.log('🔵 Kanban status update:', { leadId, newStatus, type: typeof newStatus });
+      return await http.post(`/api/leads/${leadId}/status`, { status: newStatus });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
