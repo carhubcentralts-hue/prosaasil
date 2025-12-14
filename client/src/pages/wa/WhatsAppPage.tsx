@@ -1232,6 +1232,29 @@ export function WhatsAppPage() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          // Validate file size (max 10MB)
+                          const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+                          if (file.size > MAX_FILE_SIZE) {
+                            alert('הקובץ גדול מדי (מקסימום 10MB)');
+                            e.target.value = ''; // Clear input
+                            return;
+                          }
+                          
+                          // Validate file type
+                          const allowedTypes = [
+                            'image/', 'video/', 'audio/',
+                            'application/pdf',
+                            'application/msword',
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                          ];
+                          
+                          const isAllowed = allowedTypes.some(type => file.type.startsWith(type) || file.type === type);
+                          if (!isAllowed) {
+                            alert('סוג קובץ לא נתמך');
+                            e.target.value = ''; // Clear input
+                            return;
+                          }
+                          
                           setSelectedFile(file);
                         }
                       }}

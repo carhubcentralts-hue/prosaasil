@@ -1718,27 +1718,62 @@ def create_broadcast():
                         'lead_id': lead.id
                     })
         
-        # From CSV file
+        # From CSV file (with validation)
         csv_file = request.files.get('csv_file')
         if csv_file:
             import csv
             import io
             
-            stream = io.StringIO(csv_file.stream.read().decode("UTF8"), newline=None)
-            csv_reader = csv.DictReader(stream)
+            # Validate file size (max 5MB)
+            MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+            csv_file.seek(0, 2)  # Seek to end
+            file_size = csv_file.tell()
+            csv_file.seek(0)  # Seek back to start
             
-            for row in csv_reader:
-                phone = row.get('phone', '').strip()
-                if phone:
-                    recipients.append({
-                        'phone': phone,
-                        'lead_id': None
-                    })
+            if file_size > MAX_FILE_SIZE:
+                return jsonify({
+                    'success': False,
+                    'message': 'קובץ גדול מדי (מקסימום 5MB)'
+                }), 400
+            
+            # Read and parse CSV with row limit
+            MAX_ROWS = 10000  # Max 10,000 recipients
+            try:
+                stream = io.StringIO(csv_file.stream.read().decode("UTF8"), newline=None)
+                csv_reader = csv.DictReader(stream)
+                
+                row_count = 0
+                for row in csv_reader:
+                    row_count += 1
+                    if row_count > MAX_ROWS:
+                        log.warning(f"CSV row limit exceeded: {row_count} > {MAX_ROWS}")
+                        break
+                    
+                    phone = row.get('phone', '').strip()
+                    if phone:
+                        recipients.append({
+                            'phone': phone,
+                            'lead_id': None
+                        })
+            except Exception as csv_err:
+                log.error(f"CSV parsing error: {csv_err}")
+                return jsonify({
+                    'success': False,
+                    'message': 'שגיאה בקריאת קובץ CSV'
+                }), 400
         
         if len(recipients) == 0:
             return jsonify({
                 'success': False,
                 'message': 'לא נמצאו נמענים'
+            }), 400
+        
+        # Limit total recipients
+        MAX_RECIPIENTS = 10000
+        if len(recipients) > MAX_RECIPIENTS:
+            return jsonify({
+                'success': False,
+                'message': f'יותר מדי נמענים (מקסימום {MAX_RECIPIENTS})'
             }), 400
         
         # Create broadcast campaign

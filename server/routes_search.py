@@ -69,6 +69,10 @@ def global_search():
                 'total': 0
             })
         
+        # Sanitize query - prevent special SQL characters
+        # SQLAlchemy's ilike() uses parameterized queries, but we sanitize for extra safety
+        query = query.replace('%', '').replace('_', '').replace('\\', '')[:100]  # Max 100 chars
+        
         # Parse types filter
         types_param = request.args.get('types', 'leads,calls,whatsapp,contacts')
         search_types = [t.strip() for t in types_param.split(',')]
