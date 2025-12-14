@@ -1236,11 +1236,12 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         return False
     
     # 4) Echo suppression window - reject if AI is speaking AND <200ms since audio started
-    # 🔥 FIX: Add bypass logic to prevent dropping real user speech
+    # 🔥 C1 REQUIREMENT: Enhanced bypass logic for fast user responses (0.1-0.3s)
     # Bypass echo_window if ANY of these conditions are met:
     # 1. candidate_user_speaking == True (speech_started event fired)
     # 2. local_vad_voice_frames >= 8 (160ms+ of sustained speech)
     # 3. Text is new content (not similar to last AI transcript)
+    # 4. C1: Utterance duration >= 100ms (fast but real response like "בית שאן")
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
         # Check bypass conditions
         has_user_speech_candidate = candidate_user_speaking
@@ -1254,13 +1255,35 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
             ai_normalized = last_ai_transcript.strip().lower()
             is_new_content = stt_normalized not in ai_normalized
         
+        # 🎯 C1: Fast response bypass - if utterance is >=100ms and has real Hebrew content, allow it
+        # This catches fast answers like "בית שאן" (0.1-0.3s after "איזו עיר?")
+        is_fast_but_real_response = (
+            utterance_ms >= 100 and  # At least 100ms duration
+            len(stt_text.strip()) >= 3 and  # At least 3 chars
+            any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in stt_text)  # Has Hebrew characters
+        )
+        
         # Bypass if ANY condition is met
-        should_bypass_echo_window = has_user_speech_candidate or has_sustained_vad or is_new_content
+        should_bypass_echo_window = (
+            has_user_speech_candidate or 
+            has_sustained_vad or 
+            is_new_content or 
+            is_fast_but_real_response
+        )
         
         if should_bypass_echo_window:
+            bypass_reasons = []
+            if has_user_speech_candidate:
+                bypass_reasons.append("candidate_user_speaking")
+            if has_sustained_vad:
+                bypass_reasons.append(f"sustained_vad_{local_vad_voice_frames}frames")
+            if is_new_content:
+                bypass_reasons.append("new_content")
+            if is_fast_but_real_response:
+                bypass_reasons.append(f"fast_response_{utterance_ms:.0f}ms")
+            
             logger.info(
-                f"[STT_GUARD] Accepted (echo_window bypass: candidate_user_speaking={candidate_user_speaking}, "
-                f"local_vad_frames={local_vad_voice_frames}, is_new_content={is_new_content}) text='{stt_text[:30]}...'"
+                f"[C1 STT_GUARD] Accepted (echo_window bypass: {', '.join(bypass_reasons)}) text='{stt_text[:30]}...'"
             )
         else:
             # No bypass - drop as echo
@@ -10992,8 +11015,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     await client.send_event({"type": "response.create"})
                 
             except Exception as e:
-                # 🔥 FALLBACK: Tool failed - log clearly and return fallback response
+                # 🎯 D5 REQUIREMENT: Fallback error handling for check_availability
                 print(f"❌ [CHECK_AVAIL] APPT_TOOL_FAILED: {e}")
+                logger.error(f"[D5 CHECK_AVAIL_FAILED] Exception in check_availability: {e}")
                 import traceback
                 traceback.print_exc()
                 await client.send_event({
@@ -11086,6 +11110,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # Parse ISO datetime - handle both Z suffix and explicit timezone
                     # Using fromisoformat after normalizing Z to +00:00
+                    # 🎯 D4 REQUIREMENT: Verify timezone correctness (Asia/Jerusalem +02:00)
                     try:
                         requested_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
                     except ValueError:
@@ -11094,10 +11119,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Try parsing as YYYY-MM-DDTHH:MM:SS
                         requested_dt = datetime.strptime(datetime_iso[:19], "%Y-%m-%dT%H:%M:%S")
                     
+                    # 🎯 D4: Normalize to business timezone
                     if requested_dt.tzinfo is None:
                         requested_dt = tz.localize(requested_dt)
+                        logger.info(f"[D4 TIMEZONE] Localized naive datetime to {tz}: {requested_dt.isoformat()}")
                     else:
                         requested_dt = requested_dt.astimezone(tz)
+                        logger.info(f"[D4 TIMEZONE] Converted to {tz}: {requested_dt.isoformat()}")
                     
                     # Use policy duration if not provided
                     if not duration:
@@ -11175,8 +11203,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         await client.send_event({"type": "response.create"})
                 
             except Exception as e:
-                # 🔥 FALLBACK: Tool failed - log clearly and return fallback response
+                # 🎯 D5 REQUIREMENT: Fallback path logging
+                # APPT_TOOL_FAILED → FALLBACK_LEAD_CREATED → AI says "לקחתי פרטים ונציג יחזור"
                 print(f"❌ [BOOK_APPT] APPT_TOOL_FAILED: {e}")
+                logger.error(f"[D5 APPT_TOOL_FAILED] Exception in book_appointment: {e}")
                 import traceback
                 traceback.print_exc()
                 
@@ -11184,12 +11214,15 @@ Greet briefly. Then WAIT for customer to speak."""
                 # Note: Lead should already exist from ensure_lead() at call start
                 # Verify and create if needed for safety
                 print(f"📋 [BOOK_APPT] FALLBACK_LEAD_CREATED: Verifying lead exists for manual processing")
+                logger.info(f"[D5 FALLBACK_LEAD_CREATED] Activating fallback flow - ensuring lead exists")
                 try:
                     # Ensure lead is saved (idempotent - won't create duplicate)
                     if hasattr(self, 'ensure_lead') and callable(self.ensure_lead):
                         self.ensure_lead()
                         print(f"✅ [BOOK_APPT] Lead verified/created for follow-up")
+                        logger.info(f"[D5 FALLBACK_LEAD_CREATED] Lead saved successfully for manual processing")
                 except Exception as lead_err:
+                    logger.error(f"⚠️ [D5 FALLBACK_LEAD_CREATED] Could not verify lead: {lead_err}")
                     print(f"⚠️ [BOOK_APPT] Could not verify lead: {lead_err}")
                     # Continue anyway - rep can still call back using caller ID
                 
