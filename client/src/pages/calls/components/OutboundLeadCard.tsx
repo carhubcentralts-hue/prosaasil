@@ -81,10 +81,20 @@ export function OutboundLeadCard({
 
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     onSelect(lead.id, e.shiftKey);
   };
+  
+  const handleCheckboxChange = () => {
+    // Handled by onClick above
+  };
 
-  const handleCardClick = () => {
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't trigger card click if clicking on checkbox area or drag handle
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-checkbox-wrapper]') || target.closest('[data-drag-handle]')) {
+      return;
+    }
     if (!isDragOverlay && onClick) {
       onClick(lead.id);
     }
@@ -106,8 +116,13 @@ export function OutboundLeadCard({
     >
       <div className="flex items-start gap-2">
         {/* Checkbox */}
-        <div onClick={handleCheckboxClick} className="mt-0.5">
-          <Checkbox checked={isSelected} onChange={() => onSelect(lead.id)} />
+        <div 
+          onClick={handleCheckboxClick} 
+          onPointerDown={(e) => e.stopPropagation()}
+          className="mt-0.5"
+          data-checkbox-wrapper
+        >
+          <Checkbox checked={isSelected} onChange={handleCheckboxChange} />
         </div>
 
         {/* Content */}
@@ -142,7 +157,12 @@ export function OutboundLeadCard({
         </div>
 
         {/* Drag Handle */}
-        <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing mt-1">
+        <div 
+          {...attributes} 
+          {...listeners} 
+          className="cursor-grab active:cursor-grabbing mt-1"
+          data-drag-handle
+        >
           <GripVertical className="w-4 h-4 text-gray-400" />
         </div>
       </div>

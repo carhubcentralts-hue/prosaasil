@@ -2570,6 +2570,21 @@ Greet briefly. Then WAIT for customer to speak."""
                             if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
+                            
+                            # 🔥 CRITICAL FIX: Link CallLog to lead_id
+                            if lead_id and hasattr(self, 'call_sid') and self.call_sid:
+                                try:
+                                    from server.models_sql import CallLog
+                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
+                                    if call_log and not call_log.lead_id:
+                                        call_log.lead_id = lead_id
+                                        db.session.commit()
+                                        print(f"✅ [CRM] Linked CallLog {self.call_sid} to lead {lead_id}")
+                                    elif call_log and call_log.lead_id:
+                                        print(f"ℹ️ [CRM] CallLog {self.call_sid} already linked to lead {call_log.lead_id}")
+                                except Exception as link_error:
+                                    print(f"⚠️ [CRM] Failed to link CallLog to lead: {link_error}")
+                            
                             print(f"✅ [CRM] Context ready (background): lead_id={lead_id}, direction={call_direction}")
                     except Exception as e:
                         print(f"⚠️ [CRM] Background init failed: {e}")
