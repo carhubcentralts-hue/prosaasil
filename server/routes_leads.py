@@ -236,6 +236,7 @@ def list_leads():
         
         # Parse query parameters
         status_filter = request.args.get('status', '')
+        statuses_filter = request.args.getlist('statuses[]')  # Multi-status filter
         source_filter = request.args.get('source', '')
         owner_filter = request.args.get('owner', '')
         outbound_list_id = request.args.get('outbound_list_id', '')
@@ -247,7 +248,10 @@ def list_leads():
         page_size = min(int(request.args.get('pageSize', 50)), 100)  # Max 100 per page
         
         # Apply filters
-        if status_filter:
+        if statuses_filter:
+            # ✅ NEW: Multi-status filter (case-insensitive)
+            query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
+        elif status_filter:
             # ✅ FIXED: Case-insensitive status filtering for legacy compatibility
             query = query.filter(func.lower(Lead.status) == status_filter.lower())
         

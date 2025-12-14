@@ -1,5 +1,6 @@
 import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import { CheckSquare, Square } from 'lucide-react';
 
 interface Lead {
   id: number;
@@ -20,6 +21,11 @@ interface OutboundKanbanColumnProps {
   isDraggingOver: boolean;
   selectedCount: number;
   children: React.ReactNode;
+  selectedLeadIds?: Set<number>;
+  onSelectAll?: (leadIds: number[]) => void;
+  onClearSelection?: () => void;
+  showCallableOnly?: boolean;
+  callableLeadIds?: Set<number>;
 }
 
 export function OutboundKanbanColumn({
@@ -27,7 +33,12 @@ export function OutboundKanbanColumn({
   leads,
   isDraggingOver,
   selectedCount,
-  children
+  children,
+  selectedLeadIds = new Set(),
+  onSelectAll,
+  onClearSelection,
+  showCallableOnly = false,
+  callableLeadIds = new Set()
 }: OutboundKanbanColumnProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: status.name,
@@ -40,6 +51,26 @@ export function OutboundKanbanColumn({
   const textColorClass = status.color.includes('text-')
     ? status.color.split(' ').find(c => c.startsWith('text-'))
     : 'text-gray-800';
+
+  // Get lead IDs based on callable filter
+  const getLeadIds = () => {
+    if (showCallableOnly) {
+      return leads.filter(l => callableLeadIds.has(l.id)).map(l => l.id);
+    }
+    return leads.map(l => l.id);
+  };
+
+  const leadIds = getLeadIds();
+  const allSelected = leadIds.length > 0 && leadIds.every(id => selectedLeadIds.has(id));
+  const someSelected = leadIds.some(id => selectedLeadIds.has(id));
+
+  const handleSelectToggle = () => {
+    if (allSelected && onClearSelection) {
+      onClearSelection();
+    } else if (onSelectAll) {
+      onSelectAll(leadIds);
+    }
+  };
 
   return (
     <div className="flex-shrink-0 w-80 flex flex-col">
@@ -54,11 +85,29 @@ export function OutboundKanbanColumn({
               ({leads.length})
             </span>
           </div>
-          {selectedCount > 0 && (
-            <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded-full">
-              {selectedCount} נבחר
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {selectedCount > 0 && (
+              <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded-full">
+                {selectedCount} נבחר
+              </span>
+            )}
+            {/* Select All button */}
+            {leads.length > 0 && onSelectAll && (
+              <button
+                onClick={handleSelectToggle}
+                className={`p-1 rounded hover:bg-black/10 transition-colors ${textColorClass}`}
+                title={showCallableOnly ? (allSelected ? 'נקה בחירה' : 'בחר ניתנים לחיוג') : (allSelected ? 'נקה בחירה' : 'בחר הכל')}
+              >
+                {allSelected ? (
+                  <CheckSquare className="w-4 h-4" />
+                ) : someSelected ? (
+                  <CheckSquare className="w-4 h-4 opacity-50" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
