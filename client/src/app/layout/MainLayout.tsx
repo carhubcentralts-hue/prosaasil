@@ -18,7 +18,8 @@ import {
   Bell,
   User,
   Bot,
-  Clock
+  Clock,
+  Send
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -46,6 +47,12 @@ const menuItems = [
     label: 'WhatsApp',
     to: '/app/whatsapp',
     roles: ['system_admin', 'owner', 'admin', 'agent']
+  },
+  { 
+    icon: Send, 
+    label: 'תפוצה WhatsApp',
+    to: '/app/whatsapp-broadcast',
+    roles: ['system_admin', 'owner', 'admin']
   },
   { 
     icon: Phone, 

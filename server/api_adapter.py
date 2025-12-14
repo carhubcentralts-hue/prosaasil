@@ -272,27 +272,27 @@ def dashboard_activity():
         
         activities = []
         
-        # BUILD 170: Cache lead lookups by customer_id to avoid N+1 queries
-        customer_to_lead = {}
+        # BUILD 170: Cache lead lookups to avoid N+1 queries
+        phone_to_lead = {}
         
         # Add WhatsApp activities (with None check for created_at)
         for msg in recent_whatsapp:
             if msg.created_at:  # Only add if created_at is not None
                 msg_body = msg.body or ""  # Use 'body' field, not 'message_body'
                 
-                # Look up the actual Lead ID from customer_id
+                # Look up the actual Lead ID from phone number
                 lead_id = None
-                customer_id = getattr(msg, 'customer_id', None)
-                if customer_id:
-                    if customer_id not in customer_to_lead:
+                phone = getattr(msg, 'from_phone', None) or getattr(msg, 'phone', None)
+                if phone:
+                    if phone not in phone_to_lead:
                         # BUILD 173: Handle Lead lookup errors gracefully
                         try:
-                            lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
-                            customer_to_lead[customer_id] = lead.id if lead else None
+                            lead = Lead.query.filter_by(tenant_id=tenant_id, phone_e164=phone).first()
+                            phone_to_lead[phone] = lead.id if lead else None
                         except Exception as lead_err:
-                            logger.warning(f"Lead lookup failed for tenant={tenant_id}, customer={customer_id}: {lead_err}")
-                            customer_to_lead[customer_id] = None
-                    lead_id = customer_to_lead.get(customer_id)
+                            logger.warning(f"Lead lookup failed for tenant={tenant_id}, phone={phone}: {lead_err}")
+                            phone_to_lead[phone] = None
+                    lead_id = phone_to_lead.get(phone)
                 
                 activities.append({
                     "ts": msg.created_at.isoformat() + "Z",
@@ -305,19 +305,19 @@ def dashboard_activity():
         # Add call activities (with None check for created_at)
         for call in recent_calls:
             if call.created_at:  # Only add if created_at is not None
-                # Look up the actual Lead ID from customer_id
+                # Look up the actual Lead ID from phone number
                 lead_id = None
-                customer_id = call.customer_id
-                if customer_id:
-                    if customer_id not in customer_to_lead:
+                phone = call.from_number if call.direction == 'inbound' else call.to_number
+                if phone:
+                    if phone not in phone_to_lead:
                         # BUILD 173: Handle Lead lookup errors gracefully (reuse cached value)
                         try:
-                            lead = Lead.query.filter_by(tenant_id=tenant_id, customer_id=customer_id).first()
-                            customer_to_lead[customer_id] = lead.id if lead else None
+                            lead = Lead.query.filter_by(tenant_id=tenant_id, phone_e164=phone).first()
+                            phone_to_lead[phone] = lead.id if lead else None
                         except Exception as lead_err:
-                            logger.warning(f"Lead lookup failed for call tenant={tenant_id}, customer={customer_id}: {lead_err}")
-                            customer_to_lead[customer_id] = None
-                    lead_id = customer_to_lead.get(customer_id)
+                            logger.warning(f"Lead lookup failed for call tenant={tenant_id}, phone={phone}: {lead_err}")
+                            phone_to_lead[phone] = None
+                    lead_id = phone_to_lead.get(phone)
                 
                 activities.append({
                     "ts": call.created_at.isoformat() + "Z",

@@ -846,3 +846,66 @@ class OutboundCallJob(db.Model):
     # Relationships
     run = db.relationship("OutboundCallRun", backref="jobs")
     lead = db.relationship("Lead")
+
+
+class WhatsAppBroadcast(db.Model):
+    """WhatsApp Broadcast Campaign"""
+    __tablename__ = "whatsapp_broadcasts"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Campaign details
+    name = db.Column(db.String(255))
+    provider = db.Column(db.String(32))  # meta|baileys
+    message_type = db.Column(db.String(32))  # template|freetext
+    template_id = db.Column(db.String(255))
+    template_name = db.Column(db.String(255))
+    message_text = db.Column(db.Text)
+    
+    # Audience
+    audience_filter = db.Column(db.JSON)  # Statuses, tags, etc.
+    
+    # Status and progress
+    status = db.Column(db.String(32), default="pending", index=True)  # pending|running|completed|failed|paused
+    total_recipients = db.Column(db.Integer, default=0)
+    sent_count = db.Column(db.Integer, default=0)
+    failed_count = db.Column(db.Integer, default=0)
+    
+    # Metadata
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    business = db.relationship("Business")
+    creator = db.relationship("User")
+
+
+class WhatsAppBroadcastRecipient(db.Model):
+    """Individual recipient in a broadcast campaign"""
+    __tablename__ = "whatsapp_broadcast_recipients"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    broadcast_id = db.Column(db.Integer, db.ForeignKey("whatsapp_broadcasts.id"), nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Recipient details
+    phone = db.Column(db.String(64), nullable=False)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True)
+    
+    # Status
+    status = db.Column(db.String(32), default="queued", index=True)  # queued|sent|failed
+    error_message = db.Column(db.Text)
+    
+    # Message details
+    message_id = db.Column(db.String(255))
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_at = db.Column(db.DateTime)
+    
+    # Relationships
+    broadcast = db.relationship("WhatsAppBroadcast", backref="recipients")
+    lead = db.relationship("Lead")

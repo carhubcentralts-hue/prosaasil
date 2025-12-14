@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server, ArrowRight, Power } from 'lucide-react';
+import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server, ArrowRight, Power, Smile, Paperclip, Image, File } from 'lucide-react';
 import QRCodeReact from 'react-qr-code';
 import { http } from '../../services/http';
 
@@ -103,6 +103,7 @@ export function WhatsAppPage() {
   // State management
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState<WhatsAppThread[]>([]);
+  const [filteredThreads, setFilteredThreads] = useState<WhatsAppThread[]>([]);
   const [selectedThread, setSelectedThread] = useState<WhatsAppThread | null>(null);
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus>({
     provider: 'unknown',
@@ -119,6 +120,10 @@ export function WhatsAppPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messages, setMessages] = useState<WhatsAppMessageData[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  
+  // Search and filter state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'active' | 'unread' | 'closed'>('all');
   
   // Settings and prompt editing state
   const [showSettings, setShowSettings] = useState(false);
@@ -140,6 +145,11 @@ export function WhatsAppPage() {
   // WhatsApp summaries state
   const [summaries, setSummaries] = useState<{id: number; lead_name: string; phone: string; summary: string; summary_at: string}[]>([]);
   const [loadingSummaries, setLoadingSummaries] = useState(false);
+  
+  // Emoji picker and file upload state
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   // Load initial data - fire all in parallel (each handles its own errors)
   useEffect(() => {
@@ -332,14 +342,47 @@ export function WhatsAppPage() {
       }));
       
       setThreads(transformedThreads);
+      setFilteredThreads(transformedThreads); // Initialize filtered threads
     } catch (error) {
       console.error('Error loading threads:', error);
       // Fallback to empty array if API fails
       setThreads([]);
+      setFilteredThreads([]);
     } finally {
       setLoading(false);
     }
   };
+
+  // Filter threads based on search and filter type
+  useEffect(() => {
+    let filtered = [...threads];
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(thread =>
+        thread.name.toLowerCase().includes(query) ||
+        thread.phone.toLowerCase().includes(query) ||
+        thread.lastMessage.toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply type filter
+    switch (filterType) {
+      case 'active':
+        filtered = filtered.filter(thread => !thread.is_closed);
+        break;
+      case 'unread':
+        filtered = filtered.filter(thread => thread.unread > 0);
+        break;
+      case 'closed':
+        filtered = filtered.filter(thread => thread.is_closed);
+        break;
+      // 'all' - no additional filtering
+    }
+    
+    setFilteredThreads(filtered);
+  }, [threads, searchQuery, filterType]);
 
   const loadPrompts = async () => {
     try {
@@ -450,30 +493,65 @@ export function WhatsAppPage() {
   };
 
   const sendMessage = async () => {
-    if (!selectedThread || !messageText.trim()) return;
+    if (!selectedThread || (!messageText.trim() && !selectedFile)) return;
     
     try {
       setSendingMessage(true);
-      const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, {
-        text: messageText.trim(),
-        provider: selectedProvider
-      });
+      setUploadingFile(!!selectedFile);
       
-      if (response.success) {
-        setMessageText('');
-        // Reload threads to get updated last message
-        await loadThreads();
-        // Reload messages immediately
-        const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
-        setMessages(messagesResponse.messages || []);
-        console.log('✅ הודעה נשלחה בהצלחה');
+      // If there's a file, send it with FormData
+      if (selectedFile) {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        if (messageText.trim()) {
+          formData.append('caption', messageText.trim());
+        }
+        formData.append('provider', selectedProvider);
+        
+        const response = await http.post<{success: boolean; error?: string}>(
+          `/api/crm/threads/${selectedThread.phone}/message`,
+          formData
+        );
+        
+        if (response.success) {
+          setMessageText('');
+          setSelectedFile(null);
+          setShowEmojiPicker(false);
+          // Reload threads and messages
+          await loadThreads();
+          const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
+          setMessages(messagesResponse.messages || []);
+          console.log('✅ הודעה עם קובץ נשלחה בהצלחה');
+        } else {
+          console.error('❌ שגיאה בשליחת הודעה:', response.error);
+          alert('שגיאה בשליחת הודעה: ' + (response.error || 'שגיאה לא ידועה'));
+        }
       } else {
-        console.error('❌ שגיאה בשליחת הודעה:', response.error);
+        // Text-only message
+        const response = await http.post<{success: boolean; error?: string}>(`/api/crm/threads/${selectedThread.phone}/message`, {
+          text: messageText.trim(),
+          provider: selectedProvider
+        });
+        
+        if (response.success) {
+          setMessageText('');
+          setShowEmojiPicker(false);
+          // Reload threads to get updated last message
+          await loadThreads();
+          // Reload messages immediately
+          const messagesResponse = await http.get<{messages: WhatsAppMessageData[]}>(`/api/crm/threads/${selectedThread.phone}/messages`);
+          setMessages(messagesResponse.messages || []);
+          console.log('✅ הודעה נשלחה בהצלחה');
+        } else {
+          console.error('❌ שגיאה בשליחת הודעה:', response.error);
+        }
       }
     } catch (error: any) {
       console.error('❌ שגיאה בשליחת הודעה:', error.message);
+      alert('שגיאה בשליחת הודעה: ' + (error.message || 'שגיאה לא ידועה'));
     } finally {
       setSendingMessage(false);
+      setUploadingFile(false);
     }
   };
 
@@ -870,7 +948,7 @@ export function WhatsAppPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Conversations List */}
         <div className="lg:col-span-1">
-          <Card className="p-4 h-[500px] flex flex-col">
+          <Card className="p-4 h-[600px] flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="font-semibold text-slate-900">שיחות</h2>
               <div className="flex items-center gap-2">
@@ -883,12 +961,68 @@ export function WhatsAppPage() {
                 >
                   <RefreshCw className="h-4 w-4" />
                 </Button>
-                <Badge variant="secondary">{threads.length}</Badge>
+                <Badge variant="secondary">{filteredThreads.length}</Badge>
               </div>
             </div>
             
+            {/* Search Bar */}
+            <div className="mb-3">
+              <input
+                type="text"
+                placeholder="חיפוש שיחות..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                dir="rtl"
+              />
+            </div>
+            
+            {/* Filter Buttons */}
+            <div className="flex gap-2 mb-3 flex-wrap">
+              <button
+                onClick={() => setFilterType('all')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                הכל ({threads.length})
+              </button>
+              <button
+                onClick={() => setFilterType('active')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'active'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                פעילים ({threads.filter(t => !t.is_closed).length})
+              </button>
+              <button
+                onClick={() => setFilterType('unread')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'unread'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                לא נקראו ({threads.filter(t => t.unread > 0).length})
+              </button>
+              <button
+                onClick={() => setFilterType('closed')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  filterType === 'closed'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                נסגרו ({threads.filter(t => t.is_closed).length})
+              </button>
+            </div>
+            
             <div className="space-y-3 flex-1 overflow-y-auto">
-              {threads.map((thread) => (
+              {filteredThreads.map((thread) => (
                 <div
                   key={thread.id}
                   className={`p-4 rounded-lg cursor-pointer transition-all border ${
@@ -938,10 +1072,14 @@ export function WhatsAppPage() {
                 </div>
               ))}
               
-              {threads.length === 0 && (
+              {filteredThreads.length === 0 && (
                 <div className="text-center py-8 text-slate-500">
                   <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                  <p>אין שיחות פעילות</p>
+                  {searchQuery || filterType !== 'all' ? (
+                    <p>לא נמצאו שיחות התואמות את החיפוש</p>
+                  ) : (
+                    <p>אין שיחות פעילות</p>
+                  )}
                 </div>
               )}
             </div>
@@ -951,7 +1089,7 @@ export function WhatsAppPage() {
         {/* Chat Area */}
         <div className="lg:col-span-2">
           {selectedThread ? (
-            <Card className="p-0 h-[500px] flex flex-col">
+            <Card className="p-0 h-[600px] flex flex-col">
               {/* Chat Header */}
               <div className="p-4 border-b border-slate-200 bg-green-50">
                 <div className="flex justify-between items-center">
@@ -1042,13 +1180,105 @@ export function WhatsAppPage() {
 
               {/* Message Input */}
               <div className="p-4 border-t border-slate-200">
+                {/* File Preview */}
+                {selectedFile && (
+                  <div className="mb-2 p-2 bg-slate-50 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {selectedFile.type.startsWith('image/') ? (
+                        <Image className="h-4 w-4 text-blue-600" />
+                      ) : (
+                        <File className="h-4 w-4 text-slate-600" />
+                      )}
+                      <span className="text-sm text-slate-700">{selectedFile.name}</span>
+                      <span className="text-xs text-slate-500">
+                        ({(selectedFile.size / 1024).toFixed(1)} KB)
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setSelectedFile(null)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                
+                {/* Emoji Picker */}
+                {showEmojiPicker && (
+                  <div className="mb-2 p-3 bg-white border border-slate-200 rounded-lg shadow-lg">
+                    <div className="grid grid-cols-8 gap-2">
+                      {['😀', '😂', '😍', '🤔', '👍', '👎', '❤️', '🎉', '🔥', '✅', '❌', '⭐', '💪', '🙏', '👏', '🤝'].map(emoji => (
+                        <button
+                          key={emoji}
+                          onClick={() => {
+                            setMessageText(prev => prev + emoji);
+                            setShowEmojiPicker(false);
+                          }}
+                          className="text-2xl hover:bg-slate-100 rounded p-1 transition-colors"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
                 <div className="flex gap-2">
+                  {/* File Upload Button */}
+                  <label className="cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          // Validate file size (max 10MB)
+                          const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+                          if (file.size > MAX_FILE_SIZE) {
+                            alert('הקובץ גדול מדי (מקסימום 10MB)');
+                            e.target.value = ''; // Clear input
+                            return;
+                          }
+                          
+                          // Validate file type
+                          const allowedTypes = [
+                            'image/', 'video/', 'audio/',
+                            'application/pdf',
+                            'application/msword',
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                          ];
+                          
+                          const isAllowed = allowedTypes.some(type => file.type.startsWith(type) || file.type === type);
+                          if (!isAllowed) {
+                            alert('סוג קובץ לא נתמך');
+                            e.target.value = ''; // Clear input
+                            return;
+                          }
+                          
+                          setSelectedFile(file);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    <div className="p-2 hover:bg-slate-100 rounded-md transition-colors">
+                      <Paperclip className="h-5 w-5 text-slate-600" />
+                    </div>
+                  </label>
+                  
+                  {/* Emoji Button */}
+                  <button
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    className="p-2 hover:bg-slate-100 rounded-md transition-colors"
+                  >
+                    <Smile className="h-5 w-5 text-slate-600" />
+                  </button>
+                  
                   <input
                     type="text"
                     placeholder="כתוב הודעה..."
                     value={messageText}
                     onChange={(e) => setMessageText(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
                     className="flex-1 px-3 py-2 border border-slate-300 rounded-md"
                     dir="rtl"
                     data-testid="input-message"
@@ -1056,10 +1286,10 @@ export function WhatsAppPage() {
                   <Button 
                     size="sm" 
                     onClick={sendMessage}
-                    disabled={sendingMessage || !messageText.trim()}
+                    disabled={sendingMessage || (!messageText.trim() && !selectedFile)}
                     data-testid="button-send-message"
                   >
-                    {sendingMessage ? (
+                    {sendingMessage || uploadingFile ? (
                       <RefreshCw className="h-4 w-4 animate-spin" />
                     ) : (
                       <Send className="h-4 w-4" />
