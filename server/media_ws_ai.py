@@ -1093,7 +1093,14 @@ RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
 # BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
-BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
+# ✅ P0-2: Updated to 12 frames (240ms) to filter short fillers while staying responsive
+BARGE_IN_VOICE_FRAMES = 12     # 12 frames = 240ms continuous speech to trigger barge-in - filters "um", "ah"
+
+# TX BURST PROTECTION - Prevent chipmunk effect from audio bursts
+# ✅ P0-1: Constants for queue backlog management
+TX_BACKLOG_THRESHOLD_FRAMES = 100  # 100 frames = 2 seconds of audio - trigger burst protection
+TX_BACKLOG_TARGET_FRAMES = 50      # Target queue size after dropping frames
+TX_BACKLOG_MAX_DROP_FRAMES = 25    # Maximum frames to drop in one burst protection cycle
 
 # STT MERGING - Hebrew segment handling
 STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
@@ -3939,8 +3946,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.realtime_audio_out_chunks += 1
                         
                         # ✅ P0-3: Track last audio delta timestamp for watchdog
-                        if not hasattr(self, '_last_audio_delta_ts'):
-                            self._last_audio_delta_ts = now
                         self._last_audio_delta_ts = now
                         
                         # 🔍 DEBUG: Verify μ-law format from OpenAI + GAP DETECTION
@@ -7357,14 +7362,13 @@ Greet briefly. Then WAIT for customer to speak."""
                             # ✅ P0-2: Use MIN_SPEECH_RMS for threshold (configurable)
                             speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
                             
-                            # ✅ P0-2: Require 12+ consecutive voice frames (~240ms) to trigger
+                            # ✅ P0-2: Use global BARGE_IN_VOICE_FRAMES constant (12 frames = 240ms)
                             # This filters out short bursts like "um" while being responsive
-                            MIN_BARGE_IN_FRAMES = 12  # 240ms minimum - filters short fillers
                             
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
                                 # ✅ P0-2: Trigger barge-in only on sustained speech (240ms+)
-                                if self.barge_in_voice_frames >= MIN_BARGE_IN_FRAMES:
+                                if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
                                     # ✅ P0-2: Log barge-in trigger with all required info
                                     print(f"[BARGE_IN_TRIGGER] rms={rms:.0f} consec={self.barge_in_voice_frames} "
                                           f"ai_speaking={self.is_ai_speaking_event.is_set()} "
@@ -11570,9 +11574,9 @@ Greet briefly. Then WAIT for customer to speak."""
                 queue_size = self.tx_q.qsize()
                 
                 # If queue has big backlog, drop old frames instead of rapid sending
-                if queue_size > 100:  # Significant backlog (>2 seconds of audio)
+                if queue_size > TX_BACKLOG_THRESHOLD_FRAMES:  # Significant backlog (>2 seconds of audio)
                     # Drop oldest frames to prevent burst
-                    frames_to_drop = min(queue_size - 50, 25)  # Drop up to 25 frames, keep 50 in queue
+                    frames_to_drop = min(queue_size - TX_BACKLOG_TARGET_FRAMES, TX_BACKLOG_MAX_DROP_FRAMES)
                     dropped = 0
                     for _ in range(frames_to_drop):
                         try:
@@ -11636,14 +11640,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Missed deadline - resync (but don't catch up too fast)
                     next_deadline = time.monotonic()
                 
-                # ✅ P0-1: Log TX pacing metrics
+                # ✅ P0-1: Log TX pacing metrics (throttled - only if slow or high backlog)
                 now = time.monotonic()
                 cycle_duration_ms = (now - cycle_start) * 1000
-                if cycle_duration_ms > 40 or queue_size > 500:  # Log if slow or high backlog
-                    if now - last_telemetry_time < 0.5:  # Don't spam - only every 0.5s
-                        pass
-                    else:
-                        print(f"[TX_PACE] sent_frames={frames_this_cycle} backlog_frames={queue_size} sleep_ms={delay*1000:.1f if delay > 0 else 0} cycle_ms={cycle_duration_ms:.1f}")
+                if (cycle_duration_ms > 40 or queue_size > 500) and now - last_telemetry_time >= 0.5:
+                    print(f"[TX_PACE] sent_frames={frames_this_cycle} backlog_frames={queue_size} sleep_ms={delay*1000:.1f if delay > 0 else 0} cycle_ms={cycle_duration_ms:.1f}")
                 
                 # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
                 frame_gap_ms = (now - last_frame_time) * 1000.0
