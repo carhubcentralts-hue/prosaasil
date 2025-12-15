@@ -2807,7 +2807,6 @@ Greet briefly. Then WAIT for customer to speak."""
                                     print(f"⚠️ [BUILD 332] Could not terminate call via Twilio API: {e}")
                             
                             # Run in background - DON'T block audio loop!
-                            import threading
                             thread = threading.Thread(target=terminate_call_async, daemon=True, name=f"TwilioTerminate-{self.call_sid[:8]}")
                             thread.start()
                             print(f"🔄 [P0 FIX] Twilio termination queued in background thread")
@@ -6269,18 +6268,33 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     if appt_id:
                         # 🔥 P0 FIX: Move DB commit to background thread to prevent blocking
-                        # This prevents appointment creation from blocking the audio loop
+                        # Use fresh app context for thread-safe DB access
                         if call_session:
+                            # Capture the hash value now (before thread starts)
+                            appt_hash_value = appt_hash
+                            call_sid_value = self.call_sid
+                            
                             def update_call_session_async():
                                 try:
-                                    call_session.last_confirmed_slot = appt_hash
-                                    from server.db import db
-                                    db.session.commit()
-                                    print(f"✅ [ASYNC] CallSession updated in background")
+                                    # Get fresh Flask app context for thread-safe DB access
+                                    app = _get_flask_app()
+                                    with app.app_context():
+                                        from server.models_sql import CallSession
+                                        from server.db import db
+                                        
+                                        # Re-query the object in this thread's session
+                                        session = CallSession.query.filter_by(call_sid=call_sid_value).first()
+                                        if session:
+                                            session.last_confirmed_slot = appt_hash_value
+                                            db.session.commit()
+                                            print(f"✅ [ASYNC] CallSession updated in background")
+                                        else:
+                                            print(f"⚠️ [ASYNC] CallSession not found for {call_sid_value}")
                                 except Exception as e:
                                     print(f"⚠️ [ASYNC] Failed to update CallSession: {e}")
+                                    import traceback
+                                    traceback.print_exc()
                             
-                            import threading
                             thread = threading.Thread(target=update_call_session_async, daemon=True, name=f"UpdateCallSession-{self.call_sid[:8] if hasattr(self, 'call_sid') else 'unknown'}")
                             thread.start()
                         
@@ -9380,7 +9394,6 @@ Greet briefly. Then WAIT for customer to speak."""
                 traceback.print_exc()
         
         # Run in background - DON'T block call handling!
-        import threading
         thread = threading.Thread(target=hangup_async, daemon=True, name=f"TwilioHangup-{self.call_sid[:8]}")
         thread.start()
         print(f"🔄 [P0 FIX] Twilio hangup queued in background thread")
