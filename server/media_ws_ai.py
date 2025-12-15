@@ -1621,10 +1621,13 @@ class MediaStreamHandler:
         
         # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
         self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
+        self.is_ai_speaking = False  # ✅ P0-3: Track AI speaking state (used by audio receiver)
         self.has_pending_ai_response = False  # Is AI response pending?
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
+        self._last_ai_audio_ts = None  # ✅ P0-3: Alternative timestamp tracking for compatibility
         self.ai_speaking_start_ts = None  # 🔥 FIX: When AI STARTED speaking (for grace period)
         self.last_user_turn_id = None  # Last user conversation item ID
+        self._twilio_audio_chunks_sent = 0  # ✅ P0-3: Track Twilio audio chunks sent
         
         # 🚀 PARALLEL STARTUP: Event to signal business info is ready
         self.business_info_ready_event = threading.Event()  # Signal when DB query completes
@@ -2450,10 +2453,10 @@ Greet briefly. Then WAIT for customer to speak."""
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
-            # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
-            # Vocabulary prompts were causing hallucinations with business names
-            # Pure approach: language="he" + no prompt = best accuracy
-            print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
+            # 🔥 BUILD 316: Configure transcription for Hebrew calls
+            # Add simple Hebrew transcription prompt to improve accuracy
+            transcription_prompt_text = "תמלול בעברית (ישראל). אם לא דיברו בשפה אחרת."  # ✅ P0-4: Simple Hebrew prompt
+            print(f"🎤 [STT] Using Hebrew transcription prompt: '{transcription_prompt_text}'")
             
             # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
             await client.configure_session(
@@ -2465,7 +2468,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 silence_duration_ms=450,
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                transcription_prompt=""  # 🔥 BUILD 316: EMPTY - no vocabulary hints!
+                transcription_prompt=transcription_prompt_text  # ✅ P0-4: Hebrew transcription prompt
             )
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
@@ -6620,8 +6623,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize  # 250 frames = 5s buffer
-                        high_watermark = int(queue_maxsize * AUDIO_CONFIG["tx_queue_warning_pct"])  # Warn at 80%
-                        drop_threshold = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_threshold_pct"])  # Drop at >=238
+                        high_watermark = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_warning_pct", 0.8))  # Warn at 80%
+                        drop_threshold = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_drop_threshold_pct", 0.952))  # Drop at >=238
                         
                         # Check if we need to drop frames BEFORE enqueueing
                         if queue_size >= drop_threshold:
@@ -6629,7 +6632,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             # This prevents reaching 5s buffer that causes chipmunk sound
                             now = time.time()
                             dropped_count = 0
-                            target_size = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_target_pct"])  # Target 30% (75 frames)
+                            target_size = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_drop_target_pct", 0.3))  # Target 30% (75 frames)
                             
                             # Drop oldest frames until we're back to target size
                             while queue_size > target_size:
@@ -6640,7 +6643,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                 except queue.Empty:
                                     break
                             
-                            throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
+                            throttle_sec = AUDIO_CONFIG.get("tx_queue_log_throttle_sec", 10)
                             if not hasattr(self, '_last_drop_log') or now - self._last_drop_log > throttle_sec:
                                 print(f"✅ [DROP_OLDEST] TX queue >=238/250 (95%+) - dropped {dropped_count} oldest frames → {self.tx_q.qsize()}/{queue_maxsize} frames")
                                 self._last_drop_log = now
@@ -6662,18 +6665,18 @@ Greet briefly. Then WAIT for customer to speak."""
                             self._tx_enqueue_log_counter = 0
                         self._tx_enqueue_log_counter += 1
                         # Log first N frames and then every Nth frame to avoid spam
-                        initial_frames = AUDIO_CONFIG["tx_log_initial_frames"]
-                        every_nth = AUDIO_CONFIG["tx_log_every_nth"]
+                        initial_frames = AUDIO_CONFIG.get("tx_log_initial_frames", 5)
+                        every_nth = AUDIO_CONFIG.get("tx_log_every_nth", 50)
                         if self._tx_enqueue_log_counter <= initial_frames or self._tx_enqueue_log_counter % every_nth == 0:
                             print(f"[TX_ENQUEUE] q={queue_size_after}/{queue_maxsize} added_frames=1 total={self._tx_enqueue_log_counter}")
                     except queue.Full:
                         # 🔥 P0 FIX: Queue completely full - drop OLDEST frames and re-put current frame
                         # This is the critical fix: DO NOT skip the current frame!
                         now = time.time()
-                        throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
+                        throttle_sec = AUDIO_CONFIG.get("tx_queue_log_throttle_sec", 10)
                         
                         # Drop oldest frames to make room (drop to emergency target)
-                        target_size = int(queue_maxsize * AUDIO_CONFIG["tx_queue_emergency_target_pct"])  # 60% = 150 frames
+                        target_size = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_emergency_target_pct", 0.6))  # 60% = 150 frames
                         dropped_count = 0
                         while self.tx_q.qsize() > target_size:
                             try:
@@ -6698,8 +6701,12 @@ Greet briefly. Then WAIT for customer to speak."""
             except queue.Empty:
                 continue
             except Exception as e:
+                # ✅ P0-2: Log error but don't break - keep audio loop running
                 logger.error(f"[AUDIO] Bridge error: {e}")
-                break
+                import traceback
+                traceback.print_exc()
+                # Don't break - continue processing next frame
+                continue
         
         # ✅ P0-1: Log leftover bytes when loop exits (audio.done)
         if len(audio_buffer) > 0:
@@ -11688,7 +11695,7 @@ Greet briefly. Then WAIT for customer to speak."""
         _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
         # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
-        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
+        FRAME_INTERVAL = AUDIO_CONFIG.get("frame_pacing_ms", 20) / 1000.0  # Convert ms to seconds
         next_deadline = time.monotonic()
         tx_count = 0
         frames_sent_total = 0
@@ -11735,8 +11742,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._tx_send_log_counter = 0
                 self._tx_send_log_counter += 1
                 # Log first N frames and then every Nth frame
-                initial_frames = AUDIO_CONFIG["tx_log_initial_frames"]
-                every_nth = AUDIO_CONFIG["tx_log_every_nth"]
+                initial_frames = AUDIO_CONFIG.get("tx_log_initial_frames", 5)
+                every_nth = AUDIO_CONFIG.get("tx_log_every_nth", 50)
                 if self._tx_send_log_counter <= initial_frames or self._tx_send_log_counter % every_nth == 0:
                     print(f"[TX_SEND] q={queue_size}/{queue_maxsize} sent=1 total={self._tx_send_log_counter}")
                 
