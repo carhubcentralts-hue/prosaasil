@@ -1603,6 +1603,10 @@ class MediaStreamHandler:
         self.realtime_thread = None  # Thread running asyncio loop
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
+        # 🎯 PROBE 4: Queue Flow Probe tracking
+        self._enq_counter = 0  # Frames enqueued to realtime_audio_out_queue
+        self._enq_last_log_time = time.monotonic()
+        
         # 🔥 BUILD 331: Usage guard tracking fields
         self._limit_exceeded = False
         self._limit_frames = 0
@@ -3918,6 +3922,14 @@ Greet briefly. Then WAIT for customer to speak."""
                             self.is_playing_greeting = True
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
+                                # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                self._enq_counter += 1
+                                now_mono = time.monotonic()
+                                if now_mono - self._enq_last_log_time >= 1.0:
+                                    qsize = self.realtime_audio_out_queue.qsize()
+                                    _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                    self._enq_counter = 0
+                                    self._enq_last_log_time = now_mono
                             except queue.Full:
                                 pass
                             continue
@@ -4000,6 +4012,8 @@ Greet briefly. Then WAIT for customer to speak."""
                                 for _ in range(silence_frames_needed):
                                     try:
                                         self.realtime_audio_out_queue.put_nowait(silence_frame)
+                                        # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                        self._enq_counter += 1
                                     except queue.Full:
                                         break
                                 print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms)")
@@ -4016,6 +4030,14 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         try:
                             self.realtime_audio_out_queue.put_nowait(audio_b64)
+                            # 🎯 PROBE 4: Track enqueue for rate monitoring
+                            self._enq_counter += 1
+                            now_mono = time.monotonic()
+                            if now_mono - self._enq_last_log_time >= 1.0:
+                                qsize = self.realtime_audio_out_queue.qsize()
+                                _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                self._enq_counter = 0
+                                self._enq_last_log_time = now_mono
                             # 🎯 TASK D.2: Track frames sent for this response
                             response_id = event.get("response_id")
                             if response_id and hasattr(self, '_response_tracking') and response_id in self._response_tracking:
@@ -6552,17 +6574,32 @@ Greet briefly. Then WAIT for customer to speak."""
         _first_frame_logged = False
         _frames_skipped_no_stream_sid = 0
         
+        # 🎯 PROBE 4: Queue Flow Probe - Track enqueue rate every 1 second
+        _enqueue_rate_counter = 0
+        _last_enqueue_rate_time = time.monotonic()
+        
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
         audio_buffer = b''  # Rolling buffer for incomplete frames
         
         _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
         while not self.realtime_stop_flag:
+            # 🎯 PROBE 4: Queue Flow Probe - Log enqueue rate every 1 second
+            now_mono = time.monotonic()
+            if now_mono - _last_enqueue_rate_time >= 1.0:
+                rx_qsize = self.realtime_audio_out_queue.qsize()
+                _orig_print(f"[ENQ_RATE] frames_per_sec={_enqueue_rate_counter}, rx_qsize={rx_qsize}", flush=True)
+                _enqueue_rate_counter = 0
+                _last_enqueue_rate_time = now_mono
+            
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
                 if audio_b64 is None:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - exiting loop (frames_enqueued={self.realtime_tx_frames})", flush=True)
                     break
+                
+                # 🎯 PROBE 4: Count frames dequeued from realtime_audio_out_queue
+                _enqueue_rate_counter += 1
                 
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
@@ -11675,142 +11712,222 @@ Greet briefly. Then WAIT for customer to speak."""
         last_frame_time = time.monotonic()
         max_gap_ms = 0.0  # Track maximum frame-to-frame interval
         
-        while self.tx_running:
-            # ✅ P0 FIX: Strict 20ms pacing - ONE frame per tick, no catch-up
-            # This prevents chipmunk effect from burst transmission
-            
-            try:
-                item = self.tx_q.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            
-            if item.get("type") == "end":
-                print("🔚 TX_LOOP_END: End signal received")
-                break
-            
-            # Handle "clear" event
-            if item.get("type") == "clear" and self.stream_sid:
-                success = self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
-                print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
-                continue
-            
-            # Handle "media" event (both old format and new Realtime format)
-            if item.get("type") == "media" or item.get("event") == "media":
-                queue_size = self.tx_q.qsize()
-                
-                # ✅ P0 FIX: No backlog dropping in TX loop - handled by enqueue with drop-oldest
-                # TX loop ONLY sends frames at strict 20ms pace
-                
-                # 🔍 DEBUG: Log what format we received
-                if tx_count < 3:
-                    print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
-                
-                # If already has correct format (from Realtime), send as-is
-                if item.get("event") == "media" and "media" in item:
-                    success = self._ws_send(json.dumps(item))
-                    if tx_count < 3:
-                        print(f"[TX_LOOP] Sent Realtime format: success={success}")
-                    if success:
-                        self.tx += 1  # ✅ Increment tx counter!
-                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
-                        if not _first_frame_sent:
-                            _first_frame_sent = True
-                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
-                else:
-                    # Old format - convert
-                    success = self._ws_send(json.dumps({
-                        "event": "media", 
-                        "streamSid": self.stream_sid,
-                        "media": {"payload": item["payload"]}
-                    }))
-                    if tx_count < 3:
-                        print(f"[TX_LOOP] Sent old format (converted): success={success}")
-                    if success:
-                        self.tx += 1  # ✅ Increment tx counter!
-                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
-                        if not _first_frame_sent:
-                            _first_frame_sent = True
-                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
-                
-                tx_count += 1
-                frames_sent_last_sec += 1
-                
-                # ✅ P0 FIX: Strict 20ms timing - advance deadline and sleep
-                # No catch-up: if we're late, resync to now (drop frames via enqueue policy)
-                next_deadline += FRAME_INTERVAL
-                delay = next_deadline - time.monotonic()
-                if delay > 0:
-                    time.sleep(delay)
-                else:
-                    # Missed deadline - resync to prevent catch-up bursts
-                    next_deadline = time.monotonic()
-                
-                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
-                now = time.monotonic()
-                frame_gap_ms = (now - last_frame_time) * 1000.0
-                
-                # 🔥 P0 WATCHDOG: Detect TX stalls > 120ms and log stack traces
-                # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
-                # This watchdog will catch what's blocking the TX thread
-                if frame_gap_ms > 120.0:
-                    import sys
-                    import traceback
-                    import threading
-                    
-                    print(f"🚨 [TX_STALL] DETECTED! gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
-                    print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
-                    
-                    # Log stack traces of all threads to find the culprit
-                    if frame_gap_ms > 500.0:  # Only full dump for severe stalls
-                        print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
-                        for thread_id, frame in sys._current_frames().items():
-                            thread_name = None
-                            for t in threading.enumerate():
-                                if t.ident == thread_id:
-                                    thread_name = t.name
-                                    break
-                            print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
-                            traceback.print_stack(frame)
-                            print(flush=True)
-                
-                if frame_gap_ms > max_gap_ms:
-                    max_gap_ms = frame_gap_ms
-                last_frame_time = now
-                
-                # ⚡ Telemetry: Print stats every second with max_gap_ms
-                if now - last_telemetry_time >= 1.0:
-                    queue_size = self.tx_q.qsize()
-                    queue_maxsize = self.tx_q.maxsize
-                    actual_fps = frames_sent_last_sec  # Frames sent in last second
-                    # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
-                    # 🔥 P0: Always log if max_gap_ms > 40ms to catch stalls early
-                    queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
-                    if queue_size > queue_threshold or max_gap_ms > 40:
-                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
-                    
-                    # 🚨 P0: Always warn if max_gap_ms exceeded threshold
-                    if max_gap_ms > 120.0:
-                        print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last second (target: <40ms, acceptable: <120ms)", flush=True)
-                    
-                    frames_sent_last_sec = 0
-                    max_gap_ms = 0.0  # Reset for next window
-                    last_telemetry_time = now
-                
-                continue
-            
-            # Handle "mark" event
-            if item.get("type") == "mark":
-                success = self._ws_send(json.dumps({
-                    "event": "mark", 
-                    "streamSid": self.stream_sid,
-                    "mark": {"name": item.get("name", "mark")}
-                }))
-                print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
+        # 🎯 PROBE 1: TX Liveness Probe - Heartbeat every 1 second
+        last_heartbeat_time = time.monotonic()
+        _stacktrace_logged_once = False  # PROBE 3: Only log full stacktrace once per severe stall
         
-        # 🎯 TASK 0.4: Log TX loop exit with totals
-        _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
+        # 🎯 PROBE 2: TX Crash Probe - Wrap entire loop in try/except
+        try:
+            while self.tx_running:
+                # 🎯 PROBE 1: TX Liveness Probe - Heartbeat every 1 second
+                now_mono = time.monotonic()
+                if now_mono - last_heartbeat_time >= 1.0:
+                    audio_state = getattr(self, 'audio_state', None)
+                    is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
+                    active_response_id = audio_state.active_response_id if audio_state else None
+                    qsize = self.tx_q.qsize()
+                    _orig_print(f"[TX_HEARTBEAT] alive=True, qsize={qsize}, is_ai_speaking={is_ai_speaking}, active_response_id={active_response_id}, frames_sent={frames_sent_total}", flush=True)
+                    last_heartbeat_time = now_mono
+                
+                # ✅ P0 FIX: Strict 20ms pacing - ONE frame per tick, no catch-up
+                # This prevents chipmunk effect from burst transmission
+                
+                try:
+                    item = self.tx_q.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                
+                if item.get("type") == "end":
+                    print("🔚 TX_LOOP_END: End signal received")
+                    break
+                
+                # Handle "clear" event
+                if item.get("type") == "clear" and self.stream_sid:
+                    # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
+                    send_start = time.monotonic()
+                    success = self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
+                    send_ms = (time.monotonic() - send_start) * 1000.0
+                    if send_ms > 50.0:
+                        qsize = self.tx_q.qsize()
+                        _orig_print(f"[TX_SEND_SLOW] type=clear, send_ms={send_ms:.1f}, qsize={qsize}", flush=True)
+                        if send_ms > 500.0 and not _stacktrace_logged_once:
+                            _stacktrace_logged_once = True
+                            _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks:", flush=True)
+                            import sys, traceback, threading
+                            for thread_id, frame in sys._current_frames().items():
+                                thread_name = None
+                                for t in threading.enumerate():
+                                    if t.ident == thread_id:
+                                        thread_name = t.name
+                                        break
+                                _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                                traceback.print_stack(frame)
+                                _orig_print("", flush=True)
+                    print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
+                    continue
+                
+                # Handle "media" event (both old format and new Realtime format)
+                if item.get("type") == "media" or item.get("event") == "media":
+                    queue_size = self.tx_q.qsize()
+                    
+                    # ✅ P0 FIX: No backlog dropping in TX loop - handled by enqueue with drop-oldest
+                    # TX loop ONLY sends frames at strict 20ms pace
+                    
+                    # 🔍 DEBUG: Log what format we received
+                    if tx_count < 3:
+                        print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
+                    
+                    # If already has correct format (from Realtime), send as-is
+                    if item.get("event") == "media" and "media" in item:
+                        # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
+                        send_start = time.monotonic()
+                        success = self._ws_send(json.dumps(item))
+                        send_ms = (time.monotonic() - send_start) * 1000.0
+                        if send_ms > 50.0:
+                            _orig_print(f"[TX_SEND_SLOW] type=media, send_ms={send_ms:.1f}, qsize={queue_size}", flush=True)
+                            if send_ms > 500.0 and not _stacktrace_logged_once:
+                                _stacktrace_logged_once = True
+                                _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks:", flush=True)
+                                import sys, traceback, threading
+                                for thread_id, frame in sys._current_frames().items():
+                                    thread_name = None
+                                    for t in threading.enumerate():
+                                        if t.ident == thread_id:
+                                            thread_name = t.name
+                                            break
+                                    _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                                    traceback.print_stack(frame)
+                                    _orig_print("", flush=True)
+                        if tx_count < 3:
+                            print(f"[TX_LOOP] Sent Realtime format: success={success}")
+                        if success:
+                            self.tx += 1  # ✅ Increment tx counter!
+                            frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
+                            # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                            if not _first_frame_sent:
+                                _first_frame_sent = True
+                                _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
+                    else:
+                        # Old format - convert
+                        # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
+                        send_start = time.monotonic()
+                        success = self._ws_send(json.dumps({
+                            "event": "media", 
+                            "streamSid": self.stream_sid,
+                            "media": {"payload": item["payload"]}
+                        }))
+                        send_ms = (time.monotonic() - send_start) * 1000.0
+                        if send_ms > 50.0:
+                            _orig_print(f"[TX_SEND_SLOW] type=media_old, send_ms={send_ms:.1f}, qsize={queue_size}", flush=True)
+                            if send_ms > 500.0 and not _stacktrace_logged_once:
+                                _stacktrace_logged_once = True
+                                _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks:", flush=True)
+                                import sys, traceback, threading
+                                for thread_id, frame in sys._current_frames().items():
+                                    thread_name = None
+                                    for t in threading.enumerate():
+                                        if t.ident == thread_id:
+                                            thread_name = t.name
+                                            break
+                                    _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                                    traceback.print_stack(frame)
+                                    _orig_print("", flush=True)
+                        if tx_count < 3:
+                            print(f"[TX_LOOP] Sent old format (converted): success={success}")
+                        if success:
+                            self.tx += 1  # ✅ Increment tx counter!
+                            frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
+                            # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                            if not _first_frame_sent:
+                                _first_frame_sent = True
+                                _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
+                
+                    tx_count += 1
+                    frames_sent_last_sec += 1
+                    
+                    # ✅ P0 FIX: Strict 20ms timing - advance deadline and sleep
+                    # No catch-up: if we're late, resync to now (drop frames via enqueue policy)
+                    next_deadline += FRAME_INTERVAL
+                    delay = next_deadline - time.monotonic()
+                    if delay > 0:
+                        time.sleep(delay)
+                    else:
+                        # Missed deadline - resync to prevent catch-up bursts
+                        next_deadline = time.monotonic()
+                    
+                    # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
+                    now = time.monotonic()
+                    frame_gap_ms = (now - last_frame_time) * 1000.0
+                    
+                    # 🔥 P0 WATCHDOG: Detect TX stalls > 120ms and log stack traces
+                    # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
+                    # This watchdog will catch what's blocking the TX thread
+                    if frame_gap_ms > 120.0:
+                        import sys
+                        import traceback
+                        import threading
+                        
+                        print(f"🚨 [TX_STALL] DETECTED! gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
+                        print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
+                        
+                        # Log stack traces of all threads to find the culprit
+                        if frame_gap_ms > 500.0:  # Only full dump for severe stalls
+                            print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
+                            for thread_id, frame in sys._current_frames().items():
+                                thread_name = None
+                                for t in threading.enumerate():
+                                    if t.ident == thread_id:
+                                        thread_name = t.name
+                                        break
+                                print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                                traceback.print_stack(frame)
+                                print(flush=True)
+                    
+                    if frame_gap_ms > max_gap_ms:
+                        max_gap_ms = frame_gap_ms
+                    last_frame_time = now
+                    
+                    # ⚡ Telemetry: Print stats every second with max_gap_ms
+                    if now - last_telemetry_time >= 1.0:
+                        queue_size = self.tx_q.qsize()
+                        queue_maxsize = self.tx_q.maxsize
+                        actual_fps = frames_sent_last_sec  # Frames sent in last second
+                        # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
+                        # 🔥 P0: Always log if max_gap_ms > 40ms to catch stalls early
+                        queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
+                        if queue_size > queue_threshold or max_gap_ms > 40:
+                            print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                        
+                        # 🚨 P0: Always warn if max_gap_ms exceeded threshold
+                        if max_gap_ms > 120.0:
+                            print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last second (target: <40ms, acceptable: <120ms)", flush=True)
+                        
+                        frames_sent_last_sec = 0
+                        max_gap_ms = 0.0  # Reset for next window
+                        last_telemetry_time = now
+                    
+                    continue
+                
+                # Handle "mark" event
+                if item.get("type") == "mark":
+                    success = self._ws_send(json.dumps({
+                        "event": "mark", 
+                        "streamSid": self.stream_sid,
+                        "mark": {"name": item.get("name", "mark")}
+                    }))
+                    print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
+        
+        # 🎯 PROBE 2: TX Crash Probe - Catch and log any exceptions
+        except Exception as tx_loop_error:
+            _orig_print(f"[TX_CRASH] TX loop crashed with exception:", flush=True)
+            import traceback
+            traceback.print_exc()
+            _orig_print(f"[TX_CRASH] Exception type: {type(tx_loop_error).__name__}", flush=True)
+            _orig_print(f"[TX_CRASH] Exception message: {tx_loop_error}", flush=True)
+            raise  # Re-raise to preserve original behavior
+        finally:
+            # 🎯 TASK 0.4: Log TX loop exit with totals
+            _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
