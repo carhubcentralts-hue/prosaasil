@@ -10246,10 +10246,24 @@ Greet briefly. Then WAIT for customer to speak."""
                     asyncio.set_event_loop(loop)
                     
                     async def do_goodbye():
-                        if goodbye_text:
-                            await self._send_text_to_ai(f"[SYSTEM] Call ending. Say: {goodbye_text}")
-                        else:
-                            await self._send_text_to_ai("[SYSTEM] Call ending. Say goodbye per your instructions.")
+                        # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                        if hasattr(self, 'realtime_client') and self.realtime_client:
+                            try:
+                                if goodbye_text:
+                                    goodbye_instructions = f"Call is ending. Say this goodbye message: {goodbye_text}"
+                                else:
+                                    goodbye_instructions = "Call is ending. Say goodbye per your BUSINESS PROMPT instructions."
+                                
+                                await self.realtime_client.send_event({
+                                    "type": "response.create",
+                                    "response": {
+                                        "instructions": goodbye_instructions
+                                    }
+                                })
+                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] Hangup - sending goodbye via response.create")
+                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] Goodbye response.create sent")
+                            except Exception as send_err:
+                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -10478,12 +10492,26 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Transition to CLOSING state
                         self.call_state = CallState.CLOSING
                         
-                        # Send polite closing message
+                        # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                        # Get polite closing message from config
                         closing_msg = "תודה שהתקשרת. נשמח לעזור לך בפעם הבאה. יום נעים!"
                         if self.call_config and self.call_config.closing_sentence:
                             closing_msg = self.call_config.closing_sentence
                         
-                        await self._send_text_to_ai(f"[SYSTEM] 10s silence detected. Say: {closing_msg}")
+                        # Send response.create with instructions
+                        if hasattr(self, 'realtime_client') and self.realtime_client:
+                            try:
+                                silence_instructions = f"The user has been silent for 10 seconds. Say this closing message: {closing_msg}"
+                                await self.realtime_client.send_event({
+                                    "type": "response.create",
+                                    "response": {
+                                        "instructions": silence_instructions
+                                    }
+                                })
+                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] 10s timeout - sending closing via response.create")
+                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] 10s timeout - response.create sent")
+                            except Exception as send_err:
+                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
@@ -10552,9 +10580,25 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
-                            await self._send_text_to_ai(
-                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
-                            )
+                            
+                            # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                            if hasattr(self, 'realtime_client') and self.realtime_client:
+                                try:
+                                    confirmation_instructions = (
+                                        "Customer has been silent and hasn't confirmed their information. "
+                                        "Ask for confirmation one last time, politely."
+                                    )
+                                    await self.realtime_client.send_event({
+                                        "type": "response.create",
+                                        "response": {
+                                            "instructions": confirmation_instructions
+                                        }
+                                    })
+                                    logger.info(f"[SILENCE_FOLLOWUP_CREATE] Lead unconfirmed - asking for confirmation")
+                                    print(f"✅ [SILENCE_FOLLOWUP_CREATE] Lead confirmation prompt sent")
+                                except Exception as send_err:
+                                    logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
+                            
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
                             self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
@@ -10577,8 +10621,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         if SIMPLE_MODE:
                             print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
                             print(f"   Keeping line open - user may return or Twilio will disconnect")
-                            # Optionally send a final message
-                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+                            # 🔥 BUG #2 FIX: SIMPLE_MODE never sends to model, only logs
+                            logger.info(f"[SILENCE] keeping open... no AI intervention in SIMPLE_MODE")
                             # Reset timer to avoid immediate re-triggering, but don't close
                             self._last_speech_time = time.time()
                             continue  # Stay in monitor loop
@@ -10586,17 +10630,32 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
                         
-                        # Send closing message and hangup
+                        # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                        # Get closing message from config
                         closing_msg = ""
                         if self.call_config and self.call_config.closing_sentence:
                             closing_msg = self.call_config.closing_sentence
                         elif self.call_config and self.call_config.greeting_text:
                             closing_msg = self.call_config.greeting_text  # Use greeting as fallback
                         
-                        if closing_msg:
-                            await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
-                        else:
-                            await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
+                        # Send response.create with instructions
+                        if hasattr(self, 'realtime_client') and self.realtime_client:
+                            try:
+                                if closing_msg:
+                                    silence_instructions = f"User has been silent too long. Say this closing message: {closing_msg}"
+                                else:
+                                    silence_instructions = "User has been silent too long. Say goodbye politely per your BUSINESS PROMPT instructions."
+                                
+                                await self.realtime_client.send_event({
+                                    "type": "response.create",
+                                    "response": {
+                                        "instructions": silence_instructions
+                                    }
+                                })
+                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] Max warnings - sending goodbye via response.create")
+                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] Max warnings - response.create sent")
+                            except Exception as send_err:
+                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
