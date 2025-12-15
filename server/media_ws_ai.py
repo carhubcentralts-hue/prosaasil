@@ -6246,42 +6246,70 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
-                        # 🔥 SILENCE FAILSAFE: Start timeout waiting for AI response
-                        # If no response.created within 3 seconds, trigger fallback
-                        # Only trigger in ACTIVE state (not WARMUP or CLOSING)
+                        # 🔥 FIX #1: IMMEDIATE RESPONSE TRIGGER after transcription.completed
+                        # Problem: System was waiting for SILENCE_FAILSAFE (3s timeout) instead of responding immediately
+                        # Solution: Trigger response.create RIGHT NOW if conditions allow
+                        should_trigger_immediate_response = (
+                            self.call_state == CallState.ACTIVE and  # Call is active
+                            not self.active_response_id and  # No response already in progress
+                            not self.is_ai_speaking_event.is_set() and  # AI not speaking
+                            not getattr(self, '_waiting_for_dtmf', False)  # Not waiting for DTMF input
+                        )
+                        
+                        if should_trigger_immediate_response:
+                            # ✅ IMMEDIATE TRIGGER: User finished speaking → start response NOW (0-300ms target)
+                            logger.info(f"[TURN_TRIGGER] IMMEDIATE response.create after transcription.completed")
+                            _orig_print(f"⚡ [FIX #1] Triggering response.create IMMEDIATELY after STT (not waiting for silence)", flush=True)
+                            
+                            # Start latency tracking for this turn
+                            self._turn_trigger_reason = "STT_COMPLETED"
+                            
+                            # Trigger response immediately
+                            asyncio.create_task(self.trigger_response("STT_COMPLETED"))
+                        else:
+                            # Log why we didn't trigger
+                            skip_reason = []
+                            if self.call_state != CallState.ACTIVE:
+                                skip_reason.append(f"state={self.call_state.value}")
+                            if self.active_response_id:
+                                skip_reason.append(f"active_response={self.active_response_id[:20]}")
+                            if self.is_ai_speaking_event.is_set():
+                                skip_reason.append("ai_speaking=True")
+                            if getattr(self, '_waiting_for_dtmf', False):
+                                skip_reason.append("waiting_for_dtmf=True")
+                            logger.info(f"[TURN_TRIGGER] SKIPPED immediate response - {', '.join(skip_reason)}")
+                        
+                        # 🔥 SAFETY NET: If no response.created within 400ms, trigger fallback
+                        # This catches edge cases where OpenAI doesn't respond to response.create
                         if self.call_state == CallState.ACTIVE:
                             async def _response_timeout_check():
-                                """Wait for AI response - trigger fallback if no response"""
+                                """Safety net: trigger fallback if no response within 400ms"""
                                 try:
-                                    await asyncio.sleep(3.0)  # 3 second timeout
+                                    await asyncio.sleep(0.4)  # 400ms safety net (was 3s - too long!)
                                     
                                     # Check if response was created
                                     if not self.active_response_id and not self.is_ai_speaking_event.is_set():
                                         logger.warning(
-                                            "[SILENCE_FAILSAFE] No AI response within 3000ms – triggering fallback"
+                                            "[SAFETY_NET] No AI response within 400ms – triggering fallback"
                                         )
                                         
-                                        # Send polite fallback message
-                                        fallback_msg = "סליחה, יש לי קושי טכני רגעי. אשמח אם תוכל לחזור על מה שאמרת?"
-                                        await self._send_server_event_to_ai(f"[SERVER] {fallback_msg}")
-                                        
-                                        # Trigger response
-                                        await self.trigger_response("SILENCE_FAILSAFE_3S")
+                                        # Trigger response (no server event - just trigger)
+                                        await self.trigger_response("SAFETY_NET_400MS")
                                         
                                 except asyncio.CancelledError:
                                     # Normal cancellation when response arrives
-                                    logger.debug("[SILENCE_FAILSAFE] Cancelled - response arrived")
+                                    logger.debug("[SAFETY_NET] Cancelled - response arrived")
                                 except Exception as e:
-                                    logger.error(f"[SILENCE_FAILSAFE] Error in timeout check: {e}")
+                                    logger.error(f"[SAFETY_NET] Error in timeout check: {e}")
                             
                             # Cancel any previous timeout task
                             if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
                                 if not self._response_timeout_task.done():
                                     self._response_timeout_task.cancel()
                             
-                            # Start new timeout task
+                            # Start new timeout task (400ms instead of 3s)
                             self._response_timeout_task = asyncio.create_task(_response_timeout_check())
-                            logger.debug("[SILENCE_FAILSAFE] Started 3s response timeout")
+                            logger.debug("[SAFETY_NET] Started 400ms response timeout")
                         
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
