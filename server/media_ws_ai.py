@@ -99,6 +99,11 @@ except ImportError:
         "rms_silence_threshold": 30,
         "min_speech_rms": 40,
         "min_rms_delta": 5.0,
+        # ✅ P0-3: TX queue overflow thresholds (TX_QUEUE_MAX = 250 frames = 5s)
+        "tx_queue_drop_threshold_pct": 0.952,  # Drop at >=238/250 frames (95.2% ≈ 4.76s) to prevent artifacts
+        "tx_queue_drop_target_pct": 0.3,       # Drop to 30% when triggered (75/250 frames ≈ 1.5s)
+        "tx_queue_warning_pct": 0.8,           # Warn at 80% (200/250 frames = 4s) - NO drop, just log
+        "tx_queue_log_throttle_sec": 10,       # Log queue full errors max once per 10s
     }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
@@ -6585,39 +6590,66 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     try:
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🎯 FIX B: NO MORE DROPPING FRAMES - Just warn at high watermark
-                        # OLD: Dropped oldest frames at 90% → caused mid-sentence audio cuts
-                        # NEW: Warn at 80%, let TX loop drain naturally (20ms pacing)
+                        # ✅ P0-3: TX Queue overflow strategy (maxsize=250 frames = 5s)
+                        # - At 80% (200 frames): WARN only, let TX loop drain naturally
+                        # - At >=238/250 (95%+): DROP oldest frames to 30% (75 frames) to prevent chipmunk
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
-                        queue_maxsize = self.tx_q.maxsize  # Now 1000 frames = 20s
-                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80% (800 frames)
+                        queue_maxsize = self.tx_q.maxsize  # 250 frames = 5s buffer
+                        high_watermark = int(queue_maxsize * AUDIO_CONFIG["tx_queue_warning_pct"])  # Warn at 80%
+                        drop_threshold = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_threshold_pct"])  # Drop at >=238
                         
-                        if queue_size >= high_watermark:
+                        # Check if we need to drop frames BEFORE enqueueing
+                        if queue_size >= drop_threshold:
+                            # ✅ Queue at >=238/250 (95%+) - Drop OLDEST frames to prevent artifacts
+                            # This prevents reaching 5s buffer that causes chipmunk sound
+                            now = time.time()
+                            dropped_count = 0
+                            target_size = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_target_pct"])  # Target 30% (75 frames)
+                            
+                            # Drop oldest frames until we're back to target size
+                            while queue_size > target_size:
+                                try:
+                                    _ = self.tx_q.get_nowait()  # Remove oldest frame
+                                    dropped_count += 1
+                                    queue_size = self.tx_q.qsize()
+                                except queue.Empty:
+                                    break
+                            
+                            throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
+                            if not hasattr(self, '_last_drop_log') or now - self._last_drop_log > throttle_sec:
+                                print(f"✅ [DROP_OLDEST] TX queue >=238/250 (95%+) - dropped {dropped_count} oldest frames → {self.tx_q.qsize()}/{queue_maxsize} frames")
+                                self._last_drop_log = now
+                        elif queue_size >= high_watermark:
                             # Log warning (throttled), but DO NOT drop frames
+                            # Only warn, let TX loop drain naturally
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (80%) - letting TX loop drain")
+                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} ({int(queue_size*100/queue_maxsize)}%) - letting TX loop drain")
                                 self._last_overflow_warning = now
                         
                         # Enqueue frame - let TX loop handle timing
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # 🎯 FIX B: If queue is REALLY full (shouldn't happen with 1000 maxsize)
-                        # Log error and skip THIS frame (newest), not oldest
-                        # This preserves sentence continuity better than dropping oldest
+                        # ✅ Fallback: Queue completely full even after drop logic
+                        # This should rarely happen since we drop at 95%
                         now = time.time()
-                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
-                            print(f"❌ [AUDIO FULL] TX queue completely full ({queue_maxsize}) - dropping NEWEST frame to preserve continuity")
+                        throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
+                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > throttle_sec:
+                            print(f"⚠️ [AUDIO FULL] TX queue still full (250/250) after drop - skipping frame")
                             self._last_full_error = now
-                        # Skip this frame (drop newest, not oldest)
+                        # Skip this frame (newest)
                     
             except queue.Empty:
                 continue
             except Exception as e:
                 logger.error(f"[AUDIO] Bridge error: {e}")
                 break
+        
+        # ✅ P0-1: Log leftover bytes when loop exits (audio.done)
+        if len(audio_buffer) > 0:
+            print(f"🔊 [AUDIO_OUT_LOOP] Loop ended with {len(audio_buffer)} leftover bytes (discarded, <160)")
 
     def _calculate_and_log_cost(self):
         """💰 Calculate and log call cost - called at end of every call"""
@@ -8441,6 +8473,22 @@ Greet briefly. Then WAIT for customer to speak."""
         self.last_voice_ts = 0  # איפוס למערכת VAD
         self.voice_in_row = 0
         print("🎤 SPEAKING_END -> LISTEN STATE | buffer_reset")
+
+    def _finalize_user_turn_on_timeout(self):
+        """
+        ✅ P0-5: Finalize user turn when transcription timeout expires
+        Called when speech_stopped event received but no transcription arrives within 1.8s
+        
+        Design rationale:
+        - We don't set user_has_spoken here because we have no validated transcription
+        - Setting it would bypass important guards that require actual user text
+        - This prevents false positives from noise/echo being treated as real speech
+        """
+        print(f"[TURN_END] Finalizing user turn on timeout - no transcription received")
+        # Clear candidate flag
+        self._candidate_user_speaking = False
+        self._utterance_start_ts = None
+        # Note: user_has_spoken is NOT set here since we didn't get a valid transcription
 
     def _send_pcm16_as_mulaw_frames_with_mark(self, pcm16_8k: bytes):
         """שליחת אודיו עם סימון לטוויליו וברג-אין"""
@@ -11599,28 +11647,14 @@ Greet briefly. Then WAIT for customer to speak."""
         # 🎯 TASK D.1: TX timing metrics to detect stutters (Master QA)
         # ═══════════════════════════════════════════════════════════════════════════
         frames_sent_last_sec = 0
-        drops_last_sec = 0
         last_telemetry_time = time.monotonic()
         last_frame_time = time.monotonic()
         max_gap_ms = 0.0  # Track maximum frame-to-frame interval
         
-        # ✅ P0-1: Burst protection - prevent chipmunk by enforcing max frames per cycle
-        # Note: Burst protection is now handled by dropping old frames when backlog builds up
-        # rather than limiting frames per cycle, which is more effective for maintaining cadence
-        frames_this_cycle = 0
-        last_burst_log_time = 0
-        
         while self.tx_running:
-            # ✅ P0-1: Reset frames counter at each cycle start
-            frames_this_cycle = 0
-            cycle_start = time.monotonic()
             
-            # 🔄 ADAPTIVE: Hard cap only when backlog is high (not always)
-            # Normal operation: no cap, full speed
-            # High backlog (>200 frames = 4s): cap at 2 frames/tick
-            MAX_FRAMES_PER_TICK = 2
-            frames_sent_this_tick = 0
-            
+            # ✅ P0-2: ALWAYS send exactly 1 frame per 20ms tick - NO catch-up!
+            # Catch-up causes burst/chipmunk sound during long responses
             try:
                 item = self.tx_q.get(timeout=0.5)
             except queue.Empty:
@@ -11638,43 +11672,11 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Handle "media" event (both old format and new Realtime format)
             if item.get("type") == "media" or item.get("event") == "media":
-                # 🔄 ADAPTIVE: Check backlog size
+                # Check backlog size for metrics
                 queue_size = self.tx_q.qsize()
                 
-                # 🔄 ADAPTIVE: Only enforce hard cap when backlog is critically high (>200 frames = 4s)
-                # This allows normal operation to flow freely while protecting against extreme bursts
-                CRITICAL_BACKLOG_THRESHOLD = 200  # 4 seconds of audio
-                if queue_size > CRITICAL_BACKLOG_THRESHOLD and frames_sent_this_tick >= MAX_FRAMES_PER_TICK:
-                    # Put frame back in queue and wait for next tick
-                    try:
-                        self.tx_q.put_nowait(item)
-                    except queue.Full:
-                        pass  # Frame lost, but prevents burst
-                    # Sleep for one frame interval before continuing
-                    time.sleep(FRAME_INTERVAL)
-                    continue
-                
-                # 🔄 ADAPTIVE: Gradual backlog dropping - only at very high backlog (>300 frames = 6s)
-                # Don't drop during normal long responses (100-300 frames is acceptable)
-                VERY_HIGH_BACKLOG_THRESHOLD = 300  # 6 seconds of audio - truly excessive
-                if queue_size > VERY_HIGH_BACKLOG_THRESHOLD:
-                    # Drop gradually - only drop a few frames at a time
-                    frames_to_drop = min(5, queue_size - 250)  # Drop max 5 frames, target 250 (5s)
-                    dropped = 0
-                    for _ in range(frames_to_drop):
-                        try:
-                            _ = self.tx_q.get_nowait()
-                            dropped += 1
-                        except queue.Empty:
-                            break
-                    
-                    if dropped > 0:
-                        now = time.time()
-                        # Throttled logging - max once per 2 seconds
-                        if now - last_burst_log_time > 2.0:
-                            print(f"[TX_BACKLOG_DROP] dropped_frames={dropped} reason=very_high_backlog backlog_was={queue_size}")
-                            last_burst_log_time = now
-                        drops_last_sec += dropped
+                # ✅ P0-3: Backlog dropping is now handled at enqueue time (in _realtime_audio_out_loop)
+                # TX loop just sends frames at steady 20ms pace - no catch-up, no dropping here
                 
                 # 🔍 DEBUG: Log what format we received
                 if tx_count < 3:
@@ -11688,8 +11690,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        frames_this_cycle += 1
-                        frames_sent_this_tick += 1  # ✅ NEW REQ 2: Track for hard cap
+                        frames_sent_last_sec += 1
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11706,15 +11707,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        frames_this_cycle += 1
-                        frames_sent_this_tick += 1  # ✅ NEW REQ 2: Track for hard cap
+                        frames_sent_last_sec += 1
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 
                 tx_count += 1
-                frames_sent_last_sec += 1
                 
                 # ⚡ Precise timing with next_deadline
                 next_deadline += FRAME_INTERVAL
@@ -11725,13 +11724,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Missed deadline - resync (but don't catch up too fast)
                     next_deadline = time.monotonic()
                 
-                # ✅ NEW REQ 2: Log TX pacing with sent_frames, backlog, and max_gap
-                now = time.monotonic()
-                cycle_duration_ms = (now - cycle_start) * 1000
-                if (cycle_duration_ms > 40 or queue_size > 500) and now - last_telemetry_time >= 0.5:
-                    print(f"[TX_PACE] sent_frames={frames_sent_this_tick}/{MAX_FRAMES_PER_TICK} backlog={queue_size} max_gap_ms={max_gap_ms:.1f}")
-                
                 # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
+                now = time.monotonic()
                 frame_gap_ms = (now - last_frame_time) * 1000.0
                 if frame_gap_ms > max_gap_ms:
                     max_gap_ms = frame_gap_ms
@@ -11745,9 +11739,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
                     queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
                     if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
-                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}, drops={drops_last_sec}", flush=True)
+                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
                     frames_sent_last_sec = 0
-                    drops_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window
                     last_telemetry_time = now
                 
