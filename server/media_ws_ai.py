@@ -2994,12 +2994,13 @@ Greet briefly. Then WAIT for customer to speak."""
         # Flush OpenAI → TX queue (audio from OpenAI not yet in TX queue)
         openai_queue_before = self.realtime_audio_out_queue.qsize()
         openai_flushed = 0
+        OPENAI_FLUSH_MAX = 100  # Safety cap (prevents infinite loop if queue broken)
         try:
             # Flush all OpenAI queue items (should be fast, rarely > 20 frames)
             while not self.realtime_audio_out_queue.empty():
                 _ = self.realtime_audio_out_queue.get_nowait()
                 openai_flushed += 1
-                if openai_flushed > 100:  # Safety cap
+                if openai_flushed > OPENAI_FLUSH_MAX:  # Safety cap
                     break
         except Exception:
             pass
@@ -3008,7 +3009,7 @@ Greet briefly. Then WAIT for customer to speak."""
         # Only flush up to 50 frames (1 second), let TX loop continue for rest
         tx_queue_before = self.tx_q.qsize()
         tx_flushed = 0
-        FLUSH_MAX = 50  # Max 50 frames = 1 second
+        FLUSH_MAX = 50  # Max 50 frames = 1 second (prevents TX loop stall)
         try:
             while not self.tx_q.empty() and tx_flushed < FLUSH_MAX:
                 _ = self.tx_q.get_nowait()
@@ -9981,7 +9982,9 @@ Greet briefly. Then WAIT for customer to speak."""
         
         # ✅ Simple cleanup: when set grows large, clear it completely
         # Response IDs are short-lived (seconds), so full reset is safe
-        if len(self._cancel_sent_for_response_ids) > 100:
+        # Using 100 threshold (larger than _cancelled_response_max_size to allow for burst scenarios)
+        CANCEL_GUARD_MAX_SIZE = 100
+        if len(self._cancel_sent_for_response_ids) > CANCEL_GUARD_MAX_SIZE:
             print(f"🧹 [CANCEL_GUARD] Clearing guard set (size={len(self._cancel_sent_for_response_ids)})")
             self._cancel_sent_for_response_ids.clear()
             # Re-add current ID after clear
