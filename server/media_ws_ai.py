@@ -99,6 +99,10 @@ except ImportError:
         "rms_silence_threshold": 30,
         "min_speech_rms": 40,
         "min_rms_delta": 5.0,
+        # ✅ P0-3: TX queue overflow thresholds
+        "tx_queue_drop_target_pct": 0.6,  # Drop to 60% when full (600/1000 frames = 12s)
+        "tx_queue_warning_pct": 0.8,      # Warn at 80% (800/1000 frames = 16s)
+        "tx_queue_log_throttle_sec": 10,   # Log queue full errors max once per 10s
     }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
@@ -6591,7 +6595,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize  # Now 1000 frames = 20s
-                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80% (800 frames)
+                        high_watermark = int(queue_maxsize * AUDIO_CONFIG["tx_queue_warning_pct"])  # Warn at 80%
                         
                         if queue_size >= high_watermark:
                             # Log warning (throttled), but DO NOT drop frames
@@ -6609,7 +6613,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         # NEW: Drop OLDEST → stay current with realtime audio
                         now = time.time()
                         dropped_count = 0
-                        target_size = int(queue_maxsize * 0.6)  # Target 60% (600 frames = 12s)
+                        target_size = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_target_pct"])  # Target 60%
                         
                         # Drop oldest frames until we're back to target size
                         while queue_size > target_size:
@@ -6627,7 +6631,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         except queue.Full:
                             pass  # Still full, skip this frame
                         
-                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
+                        throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
+                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > throttle_sec:
                             print(f"✅ [DROP_OLDEST] TX queue full - dropped {dropped_count} oldest frames, queue: {queue_maxsize} → {self.tx_q.qsize()}/{queue_maxsize}")
                             self._last_full_error = now
                     
@@ -8468,6 +8473,11 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         ✅ P0-5: Finalize user turn when transcription timeout expires
         Called when speech_stopped event received but no transcription arrives within 1.8s
+        
+        Design rationale:
+        - We don't set user_has_spoken here because we have no validated transcription
+        - Setting it would bypass important guards that require actual user text
+        - This prevents false positives from noise/echo being treated as real speech
         """
         print(f"[TURN_END] Finalizing user turn on timeout - no transcription received")
         # Clear candidate flag
