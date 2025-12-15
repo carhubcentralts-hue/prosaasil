@@ -3593,14 +3593,21 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Cancel any pending response
                         try:
                             cancelled_id = self.active_response_id
-                            if self.realtime_client and cancelled_id:
+                            # 🎯 P1: Guard against duplicate cancels (response_cancel_not_active)
+                            if self.realtime_client and cancelled_id and self.is_ai_speaking:
                                 await asyncio.wait_for(
                                     self.realtime_client.cancel_response(cancelled_id),
                                     timeout=0.5
                                 )
                                 self._mark_response_cancelled_locally(cancelled_id, "greeting_barge")
-                        except Exception:
-                            pass
+                            elif not self.is_ai_speaking:
+                                print(f"[GREETING_BARGE] Skipping cancel - AI not speaking (response_id={cancelled_id[:20] if cancelled_id else 'None'}...)")
+                        except Exception as e:
+                            # 🎯 P1: Log response_cancel_not_active at DEBUG level (not error)
+                            if "response_cancel_not_active" in str(e).lower() or "not active" in str(e).lower():
+                                print(f"[GREETING_BARGE] Response already cancelled or not active (ignored)")
+                            else:
+                                print(f"[GREETING_BARGE] Error cancelling response: {e}")
                         
                         self.active_response_id = None
                         self.response_pending_event.clear()
@@ -3674,7 +3681,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 1) Cancel response on OpenAI side (with timeout protection)
                         cancelled_id = self.active_response_id
-                        if cancelled_id and self.realtime_client:
+                        # 🎯 P1: Guard against duplicate cancels (response_cancel_not_active)
+                        if cancelled_id and self.realtime_client and self.is_ai_speaking:
                             try:
                                 # Use asyncio.wait_for with 0.5s timeout to avoid blocking
                                 await asyncio.wait_for(
@@ -3686,11 +3694,17 @@ Greet briefly. Then WAIT for customer to speak."""
                             except asyncio.TimeoutError:
                                 print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
                             except Exception as e:
-                                print(f"   ⚠️ Error cancelling response: {e}")
+                                # 🎯 P1: Log response_cancel_not_active at DEBUG level (not error)
+                                if "response_cancel_not_active" in str(e).lower() or "not active" in str(e).lower():
+                                    print(f"   ℹ️ Response already cancelled or not active (ignored)")
+                                else:
+                                    print(f"   ⚠️ Error cancelling response: {e}")
                         elif not cancelled_id:
                             print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
                         elif not self.realtime_client:
                             print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
+                        elif not self.is_ai_speaking:
+                            print(f"[BARGE-IN] Skipping cancel - AI not speaking (response_id={cancelled_id[:20]}...)")
                         
                         # 2) Clear local guards (ALWAYS, even if cancel failed)
                         # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
@@ -3754,7 +3768,14 @@ Greet briefly. Then WAIT for customer to speak."""
                             if self._candidate_user_speaking and not self.user_has_spoken:
                                 # Timeout expired - force turn finalization
                                 print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
-                                self._finalize_user_turn_on_timeout()
+                                # 🔥 P0 FIX: Protect against AttributeError if method doesn't exist
+                                if hasattr(self, '_finalize_user_turn_on_timeout'):
+                                    self._finalize_user_turn_on_timeout()
+                                else:
+                                    print(f"[TURN_END] ⚠️ _finalize_user_turn_on_timeout method not found - using fallback")
+                                    # Fallback: Clear candidate flag manually
+                                    self._candidate_user_speaking = False
+                                    self._utterance_start_ts = None
                         except asyncio.CancelledError:
                             # Task was cancelled (connection closed or transcription received)
                             print(f"[TURN_END] Timeout check cancelled")
@@ -6631,15 +6652,43 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Enqueue frame - let TX loop handle timing
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
+                        
+                        # 🎯 P0: [TX_ENQUEUE] log to track enqueue vs send
+                        queue_size_after = self.tx_q.qsize()
+                        if not hasattr(self, '_tx_enqueue_log_counter'):
+                            self._tx_enqueue_log_counter = 0
+                        self._tx_enqueue_log_counter += 1
+                        # Log first 5 frames and then every 50th frame to avoid spam
+                        if self._tx_enqueue_log_counter <= 5 or self._tx_enqueue_log_counter % 50 == 0:
+                            print(f"[TX_ENQUEUE] q={queue_size_after}/{queue_maxsize} added_frames=1 total={self._tx_enqueue_log_counter}")
                     except queue.Full:
-                        # ✅ Fallback: Queue completely full even after drop logic
-                        # This should rarely happen since we drop at 95%
+                        # 🔥 P0 FIX: Queue completely full - drop OLDEST frames and re-put current frame
+                        # This is the critical fix: DO NOT skip the current frame!
                         now = time.time()
                         throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
-                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > throttle_sec:
-                            print(f"⚠️ [AUDIO FULL] TX queue still full (250/250) after drop - skipping frame")
-                            self._last_full_error = now
-                        # Skip this frame (newest)
+                        
+                        # Drop oldest frames to make room (drop to 60% capacity)
+                        target_size = int(queue_maxsize * 0.6)  # 150 frames
+                        dropped_count = 0
+                        while self.tx_q.qsize() > target_size:
+                            try:
+                                _ = self.tx_q.get_nowait()  # Remove oldest frame
+                                dropped_count += 1
+                            except queue.Empty:
+                                break
+                        
+                        # Now re-put the current frame (don't lose it!)
+                        try:
+                            self.tx_q.put_nowait(twilio_frame)
+                            self.realtime_tx_frames += 1
+                            if not hasattr(self, '_last_full_error') or now - self._last_full_error > throttle_sec:
+                                print(f"🔥 [AUDIO FULL] TX queue was 250/250 - dropped {dropped_count} oldest frames, re-put current → {self.tx_q.qsize()}/{queue_maxsize}")
+                                self._last_full_error = now
+                        except queue.Full:
+                            # Still full somehow - this should be extremely rare
+                            if not hasattr(self, '_last_critical_error') or now - self._last_critical_error > throttle_sec:
+                                print(f"❌ [CRITICAL] TX queue still full after emergency drop - data loss!")
+                                self._last_critical_error = now
                     
             except queue.Empty:
                 continue
@@ -11674,6 +11723,15 @@ Greet briefly. Then WAIT for customer to speak."""
             if item.get("type") == "media" or item.get("event") == "media":
                 # Check backlog size for metrics
                 queue_size = self.tx_q.qsize()
+                queue_maxsize = self.tx_q.maxsize
+                
+                # 🎯 P0: [TX_SEND] log before sending to Twilio (throttled to avoid spam)
+                if not hasattr(self, '_tx_send_log_counter'):
+                    self._tx_send_log_counter = 0
+                self._tx_send_log_counter += 1
+                # Log first 5 frames and then every 50th frame
+                if self._tx_send_log_counter <= 5 or self._tx_send_log_counter % 50 == 0:
+                    print(f"[TX_SEND] q={queue_size}/{queue_maxsize} sent=1 total={self._tx_send_log_counter}")
                 
                 # ✅ P0-3: Backlog dropping is now handled at enqueue time (in _realtime_audio_out_loop)
                 # TX loop just sends frames at steady 20ms pace - no catch-up, no dropping here
