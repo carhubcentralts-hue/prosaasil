@@ -99,14 +99,6 @@ except ImportError:
         "rms_silence_threshold": 30,
         "min_speech_rms": 40,
         "min_rms_delta": 5.0,
-        # ✅ P0-3: TX queue overflow thresholds (TX_QUEUE_MAX = 250 frames = 5s)
-        "tx_queue_drop_threshold_pct": 0.952,  # Drop at >=238/250 frames (95.2% ≈ 4.76s) to prevent artifacts
-        "tx_queue_drop_target_pct": 0.3,       # Drop to 30% when triggered (75/250 frames ≈ 1.5s)
-        "tx_queue_emergency_target_pct": 0.6,  # Emergency drop to 60% when queue.Full (150/250 frames)
-        "tx_queue_warning_pct": 0.8,           # Warn at 80% (200/250 frames = 4s) - NO drop, just log
-        "tx_queue_log_throttle_sec": 10,       # Log queue full errors max once per 10s
-        "tx_log_initial_frames": 5,            # Log first N frames for diagnostics
-        "tx_log_every_nth": 50,                # Then log every Nth frame to reduce spam
     }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
@@ -1621,13 +1613,10 @@ class MediaStreamHandler:
         
         # 🎯 SMART BARGE-IN: Track AI speaking state and user interruption detection
         self.is_ai_speaking_event = threading.Event()  # Thread-safe flag for AI speaking state
-        self.is_ai_speaking = False  # ✅ P0-3: Track AI speaking state (used by audio receiver)
         self.has_pending_ai_response = False  # Is AI response pending?
         self.last_ai_audio_ts = None  # Last time AI audio was received from Realtime
-        self._last_ai_audio_ts = None  # ✅ P0-3: Alternative timestamp tracking for compatibility
         self.ai_speaking_start_ts = None  # 🔥 FIX: When AI STARTED speaking (for grace period)
         self.last_user_turn_id = None  # Last user conversation item ID
-        self._twilio_audio_chunks_sent = 0  # ✅ P0-3: Track Twilio audio chunks sent
         
         # 🚀 PARALLEL STARTUP: Event to signal business info is ready
         self.business_info_ready_event = threading.Event()  # Signal when DB query completes
@@ -2453,10 +2442,10 @@ Greet briefly. Then WAIT for customer to speak."""
             greeting_max_tokens = 4096
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
-            # 🔥 BUILD 316: Configure transcription for Hebrew calls
-            # Add simple Hebrew transcription prompt to improve accuracy
-            transcription_prompt_text = "תמלול בעברית (ישראל). אם לא דיברו בשפה אחרת."  # ✅ P0-4: Simple Hebrew prompt
-            print(f"🎤 [STT] Using Hebrew transcription prompt: '{transcription_prompt_text}'")
+            # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
+            # Vocabulary prompts were causing hallucinations with business names
+            # Pure approach: language="he" + no prompt = best accuracy
+            print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
             # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
             await client.configure_session(
@@ -2468,7 +2457,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 silence_duration_ms=450,
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                transcription_prompt=transcription_prompt_text  # ✅ P0-4: Hebrew transcription prompt
+                transcription_prompt=""  # 🔥 BUILD 316: EMPTY - no vocabulary hints!
             )
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
@@ -3599,21 +3588,14 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Cancel any pending response
                         try:
                             cancelled_id = self.active_response_id
-                            # 🎯 P1: Guard against duplicate cancels (response_cancel_not_active)
-                            if self.realtime_client and cancelled_id and self.is_ai_speaking:
+                            if self.realtime_client and cancelled_id:
                                 await asyncio.wait_for(
                                     self.realtime_client.cancel_response(cancelled_id),
                                     timeout=0.5
                                 )
                                 self._mark_response_cancelled_locally(cancelled_id, "greeting_barge")
-                            elif not self.is_ai_speaking:
-                                print(f"[GREETING_BARGE] Skipping cancel - AI not speaking (response_id={cancelled_id[:20] if cancelled_id and len(cancelled_id) >= 20 else (cancelled_id or 'None')}...)")
-                        except Exception as e:
-                            # 🎯 P1: Log response_cancel_not_active at DEBUG level (not error)
-                            if "response_cancel_not_active" in str(e).lower() or "not active" in str(e).lower():
-                                print(f"[GREETING_BARGE] Response already cancelled or not active (ignored)")
-                            else:
-                                print(f"[GREETING_BARGE] Error cancelling response: {e}")
+                        except Exception:
+                            pass
                         
                         self.active_response_id = None
                         self.response_pending_event.clear()
@@ -3687,8 +3669,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 1) Cancel response on OpenAI side (with timeout protection)
                         cancelled_id = self.active_response_id
-                        # 🎯 P1: Guard against duplicate cancels (response_cancel_not_active)
-                        if cancelled_id and self.realtime_client and self.is_ai_speaking:
+                        if cancelled_id and self.realtime_client:
                             try:
                                 # Use asyncio.wait_for with 0.5s timeout to avoid blocking
                                 await asyncio.wait_for(
@@ -3700,17 +3681,11 @@ Greet briefly. Then WAIT for customer to speak."""
                             except asyncio.TimeoutError:
                                 print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
                             except Exception as e:
-                                # 🎯 P1: Log response_cancel_not_active at DEBUG level (not error)
-                                if "response_cancel_not_active" in str(e).lower() or "not active" in str(e).lower():
-                                    print(f"   ℹ️ Response already cancelled or not active (ignored)")
-                                else:
-                                    print(f"   ⚠️ Error cancelling response: {e}")
+                                print(f"   ⚠️ Error cancelling response: {e}")
                         elif not cancelled_id:
                             print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
                         elif not self.realtime_client:
                             print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
-                        elif not self.is_ai_speaking:
-                            print(f"[BARGE-IN] Skipping cancel - AI not speaking (response_id={cancelled_id[:20] if len(cancelled_id) >= 20 else cancelled_id}...)")
                         
                         # 2) Clear local guards (ALWAYS, even if cancel failed)
                         # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
@@ -3774,14 +3749,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             if self._candidate_user_speaking and not self.user_has_spoken:
                                 # Timeout expired - force turn finalization
                                 print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
-                                # 🔥 P0 FIX: Protect against AttributeError if method doesn't exist
-                                if hasattr(self, '_finalize_user_turn_on_timeout'):
-                                    self._finalize_user_turn_on_timeout()
-                                else:
-                                    print(f"[TURN_END] ⚠️ _finalize_user_turn_on_timeout method not found - using fallback")
-                                    # Fallback: Clear candidate flag manually
-                                    self._candidate_user_speaking = False
-                                    self._utterance_start_ts = None
+                                self._finalize_user_turn_on_timeout()
                         except asyncio.CancelledError:
                             # Task was cancelled (connection closed or transcription received)
                             print(f"[TURN_END] Timeout check cancelled")
@@ -6617,100 +6585,39 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     try:
                         # ═══════════════════════════════════════════════════════════════════════
-                        # ✅ P0-3: TX Queue overflow strategy (maxsize=250 frames = 5s)
-                        # - At 80% (200 frames): WARN only, let TX loop drain naturally
-                        # - At >=238/250 (95%+): DROP oldest frames to 30% (75 frames) to prevent chipmunk
+                        # 🎯 FIX B: NO MORE DROPPING FRAMES - Just warn at high watermark
+                        # OLD: Dropped oldest frames at 90% → caused mid-sentence audio cuts
+                        # NEW: Warn at 80%, let TX loop drain naturally (20ms pacing)
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
-                        queue_maxsize = self.tx_q.maxsize  # 250 frames = 5s buffer
-                        high_watermark = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_warning_pct", 0.8))  # Warn at 80%
-                        drop_threshold = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_drop_threshold_pct", 0.952))  # Drop at >=238
+                        queue_maxsize = self.tx_q.maxsize  # Now 1000 frames = 20s
+                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80% (800 frames)
                         
-                        # Check if we need to drop frames BEFORE enqueueing
-                        if queue_size >= drop_threshold:
-                            # ✅ Queue at >=238/250 (95%+) - Drop OLDEST frames to prevent artifacts
-                            # This prevents reaching 5s buffer that causes chipmunk sound
-                            now = time.time()
-                            dropped_count = 0
-                            target_size = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_drop_target_pct", 0.3))  # Target 30% (75 frames)
-                            
-                            # Drop oldest frames until we're back to target size
-                            while queue_size > target_size:
-                                try:
-                                    _ = self.tx_q.get_nowait()  # Remove oldest frame
-                                    dropped_count += 1
-                                    queue_size = self.tx_q.qsize()
-                                except queue.Empty:
-                                    break
-                            
-                            throttle_sec = AUDIO_CONFIG.get("tx_queue_log_throttle_sec", 10)
-                            if not hasattr(self, '_last_drop_log') or now - self._last_drop_log > throttle_sec:
-                                print(f"✅ [DROP_OLDEST] TX queue >=238/250 (95%+) - dropped {dropped_count} oldest frames → {self.tx_q.qsize()}/{queue_maxsize} frames")
-                                self._last_drop_log = now
-                        elif queue_size >= high_watermark:
+                        if queue_size >= high_watermark:
                             # Log warning (throttled), but DO NOT drop frames
-                            # Only warn, let TX loop drain naturally
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} ({int(queue_size*100/queue_maxsize)}%) - letting TX loop drain")
+                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (80%) - letting TX loop drain")
                                 self._last_overflow_warning = now
                         
                         # Enqueue frame - let TX loop handle timing
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
-                        
-                        # 🎯 P0: [TX_ENQUEUE] log to track enqueue vs send
-                        queue_size_after = self.tx_q.qsize()
-                        if not hasattr(self, '_tx_enqueue_log_counter'):
-                            self._tx_enqueue_log_counter = 0
-                        self._tx_enqueue_log_counter += 1
-                        # Log first N frames and then every Nth frame to avoid spam
-                        initial_frames = AUDIO_CONFIG.get("tx_log_initial_frames", 5)
-                        every_nth = AUDIO_CONFIG.get("tx_log_every_nth", 50)
-                        if self._tx_enqueue_log_counter <= initial_frames or self._tx_enqueue_log_counter % every_nth == 0:
-                            print(f"[TX_ENQUEUE] q={queue_size_after}/{queue_maxsize} added_frames=1 total={self._tx_enqueue_log_counter}")
                     except queue.Full:
-                        # 🔥 P0 FIX: Queue completely full - drop OLDEST frames and re-put current frame
-                        # This is the critical fix: DO NOT skip the current frame!
+                        # 🎯 FIX B: If queue is REALLY full (shouldn't happen with 1000 maxsize)
+                        # Log error and skip THIS frame (newest), not oldest
+                        # This preserves sentence continuity better than dropping oldest
                         now = time.time()
-                        throttle_sec = AUDIO_CONFIG.get("tx_queue_log_throttle_sec", 10)
-                        
-                        # Drop oldest frames to make room (drop to emergency target)
-                        target_size = int(queue_maxsize * AUDIO_CONFIG.get("tx_queue_emergency_target_pct", 0.6))  # 60% = 150 frames
-                        dropped_count = 0
-                        while self.tx_q.qsize() > target_size:
-                            try:
-                                _ = self.tx_q.get_nowait()  # Remove oldest frame
-                                dropped_count += 1
-                            except queue.Empty:
-                                break
-                        
-                        # Now re-put the current frame (don't lose it!)
-                        try:
-                            self.tx_q.put_nowait(twilio_frame)
-                            self.realtime_tx_frames += 1
-                            if not hasattr(self, '_last_full_error') or now - self._last_full_error > throttle_sec:
-                                print(f"🔥 [AUDIO FULL] TX queue was 250/250 - dropped {dropped_count} oldest frames, re-put current → {self.tx_q.qsize()}/{queue_maxsize}")
-                                self._last_full_error = now
-                        except queue.Full:
-                            # Still full somehow - this should be extremely rare
-                            if not hasattr(self, '_last_critical_error') or now - self._last_critical_error > throttle_sec:
-                                print(f"❌ [CRITICAL] TX queue still full after emergency drop - data loss!")
-                                self._last_critical_error = now
+                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
+                            print(f"❌ [AUDIO FULL] TX queue completely full ({queue_maxsize}) - dropping NEWEST frame to preserve continuity")
+                            self._last_full_error = now
+                        # Skip this frame (drop newest, not oldest)
                     
             except queue.Empty:
                 continue
             except Exception as e:
-                # ✅ P0-2: Log error but don't break - keep audio loop running
                 logger.error(f"[AUDIO] Bridge error: {e}")
-                import traceback
-                traceback.print_exc()
-                # Don't break - continue processing next frame
-                continue
-        
-        # ✅ P0-1: Log leftover bytes when loop exits (audio.done)
-        if len(audio_buffer) > 0:
-            print(f"🔊 [AUDIO_OUT_LOOP] Loop ended with {len(audio_buffer)} leftover bytes (discarded, <160)")
+                break
 
     def _calculate_and_log_cost(self):
         """💰 Calculate and log call cost - called at end of every call"""
@@ -8534,22 +8441,6 @@ Greet briefly. Then WAIT for customer to speak."""
         self.last_voice_ts = 0  # איפוס למערכת VAD
         self.voice_in_row = 0
         print("🎤 SPEAKING_END -> LISTEN STATE | buffer_reset")
-
-    def _finalize_user_turn_on_timeout(self):
-        """
-        ✅ P0-5: Finalize user turn when transcription timeout expires
-        Called when speech_stopped event received but no transcription arrives within 1.8s
-        
-        Design rationale:
-        - We don't set user_has_spoken here because we have no validated transcription
-        - Setting it would bypass important guards that require actual user text
-        - This prevents false positives from noise/echo being treated as real speech
-        """
-        print(f"[TURN_END] Finalizing user turn on timeout - no transcription received")
-        # Clear candidate flag
-        self._candidate_user_speaking = False
-        self._utterance_start_ts = None
-        # Note: user_has_spoken is NOT set here since we didn't get a valid transcription
 
     def _send_pcm16_as_mulaw_frames_with_mark(self, pcm16_8k: bytes):
         """שליחת אודיו עם סימון לטוויליו וברג-אין"""
@@ -11695,7 +11586,7 @@ Greet briefly. Then WAIT for customer to speak."""
         _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
         # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
-        FRAME_INTERVAL = AUDIO_CONFIG.get("frame_pacing_ms", 20) / 1000.0  # Convert ms to seconds
+        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
         next_deadline = time.monotonic()
         tx_count = 0
         frames_sent_total = 0
@@ -11708,14 +11599,28 @@ Greet briefly. Then WAIT for customer to speak."""
         # 🎯 TASK D.1: TX timing metrics to detect stutters (Master QA)
         # ═══════════════════════════════════════════════════════════════════════════
         frames_sent_last_sec = 0
+        drops_last_sec = 0
         last_telemetry_time = time.monotonic()
         last_frame_time = time.monotonic()
         max_gap_ms = 0.0  # Track maximum frame-to-frame interval
         
+        # ✅ P0-1: Burst protection - prevent chipmunk by enforcing max frames per cycle
+        # Note: Burst protection is now handled by dropping old frames when backlog builds up
+        # rather than limiting frames per cycle, which is more effective for maintaining cadence
+        frames_this_cycle = 0
+        last_burst_log_time = 0
+        
         while self.tx_running:
+            # ✅ P0-1: Reset frames counter at each cycle start
+            frames_this_cycle = 0
+            cycle_start = time.monotonic()
             
-            # ✅ P0-2: ALWAYS send exactly 1 frame per 20ms tick - NO catch-up!
-            # Catch-up causes burst/chipmunk sound during long responses
+            # 🔄 ADAPTIVE: Hard cap only when backlog is high (not always)
+            # Normal operation: no cap, full speed
+            # High backlog (>200 frames = 4s): cap at 2 frames/tick
+            MAX_FRAMES_PER_TICK = 2
+            frames_sent_this_tick = 0
+            
             try:
                 item = self.tx_q.get(timeout=0.5)
             except queue.Empty:
@@ -11733,22 +11638,43 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Handle "media" event (both old format and new Realtime format)
             if item.get("type") == "media" or item.get("event") == "media":
-                # Check backlog size for metrics
+                # 🔄 ADAPTIVE: Check backlog size
                 queue_size = self.tx_q.qsize()
-                queue_maxsize = self.tx_q.maxsize
                 
-                # 🎯 P0: [TX_SEND] log before sending to Twilio (throttled to avoid spam)
-                if not hasattr(self, '_tx_send_log_counter'):
-                    self._tx_send_log_counter = 0
-                self._tx_send_log_counter += 1
-                # Log first N frames and then every Nth frame
-                initial_frames = AUDIO_CONFIG.get("tx_log_initial_frames", 5)
-                every_nth = AUDIO_CONFIG.get("tx_log_every_nth", 50)
-                if self._tx_send_log_counter <= initial_frames or self._tx_send_log_counter % every_nth == 0:
-                    print(f"[TX_SEND] q={queue_size}/{queue_maxsize} sent=1 total={self._tx_send_log_counter}")
+                # 🔄 ADAPTIVE: Only enforce hard cap when backlog is critically high (>200 frames = 4s)
+                # This allows normal operation to flow freely while protecting against extreme bursts
+                CRITICAL_BACKLOG_THRESHOLD = 200  # 4 seconds of audio
+                if queue_size > CRITICAL_BACKLOG_THRESHOLD and frames_sent_this_tick >= MAX_FRAMES_PER_TICK:
+                    # Put frame back in queue and wait for next tick
+                    try:
+                        self.tx_q.put_nowait(item)
+                    except queue.Full:
+                        pass  # Frame lost, but prevents burst
+                    # Sleep for one frame interval before continuing
+                    time.sleep(FRAME_INTERVAL)
+                    continue
                 
-                # ✅ P0-3: Backlog dropping is now handled at enqueue time (in _realtime_audio_out_loop)
-                # TX loop just sends frames at steady 20ms pace - no catch-up, no dropping here
+                # 🔄 ADAPTIVE: Gradual backlog dropping - only at very high backlog (>300 frames = 6s)
+                # Don't drop during normal long responses (100-300 frames is acceptable)
+                VERY_HIGH_BACKLOG_THRESHOLD = 300  # 6 seconds of audio - truly excessive
+                if queue_size > VERY_HIGH_BACKLOG_THRESHOLD:
+                    # Drop gradually - only drop a few frames at a time
+                    frames_to_drop = min(5, queue_size - 250)  # Drop max 5 frames, target 250 (5s)
+                    dropped = 0
+                    for _ in range(frames_to_drop):
+                        try:
+                            _ = self.tx_q.get_nowait()
+                            dropped += 1
+                        except queue.Empty:
+                            break
+                    
+                    if dropped > 0:
+                        now = time.time()
+                        # Throttled logging - max once per 2 seconds
+                        if now - last_burst_log_time > 2.0:
+                            print(f"[TX_BACKLOG_DROP] dropped_frames={dropped} reason=very_high_backlog backlog_was={queue_size}")
+                            last_burst_log_time = now
+                        drops_last_sec += dropped
                 
                 # 🔍 DEBUG: Log what format we received
                 if tx_count < 3:
@@ -11762,7 +11688,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        frames_sent_last_sec += 1
+                        frames_this_cycle += 1
+                        frames_sent_this_tick += 1  # ✅ NEW REQ 2: Track for hard cap
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11779,13 +11706,15 @@ Greet briefly. Then WAIT for customer to speak."""
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                        frames_sent_last_sec += 1
+                        frames_this_cycle += 1
+                        frames_sent_this_tick += 1  # ✅ NEW REQ 2: Track for hard cap
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 
                 tx_count += 1
+                frames_sent_last_sec += 1
                 
                 # ⚡ Precise timing with next_deadline
                 next_deadline += FRAME_INTERVAL
@@ -11796,8 +11725,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Missed deadline - resync (but don't catch up too fast)
                     next_deadline = time.monotonic()
                 
-                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
+                # ✅ NEW REQ 2: Log TX pacing with sent_frames, backlog, and max_gap
                 now = time.monotonic()
+                cycle_duration_ms = (now - cycle_start) * 1000
+                if (cycle_duration_ms > 40 or queue_size > 500) and now - last_telemetry_time >= 0.5:
+                    print(f"[TX_PACE] sent_frames={frames_sent_this_tick}/{MAX_FRAMES_PER_TICK} backlog={queue_size} max_gap_ms={max_gap_ms:.1f}")
+                
+                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
                 frame_gap_ms = (now - last_frame_time) * 1000.0
                 if frame_gap_ms > max_gap_ms:
                     max_gap_ms = frame_gap_ms
@@ -11811,8 +11745,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
                     queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
                     if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
-                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}, drops={drops_last_sec}", flush=True)
                     frames_sent_last_sec = 0
+                    drops_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window
                     last_telemetry_time = now
                 
