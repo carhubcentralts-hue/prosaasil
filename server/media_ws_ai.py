@@ -1891,6 +1891,10 @@ class MediaStreamHandler:
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
         
+        # 🔥 NEW REQUIREMENT: Response-create spam prevention
+        self._last_followup_create_ts = None  # Timestamp of last silence/guard response.create
+        self._followup_create_debounce_sec = 4.0  # Minimum 4 seconds between followup creates
+        
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
         # Do NOT modify these directly - always use self.call_config for the authoritative values
@@ -3834,30 +3838,41 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self._server_error_retried = True
                                     _orig_print(f"🔄 [SERVER_ERROR] Retrying response (first attempt)...", flush=True)
                                     
-                                    # Send technical context (no scripted response)
-                                    retry_msg = "[SYSTEM] Technical error occurred. Please retry your last response."
-                                    await self._send_text_to_ai(retry_msg)
-                                    
-                                    # Trigger new response
-                                    try:
-                                        await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent", flush=True)
-                                    except Exception as retry_err:
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
+                                    # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                                    # Send technical context via instructions (no scripted response)
+                                    if hasattr(self, 'realtime_client') and self.realtime_client:
+                                        try:
+                                            retry_instructions = "A technical error occurred. Please retry your last response based on the conversation context."
+                                            await self.realtime_client.send_event({
+                                                "type": "response.create",
+                                                "response": {
+                                                    "instructions": retry_instructions
+                                                }
+                                            })
+                                            logger.info(f"[SILENCE_FOLLOWUP_CREATE] Server error - retry via response.create")
+                                            _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent with instructions", flush=True)
+                                        except Exception as retry_err:
+                                            _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
                                 
                                 else:
                                     # Already retried or call too long - graceful failure
                                     _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
                                     
-                                    # Send technical context (AI decides how to handle based on Business Prompt)
-                                    failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
-                                    await self._send_text_to_ai(failure_msg)
-                                    
-                                    # Trigger final response
-                                    try:
-                                        await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
-                                    except Exception as fail_err:
+                                    # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                                    # Send technical context via instructions (AI decides how to handle based on Business Prompt)
+                                    if hasattr(self, 'realtime_client') and self.realtime_client:
+                                        try:
+                                            failure_instructions = "A technical issue has occurred and the system is unavailable. End the call politely per your BUSINESS PROMPT."
+                                            await self.realtime_client.send_event({
+                                                "type": "response.create",
+                                                "response": {
+                                                    "instructions": failure_instructions
+                                                }
+                                            })
+                                            logger.info(f"[SILENCE_FOLLOWUP_CREATE] Server error - graceful failure via response.create")
+                                            _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent with instructions", flush=True)
+                                        except Exception as fail_err:
+                                            _orig_print(f"❌ [SERVER_ERROR] Failed to send graceful failure: {fail_err}", flush=True)
                                         _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
                         # 🔥 BUILD 200: Clear active_response_id when response is done (completed or cancelled)
@@ -6053,12 +6068,21 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             print(f"   → Cleared verification state, lead candidate, and locked fields")
                             
-                            # 3) Inject system message to guide AI (context only, no script)
-                            system_msg = "[SYSTEM] User rejected previous understanding. Ask again per your instructions."
-                            
-                            # Queue system message for next processing cycle
-                            asyncio.create_task(self._send_text_to_ai(system_msg))
-                            print(f"   → Sent reset system message to AI")
+                            # 3) 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                            # Inject instructions to guide AI (context only, no script)
+                            if hasattr(self, 'realtime_client') and self.realtime_client:
+                                try:
+                                    rejection_instructions = "User has rejected or corrected the previous understanding. Ask again politely per your BUSINESS PROMPT instructions."
+                                    asyncio.create_task(self.realtime_client.send_event({
+                                        "type": "response.create",
+                                        "response": {
+                                            "instructions": rejection_instructions
+                                        }
+                                    }))
+                                    logger.info(f"[SILENCE_FOLLOWUP_CREATE] User rejection - ask again via response.create")
+                                    print(f"   → Sent reset instructions to AI via response.create")
+                                except Exception as reject_err:
+                                    logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed to send rejection instructions: {reject_err}")
                             
                         elif is_negative_answer:
                             print(f"⚠️ [BUILD 303] NEGATIVE ANSWER detected: '{transcript}' - user is rejecting/correcting")
@@ -10246,10 +10270,31 @@ Greet briefly. Then WAIT for customer to speak."""
                     asyncio.set_event_loop(loop)
                     
                     async def do_goodbye():
-                        if goodbye_text:
-                            await self._send_text_to_ai(f"[SYSTEM] Call ending. Say: {goodbye_text}")
-                        else:
-                            await self._send_text_to_ai("[SYSTEM] Call ending. Say goodbye per your instructions.")
+                        # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
+                        if not self._can_send_followup_create("goodbye_hangup"):
+                            # Can't send - AI already speaking or too soon
+                            return
+                        
+                        # 🔥 NEW REQUIREMENT: Behavioral instruction only, no hardcoded goodbye_text
+                        if hasattr(self, 'realtime_client') and self.realtime_client:
+                            try:
+                                # Let AI use BUSINESS PROMPT for closing, don't inject specific text
+                                goodbye_instructions = (
+                                    "Call is ending. Say goodbye politely according to "
+                                    "your BUSINESS PROMPT closing guidelines."
+                                )
+                                
+                                await self.realtime_client.send_event({
+                                    "type": "response.create",
+                                    "response": {
+                                        "instructions": goodbye_instructions
+                                    }
+                                })
+                                self._mark_followup_create_sent()  # Track timestamp for debounce
+                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] Hangup - behavioral instruction sent")
+                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] Goodbye response.create sent")
+                            except Exception as send_err:
+                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -10478,12 +10523,33 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Transition to CLOSING state
                         self.call_state = CallState.CLOSING
                         
-                        # Send polite closing message
-                        closing_msg = "תודה שהתקשרת. נשמח לעזור לך בפעם הבאה. יום נעים!"
-                        if self.call_config and self.call_config.closing_sentence:
-                            closing_msg = self.call_config.closing_sentence
+                        # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
+                        if not self._can_send_followup_create("10s_timeout"):
+                            # Can't send - just trigger hangup
+                            await asyncio.sleep(1.0)
+                            self._trigger_auto_hangup("hard_silence_timeout_10s_no_tts")
+                            return
                         
-                        await self._send_text_to_ai(f"[SYSTEM] 10s silence detected. Say: {closing_msg}")
+                        # 🔥 NEW REQUIREMENT: Dynamic instructions WITHOUT hardcoded content
+                        # Use BUSINESS PROMPT for closing, not hardcoded Hebrew text
+                        if hasattr(self, 'realtime_client') and self.realtime_client:
+                            try:
+                                # Behavioral instruction only - AI uses BUSINESS PROMPT for actual words
+                                silence_instructions = (
+                                    "The user has been silent for 10 seconds. "
+                                    "End the call politely according to your BUSINESS PROMPT closing guidelines."
+                                )
+                                await self.realtime_client.send_event({
+                                    "type": "response.create",
+                                    "response": {
+                                        "instructions": silence_instructions
+                                    }
+                                })
+                                self._mark_followup_create_sent()  # Track timestamp for debounce
+                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] 10s timeout - behavioral instruction sent")
+                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] 10s timeout - response.create sent")
+                            except Exception as send_err:
+                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
@@ -10552,9 +10618,32 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
-                            await self._send_text_to_ai(
-                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
-                            )
+                            
+                            # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
+                            if not self._can_send_followup_create("lead_unconfirmed"):
+                                # Can't send - just continue monitoring
+                                self._last_speech_time = time.time()
+                                continue
+                            
+                            # 🔥 NEW REQUIREMENT: Behavioral instruction only, no hardcoded script
+                            if hasattr(self, 'realtime_client') and self.realtime_client:
+                                try:
+                                    confirmation_instructions = (
+                                        "Customer has been silent and hasn't confirmed their information. "
+                                        "Ask for confirmation one last time, politely, based on your BUSINESS PROMPT."
+                                    )
+                                    await self.realtime_client.send_event({
+                                        "type": "response.create",
+                                        "response": {
+                                            "instructions": confirmation_instructions
+                                        }
+                                    })
+                                    self._mark_followup_create_sent()  # Track timestamp for debounce
+                                    logger.info(f"[SILENCE_FOLLOWUP_CREATE] Lead unconfirmed - behavioral instruction sent")
+                                    print(f"✅ [SILENCE_FOLLOWUP_CREATE] Lead confirmation prompt sent")
+                                except Exception as send_err:
+                                    logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
+                            
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
                             self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
@@ -10577,8 +10666,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         if SIMPLE_MODE:
                             print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
                             print(f"   Keeping line open - user may return or Twilio will disconnect")
-                            # Optionally send a final message
-                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+                            # 🔥 BUG #2 FIX: SIMPLE_MODE never sends to model, only logs
+                            logger.info(f"[SILENCE] keeping open... no AI intervention in SIMPLE_MODE")
                             # Reset timer to avoid immediate re-triggering, but don't close
                             self._last_speech_time = time.time()
                             continue  # Stay in monitor loop
@@ -10586,17 +10675,33 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
                         
-                        # Send closing message and hangup
-                        closing_msg = ""
-                        if self.call_config and self.call_config.closing_sentence:
-                            closing_msg = self.call_config.closing_sentence
-                        elif self.call_config and self.call_config.greeting_text:
-                            closing_msg = self.call_config.greeting_text  # Use greeting as fallback
+                        # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
+                        if not self._can_send_followup_create("max_warnings"):
+                            # Can't send - just trigger hangup
+                            await asyncio.sleep(1.0)
+                            self._trigger_auto_hangup("silence_timeout_no_tts")
+                            return
                         
-                        if closing_msg:
-                            await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
-                        else:
-                            await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
+                        # 🔥 NEW REQUIREMENT: Behavioral instruction only, no hardcoded script or fallback text
+                        if hasattr(self, 'realtime_client') and self.realtime_client:
+                            try:
+                                # Let AI use BUSINESS PROMPT for closing, don't inject specific text
+                                silence_instructions = (
+                                    "User has been silent too long after multiple prompts. "
+                                    "End the call politely according to your BUSINESS PROMPT closing guidelines."
+                                )
+                                
+                                await self.realtime_client.send_event({
+                                    "type": "response.create",
+                                    "response": {
+                                        "instructions": silence_instructions
+                                    }
+                                })
+                                self._mark_followup_create_sent()  # Track timestamp for debounce
+                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] Max warnings - behavioral instruction sent")
+                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] Max warnings - response.create sent")
+                            except Exception as send_err:
+                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
@@ -10608,11 +10713,59 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception as e:
             print(f"❌ [SILENCE] Monitor error: {e}")
     
+    def _can_send_followup_create(self, source: str = "unknown") -> bool:
+        """
+        🔥 NEW REQUIREMENT: Prevent response-create spam
+        
+        Check if we can safely send a response.create from silence/guards without causing:
+        - Double speaking (AI already speaking)
+        - Response spam (too soon after last followup)
+        - Latency issues (multiple responses in progress)
+        
+        Args:
+            source: Where this is being called from (for logging)
+            
+        Returns:
+            True if safe to send, False if should skip
+        """
+        # Check 1: Is AI already speaking?
+        if self.is_ai_speaking_event.is_set():
+            print(f"🔇 [{source.upper()}] BLOCKED - AI already speaking (is_ai_speaking=True)")
+            logger.info(f"[SILENCE_FOLLOWUP_BLOCKED] source={source} reason=ai_already_speaking")
+            return False
+        
+        # Check 2: Is there an active response in progress?
+        if self.active_response_id:
+            print(f"🔇 [{source.upper()}] BLOCKED - Response in progress (response_id={self.active_response_id[:20]}...)")
+            logger.info(f"[SILENCE_FOLLOWUP_BLOCKED] source={source} reason=response_in_progress response_id={self.active_response_id[:20]}")
+            return False
+        
+        # Check 3: Debounce - too soon after last followup create?
+        if self._last_followup_create_ts:
+            elapsed = time.time() - self._last_followup_create_ts
+            if elapsed < self._followup_create_debounce_sec:
+                print(f"🔇 [{source.upper()}] BLOCKED - Too soon after last followup ({elapsed:.1f}s < {self._followup_create_debounce_sec}s)")
+                logger.info(f"[SILENCE_FOLLOWUP_BLOCKED] source={source} reason=debounce elapsed={elapsed:.1f}s threshold={self._followup_create_debounce_sec}s")
+                return False
+        
+        # All checks passed - safe to send
+        logger.info(f"[SILENCE_FOLLOWUP_ALLOWED] source={source}")
+        return True
+    
+    def _mark_followup_create_sent(self):
+        """
+        🔥 NEW REQUIREMENT: Mark that we sent a followup response.create
+        This enables debounce tracking to prevent spam
+        """
+        self._last_followup_create_ts = time.time()
+        logger.info(f"[SILENCE_FOLLOWUP_CREATE] timestamp={self._last_followup_create_ts:.2f}")
+    
     async def _send_silence_warning(self):
         """
         Send a gentle prompt to continue the conversation.
         🔥 BUG #2 FIX: Use response.create with instructions instead of injecting SYSTEM messages
         🔥 BUILD 339: Added critical state checks to prevent loop after goodbye
+        🔥 NEW REQUIREMENT: Prevent response-create spam with debounce and AI-speaking check
         """
         try:
             if self._post_greeting_window_open():
@@ -10634,6 +10787,11 @@ Greet briefly. Then WAIT for customer to speak."""
                 print(f"🔇 [SILENCE] BLOCKED - hangup pending/triggered, not sending warning")
                 return
             
+            # 🔥 NEW REQUIREMENT: Prevent response-create spam
+            # Don't send if AI is already speaking or response in progress
+            if not self._can_send_followup_create("silence_warning"):
+                return
+            
             # 🔥 BUG #2 FIX: Use response.create with instructions instead of sending as user input
             # This prevents AI_INPUT_BLOCKED errors and stays dynamic without hardcode
             
@@ -10650,23 +10808,24 @@ Greet briefly. Then WAIT for customer to speak."""
                 return
             else:
                 # OPTION B: Use response.create with instructions for dynamic follow-up
+                # 🔥 NEW REQUIREMENT: Behavioral instructions only, no hardcoded "As the assistant" script
                 if fields_collected and not self.verification_confirmed:
-                    # Need confirmation - more specific instruction
+                    # Need confirmation - behavioral guidance
                     silence_instructions = (
                         "User has been silent for several seconds after providing details. "
-                        "As the assistant, ask one short helpful follow-up question to confirm "
-                        "the information provided, based on the BUSINESS PROMPT."
+                        "Ask one short helpful follow-up question to confirm the information, "
+                        "based on the conversation context and your BUSINESS PROMPT."
                     )
                 else:
-                    # General silence - let AI decide based on context
+                    # General silence - behavioral guidance
                     silence_instructions = (
                         f"User has been silent for {int(silence_duration)} seconds. "
-                        "As the assistant, ask one short helpful follow-up question "
-                        "based on the conversation context and your BUSINESS PROMPT instructions."
+                        "Ask one short helpful follow-up question based on the conversation "
+                        "context and your BUSINESS PROMPT instructions."
                     )
                 
                 print(f"🔇 [SILENCE] Sending response.create with instructions (silence={silence_duration:.1f}s)")
-                logger.info(f"[SILENCE] response.create with dynamic instructions duration={silence_duration:.1f}s")
+                logger.info(f"[SILENCE] response.create with behavioral instructions duration={silence_duration:.1f}s")
                 
                 # Use realtime client to send response.create with instructions
                 if hasattr(self, 'realtime_client') and self.realtime_client:
@@ -10677,6 +10836,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                 "instructions": silence_instructions
                             }
                         })
+                        self._mark_followup_create_sent()  # Track timestamp for debounce
                         print(f"✅ [SILENCE] response.create sent successfully")
                     except Exception as send_err:
                         logger.error(f"[SILENCE] Failed to send response.create: {send_err}")
