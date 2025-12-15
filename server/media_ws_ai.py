@@ -1544,10 +1544,11 @@ class MediaStreamHandler:
         
         # TX Queue for smooth audio transmission
         # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
-        # ✅ P0 FIX: Queue size 120 frames (~2.4s) - balanced for real-time + stability
-        # Per QA: 120-150 range (not too small, not 5 seconds)
-        # Drop-oldest policy ensures real-time audio delivery
-        self.tx_q = queue.Queue(maxsize=120)  # 120 frames = 2.4s buffer
+        # ✅ P0 FIX + AUDIO BACKPRESSURE FIX: Increased queue size to prevent drops
+        # 400 frames = 8s buffer - prevents mid-sentence audio cutting
+        # OpenAI sends audio in bursts, larger queue prevents drops while TX catches up
+        # Combined with backpressure (blocking put), this eliminates speech cuts
+        self.tx_q = queue.Queue(maxsize=400)  # 400 frames = 8s buffer
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -6629,74 +6630,45 @@ Greet briefly. Then WAIT for customer to speak."""
                         "media": {"payload": frame_b64}
                     }
                     
+                    # 🔥 AUDIO BACKPRESSURE FIX: Add pacing when queue is getting full
+                    # This slows down frame production to match TX consumption rate (50 FPS = 20ms/frame)
+                    queue_size = self.tx_q.qsize()
+                    queue_maxsize = self.tx_q.maxsize
+                    pacing_threshold = int(queue_maxsize * 0.6)  # Start pacing at 60% full
+                    
+                    if queue_size >= pacing_threshold:
+                        # Apply gentle pacing - slow down frame production to TX rate
+                        time.sleep(0.02)  # 20ms = match TX loop pace (50 FPS)
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 AUDIO BACKPRESSURE FIX: Blocking put with timeout instead of drops
+                    # This prevents mid-sentence audio cutting by waiting instead of dropping frames
+                    # ═══════════════════════════════════════════════════════════════════════
+                    queue_size = self.tx_q.qsize()
+                    queue_maxsize = self.tx_q.maxsize  # 400 frames = 8s
+                    backpressure_threshold = int(queue_maxsize * 0.8)  # 320 frames = 80%
+                    
+                    # Log when queue is getting high (throttled)
+                    if queue_size >= backpressure_threshold:
+                        now = time.time()
+                        if not hasattr(self, '_last_backpressure_log') or now - self._last_backpressure_log > 5:
+                            print(f"⏸️ [BACKPRESSURE] Queue high ({queue_size}/{queue_maxsize}), applying backpressure (blocking put)")
+                            self._last_backpressure_log = now
+                    
+                    # 🔥 FIX: Use blocking put() with timeout instead of put_nowait()
+                    # This applies true backpressure - we wait for TX to catch up instead of dropping frames
                     try:
-                        # ═══════════════════════════════════════════════════════════════════════
-                        # ✅ P0 FIX: Backpressure instead of burst drops
-                        # When queue fills up (≥80%), apply gentle backpressure instead of
-                        # dropping 72 frames at once. This prevents mid-sentence audio jumps.
-                        # ═══════════════════════════════════════════════════════════════════════
-                        queue_size = self.tx_q.qsize()
-                        queue_maxsize = self.tx_q.maxsize  # 120 frames = 2.4s
-                        backpressure_threshold = int(queue_maxsize * 0.8)  # 96 frames = 80%
-                        drop_target = int(queue_maxsize * 0.4)  # 48 frames = 40%
-                        
-                        # 🔥 NEW: Gentle backpressure at 80% - let TX loop catch up
-                        # Sleep 15ms to give TX thread time to drain queue
-                        # This is MUCH better than dropping 72 frames and causing jumps
-                        if queue_size >= backpressure_threshold:
-                            now = time.time()
-                            if not hasattr(self, '_last_backpressure_log') or now - self._last_backpressure_log > 5:
-                                print(f"⏸️ [BACKPRESSURE] Queue high ({queue_size}/{queue_maxsize}), pausing 15ms to let TX catch up")
-                                self._last_backpressure_log = now
-                            
-                            # Apply gentle backpressure - let TX loop drain
-                            time.sleep(0.015)  # 15ms pause
-                        
-                        # Use put_nowait with drop-oldest fallback (only if backpressure wasn't enough)
-                        self.tx_q.put_nowait(twilio_frame)
+                        self.tx_q.put(twilio_frame, timeout=0.5)  # Wait up to 500ms for space
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # ✅ P0 FIX: Drop OLDEST frames but limit max drop to prevent jumps
-                        # OLD: Dropped from 120→48 (72 frames!) causing mid-sentence jumps
-                        # NEW: Drop max 10 frames at a time, then apply backpressure
-                        queue_size_now = self.tx_q.qsize()  # Get current size
-                        
-                        # 🔥 CRITICAL: Limit max drop to 10 frames (200ms) to prevent jumps
-                        # If queue needs more draining, backpressure will handle it next iteration
-                        MAX_DROP_PER_BURST = 10  # 10 frames = 200ms - won't cause audible jump
-                        frames_to_drop = min(MAX_DROP_PER_BURST, max(0, queue_size_now - drop_target))
-                        dropped = 0
-                        
-                        # Drop oldest frames to make room (limited burst)
-                        for _ in range(frames_to_drop):
-                            try:
-                                _ = self.tx_q.get_nowait()
-                                dropped += 1
-                            except queue.Empty:
-                                break
-                        
-                        # Now insert the current frame
-                        try:
-                            self.tx_q.put_nowait(twilio_frame)
-                            self.realtime_tx_frames += 1
-                        except queue.Full:
-                            # Still full - drop one more and retry
-                            try:
-                                _ = self.tx_q.get_nowait()
-                                self.tx_q.put_nowait(twilio_frame)
-                                self.realtime_tx_frames += 1
-                                dropped += 1
-                            except:
-                                pass  # Give up on this frame
-                        
-                        # Log the drop (throttled) with warning if drop was limited
+                        # Queue is STILL full after 500ms timeout - this is exceptional
+                        # Only happens if TX thread is stalled/dead
                         now = time.time()
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > 5:
-                            if dropped >= MAX_DROP_PER_BURST:
-                                print(f"🗑️ [AUDIO DROP_LIMITED] Dropped {dropped} frames (limited from {queue_size_now - drop_target} to prevent jumps), queue: {queue_size_now}→{self.tx_q.qsize()}/{queue_maxsize}")
-                            else:
-                                print(f"🗑️ [AUDIO DROP_OLDEST] Dropped {dropped} frames, queue: {queue_size_now}→{self.tx_q.qsize()}/{queue_maxsize}")
+                            print(f"⚠️ [AUDIO BACKPRESSURE TIMEOUT] Queue full for >500ms ({queue_size}/{queue_maxsize}) - TX thread may be stalled!")
                             self._last_full_error = now
+                        # Drop this ONE frame only as emergency measure
+                        pass
                     
             except queue.Empty:
                 continue
