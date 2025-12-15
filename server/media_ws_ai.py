@@ -6600,7 +6600,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize  # Now 100 frames = 2s
                         high_watermark = int(queue_maxsize * 0.8)  # Warn at 80%
-                        drop_threshold = int(queue_maxsize * 0.9)  # Drop at 90%
                         drop_target = int(queue_maxsize * 0.4)  # Drop to 40%
                         
                         # Warn at high watermark (80%)
@@ -6616,9 +6615,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     except queue.Full:
                         # ✅ P0 FIX: Always drop OLDEST frames to return to real-time
                         # Drop from full queue down to target (40%)
-                        queue_maxsize = self.tx_q.maxsize
                         queue_size_now = self.tx_q.qsize()  # Get current size
-                        drop_target = int(queue_maxsize * 0.4)  # Target 40% after drop
                         frames_to_drop = max(0, queue_size_now - drop_target)  # Ensure positive
                         dropped = 0
                         
