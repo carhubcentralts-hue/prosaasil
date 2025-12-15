@@ -1242,24 +1242,24 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         return False
     
     # 4) Echo suppression window - reject if AI is speaking AND <200ms since audio started
-    # 🔥 C1 REQUIREMENT: Enhanced bypass logic for fast user responses (0.1-0.3s)
-    # Bypass echo_window if ANY of these conditions are met:
-    # 1. candidate_user_speaking == True (speech_started event fired)
-    # 2. local_vad_voice_frames >= 8 (160ms+ of sustained speech)
-    # 3. Text is new content (not similar to last AI transcript)
-    # 4. C1: Utterance duration >= 100ms (fast but real response like "בית שאן")
+    # 🔥 MASTER "CALL QUALITY" - PART B3: Enhanced bypass logic for fast user responses
+    # CRITICAL: Never drop a transcript if local VAD had ≥N voice_frames OR candidate_user_speaking=True
+    # Echo window should ONLY drop when text is highly similar to AI's own last audio transcript
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
-        # Check bypass conditions
+        # 🎯 MASTER "CALL QUALITY" - PART B3: Priority bypass conditions (ALWAYS accept)
+        # These indicate REAL user speech, not echo
         has_user_speech_candidate = candidate_user_speaking
-        has_sustained_vad = local_vad_voice_frames >= 8  # 8 frames = 160ms
+        has_sustained_vad = local_vad_voice_frames >= 5  # Changed from 8 to 5 frames = 100ms (more sensitive)
         
-        # Simple similarity check: text not in last AI transcript
+        # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced similarity check
+        # Only drop if text is HIGHLY similar to last AI transcript (actual echo)
         is_new_content = True
         if last_ai_transcript and stt_text:
             # Check if stt_text is a substring of last AI transcript (indicates echo)
             stt_normalized = stt_text.strip().lower()
             ai_normalized = last_ai_transcript.strip().lower()
-            is_new_content = stt_normalized not in ai_normalized
+            # More strict: only consider echo if >70% of STT text matches AI transcript
+            is_new_content = stt_normalized not in ai_normalized or len(stt_normalized) < len(ai_normalized) * 0.7
         
         # 🎯 C1: Fast response bypass - if utterance is >=100ms and has real Hebrew content, allow it
         # This catches fast answers like "בית שאן" (0.1-0.3s after "איזו עיר?")
@@ -1269,12 +1269,13 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
             any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in stt_text)  # Has Hebrew characters
         )
         
-        # Bypass if ANY condition is met
+        # 🎯 MASTER "CALL QUALITY" - PART B3: FORCE bypass if candidate_user_speaking OR local VAD
+        # These are HARD indicators of real speech - never drop!
         should_bypass_echo_window = (
-            has_user_speech_candidate or 
-            has_sustained_vad or 
-            is_new_content or 
-            is_fast_but_real_response
+            has_user_speech_candidate or  # Speech_started event fired
+            has_sustained_vad or           # Local VAD detected voice frames
+            is_new_content or              # Text different from AI
+            is_fast_but_real_response      # Fast but real (>=100ms + Hebrew)
         )
         
         if should_bypass_echo_window:
@@ -1288,14 +1289,28 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
             if is_fast_but_real_response:
                 bypass_reasons.append(f"fast_response_{utterance_ms:.0f}ms")
             
+            # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced bypass logging
             logger.info(
-                f"[C1 STT_GUARD] Accepted (echo_window bypass: {', '.join(bypass_reasons)}) text='{stt_text[:30]}...'"
+                f"[C1 STT_GUARD] ✅ ACCEPTED (echo_window bypass: {', '.join(bypass_reasons)}) "
+                f"text='{stt_text[:30]}...' local_vad={local_vad_voice_frames} candidate={has_user_speech_candidate}"
+            )
+            _orig_print(
+                f"[STT_ACCEPT] Echo bypass: {', '.join(bypass_reasons)} | text='{stt_text[:40]}...'",
+                flush=True
             )
         else:
             # No bypass - drop as echo
-            logger.info(
-                f"[STT_FILTER] drop reason=echo_window value={last_ai_audio_start_ms:.0f} "
-                f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:20]}...'"
+            # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced drop logging with full context
+            logger.warning(
+                f"[STT_DROP] reason=echo_window value={last_ai_audio_start_ms:.0f} "
+                f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:40]}...' "
+                f"local_vad={local_vad_voice_frames} candidate={has_user_speech_candidate} "
+                f"is_new={is_new_content} fast_response={is_fast_but_real_response}"
+            )
+            _orig_print(
+                f"[STT_DROP] Echo window: vad={local_vad_voice_frames}, candidate={has_user_speech_candidate}, "
+                f"new={is_new_content}, fast={is_fast_but_real_response} | text='{stt_text[:40]}...'",
+                flush=True
             )
             return False
     
@@ -1756,6 +1771,15 @@ class MediaStreamHandler:
         # 🎯 FIX A: GREETING STATE - Only first response is greeting, not all responses!
         self.greeting_mode_active = False  # True only during FIRST response (real greeting)
         self.greeting_completed = False    # Becomes True after first response.audio.done
+        
+        # 🎯 MASTER "CALL QUALITY" - PART A: Turn Latency Tracking
+        # Track timestamps for each stage of user turn → AI reply pipeline
+        self._turn_speech_stopped_ts = None  # input_audio_buffer.speech_stopped
+        self._turn_audio_committed_ts = None  # input_audio_buffer.committed
+        self._turn_stt_completed_ts = None  # conversation.item.input_audio_transcription.completed
+        self._turn_response_create_sent_ts = None  # when response.create sent
+        self._turn_first_audio_delta_ts = None  # first response.audio.delta
+        self._turn_audio_done_ts = None  # response.audio.done
         
         # Timeout configuration (optimized for fast response + stability)
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
@@ -2992,6 +3016,17 @@ Greet briefly. Then WAIT for customer to speak."""
                 if ai_currently_speaking and not self._barge_pending and not self._barge_confirmed:
                     # Check if local VAD reached threshold (8-12 frames = 160-240ms)
                     if local_vad_frames >= 8:
+                        # 🎯 MASTER "CALL QUALITY" - PART B1: CANDIDATE triggered by local VAD
+                        # CRITICAL: This must fire while AI speaking for barge-in to work!
+                        logger.info(
+                            f"[LOCAL_VAD] 🔶 CANDIDATE barge-in detected: {local_vad_frames} voice_frames "
+                            f"→ enabling forward + flush_preroll | ai_speaking=True"
+                        )
+                        _orig_print(
+                            f"[LOCAL_VAD] CANDIDATE: vad_frames={local_vad_frames}, ai_speaking=True, "
+                            f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...",
+                            flush=True
+                        )
                         # CANDIDATE BARGE-IN detected by local VAD!
                         self._barge_pending = True
                         self._flush_preroll = True
@@ -3452,6 +3487,9 @@ Greet briefly. Then WAIT for customer to speak."""
         try:
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
             await _client.send_event({"type": "response.create"})
+            
+            # 🎯 MASTER "CALL QUALITY" - PART A1: Track response.create sent timestamp
+            self._turn_response_create_sent_ts = time.time()
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
             self._response_create_count += 1
@@ -3931,6 +3969,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._realtime_speech_active = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
                     
+                    # 🎯 MASTER "CALL QUALITY" - PART A1: Track speech_stopped timestamp
+                    self._turn_speech_stopped_ts = time.time()
+                    
                     # 🔥 FIX BUG 2: Start timeout for user turn finalization
                     # If no transcription arrives within 1.8s, finalize the turn anyway
                     async def _user_turn_timeout_check():
@@ -4059,7 +4100,34 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
+                    response_id = event.get("response_id")
+                    
                     if audio_b64:
+                        # 🎯 MASTER "CALL QUALITY" - PART B2: Barge-in violation detection
+                        # If this response was cancelled (in _cancelled_response_ids), but we still get audio
+                        # within 250ms of cancellation → log violation (smoking gun for barge-in not working)
+                        if response_id and response_id in self._cancelled_response_ids:
+                            # Check when it was cancelled
+                            cancelled_ts = getattr(self, f'_cancel_ts_{response_id}', None)
+                            if cancelled_ts:
+                                time_since_cancel_ms = (time.time() - cancelled_ts) * 1000
+                                if time_since_cancel_ms < 250:
+                                    logger.error(
+                                        f"[BARGE_IN_VIOLATION] cancelled_but_audio_continues "
+                                        f"response_id={response_id[:20]}... time_since_cancel={time_since_cancel_ms:.0f}ms"
+                                    )
+                                    _orig_print(
+                                        f"🚨 [BARGE_IN_VIOLATION] Audio still arriving {time_since_cancel_ms:.0f}ms "
+                                        f"after cancel for response {response_id[:20]}...",
+                                        flush=True
+                                    )
+                            # Drop this audio - it's from a cancelled response
+                            continue
+                        
+                        # 🎯 MASTER "CALL QUALITY" - PART A1: Track first audio delta timestamp (once per turn)
+                        if self._turn_first_audio_delta_ts is None and self._turn_response_create_sent_ts is not None:
+                            self._turn_first_audio_delta_ts = time.time()
+                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -4215,6 +4283,45 @@ Greet briefly. Then WAIT for customer to speak."""
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
+                    # 🎯 MASTER "CALL QUALITY" - PART A1: Track audio.done timestamp and log turn latency
+                    self._turn_audio_done_ts = time.time()
+                    
+                    # Log complete turn latency breakdown if we have all timestamps
+                    if (self._turn_speech_stopped_ts and self._turn_stt_completed_ts and 
+                        self._turn_response_create_sent_ts and self._turn_first_audio_delta_ts):
+                        
+                        # Calculate deltas
+                        stop_to_commit_ms = 0  # We don't track committed event yet, use stop→stt as proxy
+                        commit_to_stt_ms = (self._turn_stt_completed_ts - self._turn_speech_stopped_ts) * 1000
+                        stt_to_create_ms = (self._turn_response_create_sent_ts - self._turn_stt_completed_ts) * 1000
+                        create_to_audio1_ms = (self._turn_first_audio_delta_ts - self._turn_response_create_sent_ts) * 1000
+                        total_stop_to_audio1_ms = (self._turn_first_audio_delta_ts - self._turn_speech_stopped_ts) * 1000
+                        
+                        # Get context
+                        call_direction = getattr(self, 'call_direction', 'inbound')
+                        business_id = getattr(self, 'business_id', 'unknown')
+                        
+                        # 🎯 MASTER "CALL QUALITY" - PART A1: Structured turn latency log
+                        logger.info(
+                            f"[TURN_LATENCY] stop→commit={stop_to_commit_ms:.0f}ms | "
+                            f"commit→stt={commit_to_stt_ms:.0f}ms | "
+                            f"stt→create={stt_to_create_ms:.0f}ms | "
+                            f"create→audio1={create_to_audio1_ms:.0f}ms | "
+                            f"total(stop→audio1)={total_stop_to_audio1_ms:.0f}ms | "
+                            f"direction={call_direction} business_id={business_id}"
+                        )
+                        _orig_print(
+                            f"[TURN_LATENCY] total={total_stop_to_audio1_ms:.0f}ms "
+                            f"(stt={commit_to_stt_ms:.0f} + create={stt_to_create_ms:.0f} + audio1={create_to_audio1_ms:.0f})",
+                            flush=True
+                        )
+                        
+                        # Reset for next turn
+                        self._turn_speech_stopped_ts = None
+                        self._turn_stt_completed_ts = None
+                        self._turn_response_create_sent_ts = None
+                        self._turn_first_audio_delta_ts = None
+                    
                     # 🎯 TASK A: Clear audio framer buffer on response completion
                     # Any leftover bytes < 160 are discarded (not padded) to avoid artifacts
                     # Defensive: hasattr check in case event arrives before initialization
@@ -5003,6 +5110,9 @@ Greet briefly. Then WAIT for customer to speak."""
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
+                    
+                    # 🎯 MASTER "CALL QUALITY" - PART A1: Track STT completed timestamp
+                    self._turn_stt_completed_ts = time.time()
                     
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
                     print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
@@ -10354,6 +10464,8 @@ Greet briefly. Then WAIT for customer to speak."""
         if not response_id:
             return
         self._cancelled_response_ids.add(response_id)
+        # 🎯 MASTER "CALL QUALITY" - PART B2: Track cancellation timestamp for violation detection
+        setattr(self, f'_cancel_ts_{response_id}', time.time())
         if source:
             print(f"🪓 [BARGE-IN] Marked response {response_id[:20]}... as cancelled ({source})")
     
