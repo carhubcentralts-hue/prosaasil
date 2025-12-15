@@ -11868,7 +11868,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         import threading
                         
                         print(f"🚨 [TX_STALL] DETECTED! gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
-                        print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
+                        # ✅ FIX: Define queue_maxsize before use to prevent UnboundLocalError crash
+                        try:
+                            queue_maxsize = getattr(self.tx_q, "maxsize", -1)
+                            print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
+                        except Exception as e:
+                            print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
                         
                         # Log stack traces of all threads to find the culprit
                         if frame_gap_ms > 500.0:  # Only full dump for severe stalls
