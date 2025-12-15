@@ -2796,19 +2796,26 @@ Greet briefly. Then WAIT for customer to speak."""
                             except Exception as e:
                                 print(f"⚠️ [BUILD 332] Socket shutdown failed: {e}")
                         
-                        # 🔥 BUILD 332: ALSO CALL TWILIO API as additional guarantee
+                        # 🔥 P0 FIX: Move Twilio REST call to background thread to prevent audio loop blocking
                         if hasattr(self, 'call_sid') and self.call_sid:
-                            try:
-                                import os
-                                from twilio.rest import Client as TwilioClient
-                                account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
-                                auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
-                                if account_sid and auth_token:
-                                    twilio_client = TwilioClient(account_sid, auth_token)
-                                    twilio_client.calls(self.call_sid).update(status='completed')
-                                    print(f"✅ [BUILD 332] Twilio call {self.call_sid} terminated via API!")
-                            except Exception as e:
-                                print(f"⚠️ [BUILD 332] Could not terminate call via Twilio API: {e}")
+                            def terminate_call_async():
+                                try:
+                                    import os
+                                    from twilio.rest import Client as TwilioClient
+                                    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+                                    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+                                    if account_sid and auth_token:
+                                        twilio_client = TwilioClient(account_sid, auth_token)
+                                        twilio_client.calls(self.call_sid).update(status='completed')
+                                        print(f"✅ [BUILD 332] Twilio call {self.call_sid} terminated via API!")
+                                except Exception as e:
+                                    print(f"⚠️ [BUILD 332] Could not terminate call via Twilio API: {e}")
+                            
+                            # Run in background - DON'T block audio loop!
+                            import threading
+                            thread = threading.Thread(target=terminate_call_async, daemon=True, name=f"TwilioTerminate-{self.call_sid[:8]}")
+                            thread.start()
+                            print(f"🔄 [P0 FIX] Twilio termination queued in background thread")
                     
                     break  # Exit the audio sender loop immediately
                 
@@ -9324,28 +9331,36 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"❌ [BUILD 163] No call_sid - cannot hang up")
             return
         
-        try:
-            import os
-            from twilio.rest import Client
-            
-            account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-            auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-            
-            if not account_sid or not auth_token:
-                print(f"❌ [BUILD 163] Missing Twilio credentials - cannot hang up")
-                return
-            
-            client = Client(account_sid, auth_token)
-            
-            client.calls(self.call_sid).update(status='completed')
-            
-            print(f"✅ [BUILD 163] Call {self.call_sid[:8]}... hung up successfully: {reason}")
-            logger.info(f"[BUILD 163] Auto hang-up: call={self.call_sid[:8]}, reason={reason}")
-            
-        except Exception as e:
-            print(f"❌ [BUILD 163] Failed to hang up call: {e}")
-            import traceback
-            traceback.print_exc()
+        # 🔥 P0 FIX: Move Twilio REST call to background thread to prevent blocking hot path
+        def hangup_async():
+            try:
+                import os
+                from twilio.rest import Client
+                
+                account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+                auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+                
+                if not account_sid or not auth_token:
+                    print(f"❌ [BUILD 163] Missing Twilio credentials - cannot hang up")
+                    return
+                
+                client = Client(account_sid, auth_token)
+                
+                client.calls(self.call_sid).update(status='completed')
+                
+                print(f"✅ [BUILD 163] Call {self.call_sid[:8]}... hung up successfully: {reason}")
+                logger.info(f"[BUILD 163] Auto hang-up: call={self.call_sid[:8]}, reason={reason}")
+                
+            except Exception as e:
+                print(f"❌ [BUILD 163] Failed to hang up call: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Run in background - DON'T block call handling!
+        import threading
+        thread = threading.Thread(target=hangup_async, daemon=True, name=f"TwilioHangup-{self.call_sid[:8]}")
+        thread.start()
+        print(f"🔄 [P0 FIX] Twilio hangup queued in background thread")
     
     # 🔥 MASTER FIX: Greeting SLA validation
     def _validate_greeting_sla(self):
@@ -11488,10 +11503,20 @@ Greet briefly. Then WAIT for customer to speak."""
                     queue_size = self.tx_q.qsize()
                     queue_maxsize = self.tx_q.maxsize
                     actual_fps = frames_sent_last_sec  # Frames sent in last second
-                    # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
+                    
+                    # 🔥 P0 FIX: Detect blocking operations via max_gap_ms
+                    if max_gap_ms > 200:
+                        # CRITICAL: Blocking detected! Audio loop is stalled!
+                        _orig_print(f"🚨 BLOCKING_DETECTED max_gap_ms={max_gap_ms:.1f}ms (threshold=200ms) - Check for sync IO in hot path!", flush=True)
+                        # Log detailed state for debugging
+                        _orig_print(f"   TX state: fps={actual_fps:.1f}, frames={frames_sent_last_sec}, q={queue_size}/{queue_maxsize}", flush=True)
+                    
+                    # 🎯 P0: Log FPS and max_gap_ms for audio quality monitoring
+                    # Target: fps≈50, max_gap_ms<60ms for smooth audio
                     queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
                     if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
                         print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                    
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window
