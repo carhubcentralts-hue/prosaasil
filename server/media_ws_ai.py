@@ -485,6 +485,47 @@ class AudioState:
             return self.ema_noise_floor + VAD_ADAPTIVE_OFFSET
 
 
+# 🔥 P0-3 FIX: VAD State Reset Helper
+def _reset_vad_state(handler_instance, reason: str):
+    """
+    Reset ALL VAD-related state counters to prevent stuck barge-in flags.
+    
+    Call this at key transition points:
+    - END OF UTTERANCE (speech_stopped)
+    - After input_audio_buffer.commit
+    - After response.cancel
+    - When AI starts speaking (response.audio.delta first frame)
+    - When response completes (response.audio.done)
+    
+    Args:
+        handler_instance: The MediaStreamHandler instance
+        reason: Why we're resetting (for logging)
+    """
+    logger.debug(f"[VAD_RESET] Resetting VAD state: reason={reason}")
+    
+    # Reset LOCAL_VAD counters
+    if hasattr(handler_instance, '_local_vad_voice_frames'):
+        handler_instance._local_vad_voice_frames = 0
+    if hasattr(handler_instance, '_local_vad_silence_frames'):
+        handler_instance._local_vad_silence_frames = 0
+    
+    # Reset barge-in flags
+    if hasattr(handler_instance, '_barge_pending'):
+        handler_instance._barge_pending = False
+    if hasattr(handler_instance, '_barge_confirmed'):
+        handler_instance._barge_confirmed = False
+    if hasattr(handler_instance, '_flush_preroll'):
+        handler_instance._flush_preroll = False
+    if hasattr(handler_instance, 'barge_in_voice_frames'):
+        handler_instance.barge_in_voice_frames = 0
+    
+    # Reset candidate flags
+    if hasattr(handler_instance, '_candidate_user_speaking'):
+        handler_instance._candidate_user_speaking = False
+    
+    logger.debug(f"[VAD_RESET] Complete: {reason}")
+
+
 # 🔧 APPOINTMENT VALIDATION HELPER
 def validate_appointment_slot(business_id: int, requested_dt) -> bool:
     """
@@ -1058,6 +1099,14 @@ BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger 
 # 🔥 BUG #3 FIX: Force cancel thresholds for LOCAL_VAD barge-in
 FORCE_CANCEL_VAD_FRAMES = 10   # 10 frames = 200ms for force cancel (more aggressive than BARGE_IN)
 FORCE_CANCEL_CANDIDATE_VAD_FRAMES = 8  # 8 frames = 160ms for candidate detection
+
+# 🔥 P0-3 FIX: No-barge window after AI starts speaking (250-400ms)
+# This prevents false barge-in from echo/pre-roll/artifacts at the start of AI audio
+NO_BARGE_WINDOW_MS = 300  # 300ms window after AI audio starts where LOCAL_VAD is ignored
+
+# 🔥 P0-3 FIX: Force cancel dual threshold - require BOTH RMS and sustained frames
+FORCE_CANCEL_MIN_RMS = 150.0  # Minimum RMS for force cancel (real user speech is loud)
+FORCE_CANCEL_SUSTAINED_FRAMES = 10  # Must be sustained for 10 frames (200ms) AFTER no-barge window
 
 # 🔥 BUG #1 FIX: Session management constants
 MAX_SESSION_RECONNECT_ATTEMPTS = 2  # Maximum reconnection attempts for session_expired
@@ -3020,9 +3069,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
-                    # 🔥 BUILD 200: Track blocked audio stats
-                    self._stats_audio_blocked += 1
-                    # 🔥 BUILD 341: Count as dropped
+                    
+                    # 🔥 P0-4 FIX: In SIMPLE_MODE, don't count greeting protection as a filter violation
+                    # Greeting protection is necessary to prevent OpenAI from cancelling greeting
+                    # Only count as _stats_audio_blocked in non-SIMPLE_MODE
+                    if not SIMPLE_MODE:
+                        self._stats_audio_blocked += 1
+                    
+                    # 🔥 BUILD 341: Count as dropped in local counter (used for logging)
                     _frames_dropped += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
@@ -3124,45 +3178,87 @@ Greet briefly. Then WAIT for customer to speak."""
                         )
                     
                     # 🔥 BUG #3 FIX: FORCE CANCEL when LOCAL_VAD reaches threshold (200-240ms)
+                    # 🔥 P0-3 FIX: Enhanced with no-barge window and dual thresholds
                     # This ensures barge-in works even if STT is blocked/delayed
+                    # BUT prevents false cancels from echo/pre-roll at start of AI audio
                     if local_vad_frames >= FORCE_CANCEL_VAD_FRAMES and self.active_response_id:
-                        # Force cancel - user is clearly speaking!
-                        _orig_print(
-                            f"🛑 [BARGE-IN FORCE] local_vad_frames={local_vad_frames}, rms={frame_rms:.1f}, "
-                            f"response_id={self.active_response_id[:20]}...",
-                            flush=True
-                        )
-                        logger.warning(
-                            f"[BARGE-IN FORCE] Forcing cancel due to sustained LOCAL_VAD: "
-                            f"frames={local_vad_frames}, rms={frame_rms:.1f}"
-                        )
+                        # 🔥 P0-3a: Check if we're in the no-barge window (first 300ms after AI starts)
+                        time_since_ai_start_ms = 0
+                        if hasattr(self, '_last_ai_audio_start_ts') and self._last_ai_audio_start_ts is not None:
+                            time_since_ai_start_ms = (time.time() - self._last_ai_audio_start_ts) * 1000
                         
-                        # Cancel active response
-                        try:
-                            await client.cancel_response(self.active_response_id)
-                            _orig_print(f"✅ [BARGE-IN FORCE] cancel sent for {self.active_response_id[:20]}", flush=True)
-                        except Exception as cancel_err:
-                            _orig_print(f"⚠️ [BARGE-IN FORCE] cancel failed: {cancel_err}", flush=True)
+                        in_no_barge_window = time_since_ai_start_ms < NO_BARGE_WINDOW_MS
                         
-                        # Flush Twilio TX queue
-                        try:
-                            while not self.tx_q.empty():
-                                self.tx_q.get_nowait()
-                            _orig_print(f"✅ [BARGE-IN FORCE] Twilio TX queue flushed", flush=True)
-                        except:
-                            pass
-                        
-                        # Mark as confirmed to prevent re-triggering
-                        self._barge_confirmed = True
-                        _orig_print(f"✅ [BARGE-IN FORCE] Marked as confirmed", flush=True)
+                        if in_no_barge_window:
+                            # Inside no-barge window - don't cancel yet (likely echo/pre-roll)
+                            if local_vad_frames % 20 == 0:  # Log every 20 frames to avoid spam
+                                _orig_print(
+                                    f"🛡️ [NO-BARGE WINDOW] Ignoring LOCAL_VAD (frames={local_vad_frames}) - "
+                                    f"only {time_since_ai_start_ms:.0f}ms since AI started (window={NO_BARGE_WINDOW_MS}ms)",
+                                    flush=True
+                                )
+                        else:
+                            # 🔥 P0-3b: Outside no-barge window - apply dual thresholds
+                            # Require BOTH high RMS AND sustained frames
+                            rms_above_threshold = frame_rms >= FORCE_CANCEL_MIN_RMS
+                            frames_sustained = local_vad_frames >= FORCE_CANCEL_SUSTAINED_FRAMES
+                            
+                            if rms_above_threshold and frames_sustained:
+                                # ✅ Both conditions met - FORCE cancel
+                                _orig_print(
+                                    f"🛑 [BARGE-IN FORCE] Dual threshold met: "
+                                    f"vad_frames={local_vad_frames} (≥{FORCE_CANCEL_SUSTAINED_FRAMES}), "
+                                    f"rms={frame_rms:.1f} (≥{FORCE_CANCEL_MIN_RMS}), "
+                                    f"time_since_ai_start={time_since_ai_start_ms:.0f}ms (≥{NO_BARGE_WINDOW_MS}ms), "
+                                    f"response_id={self.active_response_id[:20]}...",
+                                    flush=True
+                                )
+                                logger.warning(
+                                    f"[BARGE-IN FORCE] Forcing cancel due to sustained LOCAL_VAD: "
+                                    f"frames={local_vad_frames}, rms={frame_rms:.1f}, time_since_ai={time_since_ai_start_ms:.0f}ms"
+                                )
+                                
+                                # Cancel active response
+                                try:
+                                    await client.cancel_response(self.active_response_id)
+                                    _orig_print(f"✅ [BARGE-IN FORCE] cancel sent for {self.active_response_id[:20]}", flush=True)
+                                except Exception as cancel_err:
+                                    _orig_print(f"⚠️ [BARGE-IN FORCE] cancel failed: {cancel_err}", flush=True)
+                                
+                                # Flush Twilio TX queue
+                                try:
+                                    while not self.tx_q.empty():
+                                        self.tx_q.get_nowait()
+                                    _orig_print(f"✅ [BARGE-IN FORCE] Twilio TX queue flushed", flush=True)
+                                except:
+                                    pass
+                                
+                                # Mark as confirmed to prevent re-triggering
+                                self._barge_confirmed = True
+                                _orig_print(f"✅ [BARGE-IN FORCE] Marked as confirmed", flush=True)
+                            else:
+                                # One or both thresholds not met - log and continue
+                                if local_vad_frames % 20 == 0:  # Log every 20 frames
+                                    _orig_print(
+                                        f"⏳ [BARGE-IN PENDING] Waiting for dual threshold: "
+                                        f"rms={frame_rms:.1f} {'✅' if rms_above_threshold else '❌'} (need ≥{FORCE_CANCEL_MIN_RMS}), "
+                                        f"frames={local_vad_frames} {'✅' if frames_sustained else '❌'} (need ≥{FORCE_CANCEL_SUSTAINED_FRAMES})",
+                                        flush=True
+                                    )
                 
                 if ai_currently_speaking and not self._barge_pending and not self._barge_confirmed:
                     # HALF-DUPLEX: AI is speaking and no barge-in in progress
                     # DO NOT send to OpenAI - just keep in preroll buffer
                     if _frames_in % 50 == 0:  # Log every 50 frames to avoid spam
                         print(f"🎤 [HALF-DUPLEX] Blocking audio to OpenAI - AI speaking (response_id={self.active_response_id[:15] if self.active_response_id else 'N/A'}, vad_frames={local_vad_frames})")
-                    # Track as blocked
-                    self._stats_audio_blocked += 1
+                    
+                    # 🔥 P0-4 FIX: In SIMPLE_MODE, don't count HALF-DUPLEX blocking as a filter violation
+                    # HALF-DUPLEX is necessary echo prevention, not an audio quality filter
+                    # Only count as _stats_audio_blocked in non-SIMPLE_MODE
+                    if not SIMPLE_MODE:
+                        self._stats_audio_blocked += 1
+                    
+                    # Track as dropped in local counter (used for logging)
                     _frames_dropped += 1
                     continue
                 
@@ -3912,6 +4008,17 @@ Greet briefly. Then WAIT for customer to speak."""
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
+                        
+                        # 🔥 P0-1 INVARIANT: Check if response.created came within 200ms of STT_FINAL
+                        if hasattr(self, '_stt_trigger_timestamp') and self._stt_trigger_timestamp:
+                            stt_to_created_ms = (time.time() - self._stt_trigger_timestamp) * 1000
+                            if stt_to_created_ms > 200:
+                                logger.warning(
+                                    f"⚠️ [P0-1 VIOLATION] STT_FINAL to response.created took {stt_to_created_ms:.0f}ms (>200ms threshold)! "
+                                    f"This indicates delayed response trigger."
+                                )
+                            self._stt_trigger_timestamp = None  # Reset for next turn
+                        
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Per-response markers to track audio delivery quality
                         # ═══════════════════════════════════════════════════════════════════════
@@ -3920,7 +4027,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._response_tracking[resp_id] = {
                             'start_time': time.time(),
                             'frames_sent': 0,
-                            'first_audio_ts': None
+                            'first_audio_ts': None,
+                            'cancel_count': 0  # Track for P0-5 violation detection
                         }
                         print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
                     else:
@@ -4005,7 +4113,74 @@ Greet briefly. Then WAIT for customer to speak."""
                         return  # Exit event loop
                         
                 if event_type == "response.cancelled":
-                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
+                    resp_id = event.get("response", {}).get("id", "?")
+                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: id={resp_id[:20]}...", flush=True)
+                    
+                    # 🔥 P0-5 FIX: Check if response was cancelled before sending any audio
+                    # If frames_sent == 0, we need to retry to ensure user gets a response
+                    if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
+                        frames_sent = self._response_tracking[resp_id]['frames_sent']
+                        cancel_count = self._response_tracking[resp_id].get('cancel_count', 0)
+                        cancel_count += 1
+                        self._response_tracking[resp_id]['cancel_count'] = cancel_count
+                        
+                        # 🔥 P0-5 INVARIANT: Detect multiple consecutive frames_sent=0 cancellations
+                        if frames_sent == 0 and cancel_count > 1:
+                            logger.error(
+                                f"⚠️ [P0-5 VIOLATION] Multiple consecutive frames_sent=0 cancellations detected! "
+                                f"Response {resp_id[:20]}... cancelled {cancel_count} times with NO audio. "
+                                f"This indicates a persistent barge-in or recovery issue."
+                            )
+                        
+                        if frames_sent == 0:
+                            # Response was cancelled before ANY audio was sent!
+                            _orig_print(
+                                f"🔄 [P0-5 RECOVERY] Response cancelled with frames_sent=0! "
+                                f"Will retry after 200ms if user not speaking.",
+                                flush=True
+                            )
+                            logger.warning(
+                                f"[P0-5 RECOVERY] Response {resp_id[:20]}... cancelled with NO audio sent - scheduling retry"
+                            )
+                            
+                            # Schedule recovery check after 200ms
+                            async def _recovery_from_zero_frames():
+                                try:
+                                    await asyncio.sleep(0.2)  # 200ms delay
+                                    
+                                    # Check if user is currently speaking
+                                    if self._realtime_speech_active:
+                                        logger.info("[P0-5 RECOVERY] User speaking - skipping retry")
+                                        return
+                                    
+                                    # Check if AI is already speaking (OpenAI recovered naturally)
+                                    if self.is_ai_speaking_event.is_set():
+                                        logger.info("[P0-5 RECOVERY] AI already speaking - skipping retry")
+                                        return
+                                    
+                                    # Check if there's a pending response
+                                    if self.response_pending_event.is_set():
+                                        logger.info("[P0-5 RECOVERY] Response pending - skipping retry")
+                                        return
+                                    
+                                    # All checks passed - retry response.create
+                                    logger.info("[P0-5 RECOVERY] Retrying response.create after frames_sent=0 cancellation")
+                                    _orig_print(
+                                        f"🔄 [P0-5 RECOVERY] Triggering retry response.create",
+                                        flush=True
+                                    )
+                                    await self.trigger_response("P0-5_RECOVERY_FRAMES_0")
+                                    
+                                except Exception as e:
+                                    logger.error(f"[P0-5 RECOVERY] Error in recovery: {e}")
+                            
+                            # Schedule recovery task
+                            asyncio.create_task(_recovery_from_zero_frames())
+                        else:
+                            logger.info(f"[P0-5 RECOVERY] Response cancelled after {frames_sent} frames sent - no recovery needed")
+                        
+                        # Cleanup tracking
+                        del self._response_tracking[resp_id]
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
@@ -4240,17 +4415,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._barge_in_started_ts = None
                     
                     # 🔥 HALF-DUPLEX: Reset barge-in state flags after user turn
-                    if hasattr(self, '_barge_pending'):
-                        self._barge_pending = False
-                    if hasattr(self, '_barge_confirmed'):
-                        self._barge_confirmed = False
-                    if hasattr(self, '_flush_preroll'):
-                        self._flush_preroll = False
-                    # Reset local VAD counters after user turn
-                    if hasattr(self, '_local_vad_voice_frames'):
-                        self._local_vad_voice_frames = 0
-                    if hasattr(self, '_local_vad_silence_frames'):
-                        self._local_vad_silence_frames = 0
+                    # 🔥 P0-3a FIX: Use centralized VAD reset function
+                    _reset_vad_state(self, "SPEECH_STOPPED")
+                    
                     logger.debug(f"[HALF-DUPLEX] Reset barge states after user turn")
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
@@ -4446,6 +4613,10 @@ Greet briefly. Then WAIT for customer to speak."""
                             # 🔥 FIX BUG 3: Track AI audio start time for echo suppression
                             self._last_ai_audio_start_ts = now
                             print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
+                            
+                            # 🔥 P0-3a FIX: Reset VAD state when AI starts speaking
+                            _reset_vad_state(self, "AI_AUDIO_START")
+                            
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
@@ -4637,6 +4808,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
+                    
+                    # 🔥 P0-3a FIX: Reset VAD state when AI stops speaking
+                    _reset_vad_state(self, "AI_AUDIO_DONE")
                     
                     # 🔥 BUILD 171: Track when AI finished speaking for cooldown check
                     self._ai_finished_speaking_ts = time.time()
@@ -6261,6 +6435,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             # Start latency tracking for this turn
                             self._turn_trigger_reason = "STT_COMPLETED"
+                            self._stt_trigger_timestamp = time.time()  # Track when trigger was sent
                             
                             # Trigger response immediately
                             asyncio.create_task(self.trigger_response("STT_COMPLETED"))
