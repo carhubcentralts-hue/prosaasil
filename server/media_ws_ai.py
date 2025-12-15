@@ -6630,23 +6630,24 @@ Greet briefly. Then WAIT for customer to speak."""
                         "media": {"payload": frame_b64}
                     }
                     
-                    # 🔥 AUDIO BACKPRESSURE FIX: Add pacing when queue is getting full
-                    # This slows down frame production to match TX consumption rate (50 FPS = 20ms/frame)
-                    queue_size = self.tx_q.qsize()
-                    queue_maxsize = self.tx_q.maxsize
-                    pacing_threshold = int(queue_maxsize * 0.6)  # Start pacing at 60% full
-                    
-                    if queue_size >= pacing_threshold:
-                        # Apply gentle pacing - slow down frame production to TX rate
-                        time.sleep(0.02)  # 20ms = match TX loop pace (50 FPS)
-                    
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 AUDIO BACKPRESSURE FIX: Blocking put with timeout instead of drops
+                    # 🔥 AUDIO BACKPRESSURE FIX: Pacing + Blocking put with timeout
                     # This prevents mid-sentence audio cutting by waiting instead of dropping frames
                     # ═══════════════════════════════════════════════════════════════════════
+                    # Get queue state once to avoid redundant system calls
                     queue_size = self.tx_q.qsize()
                     queue_maxsize = self.tx_q.maxsize  # 400 frames = 8s
-                    backpressure_threshold = int(queue_maxsize * 0.8)  # 320 frames = 80%
+                    
+                    # Thresholds for backpressure control
+                    PACING_THRESHOLD = 0.6  # Start pacing at 60% full
+                    BACKPRESSURE_THRESHOLD = 0.8  # Log warnings at 80% full
+                    
+                    pacing_threshold = int(queue_maxsize * PACING_THRESHOLD)  # 240 frames
+                    backpressure_threshold = int(queue_maxsize * BACKPRESSURE_THRESHOLD)  # 320 frames
+                    
+                    # Apply pacing when queue ≥60% full to slow production to TX rate
+                    if queue_size >= pacing_threshold:
+                        time.sleep(0.02)  # 20ms = match TX loop pace (50 FPS)
                     
                     # Log when queue is getting high (throttled)
                     if queue_size >= backpressure_threshold:
