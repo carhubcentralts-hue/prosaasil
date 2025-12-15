@@ -7109,41 +7109,82 @@ Greet briefly. Then WAIT for customer to speak."""
                                     # Reset quickly when audio drops - echo is intermittent
                                     self._echo_gate_consec_frames = 0
                                 
+                                # ═══════════════════════════════════════════════════════════════
+                                # 🎯 P0-3: Stable Barge-In with Short Forwarding Window
+                                # ═══════════════════════════════════════════════════════════════
+                                # When AI is speaking:
+                                # 1. Block ALL audio by default (no echo to OpenAI)
+                                # 2. Local VAD runs continuously (RMS + consecutive frames)
+                                # 3. When VAD confirms real speech → open SHORT forwarding window (200-400ms)
+                                # 4. After window closes → back to blocking until next VAD confirmation
+                                # ═══════════════════════════════════════════════════════════════
+                                
                                 # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
                                 # Echo spikes are typically 1-3 frames, real speech is sustained
                                 # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
                                 is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
                                 
+                                # 🎯 P0-3: Short forwarding window (200-400ms) after VAD confirmation
+                                FORWARDING_WINDOW_MS = 300  # 300ms window after VAD confirms speech
+                                
+                                # Track forwarding window state
+                                if not hasattr(self, '_forwarding_window_open_ts'):
+                                    self._forwarding_window_open_ts = None
+                                
+                                # Open forwarding window when VAD confirms real speech
+                                if is_likely_real_speech and not self._forwarding_window_open_ts:
+                                    self._forwarding_window_open_ts = time.time()
+                                    print(f"🔓 [P0-3] Opening {FORWARDING_WINDOW_MS}ms forwarding window - VAD confirmed speech")
+                                
+                                # Check if forwarding window is still open
+                                window_is_open = False
+                                if self._forwarding_window_open_ts:
+                                    elapsed_ms = (time.time() - self._forwarding_window_open_ts) * 1000
+                                    if elapsed_ms < FORWARDING_WINDOW_MS:
+                                        window_is_open = True
+                                    else:
+                                        # Window expired - close it
+                                        self._forwarding_window_open_ts = None
+                                        print(f"🔒 [P0-3] Forwarding window closed after {elapsed_ms:.0f}ms")
+                                
                                 if self.is_ai_speaking_event.is_set():
-                                    # AI is actively speaking - block ALL audio UNLESS proven barge-in
-                                    if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
+                                    # AI is actively speaking - block ALL audio UNLESS:
+                                    # 1. Barge-in already active (user confirmed to be speaking)
+                                    # 2. OpenAI speech detection active (bypass during user turn)
+                                    # 3. Forwarding window is open (short window after VAD confirmation)
+                                    if not self.barge_in_active and not self._realtime_speech_active and not window_is_open:
                                         # Block - this is echo or noise
                                         if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
-                                            print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
+                                            print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
                                             self._echo_gate_logged = True
                                         continue
-                                    elif is_likely_real_speech:
-                                        # 5+ frames = real barge-in, let it through
-                                        if not hasattr(self, '_echo_barge_logged'):
-                                            print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
-                                            self._echo_barge_logged = True
+                                    elif window_is_open:
+                                        # Forwarding window is open - let audio through
+                                        if not hasattr(self, '_forwarding_window_logged'):
+                                            print(f"📤 [P0-3] Forwarding audio through {FORWARDING_WINDOW_MS}ms window (frames={self._echo_gate_consec_frames})")
+                                            self._forwarding_window_logged = True
                                 
                                 # Check echo decay period (800ms after AI stops speaking)
                                 if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
                                     echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
                                     if echo_decay_ms < POST_AI_COOLDOWN_MS:
-                                        # Still in echo decay period - block unless proven real speech
-                                        if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
+                                        # Still in echo decay period - block unless:
+                                        # 1. OpenAI speech detection active
+                                        # 2. Barge-in active
+                                        # 3. Forwarding window is open
+                                        if not self._realtime_speech_active and not self.barge_in_active and not window_is_open:
                                             if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
-                                                print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
+                                                print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
                                                 self._echo_decay_logged = True
                                             continue
                                     else:
                                         # Echo decay complete - reset log flags for next AI response
                                         self._echo_gate_logged = False
                                         self._echo_decay_logged = False
-                                        self._echo_barge_logged = False
+                                        self._forwarding_window_logged = False
                                         self._echo_gate_consec_frames = 0
+                                        # Also close forwarding window
+                                        self._forwarding_window_open_ts = None
                         else:
                             # Greeting finished - don't block user speech at all, let OpenAI detect barge-in
                             self._echo_gate_consec_frames = 0
