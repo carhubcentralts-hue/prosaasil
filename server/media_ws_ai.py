@@ -1544,10 +1544,10 @@ class MediaStreamHandler:
         
         # TX Queue for smooth audio transmission
         # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
-        # ✅ P0 FIX: Reduced to 100 frames (~2s) to prevent excessive latency and saturation
-        # Smaller buffer prevents chipmunk effect from queue saturation
+        # ✅ P0 FIX: Queue size 120 frames (~2.4s) - balanced for real-time + stability
+        # Per QA: 120-150 range (not too small, not 5 seconds)
         # Drop-oldest policy ensures real-time audio delivery
-        self.tx_q = queue.Queue(maxsize=100)  # 100 frames = 2s buffer (real-time optimized)
+        self.tx_q = queue.Queue(maxsize=120)  # 120 frames = 2.4s buffer
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -2460,7 +2460,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 silence_duration_ms=450,
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                transcription_prompt=""  # 🔥 BUILD 316: EMPTY - no vocabulary hints!
+                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
             )
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
