@@ -4090,7 +4090,63 @@ Greet briefly. Then WAIT for customer to speak."""
                         return  # Exit event loop
                         
                 if event_type == "response.cancelled":
-                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
+                    resp_id = event.get("response", {}).get("id", "?")
+                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: id={resp_id[:20]}...", flush=True)
+                    
+                    # 🔥 P0-5 FIX: Check if response was cancelled before sending any audio
+                    # If frames_sent == 0, we need to retry to ensure user gets a response
+                    if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
+                        frames_sent = self._response_tracking[resp_id]['frames_sent']
+                        
+                        if frames_sent == 0:
+                            # Response was cancelled before ANY audio was sent!
+                            _orig_print(
+                                f"🔄 [P0-5 RECOVERY] Response cancelled with frames_sent=0! "
+                                f"Will retry after 200ms if user not speaking.",
+                                flush=True
+                            )
+                            logger.warning(
+                                f"[P0-5 RECOVERY] Response {resp_id[:20]}... cancelled with NO audio sent - scheduling retry"
+                            )
+                            
+                            # Schedule recovery check after 200ms
+                            async def _recovery_from_zero_frames():
+                                try:
+                                    await asyncio.sleep(0.2)  # 200ms delay
+                                    
+                                    # Check if user is currently speaking
+                                    if self._realtime_speech_active:
+                                        logger.info("[P0-5 RECOVERY] User speaking - skipping retry")
+                                        return
+                                    
+                                    # Check if AI is already speaking (OpenAI recovered naturally)
+                                    if self.is_ai_speaking_event.is_set():
+                                        logger.info("[P0-5 RECOVERY] AI already speaking - skipping retry")
+                                        return
+                                    
+                                    # Check if there's a pending response
+                                    if self.response_pending_event.is_set():
+                                        logger.info("[P0-5 RECOVERY] Response pending - skipping retry")
+                                        return
+                                    
+                                    # All checks passed - retry response.create
+                                    logger.info("[P0-5 RECOVERY] Retrying response.create after frames_sent=0 cancellation")
+                                    _orig_print(
+                                        f"🔄 [P0-5 RECOVERY] Triggering retry response.create",
+                                        flush=True
+                                    )
+                                    await self.trigger_response("P0-5_RECOVERY_FRAMES_0")
+                                    
+                                except Exception as e:
+                                    logger.error(f"[P0-5 RECOVERY] Error in recovery: {e}")
+                            
+                            # Schedule recovery task
+                            asyncio.create_task(_recovery_from_zero_frames())
+                        else:
+                            logger.info(f"[P0-5 RECOVERY] Response cancelled after {frames_sent} frames sent - no recovery needed")
+                        
+                        # Cleanup tracking
+                        del self._response_tracking[resp_id]
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
