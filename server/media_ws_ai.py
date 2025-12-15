@@ -3184,7 +3184,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     if local_vad_frames >= FORCE_CANCEL_VAD_FRAMES and self.active_response_id:
                         # 🔥 P0-3a: Check if we're in the no-barge window (first 300ms after AI starts)
                         time_since_ai_start_ms = 0
-                        if hasattr(self, '_last_ai_audio_start_ts') and self._last_ai_audio_start_ts:
+                        if hasattr(self, '_last_ai_audio_start_ts') and self._last_ai_audio_start_ts is not None:
                             time_since_ai_start_ms = (time.time() - self._last_ai_audio_start_ts) * 1000
                         
                         in_no_barge_window = time_since_ai_start_ms < NO_BARGE_WINDOW_MS
