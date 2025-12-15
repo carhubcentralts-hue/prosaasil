@@ -100,9 +100,10 @@ except ImportError:
         "min_speech_rms": 40,
         "min_rms_delta": 5.0,
         # ✅ P0-3: TX queue overflow thresholds (TX_QUEUE_MAX = 250 frames = 5s)
-        "tx_queue_drop_target_pct": 0.3,  # Drop to 30% when FULL (75/250 frames ≈ 1.5s)
-        "tx_queue_warning_pct": 0.8,      # Warn at 80% (200/250 frames = 4s) - NO drop, just log
-        "tx_queue_log_throttle_sec": 10,   # Log queue full errors max once per 10s
+        "tx_queue_drop_threshold_pct": 0.952,  # Drop at >=238/250 frames (95.2% ≈ 4.76s) to prevent artifacts
+        "tx_queue_drop_target_pct": 0.3,       # Drop to 30% when triggered (75/250 frames ≈ 1.5s)
+        "tx_queue_warning_pct": 0.8,           # Warn at 80% (200/250 frames = 4s) - NO drop, just log
+        "tx_queue_log_throttle_sec": 10,       # Log queue full errors max once per 10s
     }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
@@ -6591,15 +6592,37 @@ Greet briefly. Then WAIT for customer to speak."""
                         # ═══════════════════════════════════════════════════════════════════════
                         # ✅ P0-3: TX Queue overflow strategy (maxsize=250 frames = 5s)
                         # - At 80% (200 frames): WARN only, let TX loop drain naturally
-                        # - At 100% (250 frames): DROP oldest frames to 30% (75 frames)
+                        # - At >=238/250 (95%+): DROP oldest frames to 30% (75 frames) to prevent chipmunk
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize  # 250 frames = 5s buffer
                         high_watermark = int(queue_maxsize * AUDIO_CONFIG["tx_queue_warning_pct"])  # Warn at 80%
+                        drop_threshold = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_threshold_pct"])  # Drop at >=238
                         
-                        if queue_size >= high_watermark:
-                            # Log warning (throttled), but DO NOT drop frames here
-                            # Only drop when queue is completely FULL (see except queue.Full below)
+                        # Check if we need to drop frames BEFORE enqueueing
+                        if queue_size >= drop_threshold:
+                            # ✅ Queue at >=238/250 (95%+) - Drop OLDEST frames to prevent artifacts
+                            # This prevents reaching 5s buffer that causes chipmunk sound
+                            now = time.time()
+                            dropped_count = 0
+                            target_size = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_target_pct"])  # Target 30% (75 frames)
+                            
+                            # Drop oldest frames until we're back to target size
+                            while queue_size > target_size:
+                                try:
+                                    _ = self.tx_q.get_nowait()  # Remove oldest frame
+                                    dropped_count += 1
+                                    queue_size = self.tx_q.qsize()
+                                except queue.Empty:
+                                    break
+                            
+                            throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
+                            if not hasattr(self, '_last_drop_log') or now - self._last_drop_log > throttle_sec:
+                                print(f"✅ [DROP_OLDEST] TX queue >=238/250 (95%+) - dropped {dropped_count} oldest frames → {self.tx_q.qsize()}/{queue_maxsize} frames")
+                                self._last_drop_log = now
+                        elif queue_size >= high_watermark:
+                            # Log warning (throttled), but DO NOT drop frames
+                            # Only warn, let TX loop drain naturally
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
                                 print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} ({int(queue_size*100/queue_maxsize)}%) - letting TX loop drain")
@@ -6609,34 +6632,14 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # ✅ P0-3: Queue is COMPLETELY FULL (250/250) - Drop OLDEST frames
-                        # This ONLY runs when queue.Full exception is raised (100% full)
-                        # OLD: Dropped NEWEST → caused sequence breaks and chipmunk sound
-                        # NEW: Drop OLDEST → stay current with realtime audio
+                        # ✅ Fallback: Queue completely full even after drop logic
+                        # This should rarely happen since we drop at 95%
                         now = time.time()
-                        dropped_count = 0
-                        target_size = int(queue_maxsize * AUDIO_CONFIG["tx_queue_drop_target_pct"])  # Target 30% (75 frames)
-                        
-                        # Drop oldest frames until we're back to target size
-                        while queue_size > target_size:
-                            try:
-                                _ = self.tx_q.get_nowait()  # Remove oldest frame
-                                dropped_count += 1
-                                queue_size = self.tx_q.qsize()
-                            except queue.Empty:
-                                break
-                        
-                        # Now enqueue the new frame
-                        try:
-                            self.tx_q.put_nowait(twilio_frame)
-                            self.realtime_tx_frames += 1
-                        except queue.Full:
-                            pass  # Still full after dropping, skip this frame
-                        
                         throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > throttle_sec:
-                            print(f"✅ [DROP_OLDEST] TX queue FULL (250/250) - dropped {dropped_count} oldest frames → {self.tx_q.qsize()}/{queue_maxsize} frames")
+                            print(f"⚠️ [AUDIO FULL] TX queue still full (250/250) after drop - skipping frame")
                             self._last_full_error = now
+                        # Skip this frame (newest)
                     
             except queue.Empty:
                 continue
