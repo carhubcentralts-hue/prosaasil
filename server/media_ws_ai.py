@@ -3834,30 +3834,41 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self._server_error_retried = True
                                     _orig_print(f"🔄 [SERVER_ERROR] Retrying response (first attempt)...", flush=True)
                                     
-                                    # Send technical context (no scripted response)
-                                    retry_msg = "[SYSTEM] Technical error occurred. Please retry your last response."
-                                    await self._send_text_to_ai(retry_msg)
-                                    
-                                    # Trigger new response
-                                    try:
-                                        await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent", flush=True)
-                                    except Exception as retry_err:
-                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
+                                    # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                                    # Send technical context via instructions (no scripted response)
+                                    if hasattr(self, 'realtime_client') and self.realtime_client:
+                                        try:
+                                            retry_instructions = "A technical error occurred. Please retry your last response based on the conversation context."
+                                            await self.realtime_client.send_event({
+                                                "type": "response.create",
+                                                "response": {
+                                                    "instructions": retry_instructions
+                                                }
+                                            })
+                                            logger.info(f"[SILENCE_FOLLOWUP_CREATE] Server error - retry via response.create")
+                                            _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent with instructions", flush=True)
+                                        except Exception as retry_err:
+                                            _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
                                 
                                 else:
                                     # Already retried or call too long - graceful failure
                                     _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
                                     
-                                    # Send technical context (AI decides how to handle based on Business Prompt)
-                                    failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
-                                    await self._send_text_to_ai(failure_msg)
-                                    
-                                    # Trigger final response
-                                    try:
-                                        await client.send_event({"type": "response.create"})
-                                        _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
-                                    except Exception as fail_err:
+                                    # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                                    # Send technical context via instructions (AI decides how to handle based on Business Prompt)
+                                    if hasattr(self, 'realtime_client') and self.realtime_client:
+                                        try:
+                                            failure_instructions = "A technical issue has occurred and the system is unavailable. End the call politely per your BUSINESS PROMPT."
+                                            await self.realtime_client.send_event({
+                                                "type": "response.create",
+                                                "response": {
+                                                    "instructions": failure_instructions
+                                                }
+                                            })
+                                            logger.info(f"[SILENCE_FOLLOWUP_CREATE] Server error - graceful failure via response.create")
+                                            _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent with instructions", flush=True)
+                                        except Exception as fail_err:
+                                            _orig_print(f"❌ [SERVER_ERROR] Failed to send graceful failure: {fail_err}", flush=True)
                                         _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
                         # 🔥 BUILD 200: Clear active_response_id when response is done (completed or cancelled)
@@ -6053,12 +6064,21 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             print(f"   → Cleared verification state, lead candidate, and locked fields")
                             
-                            # 3) Inject system message to guide AI (context only, no script)
-                            system_msg = "[SYSTEM] User rejected previous understanding. Ask again per your instructions."
-                            
-                            # Queue system message for next processing cycle
-                            asyncio.create_task(self._send_text_to_ai(system_msg))
-                            print(f"   → Sent reset system message to AI")
+                            # 3) 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
+                            # Inject instructions to guide AI (context only, no script)
+                            if hasattr(self, 'realtime_client') and self.realtime_client:
+                                try:
+                                    rejection_instructions = "User has rejected or corrected the previous understanding. Ask again politely per your BUSINESS PROMPT instructions."
+                                    asyncio.create_task(self.realtime_client.send_event({
+                                        "type": "response.create",
+                                        "response": {
+                                            "instructions": rejection_instructions
+                                        }
+                                    }))
+                                    logger.info(f"[SILENCE_FOLLOWUP_CREATE] User rejection - ask again via response.create")
+                                    print(f"   → Sent reset instructions to AI via response.create")
+                                except Exception as reject_err:
+                                    logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed to send rejection instructions: {reject_err}")
                             
                         elif is_negative_answer:
                             print(f"⚠️ [BUILD 303] NEGATIVE ANSWER detected: '{transcript}' - user is rejecting/correcting")
