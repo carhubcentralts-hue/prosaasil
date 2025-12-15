@@ -2,7 +2,7 @@
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, struct
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -483,47 +483,6 @@ class AudioState:
                 VAD_ADAPTIVE_OFFSET = 55.0
             
             return self.ema_noise_floor + VAD_ADAPTIVE_OFFSET
-
-
-# 🔥 P0-3 FIX: VAD State Reset Helper
-def _reset_vad_state(handler_instance, reason: str):
-    """
-    Reset ALL VAD-related state counters to prevent stuck barge-in flags.
-    
-    Call this at key transition points:
-    - END OF UTTERANCE (speech_stopped)
-    - After input_audio_buffer.commit
-    - After response.cancel
-    - When AI starts speaking (response.audio.delta first frame)
-    - When response completes (response.audio.done)
-    
-    Args:
-        handler_instance: The MediaStreamHandler instance
-        reason: Why we're resetting (for logging)
-    """
-    logger.debug(f"[VAD_RESET] Resetting VAD state: reason={reason}")
-    
-    # Reset LOCAL_VAD counters
-    if hasattr(handler_instance, '_local_vad_voice_frames'):
-        handler_instance._local_vad_voice_frames = 0
-    if hasattr(handler_instance, '_local_vad_silence_frames'):
-        handler_instance._local_vad_silence_frames = 0
-    
-    # Reset barge-in flags
-    if hasattr(handler_instance, '_barge_pending'):
-        handler_instance._barge_pending = False
-    if hasattr(handler_instance, '_barge_confirmed'):
-        handler_instance._barge_confirmed = False
-    if hasattr(handler_instance, '_flush_preroll'):
-        handler_instance._flush_preroll = False
-    if hasattr(handler_instance, 'barge_in_voice_frames'):
-        handler_instance.barge_in_voice_frames = 0
-    
-    # Reset candidate flags
-    if hasattr(handler_instance, '_candidate_user_speaking'):
-        handler_instance._candidate_user_speaking = False
-    
-    logger.debug(f"[VAD_RESET] Complete: {reason}")
 
 
 # 🔧 APPOINTMENT VALIDATION HELPER
@@ -1088,41 +1047,8 @@ RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
 RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
-# 🎯 MASTER DIRECTIVE 4: CONVERSATION PACING - Human-like turn-taking
-# Stop "she doesn't let user talk" problem with proper listening windows
-MIN_LISTEN_AFTER_AI_MS = 2000  # Minimum 2s listening window after AI finishes speaking
-SILENCE_FOLLOWUP_1_MS = 10000  # First gentle follow-up after 10s of silence (was 3s - too aggressive)
-SILENCE_FOLLOWUP_2_MS = 17000  # Final follow-up after 17s of silence (was repeat at 3s intervals)
-
 # BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
 BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
-# 🔥 BUG #3 FIX: Force cancel thresholds for LOCAL_VAD barge-in
-FORCE_CANCEL_VAD_FRAMES = 10   # 10 frames = 200ms for force cancel (more aggressive than BARGE_IN)
-FORCE_CANCEL_CANDIDATE_VAD_FRAMES = 8  # 8 frames = 160ms for candidate detection
-
-# 🔥 P0-3 FIX: No-barge window after AI starts speaking (250-400ms)
-# This prevents false barge-in from echo/pre-roll/artifacts at the start of AI audio
-NO_BARGE_WINDOW_MS = 300  # 300ms window after AI audio starts where LOCAL_VAD is ignored
-
-# 🔥 P0-3 FIX: Force cancel dual threshold - require BOTH RMS and sustained frames
-FORCE_CANCEL_MIN_RMS = 150.0  # Minimum RMS for force cancel (real user speech is loud)
-FORCE_CANCEL_SUSTAINED_FRAMES = 10  # Must be sustained for 10 frames (200ms) AFTER no-barge window
-
-# 🔥 BUG #1 FIX: Session management constants
-MAX_SESSION_RECONNECT_ATTEMPTS = 2  # Maximum reconnection attempts for session_expired
-
-# 🔥 BUG #5 FIX: Latency bottleneck thresholds (in milliseconds)
-BOTTLENECK_STT_MS = 800         # STT should complete within 800ms
-BOTTLENECK_CREATE_MS = 300      # response.create should send within 300ms (DB/locks check)
-BOTTLENECK_AUDIO1_MS = 1200     # First audio should arrive within 1200ms (OpenAI/network)
-
-# 🔥 BUG #6 FIX: Post-AI listen window extension
-LISTEN_WINDOW_EXTENSION_SEC = 1.5  # Extend breathing window by 1.5s when VAD detected
-LISTEN_WINDOW_VAD_THRESHOLD = 5    # 5 frames = 100ms to trigger extension
-
-# 🔥 BUG #4 FIX: Hebrew city/service name detection
-HEBREW_CITY_MIN_WORDS = 2       # Minimum words for multi-word city names (e.g., "בית שמש")
-HEBREW_CITY_MIN_CHARS = 4       # Minimum characters for single-word cities (e.g., "ירושלים")
 
 # STT MERGING - Hebrew segment handling
 STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
@@ -1169,35 +1095,6 @@ HEBREW_FILLER_WORDS = {
     "אמ", "אם", "אממ", "אמממ", 
     "אה", "אהה", "אההה", "אההההה",
     "הממ", "אהם", "אהממ", "ממ", "הם"
-}
-
-# 🔥 INTERRUPT WHITELIST: Single-word phrases that confirm barge-in
-# These words alone are strong enough to indicate user wants to interrupt AI
-INTERRUPT_WHITELIST = {
-    "רגע", "שנייה", "תעצור", "עצור", "הלו", "מה", "כן", "לא", "די",
-    "חכה", "רגע רגע", "סליחה", "לא לא", "תודה", "די תודה", "שקט"
-}
-
-# 🔥 INTENT-AWARE BARGE-IN: Single-token validation constants
-# These constants define meaningful single-token intents that should trigger barge-in confirmation
-# Performance optimization: Defined at module level to avoid recreation on every call
-
-# Hebrew numeric words (both masculine and feminine forms)
-HEBREW_NUMERIC_WORDS = {
-    'אחד', 'אחת', 'שתיים', 'שניים', 'שלוש', 'שלושה',
-    'ארבע', 'ארבעה', 'חמש', 'חמישה', 'שש', 'שישה',
-    'שבע', 'שבעה', 'שמונה', 'תשע', 'תשעה', 'עשר', 'עשרה'
-}
-
-# Confirmation words (single-token responses that have meaning)
-INTENT_CONFIRMATION_WORDS = {
-    'כן', 'לא', 'רגע', 'שנייה', 'שניה', 'הלו', 'עצור', 'תעצור'
-}
-
-# Timing/scheduling words (single-token time references)
-INTENT_TIMING_WORDS = {
-    'היום', 'מחר', 'בערב', 'בבוקר', 'בצהריים', 'בלילה',
-    'ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'
 }
 
 # 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
@@ -1261,10 +1158,7 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
                                      rms_snapshot: float, noise_floor: float,
                                      ai_speaking: bool = False, 
                                      last_ai_audio_start_ms: float = 0,
-                                     last_hallucination: str = "",
-                                     candidate_user_speaking: bool = False,
-                                     local_vad_voice_frames: int = 0,
-                                     last_ai_transcript: str = "") -> bool:
+                                     last_hallucination: str = "") -> bool:
     """
     🎯 STT GUARD: Validate if a Realtime API utterance should be accepted
     
@@ -1280,9 +1174,6 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         ai_speaking: Whether AI is currently speaking
         last_ai_audio_start_ms: Time since AI audio started (ms)
         last_hallucination: Last rejected hallucination text (to prevent repeats)
-        candidate_user_speaking: Whether user speech was detected (from speech_started event)
-        local_vad_voice_frames: Number of consecutive voice frames detected by local VAD
-        last_ai_transcript: Last AI transcript for similarity check
         
     Returns:
         True if utterance should be accepted, False if it should be rejected
@@ -1309,95 +1200,13 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
         )
         return False
     
-    # 4) Echo suppression window - reject if AI is speaking AND <200ms since audio started
-    # 🔥 MASTER "CALL QUALITY" - PART B3: Enhanced bypass logic for fast user responses
-    # CRITICAL: Never drop a transcript if local VAD had ≥N voice_frames OR candidate_user_speaking=True
-    # 🔥 BUG #4 FIX: Echo window MUST bypass when LOCAL_VAD or candidate is active
-    # Echo window should ONLY drop when text is highly similar to AI's own last audio transcript
+    # 4) NEW: Echo suppression window - reject if AI is speaking AND <200ms since audio started
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
-        # 🎯 MASTER "CALL QUALITY" - PART B3: Priority bypass conditions (ALWAYS accept)
-        # These indicate REAL user speech, not echo
-        has_user_speech_candidate = candidate_user_speaking
-        has_sustained_vad = local_vad_voice_frames >= 5  # 5 frames = 100ms (sensitive detection)
-        
-        # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced similarity check
-        # Only drop if text is HIGHLY similar to last AI transcript (actual echo)
-        is_new_content = True
-        if last_ai_transcript and stt_text:
-            # Check if stt_text is a substring of last AI transcript (indicates echo)
-            stt_normalized = stt_text.strip().lower()
-            ai_normalized = last_ai_transcript.strip().lower()
-            # More strict: only consider echo if >70% of STT text matches AI transcript
-            is_new_content = stt_normalized not in ai_normalized or len(stt_normalized) < len(ai_normalized) * 0.7
-        
-        # 🎯 C1: Fast response bypass - if utterance is >=100ms and has real Hebrew content, allow it
-        # This catches fast answers like "בית שאן" or "בית שמש" (0.1-0.3s after "איזו עיר?")
-        is_fast_but_real_response = (
-            utterance_ms >= 100 and  # At least 100ms duration
-            len(stt_text.strip()) >= 3 and  # At least 3 chars
-            any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in stt_text)  # Has Hebrew characters
+        logger.info(
+            f"[STT_FILTER] drop reason=echo_window value={last_ai_audio_start_ms:.0f} "
+            f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:20]}...'"
         )
-        
-        # 🔥 BUG #4 FIX: Hebrew city/service name validation
-        # If text contains Hebrew words (2+ words or 1 compound word), accept it
-        is_hebrew_city_or_service = False
-        if any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in stt_text):
-            # Has Hebrew characters - check if it looks like a city/service name
-            # Accept if: 2+ Hebrew words OR 1 word with 4+ Hebrew letters
-            hebrew_words = [w for w in stt_text.split() if any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in w)]
-            is_hebrew_city_or_service = (
-                len(hebrew_words) >= HEBREW_CITY_MIN_WORDS or  # Multiple Hebrew words (e.g., "בית שמש", "קריית אתא")
-                (len(hebrew_words) == 1 and len(hebrew_words[0]) >= HEBREW_CITY_MIN_CHARS)  # Single Hebrew word 4+ chars (e.g., "ירושלים")
-            )
-        
-        # 🎯 MASTER "CALL QUALITY" - PART B3: FORCE bypass if candidate_user_speaking OR local VAD
-        # 🔥 BUG #4 FIX: Also bypass for Hebrew cities/services with high VAD
-        # These are HARD indicators of real speech - never drop!
-        should_bypass_echo_window = (
-            has_user_speech_candidate or  # Speech_started event fired
-            has_sustained_vad or           # Local VAD detected voice frames
-            is_new_content or              # Text different from AI
-            is_fast_but_real_response or   # Fast but real (>=100ms + Hebrew)
-            is_hebrew_city_or_service      # Hebrew city/service name
-        )
-        
-        if should_bypass_echo_window:
-            bypass_reasons = []
-            if has_user_speech_candidate:
-                bypass_reasons.append("candidate_user_speaking")
-            if has_sustained_vad:
-                bypass_reasons.append(f"sustained_vad_{local_vad_voice_frames}frames")
-            if is_new_content:
-                bypass_reasons.append("new_content")
-            if is_fast_but_real_response:
-                bypass_reasons.append(f"fast_response_{utterance_ms:.0f}ms")
-            if is_hebrew_city_or_service:
-                bypass_reasons.append("hebrew_city_or_service")
-            
-            # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced bypass logging
-            logger.info(
-                f"[STT_ACCEPT] reason=echo_bypass bypass_conditions={', '.join(bypass_reasons)} "
-                f"candidate={has_user_speech_candidate} vad={local_vad_voice_frames} text='{stt_text[:30]}...'"
-            )
-            _orig_print(
-                f"[STT_ACCEPT] Echo bypass: {', '.join(bypass_reasons)} | text='{stt_text[:40]}...'",
-                flush=True
-            )
-        else:
-            # No bypass - drop as echo
-            # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced drop logging with full context
-            logger.warning(
-                f"[STT_DROP] reason=echo_window value={last_ai_audio_start_ms:.0f} "
-                f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:40]}...' "
-                f"local_vad={local_vad_voice_frames} candidate={has_user_speech_candidate} "
-                f"is_new={is_new_content} fast_response={is_fast_but_real_response}"
-            )
-            _orig_print(
-                f"[STT_DROP] Echo window: vad={local_vad_voice_frames}, candidate={has_user_speech_candidate}, "
-                f"new={is_new_content}, fast={is_fast_but_real_response} | text='{stt_text[:40]}...'",
-                flush=True
-            )
-            return False
+        return False
     
     # 5) NEW: Minimum word count - reject single words (prevents "היי", "מה", "למה" hallucinations)
     # BUT: Allow valid short Hebrew phrases with normal RMS (not requiring high RMS)
@@ -1682,10 +1491,11 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 TASK C: Increased from 250 to 1000 frames (20s buffer) to prevent frame drops
-        # Larger buffer absorbs jitter and prevents "fast speech" from dropped frames
-        # IMPORTANT: With clocked sender (TASK B), queue size doesn't add latency
-        self.tx_q = queue.Queue(maxsize=1000)  # 1000 frames = 20s buffer (prevents drops)
+        # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
+        # Small queue (150-250 frames = 3-5s) allows quick interruption while preventing underruns
+        # On barge-in, we flush the entire queue anyway, so large buffers just add latency
+        # 🔧 NEW FIX: Reduced to 250 frames (~5s) for <300ms barge-in response
+        self.tx_q = queue.Queue(maxsize=250)  # 250 frames = 5s buffer (balanced: smooth + responsive)
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -1788,7 +1598,6 @@ class MediaStreamHandler:
         self._last_hallucination = ""  # Last rejected hallucination (to prevent repeats)
         self._last_ai_audio_start_ts = None  # When AI audio started (for echo suppression)
         self._last_ai_audio_ts = None  # Track last AI audio sent (for ECHO_GUARD at speech_started level)
-        self._last_ai_transcript_text = ""  # Last AI transcript text (for echo_window similarity check)
         
         # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
         self._consecutive_ai_responses = 0
@@ -1857,15 +1666,6 @@ class MediaStreamHandler:
         self.greeting_mode_active = False  # True only during FIRST response (real greeting)
         self.greeting_completed = False    # Becomes True after first response.audio.done
         
-        # 🎯 MASTER "CALL QUALITY" - PART A: Turn Latency Tracking
-        # Track timestamps for each stage of user turn → AI reply pipeline
-        self._turn_speech_stopped_ts = None  # input_audio_buffer.speech_stopped
-        self._turn_audio_committed_ts = None  # input_audio_buffer.committed
-        self._turn_stt_completed_ts = None  # conversation.item.input_audio_transcription.completed
-        self._turn_response_create_sent_ts = None  # when response.create sent
-        self._turn_first_audio_delta_ts = None  # first response.audio.delta
-        self._turn_audio_done_ts = None  # response.audio.done
-        
         # Timeout configuration (optimized for fast response + stability)
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
         self._twilio_start_timeout_sec = 2.5  # Max wait for Twilio START event
@@ -1886,9 +1686,6 @@ class MediaStreamHandler:
         self._stats_audio_blocked = 0  # Total audio chunks blocked (greeting, etc.)
         self._stats_last_log_ts = 0  # Last time we logged pipeline status
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
-        
-        # 🎯 TASK A: Audio Framer - Buffer for segmenting variable-sized deltas into 160-byte frames
-        self._ai_audio_buf = bytearray()  # Accumulates audio bytes from OpenAI
         
         # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
         # 🔥 CRITICAL HOTFIX: Import MUSIC_MODE_ENABLED flag
@@ -1928,10 +1725,6 @@ class MediaStreamHandler:
         self.call_config: Optional[CallConfig] = None  # Loaded at call start
         self.call_start_time = time.time()  # Track call duration
         
-        # 🔥 SESSION LIFETIME TRACKING: Track OpenAI session for 60-minute limit
-        self.session_started_at = None  # Timestamp when OpenAI session was created
-        self.session_reconnect_count = 0  # Track reconnection attempts
-        
         # 🔥 BUILD 172: SILENCE TIMER - Track user/AI speech for auto-hangup
         self._last_speech_time = time.time()  # Either user or AI speech
         self._silence_warning_count = 0  # How many "are you there?" warnings sent
@@ -1939,10 +1732,6 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
-        
-        # 🔥 NEW REQUIREMENT: Response-create spam prevention
-        self._last_followup_create_ts = None  # Timestamp of last silence/guard response.create
-        self._followup_create_debounce_sec = 4.0  # Minimum 4 seconds between followup creates
         
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
@@ -2027,13 +1816,11 @@ class MediaStreamHandler:
         
         Realtime phone calls policy:
         - Default: NO tools (pure conversation)
-        - If business has appointments enabled: TWO appointment tools
-          1. check_availability: Check slot availability
-          2. book_appointment: Actually book the appointment
+        - If business has appointments enabled: ONLY appointment scheduling tool
         - Never: city tools, lead tools, WhatsApp tools, AgentKit tools
         
         Returns:
-            list[dict]: Tool schemas for OpenAI Realtime (empty list or 2 appointment tools)
+            list[dict]: Tool schemas for OpenAI Realtime (empty list or appointment tool only)
         """
         tools = []
         
@@ -2056,102 +1843,38 @@ class MediaStreamHandler:
                 enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
                 
                 if call_goal == 'appointment' and enable_scheduling:
-                    # 🔥 TWO SEPARATE TOOLS as per problem statement:
-                    # Tool 1: check_availability - Check if slot is available
-                    check_availability_tool = {
+                    # Appointment tool schema
+                    appointment_tool = {
                         "type": "function",
-                        "name": "check_availability",
-                        "description": "Check if an appointment slot is available for a specific service, date, time, and duration",
+                        "name": "schedule_appointment",
+                        "description": "Schedule an appointment when customer confirms time and provides required details",
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "service": {
-                                    "type": "string",
-                                    "description": "Type of service requested"
-                                },
-                                "date": {
-                                    "type": "string",
-                                    "description": "Appointment date in YYYY-MM-DD format"
-                                },
-                                "time_window": {
-                                    "type": "string",
-                                    "description": "Preferred time (HH:MM format, 24-hour) or time window (e.g., 'morning', 'afternoon', 'evening')"
-                                },
-                                "duration": {
-                                    "type": "integer",
-                                    "description": "Appointment duration in minutes (default: business slot_size_min)"
-                                },
-                                "timezone": {
-                                    "type": "string",
-                                    "description": "Timezone (default: Asia/Jerusalem)"
-                                },
-                                "business_id": {
-                                    "type": "integer",
-                                    "description": "Business ID"
-                                }
-                            },
-                            "required": ["service", "date", "business_id"]
-                        }
-                    }
-                    
-                    # Tool 2: book_appointment - Actually create the appointment
-                    book_appointment_tool = {
-                        "type": "function",
-                        "name": "book_appointment",
-                        "description": "Book an appointment after confirming availability. MUST check availability first with check_availability tool.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "service": {
-                                    "type": "string",
-                                    "description": "Type of service requested"
-                                },
-                                "datetime": {
-                                    "type": "string",
-                                    "description": "Full appointment date and time in ISO 8601 format (e.g., '2025-11-17T18:00:00')"
-                                },
-                                "duration": {
-                                    "type": "integer",
-                                    "description": "Appointment duration in minutes"
-                                },
                                 "customer_name": {
                                     "type": "string",
                                     "description": "Customer's full name"
                                 },
-                                "customer_phone": {
+                                "appointment_date": {
                                     "type": "string",
-                                    "description": "Customer's phone number in E.164 format"
+                                    "description": "Appointment date in YYYY-MM-DD format"
                                 },
-                                "notes": {
+                                "appointment_time": {
                                     "type": "string",
-                                    "description": "Optional notes or special requests"
+                                    "description": "Appointment time in HH:MM format (24-hour)"
                                 },
-                                "business_id": {
-                                    "type": "integer",
-                                    "description": "Business ID"
+                                "service_type": {
+                                    "type": "string",
+                                    "description": "Type of service requested"
                                 }
                             },
-                            "required": ["service", "datetime", "customer_name", "customer_phone", "business_id"]
+                            "required": ["customer_name", "appointment_date", "appointment_time"]
                         }
                     }
-                    
-                    tools.append(check_availability_tool)
-                    tools.append(book_appointment_tool)
-                    # 🎯 D1 REQUIREMENT: Log tool activation with conditions
-                    logger.info(
-                        f"[D1 TOOLS ENABLED] business_id={business_id}, "
-                        f"call_goal={call_goal}, "
-                        f"enable_calendar_scheduling={enable_scheduling}, "
-                        f"tools_count={len(tools)} (check_availability + book_appointment)"
-                    )
+                    tools.append(appointment_tool)
+                    logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
                 else:
-                    # 🎯 D1 REQUIREMENT: Log why tools are NOT enabled
-                    logger.info(
-                        f"[D1 TOOLS DISABLED] business_id={business_id}, "
-                        f"call_goal={call_goal} (need='appointment'), "
-                        f"enable_calendar_scheduling={enable_scheduling} (need=True), "
-                        f"tools_count=0"
-                    )
+                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}, scheduling={enable_scheduling}) - no tools for business {business_id}")
                 
         except Exception as e:
             logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
@@ -2486,11 +2209,6 @@ class MediaStreamHandler:
             
             self.realtime_client = client
             
-            # 🔥 SESSION_LIFETIME: Track session creation time for 60-minute limit
-            self.session_started_at = time.time()
-            _orig_print(f"📅 [SESSION_LIFETIME] OpenAI session created at {self.session_started_at:.2f}", flush=True)
-            logger.info(f"[SESSION_LIFETIME] session_started_at={self.session_started_at:.2f} call_sid={self.call_sid}")
-            
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             logger.info("[REALTIME] Connected")
@@ -2533,29 +2251,6 @@ class MediaStreamHandler:
             # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
             _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
-            
-            # 🎯 MASTER DIRECTIVE 6: DIRECTION logging (required for verification)
-            logger.info(f"[DIRECTION] call_sid={self.call_sid} direction={call_direction}")
-            _orig_print(f"📞 [DIRECTION] {call_direction.upper()} call (call_sid={self.call_sid[:16] if self.call_sid else 'N/A'})", flush=True)
-            
-            # 🎯 MASTER "CALL QUALITY" - PART C2: DIRECTION_POLICY logging
-            # Log how direction affects behavior (policy only, not hardcoded content)
-            call_goal = getattr(self, 'call_goal', 'lead_only')
-            scheduling_enabled = getattr(self, 'call_config', None)
-            if scheduling_enabled:
-                scheduling_enabled = getattr(scheduling_enabled, 'enable_calendar_scheduling', False)
-            else:
-                scheduling_enabled = False
-            
-            logger.info(
-                f"[DIRECTION_POLICY] direction={call_direction} call_goal={call_goal} "
-                f"scheduling_enabled={scheduling_enabled}"
-            )
-            _orig_print(
-                f"📋 [DIRECTION_POLICY] {call_direction}: goal={call_goal}, "
-                f"scheduling={scheduling_enabled}",
-                flush=True
-            )
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
@@ -2609,26 +2304,6 @@ class MediaStreamHandler:
             greeting_prompt_to_use = compact_prompt
             print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
             logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
-            
-            # 🔥 BUG #7 FIX: PROMPT_BIND logging - verify dynamic prompt configuration
-            import hashlib
-            prompt_hash = hashlib.md5(full_prompt.encode() if full_prompt else b"").hexdigest()[:16]
-            call_goal = getattr(self, 'call_goal', 'unknown')
-            scheduling_enabled = getattr(self, 'call_config', None)
-            if scheduling_enabled:
-                scheduling_enabled = getattr(scheduling_enabled, 'enable_calendar_scheduling', False)
-            else:
-                scheduling_enabled = False
-            
-            logger.info(
-                f"[PROMPT_BIND] business_id={business_id_safe} prompt_hash={prompt_hash} "
-                f"direction={call_direction} call_goal={call_goal} scheduling={scheduling_enabled}"
-            )
-            _orig_print(
-                f"📋 [PROMPT_BIND] business={business_id_safe}, hash={prompt_hash}, "
-                f"direction={call_direction}, goal={call_goal}, scheduling={scheduling_enabled}",
-                flush=True
-            )
             
             # Store full prompt for session.update after greeting
             self._full_prompt_for_upgrade = full_prompt
@@ -2730,19 +2405,6 @@ Greet briefly. Then WAIT for customer to speak."""
             total_ms = (t_after_config - t_start) * 1000
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
-            
-            # 🎯 MASTER DIRECTIVE 5.3: PROMPT_BIND logging (required for verification)
-            import hashlib
-            prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:16] if greeting_prompt else "none"
-            logger.info(
-                f"[PROMPT_BIND] business_id={business_id_safe}, prompt_hash={prompt_hash}, "
-                f"direction={call_direction}, mode=compact, system_len={len(greeting_prompt)}, "
-                f"voice={call_voice}, vad_threshold=0.85"
-            )
-            _orig_print(
-                f"📋 [PROMPT_BIND] business_id={business_id_safe}, direction={call_direction}, "
-                f"prompt_hash={prompt_hash}, len={len(greeting_prompt)}", flush=True
-            )
             
             # 🚀 Start audio/text bridges FIRST (before CRM)
             logger.info(f"[REALTIME] Starting audio/text bridge tasks...")
@@ -3011,23 +2673,6 @@ Greet briefly. Then WAIT for customer to speak."""
         _metrics_last_log = time.time()
         _metrics_log_interval = 5.0  # Log every 5 seconds
         
-        # 🔥 HALF-DUPLEX AUDIO GATE: Preroll ring buffer (600-900ms)
-        # This prevents turn_detected cancellations by not sending audio to OpenAI while AI speaks
-        from collections import deque
-        PREROLL_MS = 800
-        FRAME_MS = 20
-        PREROLL_FRAMES = PREROLL_MS // FRAME_MS  # ~40 frames
-        _preroll_buffer = deque(maxlen=PREROLL_FRAMES)
-        
-        # Initialize instance attributes for barge-in state
-        # These are accessed from event handlers, so must be instance attributes
-        if not hasattr(self, '_barge_pending'):
-            self._barge_pending = False
-        if not hasattr(self, '_barge_confirmed'):
-            self._barge_confirmed = False
-        if not hasattr(self, '_flush_preroll'):
-            self._flush_preroll = False
-        
         # 🔥 BUILD 318: FPS LIMITER - Prevent sending too many frames/second
         # This is a critical cost optimization - limits frames to COST_MAX_FPS per second
         _fps_frame_count = 0
@@ -3069,14 +2714,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
-                    
-                    # 🔥 P0-4 FIX: In SIMPLE_MODE, don't count greeting protection as a filter violation
-                    # Greeting protection is necessary to prevent OpenAI from cancelling greeting
-                    # Only count as _stats_audio_blocked in non-SIMPLE_MODE
-                    if not SIMPLE_MODE:
-                        self._stats_audio_blocked += 1
-                    
-                    # 🔥 BUILD 341: Count as dropped in local counter (used for logging)
+                    # 🔥 BUILD 200: Track blocked audio stats
+                    self._stats_audio_blocked += 1
+                    # 🔥 BUILD 341: Count as dropped
                     _frames_dropped += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
@@ -3084,197 +2724,6 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Greeting finished - resume sending audio
                     print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                     _greeting_resumed_logged = True
-                
-                # 🔥 HALF-DUPLEX AUDIO GATE: Don't send audio to OpenAI while AI speaks
-                # This prevents turn_detected cancellations from background noise/echo
-                # Always keep preroll buffer updated for potential barge-in
-                _preroll_buffer.append(audio_chunk)
-                
-                # 🔥 FIX: Run LOCAL VAD BEFORE half-duplex check
-                # This ensures we detect barge-in even when AI is speaking
-                # Decode audio chunk to calculate RMS and update VAD counters
-                try:
-                    pcm16_bytes = base64.b64decode(audio_chunk)
-                    
-                    # Calculate RMS for this frame
-                    if len(pcm16_bytes) >= 2:
-                        # Convert bytes to 16-bit samples
-                        sample_count = len(pcm16_bytes) // 2
-                        samples = struct.unpack(f'<{sample_count}h', pcm16_bytes)
-                        
-                        # Calculate RMS
-                        sum_squares = sum(s * s for s in samples)
-                        mean_square = sum_squares / sample_count if sample_count > 0 else 0
-                        frame_rms = math.sqrt(mean_square)
-                        
-                        # Update recent RMS (used for validation)
-                        self._recent_audio_rms = frame_rms
-                        
-                        # Update local VAD counters
-                        if not hasattr(self, '_local_vad_voice_frames'):
-                            self._local_vad_voice_frames = 0
-                        if not hasattr(self, '_local_vad_silence_frames'):
-                            self._local_vad_silence_frames = 0
-                        
-                        # Get noise floor for comparison
-                        noise_floor = getattr(self, 'noise_floor', 100.0)
-                        speech_threshold = max(noise_floor * 3.0, ECHO_GATE_MIN_RMS)
-                        
-                        # Update VAD frame counters
-                        if frame_rms > speech_threshold:
-                            self._local_vad_voice_frames += 1
-                            self._local_vad_silence_frames = 0
-                        else:
-                            self._local_vad_silence_frames += 1
-                            # Decay voice frames slowly
-                            if self._local_vad_voice_frames > 0:
-                                self._local_vad_voice_frames = max(0, self._local_vad_voice_frames - 1)
-                        
-                        # 🎯 MASTER DIRECTIVE 2.2: VAD_VIOLATION detection
-                        # If RMS is high but voice_frames stays 0 for >200ms (10+ frames), this indicates
-                        # VAD is failing to detect voice despite strong signal
-                        if frame_rms > speech_threshold and self._local_vad_silence_frames > 10:
-                            # Log once per second to avoid spam
-                            if _frames_in % 50 == 0:
-                                logger.warning(
-                                    f"[VAD_VIOLATION] rms={frame_rms:.1f} > threshold={speech_threshold:.1f} "
-                                    f"but voice_frames=0 for {self._local_vad_silence_frames} frames "
-                                    f"(>{10*20}ms) - VAD may be failing"
-                                )
-                except Exception as vad_err:
-                    # Don't crash if VAD fails - just log and continue
-                    if _frames_in % 100 == 0:  # Log occasionally to avoid spam
-                        logger.warning(f"[LOCAL_VAD] Failed to process frame: {vad_err}")
-                
-                # Check if AI is currently speaking (via active_response_id or is_ai_speaking_event)
-                ai_currently_speaking = (
-                    self.active_response_id is not None or 
-                    self.is_ai_speaking_event.is_set()
-                )
-                
-                # 🔥 FIX: Check if local VAD detected sustained speech (barge-in candidate)
-                # If we have 8-12 consecutive voice frames, trigger barge-in
-                local_vad_frames = getattr(self, '_local_vad_voice_frames', 0)
-                if ai_currently_speaking and not self._barge_pending and not self._barge_confirmed:
-                    # Check if local VAD reached threshold (8-12 frames = 160-240ms)
-                    if local_vad_frames >= 8:
-                        # 🎯 MASTER "CALL QUALITY" - PART B1: CANDIDATE triggered by local VAD
-                        # CRITICAL: This must fire while AI speaking for barge-in to work!
-                        logger.info(
-                            f"[LOCAL_VAD] 🔶 CANDIDATE barge-in detected: {local_vad_frames} voice_frames "
-                            f"→ enabling forward + flush_preroll | ai_speaking=True"
-                        )
-                        _orig_print(
-                            f"[LOCAL_VAD] CANDIDATE: vad_frames={local_vad_frames}, ai_speaking=True, "
-                            f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...",
-                            flush=True
-                        )
-                        # CANDIDATE BARGE-IN detected by local VAD!
-                        self._barge_pending = True
-                        self._flush_preroll = True
-                        logger.info(
-                            f"🔶 [LOCAL_VAD] CANDIDATE barge-in detected: {local_vad_frames} voice_frames "
-                            f"→ enabling forward + flush_preroll"
-                        )
-                    
-                    # 🔥 BUG #3 FIX: FORCE CANCEL when LOCAL_VAD reaches threshold (200-240ms)
-                    # 🔥 P0-3 FIX: Enhanced with no-barge window and dual thresholds
-                    # This ensures barge-in works even if STT is blocked/delayed
-                    # BUT prevents false cancels from echo/pre-roll at start of AI audio
-                    if local_vad_frames >= FORCE_CANCEL_VAD_FRAMES and self.active_response_id:
-                        # 🔥 P0-3a: Check if we're in the no-barge window (first 300ms after AI starts)
-                        time_since_ai_start_ms = 0
-                        if hasattr(self, '_last_ai_audio_start_ts') and self._last_ai_audio_start_ts is not None:
-                            time_since_ai_start_ms = (time.time() - self._last_ai_audio_start_ts) * 1000
-                        
-                        in_no_barge_window = time_since_ai_start_ms < NO_BARGE_WINDOW_MS
-                        
-                        if in_no_barge_window:
-                            # Inside no-barge window - don't cancel yet (likely echo/pre-roll)
-                            if local_vad_frames % 20 == 0:  # Log every 20 frames to avoid spam
-                                _orig_print(
-                                    f"🛡️ [NO-BARGE WINDOW] Ignoring LOCAL_VAD (frames={local_vad_frames}) - "
-                                    f"only {time_since_ai_start_ms:.0f}ms since AI started (window={NO_BARGE_WINDOW_MS}ms)",
-                                    flush=True
-                                )
-                        else:
-                            # 🔥 P0-3b: Outside no-barge window - apply dual thresholds
-                            # Require BOTH high RMS AND sustained frames
-                            rms_above_threshold = frame_rms >= FORCE_CANCEL_MIN_RMS
-                            frames_sustained = local_vad_frames >= FORCE_CANCEL_SUSTAINED_FRAMES
-                            
-                            if rms_above_threshold and frames_sustained:
-                                # ✅ Both conditions met - FORCE cancel
-                                _orig_print(
-                                    f"🛑 [BARGE-IN FORCE] Dual threshold met: "
-                                    f"vad_frames={local_vad_frames} (≥{FORCE_CANCEL_SUSTAINED_FRAMES}), "
-                                    f"rms={frame_rms:.1f} (≥{FORCE_CANCEL_MIN_RMS}), "
-                                    f"time_since_ai_start={time_since_ai_start_ms:.0f}ms (≥{NO_BARGE_WINDOW_MS}ms), "
-                                    f"response_id={self.active_response_id[:20]}...",
-                                    flush=True
-                                )
-                                logger.warning(
-                                    f"[BARGE-IN FORCE] Forcing cancel due to sustained LOCAL_VAD: "
-                                    f"frames={local_vad_frames}, rms={frame_rms:.1f}, time_since_ai={time_since_ai_start_ms:.0f}ms"
-                                )
-                                
-                                # Cancel active response
-                                try:
-                                    await client.cancel_response(self.active_response_id)
-                                    _orig_print(f"✅ [BARGE-IN FORCE] cancel sent for {self.active_response_id[:20]}", flush=True)
-                                except Exception as cancel_err:
-                                    _orig_print(f"⚠️ [BARGE-IN FORCE] cancel failed: {cancel_err}", flush=True)
-                                
-                                # Flush Twilio TX queue
-                                try:
-                                    while not self.tx_q.empty():
-                                        self.tx_q.get_nowait()
-                                    _orig_print(f"✅ [BARGE-IN FORCE] Twilio TX queue flushed", flush=True)
-                                except:
-                                    pass
-                                
-                                # Mark as confirmed to prevent re-triggering
-                                self._barge_confirmed = True
-                                _orig_print(f"✅ [BARGE-IN FORCE] Marked as confirmed", flush=True)
-                            else:
-                                # One or both thresholds not met - log and continue
-                                if local_vad_frames % 20 == 0:  # Log every 20 frames
-                                    _orig_print(
-                                        f"⏳ [BARGE-IN PENDING] Waiting for dual threshold: "
-                                        f"rms={frame_rms:.1f} {'✅' if rms_above_threshold else '❌'} (need ≥{FORCE_CANCEL_MIN_RMS}), "
-                                        f"frames={local_vad_frames} {'✅' if frames_sustained else '❌'} (need ≥{FORCE_CANCEL_SUSTAINED_FRAMES})",
-                                        flush=True
-                                    )
-                
-                if ai_currently_speaking and not self._barge_pending and not self._barge_confirmed:
-                    # HALF-DUPLEX: AI is speaking and no barge-in in progress
-                    # DO NOT send to OpenAI - just keep in preroll buffer
-                    if _frames_in % 50 == 0:  # Log every 50 frames to avoid spam
-                        print(f"🎤 [HALF-DUPLEX] Blocking audio to OpenAI - AI speaking (response_id={self.active_response_id[:15] if self.active_response_id else 'N/A'}, vad_frames={local_vad_frames})")
-                    
-                    # 🔥 P0-4 FIX: In SIMPLE_MODE, don't count HALF-DUPLEX blocking as a filter violation
-                    # HALF-DUPLEX is necessary echo prevention, not an audio quality filter
-                    # Only count as _stats_audio_blocked in non-SIMPLE_MODE
-                    if not SIMPLE_MODE:
-                        self._stats_audio_blocked += 1
-                    
-                    # Track as dropped in local counter (used for logging)
-                    _frames_dropped += 1
-                    continue
-                
-                # If barge pending/confirmed OR AI not speaking, forward to OpenAI
-                # First flush preroll buffer if needed
-                if self._flush_preroll:
-                    print(f"🔄 [HALF-DUPLEX] Flushing preroll buffer ({len(_preroll_buffer)} frames)")
-                    for preroll_frame in list(_preroll_buffer):
-                        try:
-                            await client.send_audio_chunk(preroll_frame)
-                            _frames_sent += 1
-                        except Exception as e:
-                            print(f"⚠️ [HALF-DUPLEX] Failed to send preroll frame: {e}")
-                    # CRITICAL: Reset flush flag immediately to prevent double-flush
-                    self._flush_preroll = False
-                    _preroll_buffer.clear()  # Clear after flushing
                 
                 # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
                 current_time = time.time()
@@ -3465,7 +2914,6 @@ Greet briefly. Then WAIT for customer to speak."""
         BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing:
           - realtime_audio_out_queue: Audio from OpenAI waiting to be sent to TX queue
           - tx_q: Audio waiting to be sent to Twilio
-          - _ai_audio_buf: Partial frame buffer in audio framer
         """
         # Flush OpenAI → TX queue (audio from OpenAI not yet in TX queue)
         openai_queue_before = self.realtime_audio_out_queue.qsize()
@@ -3487,18 +2935,7 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception:
             pass
         
-        # 🎯 VERIFICATION FIX: Clear audio framer buffer to prevent old audio fragments
-        # This ensures no partial frames (<160 bytes) leak into next AI response
-        buffer_bytes_cleared = 0
-        if hasattr(self, '_ai_audio_buf'):
-            buffer_bytes_cleared = len(self._ai_audio_buf)
-            self._ai_audio_buf.clear()
-        
-        if buffer_bytes_cleared > 0:
-            print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | Buffer: {buffer_bytes_cleared}B | reason={reason or 'UNKNOWN'}")
-        else:
-            print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | reason={reason or 'UNKNOWN'}")
-        
+        print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames | reason={reason or 'UNKNOWN'}")
         return tx_flushed + openai_flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
@@ -3649,9 +3086,6 @@ Greet briefly. Then WAIT for customer to speak."""
         Returns:
             True if response was triggered, False if blocked
         """
-        # 🔥 BUG #5 FIX: BOTTLE_NECK tracking - measure time to response.create
-        t_trigger_start = time.time()
-        
         # Use stored client if not provided
         _client = client or self.realtime_client
         if not _client:
@@ -3703,41 +3137,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"🛑 [RESPONSE GUARD] Too many consecutive responses ({self._consecutive_ai_responses}) - blocking ({reason})")
                     return False
         
-        # 🔥 BUG #5 FIX: BOTTLE_NECK - measure guard time
-        t_guards_done = time.time()
-        guards_ms = (t_guards_done - t_trigger_start) * 1000
-        
         # ✅ All guards passed - trigger response
         try:
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
-            
-            # 🔥 BUG #5 FIX: BOTTLE_NECK - measure send time
-            t_before_send = time.time()
             await _client.send_event({"type": "response.create"})
-            t_after_send = time.time()
-            
-            send_ms = (t_after_send - t_before_send) * 1000
-            total_ms = (t_after_send - t_trigger_start) * 1000
-            
-            # 🎯 MASTER "CALL QUALITY" - PART A1: Track response.create sent timestamp
-            self._turn_response_create_sent_ts = time.time()
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
             self._response_create_count += 1
-            
-            # 🔥 BUG #5 FIX: BOTTLE_NECK logging - identify where time is spent
-            if total_ms > 300:
-                logger.warning(
-                    f"[BOTTLE_NECK] trigger_response SLOW: total={total_ms:.0f}ms "
-                    f"(guards={guards_ms:.0f}ms, send={send_ms:.0f}ms) reason={reason}"
-                )
-                _orig_print(
-                    f"⚠️ [BOTTLE_NECK] trigger_response took {total_ms:.0f}ms "
-                    f"(guards={guards_ms:.0f}ms + send={send_ms:.0f}ms) - target: <300ms",
-                    flush=True
-                )
-            
-            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}] [{total_ms:.0f}ms]")
+            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}]")
             return True
         except Exception as e:
             # 🔓 CRITICAL: Clear lock immediately on failure
@@ -3828,23 +3235,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}", flush=True)
-                        
-                        # 🎯 B3 REQUIREMENT: Detect OpenAI turn_detected cancellations
-                        # These indicate audio is reaching OpenAI during AI speech (should not happen with half-duplex)
-                        if status == "cancelled":
-                            cancellation_reason = status_details.get("reason") if status_details else None
-                            if cancellation_reason == "turn_detected":
-                                # Check if this was after a confirmed barge-in
-                                has_confirmed_barge = getattr(self, '_barge_confirmed', False)
-                                if not has_confirmed_barge:
-                                    logger.warning(
-                                        f"⚠️ [B3 VIOLATION] OpenAI turn_detected cancellation WITHOUT confirmed barge-in! "
-                                        f"response_id={resp_id[:20]}... - Audio is leaking to OpenAI during AI speech"
-                                    )
-                                else:
-                                    logger.info(f"✅ [B3] turn_detected after confirmed barge-in (expected): response_id={resp_id[:20]}...")
-                            else:
-                                logger.info(f"[RESPONSE] Cancelled: reason={cancellation_reason}, response_id={resp_id[:20]}...")
                         # Log output items to see if audio was included
                         for i, item in enumerate(output[:3]):  # First 3 items
                             item_type = item.get("type", "?")
@@ -3890,21 +3280,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                 
                                 print(f"✅ [PROMPT UPGRADE] Successfully upgraded to FULL prompt in {upgrade_duration}ms")
                                 print(f"   └─ AI now has complete business context for rest of conversation")
-                                # 🎯 E1 REQUIREMENT: Log business_id and policy verification
-                                business_id = getattr(self, 'business_id', 'UNKNOWN')
-                                call_config = getattr(self, 'call_config', None)
-                                policy_info = {}
-                                if call_config:
-                                    policy_info = {
-                                        'call_goal': getattr(call_config, 'call_goal', 'N/A'),
-                                        'enable_calendar_scheduling': getattr(call_config, 'enable_calendar_scheduling', False),
-                                        'confirm_before_hangup': getattr(call_config, 'confirm_before_hangup', True),
-                                    }
-                                logger.info(
-                                    f"[E1 PROMPT UPGRADE] business_id={business_id}, "
-                                    f"upgrade_duration_ms={upgrade_duration}, "
-                                    f"policy={policy_info}"
-                                )
+                                logger.info(f"[PROMPT UPGRADE] Upgraded business_id={self.business_id} in {upgrade_duration}ms")
                                 
                             except Exception as upgrade_err:
                                 logger.error(f"❌ [PROMPT UPGRADE] Failed to upgrade prompt: {upgrade_err}")
@@ -3934,41 +3310,30 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self._server_error_retried = True
                                     _orig_print(f"🔄 [SERVER_ERROR] Retrying response (first attempt)...", flush=True)
                                     
-                                    # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
-                                    # Send technical context via instructions (no scripted response)
-                                    if hasattr(self, 'realtime_client') and self.realtime_client:
-                                        try:
-                                            retry_instructions = "A technical error occurred. Please retry your last response based on the conversation context."
-                                            await self.realtime_client.send_event({
-                                                "type": "response.create",
-                                                "response": {
-                                                    "instructions": retry_instructions
-                                                }
-                                            })
-                                            logger.info(f"[SILENCE_FOLLOWUP_CREATE] Server error - retry via response.create")
-                                            _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent with instructions", flush=True)
-                                        except Exception as retry_err:
-                                            _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
+                                    # Send technical context (no scripted response)
+                                    retry_msg = "[SYSTEM] Technical error occurred. Please retry your last response."
+                                    await self._send_text_to_ai(retry_msg)
+                                    
+                                    # Trigger new response
+                                    try:
+                                        await client.send_event({"type": "response.create"})
+                                        _orig_print(f"✅ [SERVER_ERROR] Retry response.create sent", flush=True)
+                                    except Exception as retry_err:
+                                        _orig_print(f"❌ [SERVER_ERROR] Failed to send retry: {retry_err}", flush=True)
                                 
                                 else:
                                     # Already retried or call too long - graceful failure
                                     _orig_print(f"🚨 [SERVER_ERROR] Max retries reached or call too long - graceful hangup", flush=True)
                                     
-                                    # 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
-                                    # Send technical context via instructions (AI decides how to handle based on Business Prompt)
-                                    if hasattr(self, 'realtime_client') and self.realtime_client:
-                                        try:
-                                            failure_instructions = "A technical issue has occurred and the system is unavailable. End the call politely per your BUSINESS PROMPT."
-                                            await self.realtime_client.send_event({
-                                                "type": "response.create",
-                                                "response": {
-                                                    "instructions": failure_instructions
-                                                }
-                                            })
-                                            logger.info(f"[SILENCE_FOLLOWUP_CREATE] Server error - graceful failure via response.create")
-                                            _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent with instructions", flush=True)
-                                        except Exception as fail_err:
-                                            _orig_print(f"❌ [SERVER_ERROR] Failed to send graceful failure: {fail_err}", flush=True)
+                                    # Send technical context (AI decides how to handle based on Business Prompt)
+                                    failure_msg = "[SYSTEM] Technical issue - system unavailable. End call politely."
+                                    await self._send_text_to_ai(failure_msg)
+                                    
+                                    # Trigger final response
+                                    try:
+                                        await client.send_event({"type": "response.create"})
+                                        _orig_print(f"✅ [SERVER_ERROR] Graceful failure response sent", flush=True)
+                                    except Exception as fail_err:
                                         _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
                         # 🔥 BUILD 200: Clear active_response_id when response is done (completed or cancelled)
@@ -4008,17 +3373,6 @@ Greet briefly. Then WAIT for customer to speak."""
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
-                        
-                        # 🔥 P0-1 INVARIANT: Check if response.created came within 200ms of STT_FINAL
-                        if hasattr(self, '_stt_trigger_timestamp') and self._stt_trigger_timestamp:
-                            stt_to_created_ms = (time.time() - self._stt_trigger_timestamp) * 1000
-                            if stt_to_created_ms > 200:
-                                logger.warning(
-                                    f"⚠️ [P0-1 VIOLATION] STT_FINAL to response.created took {stt_to_created_ms:.0f}ms (>200ms threshold)! "
-                                    f"This indicates delayed response trigger."
-                                )
-                            self._stt_trigger_timestamp = None  # Reset for next turn
-                        
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Per-response markers to track audio delivery quality
                         # ═══════════════════════════════════════════════════════════════════════
@@ -4027,8 +3381,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._response_tracking[resp_id] = {
                             'start_time': time.time(),
                             'frames_sent': 0,
-                            'first_audio_ts': None,
-                            'cancel_count': 0  # Track for P0-5 violation detection
+                            'first_audio_ts': None
                         }
                         print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
                     else:
@@ -4037,150 +3390,9 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 DEBUG: Log errors and cancellations
                 if event_type == "error":
                     error = event.get("error", {})
-                    error_code = error.get("code", "")
-                    error_message = error.get("message", "")
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
-                    
-                    # 🔥 BUG #1: Handle session_expired error (60-minute limit)
-                    if error_code == "session_expired":
-                        session_uptime_s = time.time() - self.session_started_at if self.session_started_at else 0
-                        _orig_print(f"❌ [SESSION_EXPIRED] call_sid={self.call_sid} stream_sid={self.stream_sid if hasattr(self, 'stream_sid') else 'N/A'} uptime_s={session_uptime_s:.1f}", flush=True)
-                        logger.error(f"[SESSION_EXPIRED] Session expired after {session_uptime_s:.1f}s (60-minute limit)")
-                        
-                        # Check if stream is still active (Twilio call ongoing)
-                        # If yes, attempt reconnection; if no, clean close
-                        if not self.realtime_stop_flag and not self.hangup_triggered:
-                            # Stream still active - attempt reconnection
-                            self.session_reconnect_count += 1
-                            if self.session_reconnect_count <= MAX_SESSION_RECONNECT_ATTEMPTS:  # Max attempts from constant
-                                _orig_print(f"🔄 [SESSION_RECONNECT] Attempting reconnection #{self.session_reconnect_count}...", flush=True)
-                                logger.info(f"[SESSION_RECONNECT] Reconnection attempt #{self.session_reconnect_count}")
-                                
-                                try:
-                                    # Close old connection
-                                    if client and client.ws:
-                                        try:
-                                            await client.ws.close()
-                                        except:
-                                            pass
-                                    
-                                    # Create new session
-                                    await client.connect(max_retries=2, backoff_base=0.5)
-                                    self.session_started_at = time.time()
-                                    _orig_print(f"✅ [SESSION_RECONNECT] New session created", flush=True)
-                                    
-                                    # Restore session.update with system + business prompt
-                                    business_id_safe = getattr(self, 'business_id', None)
-                                    if business_id_safe and hasattr(self, '_full_prompt_for_upgrade'):
-                                        full_prompt = self._full_prompt_for_upgrade
-                                        await client.send_event({
-                                            "type": "session.update",
-                                            "session": {
-                                                "instructions": full_prompt
-                                            }
-                                        })
-                                        _orig_print(f"✅ [SESSION_RECONNECT] session.update sent with full prompt", flush=True)
-                                    
-                                    # Continue audio streaming
-                                    _orig_print(f"✅ [SESSION_RECONNECT] Ready to continue call", flush=True)
-                                    continue  # Continue event loop
-                                    
-                                except Exception as reconnect_err:
-                                    _orig_print(f"❌ [SESSION_RECONNECT] Failed: {reconnect_err}", flush=True)
-                                    logger.error(f"[SESSION_RECONNECT] Reconnection failed: {reconnect_err}")
-                            else:
-                                _orig_print(f"❌ [SESSION_RECONNECT] Max reconnection attempts reached", flush=True)
-                        
-                        # Clean shutdown - stop loops, drain queues, close websocket once
-                        _orig_print(f"🛑 [SESSION_EXPIRED] Initiating clean shutdown", flush=True)
-                        self.realtime_stop_flag = True
-                        
-                        # Drain queues
-                        try:
-                            while not self.realtime_audio_in_queue.empty():
-                                self.realtime_audio_in_queue.get_nowait()
-                        except:
-                            pass
-                        
-                        # Close websocket if not already closed (guard against double close)
-                        if client and client.ws and not client.ws.closed:
-                            try:
-                                await client.disconnect(reason="session_expired")
-                                _orig_print(f"✅ [SESSION_EXPIRED] WebSocket closed cleanly", flush=True)
-                            except Exception as ws_err:
-                                _orig_print(f"⚠️ [SESSION_EXPIRED] WebSocket close error: {ws_err}", flush=True)
-                        
-                        return  # Exit event loop
-                        
                 if event_type == "response.cancelled":
-                    resp_id = event.get("response", {}).get("id", "?")
-                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: id={resp_id[:20]}...", flush=True)
-                    
-                    # 🔥 P0-5 FIX: Check if response was cancelled before sending any audio
-                    # If frames_sent == 0, we need to retry to ensure user gets a response
-                    if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
-                        frames_sent = self._response_tracking[resp_id]['frames_sent']
-                        cancel_count = self._response_tracking[resp_id].get('cancel_count', 0)
-                        cancel_count += 1
-                        self._response_tracking[resp_id]['cancel_count'] = cancel_count
-                        
-                        # 🔥 P0-5 INVARIANT: Detect multiple consecutive frames_sent=0 cancellations
-                        if frames_sent == 0 and cancel_count > 1:
-                            logger.error(
-                                f"⚠️ [P0-5 VIOLATION] Multiple consecutive frames_sent=0 cancellations detected! "
-                                f"Response {resp_id[:20]}... cancelled {cancel_count} times with NO audio. "
-                                f"This indicates a persistent barge-in or recovery issue."
-                            )
-                        
-                        if frames_sent == 0:
-                            # Response was cancelled before ANY audio was sent!
-                            _orig_print(
-                                f"🔄 [P0-5 RECOVERY] Response cancelled with frames_sent=0! "
-                                f"Will retry after 200ms if user not speaking.",
-                                flush=True
-                            )
-                            logger.warning(
-                                f"[P0-5 RECOVERY] Response {resp_id[:20]}... cancelled with NO audio sent - scheduling retry"
-                            )
-                            
-                            # Schedule recovery check after 200ms
-                            async def _recovery_from_zero_frames():
-                                try:
-                                    await asyncio.sleep(0.2)  # 200ms delay
-                                    
-                                    # Check if user is currently speaking
-                                    if self._realtime_speech_active:
-                                        logger.info("[P0-5 RECOVERY] User speaking - skipping retry")
-                                        return
-                                    
-                                    # Check if AI is already speaking (OpenAI recovered naturally)
-                                    if self.is_ai_speaking_event.is_set():
-                                        logger.info("[P0-5 RECOVERY] AI already speaking - skipping retry")
-                                        return
-                                    
-                                    # Check if there's a pending response
-                                    if self.response_pending_event.is_set():
-                                        logger.info("[P0-5 RECOVERY] Response pending - skipping retry")
-                                        return
-                                    
-                                    # All checks passed - retry response.create
-                                    logger.info("[P0-5 RECOVERY] Retrying response.create after frames_sent=0 cancellation")
-                                    _orig_print(
-                                        f"🔄 [P0-5 RECOVERY] Triggering retry response.create",
-                                        flush=True
-                                    )
-                                    await self.trigger_response("P0-5_RECOVERY_FRAMES_0")
-                                    
-                                except Exception as e:
-                                    logger.error(f"[P0-5 RECOVERY] Error in recovery: {e}")
-                            
-                            # Schedule recovery task
-                            asyncio.create_task(_recovery_from_zero_frames())
-                        else:
-                            logger.info(f"[P0-5 RECOVERY] Response cancelled after {frames_sent} frames sent - no recovery needed")
-                        
-                        # Cleanup tracking
-                        del self._response_tracking[resp_id]
+                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
@@ -4316,56 +3528,87 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._loop_guard_engaged = False
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 TWO-STAGE CONFIRMED BARGE-IN:
-                    # Stage A (Candidate): Detect possible speech → start forwarding audio for STT
-                    # Stage B (Confirmed): STT returns valid text → THEN cancel AI
+                    # 🔥 BUILD 302 + FIX BUG 1: HARD BARGE-IN - If AI is speaking, KILL the response NOW!
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Goal: Prevent false cancellations from background noise/echo
-                    # Instead of immediate cancellation, we:
-                    #   1. Mark as barge_pending (candidate stage)
-                    #   2. Start forwarding audio to OpenAI (with preroll flush)
-                    #   3. Wait for STT confirmation before canceling AI
+                    # Goal: Any time user starts speaking while AI is speaking, we do a hard barge-in:
+                    #   1. Cancel the current OpenAI response
+                    #   2. Stop sending its audio to Twilio
+                    #   3. Clear guards/flags
+                    #   4. Let the new user utterance lead the next response
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                        # Track barge-in timing metrics
+                        # Track barge-in latency and timing metrics for comprehensive logging
                         barge_in_latency_start = time.time()
                         ai_speaking_start_ts = getattr(self, '_last_ai_audio_start_ts', None)
                         time_since_ai_start_ms = 0
                         if ai_speaking_start_ts:
                             time_since_ai_start_ms = (barge_in_latency_start - ai_speaking_start_ts) * 1000
                         
-                        # Check if already in barge-in flow
-                        if hasattr(self, '_barge_pending') and self._barge_pending:
-                            logger.debug(f"[BARGE-IN] Already in candidate stage - ignoring duplicate speech_started")
-                            continue
+                        print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
+                        print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
+                        print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         
-                        logger.info(f"[BARGE-IN] 🔶 CANDIDATE: Possible user speech detected while AI speaking")
-                        logger.info(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
-                        logger.info(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
-                        logger.info(f"   time_since_ai_start={time_since_ai_start_ms:.0f}ms")
+                        # Set barge-in flag - ALL audio gates will be bypassed!
+                        self.barge_in_active = True
+                        self._barge_in_started_ts = time.time()  # Track for failsafe timeout
                         
-                        # 🎯 MASTER DIRECTIVE 3.1: Enhanced CANDIDATE stage logging
-                        _orig_print(
-                            f"[BARGE-IN] CANDIDATE stage: time_since_ai_start_ms={time_since_ai_start_ms:.0f}, "
-                            f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...",
-                            flush=True
+                        # 1) Cancel response on OpenAI side (with timeout protection)
+                        cancelled_id = self.active_response_id
+                        if cancelled_id and self.realtime_client:
+                            try:
+                                # Use asyncio.wait_for with 0.5s timeout to avoid blocking
+                                await asyncio.wait_for(
+                                    self.realtime_client.cancel_response(cancelled_id),
+                                    timeout=0.5
+                                )
+                                self._mark_response_cancelled_locally(cancelled_id, "speech_started")
+                                print(f"[BARGE_IN] Cancelled AI response: response_id={cancelled_id[:20]}...")
+                            except asyncio.TimeoutError:
+                                print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
+                            except Exception as e:
+                                print(f"   ⚠️ Error cancelling response: {e}")
+                        elif not cancelled_id:
+                            print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
+                        elif not self.realtime_client:
+                            print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
+                        
+                        # 2) Clear local guards (ALWAYS, even if cancel failed)
+                        # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
+                        self.active_response_id = None
+                        self.response_pending_event.clear()
+                        self.is_ai_speaking_event.clear()
+                        self.speaking = False
+                        self.has_pending_ai_response = False
+                        print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
+                        
+                        # ═══════════════════════════════════════════════════════════════════
+                        # 🎯 TASK C.1: Flush TX queue ONLY on confirmed barge-in (Master QA)
+                        # This only runs when actual user speech is detected during AI speech
+                        # ═══════════════════════════════════════════════════════════════════
+                        # 3) Flush both audio queues so NO old audio reaches Twilio
+                        openai_q_before = self.realtime_audio_out_queue.qsize()
+                        tx_q_before = self.tx_q.qsize()
+                        try:
+                            flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
+                        except Exception as e:
+                            print(f"   ⚠️ Error flushing TX queue: {e}")
+                            flushed_count = 0
+                        
+                        # Calculate and log comprehensive barge-in metrics
+                        barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
+                        
+                        # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
+                        # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
+                        logger.info(
+                            f"[BARGE-IN] Real user interrupt detected – "
+                            f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
+                            f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
+                            f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
+                            f"latency={barge_in_latency_ms:.1f}ms"
                         )
+                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, {flushed_count} frames flushed")
                         
-                        # Set candidate barge-in flags
-                        # These will be read by audio sender to start forwarding audio with preroll
-                        self._barge_pending = True
-                        self._flush_preroll = True
-                        
-                        # Track for metrics
-                        if not hasattr(self, '_barge_in_event_count'):
-                            self._barge_in_event_count = 0
+                        # 🔥 METRICS: Increment barge-in counter
                         self._barge_in_event_count += 1
-                        
-                        logger.info(f"[BARGE-IN] Audio forwarding enabled - waiting for STT confirmation...")
-                        # DON'T cancel AI yet - wait for STT to confirm this is real speech
-                        # The cancellation will happen in input_audio_transcription.completed handler
-                        # ⚠️ CRITICAL: NO TX_CLEAR/flush here! Only in Confirmed stage (transcription.completed)
-                        # Skip to next event - STT validation will determine if this is a real barge-in
-                        continue
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
@@ -4376,9 +3619,6 @@ Greet briefly. Then WAIT for customer to speak."""
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
-                    
-                    # 🎯 MASTER "CALL QUALITY" - PART A1: Track speech_stopped timestamp
-                    self._turn_speech_stopped_ts = time.time()
                     
                     # 🔥 FIX BUG 2: Start timeout for user turn finalization
                     # If no transcription arrives within 1.8s, finalize the turn anyway
@@ -4413,12 +3653,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"✅ [BARGE-IN] User utterance completed - barge-in ended (duration={barge_duration:.1f}s)")
                         self.barge_in_active = False
                         self._barge_in_started_ts = None
-                    
-                    # 🔥 HALF-DUPLEX: Reset barge-in state flags after user turn
-                    # 🔥 P0-3a FIX: Use centralized VAD reset function
-                    _reset_vad_state(self, "SPEECH_STOPPED")
-                    
-                    logger.debug(f"[HALF-DUPLEX] Reset barge states after user turn")
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
@@ -4500,34 +3734,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
-                    response_id = event.get("response_id")
-                    
                     if audio_b64:
-                        # 🎯 MASTER "CALL QUALITY" - PART B2: Barge-in violation detection
-                        # If this response was cancelled (in _cancelled_response_ids), but we still get audio
-                        # within 250ms of cancellation → log violation (smoking gun for barge-in not working)
-                        if response_id and response_id in self._cancelled_response_ids:
-                            # Check when it was cancelled
-                            cancelled_ts = getattr(self, f'_cancel_ts_{response_id}', None)
-                            if cancelled_ts:
-                                time_since_cancel_ms = (time.time() - cancelled_ts) * 1000
-                                if time_since_cancel_ms < 250:
-                                    logger.error(
-                                        f"[BARGE_IN_VIOLATION] cancelled_but_audio_continues "
-                                        f"response_id={response_id[:20]}... time_since_cancel={time_since_cancel_ms:.0f}ms"
-                                    )
-                                    _orig_print(
-                                        f"🚨 [BARGE_IN_VIOLATION] Audio still arriving {time_since_cancel_ms:.0f}ms "
-                                        f"after cancel for response {response_id[:20]}...",
-                                        flush=True
-                                    )
-                            # Drop this audio - it's from a cancelled response
-                            continue
-                        
-                        # 🎯 MASTER "CALL QUALITY" - PART A1: Track first audio delta timestamp (once per turn)
-                        if self._turn_first_audio_delta_ts is None and self._turn_response_create_sent_ts is not None:
-                            self._turn_first_audio_delta_ts = time.time()
-                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -4613,10 +3820,6 @@ Greet briefly. Then WAIT for customer to speak."""
                             # 🔥 FIX BUG 3: Track AI audio start time for echo suppression
                             self._last_ai_audio_start_ts = now
                             print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
-                            
-                            # 🔥 P0-3a FIX: Reset VAD state when AI starts speaking
-                            _reset_vad_state(self, "AI_AUDIO_START")
-                            
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
@@ -4687,73 +3890,6 @@ Greet briefly. Then WAIT for customer to speak."""
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
-                    # 🎯 MASTER "CALL QUALITY" - PART A1: Track audio.done timestamp and log turn latency
-                    self._turn_audio_done_ts = time.time()
-                    
-                    # Log complete turn latency breakdown if we have all timestamps
-                    if (self._turn_speech_stopped_ts and self._turn_stt_completed_ts and 
-                        self._turn_response_create_sent_ts and self._turn_first_audio_delta_ts):
-                        
-                        # Calculate deltas
-                        stop_to_commit_ms = 0  # We don't track committed event yet, use stop→stt as proxy
-                        commit_to_stt_ms = (self._turn_stt_completed_ts - self._turn_speech_stopped_ts) * 1000
-                        stt_to_create_ms = (self._turn_response_create_sent_ts - self._turn_stt_completed_ts) * 1000
-                        create_to_audio1_ms = (self._turn_first_audio_delta_ts - self._turn_response_create_sent_ts) * 1000
-                        total_stop_to_audio1_ms = (self._turn_first_audio_delta_ts - self._turn_speech_stopped_ts) * 1000
-                        
-                        # Get context
-                        call_direction = getattr(self, 'call_direction', 'inbound')
-                        business_id = getattr(self, 'business_id', 'unknown')
-                        
-                        # 🎯 MASTER "CALL QUALITY" - PART A1: Structured turn latency log
-                        logger.info(
-                            f"[TURN_LATENCY] stop→commit={stop_to_commit_ms:.0f}ms | "
-                            f"commit→stt={commit_to_stt_ms:.0f}ms | "
-                            f"stt→create={stt_to_create_ms:.0f}ms | "
-                            f"create→audio1={create_to_audio1_ms:.0f}ms | "
-                            f"total(stop→audio1)={total_stop_to_audio1_ms:.0f}ms | "
-                            f"direction={call_direction} business_id={business_id}"
-                        )
-                        
-                        # 🔥 BUG #5 FIX: BOTTLE_NECK analysis - identify slow stages
-                        bottlenecks = []
-                        if commit_to_stt_ms > BOTTLENECK_STT_MS:
-                            bottlenecks.append(f"STT={commit_to_stt_ms:.0f}ms>{BOTTLENECK_STT_MS}ms")
-                        if stt_to_create_ms > BOTTLENECK_CREATE_MS:
-                            bottlenecks.append(f"CREATE={stt_to_create_ms:.0f}ms>{BOTTLENECK_CREATE_MS}ms_DB/LOCKS?")
-                        if create_to_audio1_ms > BOTTLENECK_AUDIO1_MS:
-                            bottlenecks.append(f"AUDIO1={create_to_audio1_ms:.0f}ms>{BOTTLENECK_AUDIO1_MS}ms_OPENAI/NETWORK?")
-                        
-                        if bottlenecks:
-                            logger.warning(
-                                f"[BOTTLE_NECK] Turn latency bottlenecks detected: {', '.join(bottlenecks)}"
-                            )
-                            _orig_print(
-                                f"⚠️ [BOTTLE_NECK] Slow stages: {', '.join(bottlenecks)}",
-                                flush=True
-                            )
-                        
-                        _orig_print(
-                            f"[TURN_LATENCY] total={total_stop_to_audio1_ms:.0f}ms "
-                            f"(stt={commit_to_stt_ms:.0f} + create={stt_to_create_ms:.0f} + audio1={create_to_audio1_ms:.0f})",
-                            flush=True
-                        )
-                        
-                        # Reset for next turn
-                        self._turn_speech_stopped_ts = None
-                        self._turn_stt_completed_ts = None
-                        self._turn_response_create_sent_ts = None
-                        self._turn_first_audio_delta_ts = None
-                    
-                    # 🎯 TASK A: Clear audio framer buffer on response completion
-                    # Any leftover bytes < 160 are discarded (not padded) to avoid artifacts
-                    # Defensive: hasattr check in case event arrives before initialization
-                    if hasattr(self, '_ai_audio_buf'):
-                        remnants = len(self._ai_audio_buf)
-                        if remnants > 0:
-                            print(f"🧹 [AUDIO_FRAMER] Clearing {remnants} remnant bytes on audio.done")
-                        self._ai_audio_buf.clear()
-                    
                     # 🎯 FIX A: Complete greeting mode after FIRST response only
                     if self.greeting_mode_active and not self.greeting_completed:
                         greeting_end_ts = time.time()
@@ -4808,9 +3944,6 @@ Greet briefly. Then WAIT for customer to speak."""
                     self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped speaking
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
-                    
-                    # 🔥 P0-3a FIX: Reset VAD state when AI stops speaking
-                    _reset_vad_state(self, "AI_AUDIO_DONE")
                     
                     # 🔥 BUILD 171: Track when AI finished speaking for cooldown check
                     self._ai_finished_speaking_ts = time.time()
@@ -5122,9 +4255,10 @@ Greet briefly. Then WAIT for customer to speak."""
                                 if self._speak_exact_resend_count < 2:
                                     self._speak_exact_resend_count += 1
                                     print(f"🔁 [BUILD 339] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
-                                    # 🔥 FIX #2: Don't send server events - they get blocked anyway
-                                    # Instead, the AI will learn from conversation context
-                                    logger.info(f"[SPEAK_EXACT] AI deviated from expected text - will retry naturally")
+                                    # 🔥 FIX: Clear stale state before resend
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        f"[SPEAK_EXACT] עצור! אמרת פרטים שגויים. אמור בדיוק: \"{expected}\""
+                                    ))
                                 else:
                                     print(f"❌ [BUILD 339] Max resends reached - AI keeps deviating")
                                     # 🔥 FIX: Reset state to allow retry with fresh data
@@ -5133,10 +4267,9 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self._verification_prompt_sent = False
                         
                         # 🔥 BUILD 169.1: IMPROVED SEMANTIC LOOP DETECTION (Architect-reviewed)
-                        # 🚫 LOOP DETECTION: Controlled by ENABLE_LOOP_DETECT flag
-                        # 🎯 G REQUIREMENT: Anti-Loop Guard - Detect same question asked twice in a row
+                        # 🚫 DISABLED: Loop detection disabled via ENABLE_LOOP_DETECT flag
                         is_repeating = False
-                        if ENABLE_LOOP_DETECT or True:  # G: Always enable anti-loop for production
+                        if ENABLE_LOOP_DETECT:
                             # Added: length floor to avoid false positives on short confirmations
                             MIN_LENGTH_FOR_SIMILARITY = 15  # Don't compare short confirmations
                             
@@ -5155,37 +4288,17 @@ Greet briefly. Then WAIT for customer to speak."""
                             if len(self._last_ai_responses) > 5:
                                 self._last_ai_responses.pop(0)  # Keep only last 5
                             
-                            # 🎯 G REQUIREMENT: Check for CONSECUTIVE duplicate questions (same question 2x in a row)
-                            # This catches "איזו עיר?" "איזו עיר?" loops where AI doesn't let user speak
+                            # Check for semantic repetition (similarity > 70% with any of last 3 responses)
+                            # 🔥 ARCHITECT FIX: Only check if responses are long enough (avoid short template FP)
                             if len(self._last_ai_responses) >= 2 and len(transcript) >= MIN_LENGTH_FOR_SIMILARITY:
-                                last_response = self._last_ai_responses[-2]  # Previous response (before current)
-                                if len(last_response) >= MIN_LENGTH_FOR_SIMILARITY:
-                                    similarity = _text_similarity(transcript, last_response)
-                                    # 🎯 G: If current response is >85% similar to previous → LOOP DETECTED
-                                    if similarity > 0.85:
+                                for prev_response in self._last_ai_responses[:-1]:
+                                    if len(prev_response) < MIN_LENGTH_FOR_SIMILARITY:
+                                        continue  # Skip short responses
+                                    similarity = _text_similarity(transcript, prev_response)
+                                    if similarity > 0.70:
                                         is_repeating = True
-                                        logger.warning(
-                                            f"⚠️ [G ANTI-LOOP] Duplicate question detected! "
-                                            f"Similarity={similarity:.0%} | "
-                                            f"Current: '{transcript[:50]}...' | "
-                                            f"Previous: '{last_response[:50]}...'"
-                                        )
-                                        # 🔥 FIX #2: Anti-loop guard - Don't send server events
-                                        # Instead engage loop guard to prevent repeating
-                                        logger.warning(f"[ANTI_LOOP] Duplicate question - engaging loop guard")
-                                        self._loop_guard_engaged = True
-                                        self._loop_guard_reason = "duplicate_question"
-                                
-                                # Also check if similar to any of last 3 (general loop detection)
-                                if not is_repeating:
-                                    for prev_response in self._last_ai_responses[:-1]:
-                                        if len(prev_response) < MIN_LENGTH_FOR_SIMILARITY:
-                                            continue  # Skip short responses
-                                        similarity = _text_similarity(transcript, prev_response)
-                                        if similarity > 0.70:
-                                            is_repeating = True
-                                            print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
-                                            break
+                                        print(f"⚠️ [LOOP DETECT] AI repeating! Similarity={similarity:.0%} with: '{prev_response[:50]}...'")
+                                        break
                         
                         # 🔥 BUILD 169.1: MISHEARING DETECTION (Architect: reduced to 2 for better UX)
                         # 🚫 DISABLED: Loop detection disabled via ENABLE_LOOP_DETECT flag
@@ -5311,9 +4424,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             # 🛑 ENGAGE GUARD FIRST - before any other operations to prevent race conditions
                             self._loop_guard_engaged = True
                             
-                            # 🔥 FIX #2: Don't send server events - they get blocked
-                            # Loop guard is already engaged, that's enough
-                            logger.info(f"[LOOP_GUARD] Engaged - blocking responses until user speaks")
+                            # Send clarification request to AI before blocking
+                            clarification_text = "[SERVER] זיהיתי שאתה חוזר על עצמך. אמור: 'לא שמעתי טוב, אפשר לחזור?' ותמתין בשקט."
+                            asyncio.create_task(self._send_server_event_to_ai(clarification_text))
                             
                             # 🔥 BUILD 305: DON'T clear TX queue - causes choppy mid-sentence audio!
                             # Instead: just block NEW audio from being added via _tx_enqueue guard
@@ -5364,13 +4477,13 @@ Greet briefly. Then WAIT for customer to speak."""
                                 # LEGACY: Trigger NLP immediately to try to create the appointment
                                 print(f"🔥 [LEGACY GUARD] Triggering immediate NLP check to create appointment...")
                                 self._check_appointment_confirmation(transcript)
-                            # 🔥 FIX #2: Don't send server events - they get blocked anyway
-                            logger.warning(f"[GUARD] AI confirmed without system approval - will handle via prompt")
+                            # Send immediate correction event
+                            asyncio.create_task(self._send_server_event_to_ai(
+                                "⚠️ Appointment not yet confirmed by system"
+                            ))
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
-                        # 🔥 FIX: Save last AI transcript for echo_window similarity check
-                        self._last_ai_transcript_text = transcript
                         # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
                         # Removing this call to prevent loop (NLP should only analyze user input)
                         
@@ -5535,9 +4648,6 @@ Greet briefly. Then WAIT for customer to speak."""
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
-                    # 🎯 MASTER "CALL QUALITY" - PART A1: Track STT completed timestamp
-                    self._turn_stt_completed_ts = time.time()
-                    
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
                     print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
                     
@@ -5590,15 +4700,6 @@ Greet briefly. Then WAIT for customer to speak."""
                     if ai_speaking and self._last_ai_audio_start_ts:
                         time_since_ai_audio_start_ms = (now_sec - self._last_ai_audio_start_ts) * 1000
                     
-                    # 🔥 NEW: Get echo_window bypass parameters
-                    candidate_user_speaking = getattr(self, '_candidate_user_speaking', False)
-                    # Use _local_vad_voice_frames from audio sender task (more reliable)
-                    local_vad_voice_frames = getattr(self, '_local_vad_voice_frames', 0)
-                    # Fallback to _echo_gate_consec_frames if _local_vad not available
-                    if local_vad_voice_frames == 0:
-                        local_vad_voice_frames = getattr(self, '_echo_gate_consec_frames', 0)
-                    last_ai_transcript = getattr(self, '_last_ai_transcript_text', '')
-                    
                     # 🔥 PRE-COMPUTE: Check filler status once (used in both hallucination and success paths)
                     is_filler_only = not is_valid_transcript(text)
                     
@@ -5613,10 +4714,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         noise_floor=current_noise_floor,
                         ai_speaking=ai_speaking,
                         last_ai_audio_start_ms=time_since_ai_audio_start_ms,
-                        last_hallucination=self._last_hallucination,
-                        candidate_user_speaking=candidate_user_speaking,
-                        local_vad_voice_frames=local_vad_voice_frames,
-                        last_ai_transcript=last_ai_transcript
+                        last_hallucination=self._last_hallucination
                     )
                     
                     if not accept_utterance:
@@ -5676,164 +4774,6 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
-                    
-                    # 🔥 CONFIRMED BARGE-IN: Two-stage approach to prevent false cancellations
-                    # Stage A (Candidate): VAD detected possible speech while AI talking → audio forwarding started
-                    # Stage B (Confirmed): STT returned valid text → NOW cancel AI
-                    
-                    # Check if this is during AI speaking (barge-in scenario)
-                    ai_currently_speaking = (
-                        self.active_response_id is not None or 
-                        self.is_ai_speaking_event.is_set()
-                    )
-                    
-                    if ai_currently_speaking:
-                        # Calculate word count for confirmation
-                        word_count = len(text.strip().split())
-                        normalized_text = text.strip().lower()
-                        
-                        # Confirmation rules:
-                        # - word_count >= 2 OR
-                        # - word_count == 1 AND in INTERRUPT_WHITELIST (module constant)
-                        # Plus guards: not echo, not hallucination
-                        
-                        # Check echo window (reuse existing check)
-                        is_in_echo_window = False
-                        if self._last_ai_audio_start_ts:
-                            time_since_ai_audio = (time.time() - self._last_ai_audio_start_ts) * 1000
-                            is_in_echo_window = time_since_ai_audio < ECHO_WINDOW_MS
-                        
-                        # Determine if barge-in should be confirmed
-                        should_confirm_barge_in = False
-                        
-                        # 🔥 INTENT-AWARE BARGE-IN: Accept single-token for meaningful intents
-                        # Problem statement requirement: אישור חכם של STT במקום "2 מילים או כלום"
-                        # Accept single-token if it's:
-                        # - Numbers/time: digits or numeric words in Hebrew
-                        # - Confirmations: כן/לא/רגע/שנייה/הלו/עצור/תעצור
-                        # - Timing words: היום/מחר/בערב/בבוקר + weekdays
-                        
-                        is_intent_aware_token = False
-                        if word_count == 1:
-                            # Check if it's a number (digits) - regex already imported at module level
-                            if re.match(r'^\d+$', normalized_text):
-                                is_intent_aware_token = True
-                                confirm_reason = f"number={normalized_text}"
-                            # Check if it's a Hebrew numeric word (using module-level constant)
-                            elif normalized_text in HEBREW_NUMERIC_WORDS:
-                                is_intent_aware_token = True
-                                confirm_reason = f"hebrew_number={normalized_text}"
-                            # Check if it's a confirmation word (using module-level constant)
-                            elif normalized_text in INTENT_CONFIRMATION_WORDS:
-                                is_intent_aware_token = True
-                                confirm_reason = f"confirmation={normalized_text}"
-                            # Check if it's a timing word (using module-level constant)
-                            elif normalized_text in INTENT_TIMING_WORDS:
-                                is_intent_aware_token = True
-                                confirm_reason = f"timing={normalized_text}"
-                            # Check interrupt whitelist (existing logic)
-                            elif normalized_text in INTERRUPT_WHITELIST:
-                                is_intent_aware_token = True
-                                confirm_reason = f"whitelist_match={normalized_text}"
-                        
-                        if word_count >= 2:
-                            should_confirm_barge_in = True
-                            confirm_reason = f"word_count={word_count}"
-                        elif is_intent_aware_token:
-                            should_confirm_barge_in = True
-                            # confirm_reason already set above
-                        else:
-                            confirm_reason = f"not_confirmed (wc={word_count}, not_intent_aware)"
-                        
-                        # Apply guards
-                        if should_confirm_barge_in and is_in_echo_window:
-                            should_confirm_barge_in = False
-                            confirm_reason += " BLOCKED:echo_window"
-                            logger.info(f"[BARGE-IN] Confirmation blocked by echo window ({time_since_ai_audio:.0f}ms)")
-                        
-                        if should_confirm_barge_in:
-                            # CONFIRMED BARGE-IN - Cancel AI response
-                            logger.info(f"[BARGE-IN] ✅ CONFIRMED: {confirm_reason} text='{text[:40]}...'")
-                            
-                            # 🎯 MASTER DIRECTIVE 3.1: Enhanced CONFIRMED stage logging
-                            _orig_print(
-                                f"[BARGE-IN] CONFIRMED stage: reason={confirm_reason}, "
-                                f"text='{text[:40]}...', word_count={word_count}, "
-                                f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...",
-                                flush=True
-                            )
-                            
-                            # Cancel active AI response
-                            cancelled_id = self.active_response_id
-                            if cancelled_id and self.realtime_client:
-                                try:
-                                    await self.realtime_client.cancel_response(cancelled_id)
-                                    self._mark_response_cancelled_locally(cancelled_id, "confirmed_barge_in")
-                                    logger.info(f"[BARGE-IN] Cancelled AI response: {cancelled_id[:20]}...")
-                                    
-                                    # Clear state
-                                    self.active_response_id = None
-                                    self.is_ai_speaking_event.clear()
-                                    self.speaking = False
-                                    
-                                    # 🔥 CONFIRMED BARGE-IN: Flush TX queue to stop audio playback
-                                    # This is the ONLY place where TX_CLEAR happens during barge-in
-                                    try:
-                                        flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN_CONFIRMED")
-                                        logger.info(f"[BARGE-IN] ✅ CONFIRMED flush: {flushed_count} frames cleared")
-                                    except Exception as clear_err:
-                                        logger.warning(f"[BARGE-IN] Failed to flush TX queue: {clear_err}")
-                                    
-                                    # Mark barge-in confirmed
-                                    self.barge_in_active = True
-                                    self.user_has_spoken = True
-                                    
-                                except Exception as cancel_err:
-                                    logger.error(f"[BARGE-IN] Failed to cancel response: {cancel_err}")
-                        else:
-                            # NOT CONFIRMED - Keep AI speaking
-                            logger.info(f"[BARGE-IN] ❌ NOT CONFIRMED: {confirm_reason} text='{text[:40]}...'")
-                            # Don't cancel AI - let it continue speaking
-                            
-                            # Reset barge-in candidate flags (not confirmed)
-                            if hasattr(self, '_barge_pending'):
-                                self._barge_pending = False
-                            if hasattr(self, '_flush_preroll'):
-                                self._flush_preroll = False
-                            logger.debug(f"[HALF-DUPLEX] Reset barge candidate flags (not confirmed)")
-                    
-                    # 🔥 GUARANTEED RESET: Always reset flags after transcription (confirmed or not)
-                    # This is the most reliable reset point - transcription.completed always fires
-                    if hasattr(self, '_barge_pending') and not ai_currently_speaking:
-                        # AI not speaking anymore - safe to reset
-                        self._barge_pending = False
-                        if hasattr(self, '_flush_preroll'):
-                            self._flush_preroll = False
-                        logger.debug(f"[HALF-DUPLEX] Reset flags - AI finished speaking")
-                    
-                    # 🎯 MASTER DIRECTIVE 3.4: FORCED STATE RESET - Prevent stuck barge-in
-                    # Hard rule: If ai_speaking == False AND active_response_id is None → force reset ALL barge state
-                    # This prevents "barge_in=True while AI not speaking" stuck state
-                    if (not self.is_ai_speaking_event.is_set() and 
-                        self.active_response_id is None and
-                        (getattr(self, '_barge_pending', False) or 
-                         getattr(self, 'barge_in_active', False) or
-                         getattr(self, '_barge_confirmed', False))):
-                        logger.warning(
-                            f"[BARGE-IN] FORCED RESET: AI not speaking but barge flags were set "
-                            f"(_barge_pending={getattr(self, '_barge_pending', False)}, "
-                            f"barge_in_active={getattr(self, 'barge_in_active', False)}, "
-                            f"_barge_confirmed={getattr(self, '_barge_confirmed', False)})"
-                        )
-                        self._barge_pending = False
-                        self._barge_confirmed = False
-                        self.barge_in_active = False
-                        self._candidate_user_speaking = False
-                        if hasattr(self, '_flush_preroll'):
-                            self._flush_preroll = False
-                        if hasattr(self, 'barge_in_voice_frames'):
-                            self.barge_in_voice_frames = 0
-                        logger.info(f"[BARGE-IN] State reset complete")
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
@@ -6240,21 +5180,12 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             print(f"   → Cleared verification state, lead candidate, and locked fields")
                             
-                            # 3) 🔥 BUG #2 FIX: Use response.create with instructions, not _send_text_to_ai
-                            # Inject instructions to guide AI (context only, no script)
-                            if hasattr(self, 'realtime_client') and self.realtime_client:
-                                try:
-                                    rejection_instructions = "User has rejected or corrected the previous understanding. Ask again politely per your BUSINESS PROMPT instructions."
-                                    asyncio.create_task(self.realtime_client.send_event({
-                                        "type": "response.create",
-                                        "response": {
-                                            "instructions": rejection_instructions
-                                        }
-                                    }))
-                                    logger.info(f"[SILENCE_FOLLOWUP_CREATE] User rejection - ask again via response.create")
-                                    print(f"   → Sent reset instructions to AI via response.create")
-                                except Exception as reject_err:
-                                    logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed to send rejection instructions: {reject_err}")
+                            # 3) Inject system message to guide AI (context only, no script)
+                            system_msg = "[SYSTEM] User rejected previous understanding. Ask again per your instructions."
+                            
+                            # Queue system message for next processing cycle
+                            asyncio.create_task(self._send_text_to_ai(system_msg))
+                            print(f"   → Sent reset system message to AI")
                             
                         elif is_negative_answer:
                             print(f"⚠️ [BUILD 303] NEGATIVE ANSWER detected: '{transcript}' - user is rejecting/correcting")
@@ -6418,71 +5349,42 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
-                        # 🔥 FIX #1: IMMEDIATE RESPONSE TRIGGER after transcription.completed
-                        # Problem: System was waiting for SILENCE_FAILSAFE (3s timeout) instead of responding immediately
-                        # Solution: Trigger response.create RIGHT NOW if conditions allow
-                        should_trigger_immediate_response = (
-                            self.call_state == CallState.ACTIVE and  # Call is active
-                            not self.active_response_id and  # No response already in progress
-                            not self.is_ai_speaking_event.is_set() and  # AI not speaking
-                            not getattr(self, '_waiting_for_dtmf', False)  # Not waiting for DTMF input
-                        )
-                        
-                        if should_trigger_immediate_response:
-                            # ✅ IMMEDIATE TRIGGER: User finished speaking → start response NOW (0-300ms target)
-                            logger.info(f"[TURN_TRIGGER] IMMEDIATE response.create after transcription.completed")
-                            _orig_print(f"⚡ [FIX #1] Triggering response.create IMMEDIATELY after STT (not waiting for silence)", flush=True)
-                            
-                            # Start latency tracking for this turn
-                            self._turn_trigger_reason = "STT_COMPLETED"
-                            self._stt_trigger_timestamp = time.time()  # Track when trigger was sent
-                            
-                            # Trigger response immediately
-                            asyncio.create_task(self.trigger_response("STT_COMPLETED"))
-                        else:
-                            # Log why we didn't trigger
-                            skip_reason = []
-                            if self.call_state != CallState.ACTIVE:
-                                skip_reason.append(f"state={self.call_state.value}")
-                            if self.active_response_id:
-                                skip_reason.append(f"active_response={self.active_response_id[:20]}")
-                            if self.is_ai_speaking_event.is_set():
-                                skip_reason.append("ai_speaking=True")
-                            if getattr(self, '_waiting_for_dtmf', False):
-                                skip_reason.append("waiting_for_dtmf=True")
-                            logger.info(f"[TURN_TRIGGER] SKIPPED immediate response - {', '.join(skip_reason)}")
-                        
-                        # 🔥 SAFETY NET: If no response.created within 400ms, trigger fallback
-                        # This catches edge cases where OpenAI doesn't respond to response.create
+                        # 🔥 SILENCE FAILSAFE: Start timeout waiting for AI response
+                        # If no response.created within 3 seconds, trigger fallback
+                        # Only trigger in ACTIVE state (not WARMUP or CLOSING)
                         if self.call_state == CallState.ACTIVE:
                             async def _response_timeout_check():
-                                """Safety net: trigger fallback if no response within 400ms"""
+                                """Wait for AI response - trigger fallback if no response"""
                                 try:
-                                    await asyncio.sleep(0.4)  # 400ms safety net (was 3s - too long!)
+                                    await asyncio.sleep(3.0)  # 3 second timeout
                                     
                                     # Check if response was created
                                     if not self.active_response_id and not self.is_ai_speaking_event.is_set():
                                         logger.warning(
-                                            "[SAFETY_NET] No AI response within 400ms – triggering fallback"
+                                            "[SILENCE_FAILSAFE] No AI response within 3000ms – triggering fallback"
                                         )
                                         
-                                        # Trigger response (no server event - just trigger)
-                                        await self.trigger_response("SAFETY_NET_400MS")
+                                        # Send polite fallback message
+                                        fallback_msg = "סליחה, יש לי קושי טכני רגעי. אשמח אם תוכל לחזור על מה שאמרת?"
+                                        await self._send_server_event_to_ai(f"[SERVER] {fallback_msg}")
+                                        
+                                        # Trigger response
+                                        await self.trigger_response("SILENCE_FAILSAFE_3S")
                                         
                                 except asyncio.CancelledError:
                                     # Normal cancellation when response arrives
-                                    logger.debug("[SAFETY_NET] Cancelled - response arrived")
+                                    logger.debug("[SILENCE_FAILSAFE] Cancelled - response arrived")
                                 except Exception as e:
-                                    logger.error(f"[SAFETY_NET] Error in timeout check: {e}")
+                                    logger.error(f"[SILENCE_FAILSAFE] Error in timeout check: {e}")
                             
                             # Cancel any previous timeout task
                             if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
                                 if not self._response_timeout_task.done():
                                     self._response_timeout_task.cancel()
                             
-                            # Start new timeout task (400ms instead of 3s)
+                            # Start new timeout task
                             self._response_timeout_task = asyncio.create_task(_response_timeout_check())
-                            logger.debug("[SAFETY_NET] Started 400ms response timeout")
+                            logger.debug("[SILENCE_FAILSAFE] Started 3s response timeout")
                         
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
@@ -6542,10 +5444,11 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self.call_state = CallState.CLOSING
                                     print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (user_goodbye, auto_end=True)")
                                 
-                                # 🔥 FIX #2: Don't send server events - let AI handle goodbye naturally
-                                # The AI prompt already knows how to say goodbye politely
-                                # No need for [SERVER] messages that get blocked anyway
-                                logger.info(f"[GOODBYE] User said goodbye - AI will respond naturally per business prompt")
+                                # If auto_end_on_goodbye is ON, send explicit instruction to AI
+                                if self.auto_end_on_goodbye:
+                                    asyncio.create_task(self._send_server_event_to_ai(
+                                        "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
+                                    ))
                                 
                                 # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
                                 asyncio.create_task(self._fallback_hangup_after_timeout(10, "user_goodbye"))
@@ -7502,15 +6405,9 @@ Greet briefly. Then WAIT for customer to speak."""
         thread.start()
     
     def _realtime_audio_out_loop(self):
-        """⚡ TASK A+B: Audio Framer + Clocked Sender for Twilio
+        """⚡ BUILD 168.2: Optimized audio bridge - minimal logging
         
-        TASK A: Segments OpenAI audio deltas into fixed 160-byte frames (20ms @ 8kHz μ-law)
-        - Variable-sized deltas are accumulated in _ai_audio_buf
-        - Extracted in 160-byte chunks for precise frame timing
-        - Remnants are cleared on audio completion
-        
-        TASK B: No clocking here - TX loop handles timing with 20ms pacing
-        This loop just frames and enqueues at maximum speed
+        🔥 PART C DEBUG: Added logging to trace tx=0 issues
         """
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
@@ -7522,6 +6419,7 @@ Greet briefly. Then WAIT for customer to speak."""
         _frames_skipped_no_stream_sid = 0
         
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
+        audio_buffer = b''  # Rolling buffer for incomplete frames
         
         _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
@@ -7529,16 +6427,14 @@ Greet briefly. Then WAIT for customer to speak."""
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
                 if audio_b64 is None:
-                    # End sentinel - clear remnants and exit
-                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - clearing remnants (frames_enqueued={self.realtime_tx_frames})", flush=True)
-                    self._ai_audio_buf.clear()
+                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - exiting loop (frames_enqueued={self.realtime_tx_frames})", flush=True)
                     break
                 
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # 🔥 PART C: Log first chunk and stream_sid state
+                # 🔥 PART C: Log first frame and stream_sid state
                 if not _first_frame_logged:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
                     _first_frame_logged = True
@@ -7546,19 +6442,14 @@ Greet briefly. Then WAIT for customer to speak."""
                 if not self.stream_sid:
                     _frames_skipped_no_stream_sid += 1
                     if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
-                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping chunk - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
+                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping frame - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
                     continue
                 
-                # ═══════════════════════════════════════════════════════════════════
-                # 🎯 TASK A: Audio Framer - Segment into 160-byte frames
-                # ═══════════════════════════════════════════════════════════════════
-                # Accumulate incoming bytes
-                self._ai_audio_buf.extend(chunk_bytes)
+                audio_buffer += chunk_bytes
                 
-                # Extract complete 160-byte frames
-                while len(self._ai_audio_buf) >= TWILIO_FRAME_SIZE:
-                    frame_bytes = bytes(self._ai_audio_buf[:TWILIO_FRAME_SIZE])
-                    del self._ai_audio_buf[:TWILIO_FRAME_SIZE]
+                while len(audio_buffer) >= TWILIO_FRAME_SIZE:
+                    frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
+                    audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]
                     
                     frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
                     twilio_frame = {
@@ -7568,44 +6459,39 @@ Greet briefly. Then WAIT for customer to speak."""
                     }
                     
                     try:
-                        # ═══════════════════════════════════════════════════════════
-                        # 🎯 TASK C: NO MORE DROPPING - Just warn at high watermark
-                        # ═══════════════════════════════════════════════════════════
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 FIX B: NO MORE DROPPING FRAMES - Just warn at high watermark
+                        # OLD: Dropped oldest frames at 90% → caused mid-sentence audio cuts
+                        # NEW: Warn at 80%, let TX loop drain naturally (20ms pacing)
+                        # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize  # Now 1000 frames = 20s
-                        high_watermark = int(queue_maxsize * 0.5)  # Warn at 50% (500 frames)
+                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80% (800 frames)
                         
                         if queue_size >= high_watermark:
                             # Log warning (throttled), but DO NOT drop frames
                             now = time.time()
                             if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (50%) - TX loop draining")
+                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (80%) - letting TX loop drain")
                                 self._last_overflow_warning = now
                         
-                        # Enqueue frame - TX loop handles timing
+                        # Enqueue frame - let TX loop handle timing
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # 🎯 TASK C: Queue full is a critical error (shouldn't happen with 1000 size)
-                        # This is a LAST RESORT fallback for severe pathological cases
-                        # Normal operation should never hit this with 20s buffer + clocked sender
+                        # 🎯 FIX B: If queue is REALLY full (shouldn't happen with 1000 maxsize)
+                        # Log error and skip THIS frame (newest), not oldest
+                        # This preserves sentence continuity better than dropping oldest
                         now = time.time()
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > 10:
-                            print(f"❌ [AUDIO CRITICAL] TX queue completely full ({queue_maxsize}) - attempting blocking put")
+                            print(f"❌ [AUDIO FULL] TX queue completely full ({queue_maxsize}) - dropping NEWEST frame to preserve continuity")
                             self._last_full_error = now
-                        # Blocking put with timeout - backpressure to prevent drops
-                        # This slows down audio framing to match TX consumption rate
-                        try:
-                            self.tx_q.put(twilio_frame, timeout=0.2)
-                            self.realtime_tx_frames += 1
-                        except queue.Full:
-                            # Still full after 200ms wait - severe TX slowdown, drop THIS frame only
-                            print(f"❌ [AUDIO DROP] Frame lost after 200ms wait - severe TX bottleneck")
+                        # Skip this frame (drop newest, not oldest)
                     
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.error(f"[AUDIO] Framer error: {e}")
+                logger.error(f"[AUDIO] Bridge error: {e}")
                 break
 
     def _calculate_and_log_cost(self):
@@ -8175,16 +7061,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                         self._echo_gate_logged = True
                                     continue
                                 elif is_likely_real_speech:
-                                    # 🔥 LOCAL VAD: Candidate barge-in detected!
-                                    # This is the CRITICAL fix - detect barge-in via LOCAL VAD, not OpenAI events
-                                    if not hasattr(self, '_barge_pending') or not self._barge_pending:
-                                        # First time detecting candidate - set flags
-                                        self._barge_pending = True
-                                        self._flush_preroll = True
-                                        logger.info(f"🔶 [LOCAL VAD] Candidate barge-in: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
-                                        logger.info(f"[BARGE-IN] Audio forwarding enabled - waiting for STT confirmation...")
-                                    
-                                    # Log barge-in detection (once)
+                                    # 5+ frames = real barge-in, let it through
                                     if not hasattr(self, '_echo_barge_logged'):
                                         print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
                                         self._echo_barge_logged = True
@@ -8227,18 +7104,34 @@ Greet briefly. Then WAIT for customer to speak."""
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK A.2: Confirm SIMPLE MODE behavior (Master QA)
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🔥 FIX #3: SIMPLE_MODE must NOT drop frames due to filtering
-                        # SIMPLE_MODE = silence monitoring only, NOT audio pipeline filtering
-                        # All audio MUST pass through to OpenAI for best STT quality
+                        # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
+                        # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
+                        # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
+                        # 🔥 BUILD 320: AUDIO_GUARD - Intelligent filtering for noisy PSTN calls
                         if SIMPLE_MODE:
-                            # 🎯 SIMPLE_MODE: Trust OpenAI's VAD completely - send ALL audio
-                            # No RMS filtering, no noise gates, no audio guard
-                            should_send_audio = True
-                            is_noise = False
-                            
-                            # 🎯 Log mode confirmation (first 3 frames only)
-                            if self._twilio_audio_chunks_sent <= 3:
-                                print(f"✅ [SIMPLE_MODE] Bypassing all audio filters - sending ALL frames to OpenAI")
+                            # 🔥 BUILD 320: Use AUDIO_GUARD for intelligent speech filtering
+                            # Replaces simple RMS threshold with dynamic noise floor + ZCR analysis
+                            if getattr(self, '_audio_guard_enabled', False):
+                                # Compute ZCR for this frame (need PCM16 data)
+                                zcr = self._compute_zcr(pcm16) if pcm16 else 0.0
+                                
+                                # 🛡️ During barge-in or active speech - BYPASS audio guard
+                                if self.barge_in_active or self._realtime_speech_active:
+                                    should_send_audio = True
+                                else:
+                                    # Apply intelligent audio guard
+                                    should_send_audio = self._update_audio_guard_state(rms, zcr)
+                            elif COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
+                                # Fallback: Simple RMS threshold if audio guard disabled
+                                should_send_audio = False
+                                if not hasattr(self, '_cost_silence_blocked'):
+                                    self._cost_silence_blocked = 0
+                                self._cost_silence_blocked += 1
+                                if self._cost_silence_blocked % 200 == 0:
+                                    print(f"💰 [COST SAVE] Blocked {self._cost_silence_blocked} silence frames (rms={rms:.0f} < {COST_MIN_RMS_THRESHOLD})")
+                            else:
+                                should_send_audio = True  # SIMPLE_MODE: send audio above threshold
+                            is_noise = False  # Trust OpenAI's VAD for actual noise filtering
                         elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
@@ -8844,30 +7737,20 @@ Greet briefly. Then WAIT for customer to speak."""
                     pass
             
             # ✅ CRITICAL: Wait for all background threads to complete
-            # 🎯 F2 REQUIREMENT: Proper thread cleanup - no stuck threads
             # This prevents crashes when threads access DB after WebSocket closes
             if hasattr(self, 'background_threads') and self.background_threads:
                 print(f"🧹 Waiting for {len(self.background_threads)} background threads...")
                 for i, thread in enumerate(self.background_threads):
                     if thread.is_alive():
                         try:
-                            # 🎯 F2: Give threads reasonable time to finish (5s per thread)
-                            thread.join(timeout=5.0)
+                            thread.join(timeout=3.0)  # Max 3 seconds per thread
                             if thread.is_alive():
-                                logger.warning(
-                                    f"⚠️ [F2 VIOLATION] Background thread {i} ({thread.name if hasattr(thread, 'name') else 'unnamed'}) "
-                                    f"still running after 5s timeout - thread may be stuck!"
-                                )
+                                print(f"⚠️ Background thread {i} still running after timeout")
                             else:
                                 print(f"✅ Background thread {i} completed")
                         except Exception as e:
-                            logger.error(f"❌ Error joining thread {i}: {e}")
-                # 🎯 F2: Log summary of thread cleanup status
-                alive_count = sum(1 for t in self.background_threads if t.is_alive())
-                if alive_count > 0:
-                    logger.warning(f"⚠️ [F2 VIOLATION] {alive_count}/{len(self.background_threads)} threads still alive after cleanup")
-                else:
-                    print(f"✅ All background threads cleanup complete")
+                            print(f"❌ Error joining thread {i}: {e}")
+                print(f"✅ All background threads cleanup complete")
             
             # 💰 CALCULATE AND LOG CALL COST
             if USE_REALTIME_API:
@@ -8880,80 +7763,18 @@ Greet briefly. Then WAIT for customer to speak."""
             limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
             print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
-            # ═══════════════════════════════════════════════════════════════════════
-            # 🔥 CLEANUP FLAGS: Reset all state flags to prevent cross-call contamination
-            # ═══════════════════════════════════════════════════════════════════════
-            # This is critical for preventing bugs like "stuck barge_pending" affecting next call
-            print(f"🧹 [CLEANUP] Resetting all state flags...")
-            
-            # Barge-in flags
-            if hasattr(self, '_barge_pending'):
-                self._barge_pending = False
-            if hasattr(self, '_barge_confirmed'):
-                self._barge_confirmed = False
-            if hasattr(self, '_flush_preroll'):
-                self._flush_preroll = False
-            self.barge_in_active = False
-            self._barge_in_started_ts = None
-            if hasattr(self, '_barge_in_event_count'):
-                self._barge_in_event_count = 0
-            if hasattr(self, '_barge_in_debug_counter'):
-                self._barge_in_debug_counter = 0
-            
-            # Local VAD counters
-            if hasattr(self, '_local_vad_voice_frames'):
-                self._local_vad_voice_frames = 0
-            if hasattr(self, '_local_vad_silence_frames'):
-                self._local_vad_silence_frames = 0
-            
-            # STT/Turn flags
-            if hasattr(self, '_candidate_user_speaking'):
-                self._candidate_user_speaking = False
-            if hasattr(self, '_utterance_start_ts'):
-                self._utterance_start_ts = None
-            if hasattr(self, '_realtime_speech_active'):
-                self._realtime_speech_active = False
-            if hasattr(self, '_realtime_speech_started_ts'):
-                self._realtime_speech_started_ts = None
-            
-            # Appointment flags
-            if hasattr(self, '_appointment_created_this_session'):
-                self._appointment_created_this_session = False
-            
-            # Response/AI state
-            self.active_response_id = None
-            self.response_pending_event.clear()
-            self.is_ai_speaking_event.clear()
-            self.speaking = False
-            self.has_pending_ai_response = False
-            
-            print(f"✅ [CLEANUP] All state flags reset successfully")
-            
-            # 🔥 F3 REQUIREMENT: WebSocket close with proper error handling
-            # Guard against double-close and handle ASGI errors gracefully
+            # 🔥 FIX: Guard against double-close
             try:
-                if not self._ws_closed and hasattr(self.ws, 'close'):
-                    # Check if websocket is still open before attempting close
-                    try:
-                        self.ws.close()
-                        self._ws_closed = True
-                        print(f"✅ [F3] WebSocket closed successfully")
-                    except AttributeError as ae:
-                        # Handle "SyncWebSocketWrapper has no close" error
-                        if 'close' in str(ae).lower():
-                            logger.debug(f"[F3] WebSocket wrapper doesn't support close() - connection already terminated")
-                            self._ws_closed = True
-                        else:
-                            raise
-            except Exception as e:
-                # 🎯 F3: Catch "websocket.close" ASGI error and reduce to debug
-                error_msg = str(e).lower()
-                if 'websocket.close' in error_msg or 'asgi' in error_msg or 'syncwebsocketwrapper' in error_msg:
-                    logger.debug(f"[F3] Websocket already closed (expected): {e}")
+                if not self._ws_closed:
+                    self.ws.close()
                     self._ws_closed = True
+            except Exception as e:
+                # Catch "websocket.close" ASGI error and reduce to debug
+                error_msg = str(e).lower()
+                if 'websocket.close' in error_msg or 'asgi' in error_msg:
+                    print(f"[DEBUG] Websocket already closed (expected): {e}")
                 else:
-                    logger.error(f"[F3] Unexpected error in websocket close: {e}")
-                    # Don't re-raise - continue with cleanup
+                    print(f"Error in final websocket close: {e}")
             # Mark as ended
             if hasattr(self, 'call_sid') and self.call_sid:
                 stream_registry.clear(self.call_sid)
@@ -10454,31 +9275,10 @@ Greet briefly. Then WAIT for customer to speak."""
                     asyncio.set_event_loop(loop)
                     
                     async def do_goodbye():
-                        # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
-                        if not self._can_send_followup_create("goodbye_hangup"):
-                            # Can't send - AI already speaking or too soon
-                            return
-                        
-                        # 🔥 NEW REQUIREMENT: Behavioral instruction only, no hardcoded goodbye_text
-                        if hasattr(self, 'realtime_client') and self.realtime_client:
-                            try:
-                                # Let AI use BUSINESS PROMPT for closing, don't inject specific text
-                                goodbye_instructions = (
-                                    "Call is ending. Say goodbye politely according to "
-                                    "your BUSINESS PROMPT closing guidelines."
-                                )
-                                
-                                await self.realtime_client.send_event({
-                                    "type": "response.create",
-                                    "response": {
-                                        "instructions": goodbye_instructions
-                                    }
-                                })
-                                self._mark_followup_create_sent()  # Track timestamp for debounce
-                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] Hangup - behavioral instruction sent")
-                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] Goodbye response.create sent")
-                            except Exception as send_err:
-                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
+                        if goodbye_text:
+                            await self._send_text_to_ai(f"[SYSTEM] Call ending. Say: {goodbye_text}")
+                        else:
+                            await self._send_text_to_ai("[SYSTEM] Call ending. Say goodbye per your instructions.")
                     
                     loop.run_until_complete(do_goodbye())
                     loop.close()
@@ -10645,9 +9445,6 @@ Greet briefly. Then WAIT for customer to speak."""
             if self._post_greeting_window_open():
                 print(f"🧘 [SILENCE] Waiting {self._post_greeting_breath_window_sec:.1f}s breathing window before monitoring")
             while self._post_greeting_window_open():
-                # 🔥 BUG #6 FIX: Check if we should extend window based on VAD activity
-                self._extend_post_greeting_window_if_vad()
-                
                 # If user already completed one speech cycle, end window immediately
                 if self._post_greeting_speech_cycle_complete:
                     self._maybe_release_post_greeting_window("user_spoke")
@@ -10707,33 +9504,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Transition to CLOSING state
                         self.call_state = CallState.CLOSING
                         
-                        # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
-                        if not self._can_send_followup_create("10s_timeout"):
-                            # Can't send - just trigger hangup
-                            await asyncio.sleep(1.0)
-                            self._trigger_auto_hangup("hard_silence_timeout_10s_no_tts")
-                            return
+                        # Send polite closing message
+                        closing_msg = "תודה שהתקשרת. נשמח לעזור לך בפעם הבאה. יום נעים!"
+                        if self.call_config and self.call_config.closing_sentence:
+                            closing_msg = self.call_config.closing_sentence
                         
-                        # 🔥 NEW REQUIREMENT: Dynamic instructions WITHOUT hardcoded content
-                        # Use BUSINESS PROMPT for closing, not hardcoded Hebrew text
-                        if hasattr(self, 'realtime_client') and self.realtime_client:
-                            try:
-                                # Behavioral instruction only - AI uses BUSINESS PROMPT for actual words
-                                silence_instructions = (
-                                    "The user has been silent for 10 seconds. "
-                                    "End the call politely according to your BUSINESS PROMPT closing guidelines."
-                                )
-                                await self.realtime_client.send_event({
-                                    "type": "response.create",
-                                    "response": {
-                                        "instructions": silence_instructions
-                                    }
-                                })
-                                self._mark_followup_create_sent()  # Track timestamp for debounce
-                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] 10s timeout - behavioral instruction sent")
-                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] 10s timeout - response.create sent")
-                            except Exception as send_err:
-                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
+                        await self._send_text_to_ai(f"[SYSTEM] 10s silence detected. Say: {closing_msg}")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
@@ -10802,32 +9578,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
-                            
-                            # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
-                            if not self._can_send_followup_create("lead_unconfirmed"):
-                                # Can't send - just continue monitoring
-                                self._last_speech_time = time.time()
-                                continue
-                            
-                            # 🔥 NEW REQUIREMENT: Behavioral instruction only, no hardcoded script
-                            if hasattr(self, 'realtime_client') and self.realtime_client:
-                                try:
-                                    confirmation_instructions = (
-                                        "Customer has been silent and hasn't confirmed their information. "
-                                        "Ask for confirmation one last time, politely, based on your BUSINESS PROMPT."
-                                    )
-                                    await self.realtime_client.send_event({
-                                        "type": "response.create",
-                                        "response": {
-                                            "instructions": confirmation_instructions
-                                        }
-                                    })
-                                    self._mark_followup_create_sent()  # Track timestamp for debounce
-                                    logger.info(f"[SILENCE_FOLLOWUP_CREATE] Lead unconfirmed - behavioral instruction sent")
-                                    print(f"✅ [SILENCE_FOLLOWUP_CREATE] Lead confirmation prompt sent")
-                                except Exception as send_err:
-                                    logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
-                            
+                            await self._send_text_to_ai(
+                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
+                            )
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
                             self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
@@ -10850,8 +9603,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         if SIMPLE_MODE:
                             print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
                             print(f"   Keeping line open - user may return or Twilio will disconnect")
-                            # 🔥 BUG #2 FIX: SIMPLE_MODE never sends to model, only logs
-                            logger.info(f"[SILENCE] keeping open... no AI intervention in SIMPLE_MODE")
+                            # Optionally send a final message
+                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
                             # Reset timer to avoid immediate re-triggering, but don't close
                             self._last_speech_time = time.time()
                             continue  # Stay in monitor loop
@@ -10859,33 +9612,17 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
                         
-                        # 🔥 NEW REQUIREMENT: Check if we can send response.create (prevent spam)
-                        if not self._can_send_followup_create("max_warnings"):
-                            # Can't send - just trigger hangup
-                            await asyncio.sleep(1.0)
-                            self._trigger_auto_hangup("silence_timeout_no_tts")
-                            return
+                        # Send closing message and hangup
+                        closing_msg = ""
+                        if self.call_config and self.call_config.closing_sentence:
+                            closing_msg = self.call_config.closing_sentence
+                        elif self.call_config and self.call_config.greeting_text:
+                            closing_msg = self.call_config.greeting_text  # Use greeting as fallback
                         
-                        # 🔥 NEW REQUIREMENT: Behavioral instruction only, no hardcoded script or fallback text
-                        if hasattr(self, 'realtime_client') and self.realtime_client:
-                            try:
-                                # Let AI use BUSINESS PROMPT for closing, don't inject specific text
-                                silence_instructions = (
-                                    "User has been silent too long after multiple prompts. "
-                                    "End the call politely according to your BUSINESS PROMPT closing guidelines."
-                                )
-                                
-                                await self.realtime_client.send_event({
-                                    "type": "response.create",
-                                    "response": {
-                                        "instructions": silence_instructions
-                                    }
-                                })
-                                self._mark_followup_create_sent()  # Track timestamp for debounce
-                                logger.info(f"[SILENCE_FOLLOWUP_CREATE] Max warnings - behavioral instruction sent")
-                                print(f"✅ [SILENCE_FOLLOWUP_CREATE] Max warnings - response.create sent")
-                            except Exception as send_err:
-                                logger.error(f"[SILENCE_FOLLOWUP_CREATE] Failed: {send_err}")
+                        if closing_msg:
+                            await self._send_text_to_ai(f"[SYSTEM] User silent too long. Say: {closing_msg}")
+                        else:
+                            await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
                         
                         # Schedule hangup after TTS
                         await asyncio.sleep(3.0)
@@ -10897,59 +9634,11 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception as e:
             print(f"❌ [SILENCE] Monitor error: {e}")
     
-    def _can_send_followup_create(self, source: str = "unknown") -> bool:
-        """
-        🔥 NEW REQUIREMENT: Prevent response-create spam
-        
-        Check if we can safely send a response.create from silence/guards without causing:
-        - Double speaking (AI already speaking)
-        - Response spam (too soon after last followup)
-        - Latency issues (multiple responses in progress)
-        
-        Args:
-            source: Where this is being called from (for logging)
-            
-        Returns:
-            True if safe to send, False if should skip
-        """
-        # Check 1: Is AI already speaking?
-        if self.is_ai_speaking_event.is_set():
-            print(f"🔇 [{source.upper()}] BLOCKED - AI already speaking (is_ai_speaking=True)")
-            logger.info(f"[SILENCE_FOLLOWUP_BLOCKED] source={source} reason=ai_already_speaking")
-            return False
-        
-        # Check 2: Is there an active response in progress?
-        if self.active_response_id:
-            print(f"🔇 [{source.upper()}] BLOCKED - Response in progress (response_id={self.active_response_id[:20]}...)")
-            logger.info(f"[SILENCE_FOLLOWUP_BLOCKED] source={source} reason=response_in_progress response_id={self.active_response_id[:20]}")
-            return False
-        
-        # Check 3: Debounce - too soon after last followup create?
-        if self._last_followup_create_ts:
-            elapsed = time.time() - self._last_followup_create_ts
-            if elapsed < self._followup_create_debounce_sec:
-                print(f"🔇 [{source.upper()}] BLOCKED - Too soon after last followup ({elapsed:.1f}s < {self._followup_create_debounce_sec}s)")
-                logger.info(f"[SILENCE_FOLLOWUP_BLOCKED] source={source} reason=debounce elapsed={elapsed:.1f}s threshold={self._followup_create_debounce_sec}s")
-                return False
-        
-        # All checks passed - safe to send
-        logger.info(f"[SILENCE_FOLLOWUP_ALLOWED] source={source}")
-        return True
-    
-    def _mark_followup_create_sent(self):
-        """
-        🔥 NEW REQUIREMENT: Mark that we sent a followup response.create
-        This enables debounce tracking to prevent spam
-        """
-        self._last_followup_create_ts = time.time()
-        logger.info(f"[SILENCE_FOLLOWUP_CREATE] timestamp={self._last_followup_create_ts:.2f}")
-    
     async def _send_silence_warning(self):
         """
         Send a gentle prompt to continue the conversation.
-        🔥 BUG #2 FIX: Use response.create with instructions instead of injecting SYSTEM messages
+        🔥 BUILD 311.1: Made fully dynamic - AI decides based on context, no hardcoded phrases
         🔥 BUILD 339: Added critical state checks to prevent loop after goodbye
-        🔥 NEW REQUIREMENT: Prevent response-create spam with debounce and AI-speaking check
         """
         try:
             if self._post_greeting_window_open():
@@ -10971,63 +9660,15 @@ Greet briefly. Then WAIT for customer to speak."""
                 print(f"🔇 [SILENCE] BLOCKED - hangup pending/triggered, not sending warning")
                 return
             
-            # 🔥 NEW REQUIREMENT: Prevent response-create spam
-            # Don't send if AI is already speaking or response in progress
-            if not self._can_send_followup_create("silence_warning"):
-                return
-            
-            # 🔥 BUG #2 FIX: Use response.create with instructions instead of sending as user input
-            # This prevents AI_INPUT_BLOCKED errors and stays dynamic without hardcode
-            
-            # Calculate silence duration for logging
-            silence_duration = time.time() - self._last_speech_time if hasattr(self, '_last_speech_time') else 0
-            
             # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
             fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
-            
-            if SIMPLE_MODE:
-                # OPTION A: In SIMPLE_MODE, just log and keep line open - no AI intervention
-                print(f"🔇 [SILENCE] SIMPLE_MODE - keeping line open after {silence_duration:.1f}s silence")
-                logger.info(f"[SILENCE] keeping line open... duration={silence_duration:.1f}s")
-                return
+            if fields_collected and not self.verification_confirmed:
+                warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
             else:
-                # OPTION B: Use response.create with instructions for dynamic follow-up
-                # 🔥 NEW REQUIREMENT: Behavioral instructions only, no hardcoded "As the assistant" script
-                if fields_collected and not self.verification_confirmed:
-                    # Need confirmation - behavioral guidance
-                    silence_instructions = (
-                        "User has been silent for several seconds after providing details. "
-                        "Ask one short helpful follow-up question to confirm the information, "
-                        "based on the conversation context and your BUSINESS PROMPT."
-                    )
-                else:
-                    # General silence - behavioral guidance
-                    silence_instructions = (
-                        f"User has been silent for {int(silence_duration)} seconds. "
-                        "Ask one short helpful follow-up question based on the conversation "
-                        "context and your BUSINESS PROMPT instructions."
-                    )
-                
-                print(f"🔇 [SILENCE] Sending response.create with instructions (silence={silence_duration:.1f}s)")
-                logger.info(f"[SILENCE] response.create with behavioral instructions duration={silence_duration:.1f}s")
-                
-                # Use realtime client to send response.create with instructions
-                if hasattr(self, 'realtime_client') and self.realtime_client:
-                    try:
-                        await self.realtime_client.send_event({
-                            "type": "response.create",
-                            "response": {
-                                "instructions": silence_instructions
-                            }
-                        })
-                        self._mark_followup_create_sent()  # Track timestamp for debounce
-                        print(f"✅ [SILENCE] response.create sent successfully")
-                    except Exception as send_err:
-                        logger.error(f"[SILENCE] Failed to send response.create: {send_err}")
-                        print(f"❌ [SILENCE] Failed to send response.create: {send_err}")
-                else:
-                    print(f"⚠️ [SILENCE] realtime_client not available, skipping follow-up")
-                    
+                # 🔥 BUILD 311.1: Dynamic - let AI continue naturally based on conversation context
+                # Let AI decide based on context and Business Prompt
+                warning_prompt = "[SYSTEM] Customer is silent. Continue naturally per your instructions."
+            await self._send_text_to_ai(warning_prompt)
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
     
@@ -11073,30 +9714,6 @@ Greet briefly. Then WAIT for customer to speak."""
     def _post_greeting_window_open(self) -> bool:
         """Return True while the breathing window is still protecting the user."""
         return getattr(self, '_post_greeting_window_active', False) and not getattr(self, '_post_greeting_window_finished', False)
-    
-    def _extend_post_greeting_window_if_vad(self):
-        """
-        🔥 BUG #6 FIX: Extend breathing window when candidate/local_vad is detected
-        This gives user 1-2 extra seconds to complete their thought when they start speaking
-        """
-        if not self._post_greeting_window_open():
-            return  # Window already closed
-        
-        # Check if user is currently speaking (VAD or candidate)
-        local_vad_frames = getattr(self, '_local_vad_voice_frames', 0)
-        candidate_speaking = getattr(self, '_candidate_user_speaking', False)
-        
-        if local_vad_frames >= LISTEN_WINDOW_VAD_THRESHOLD or candidate_speaking:
-            # User is speaking! Extend the window
-            if hasattr(self, '_post_greeting_window_started_at') and self._post_greeting_window_started_at:
-                current_elapsed = time.time() - self._post_greeting_window_started_at
-                extension_needed = max(0, (self._post_greeting_breath_window_sec + LISTEN_WINDOW_EXTENSION_SEC) - current_elapsed)
-                
-                if extension_needed > 0:
-                    # Extend window
-                    self._post_greeting_window_started_at = time.time() - (self._post_greeting_breath_window_sec - extension_needed)
-                    print(f"🧘 [BUG #6 FIX] Extended breathing window by {extension_needed:.1f}s (VAD={local_vad_frames}, candidate={candidate_speaking})")
-                    logger.info(f"[LISTEN_WINDOW_EXTEND] Extended by {extension_needed:.1f}s due to active VAD")
 
     def _maybe_release_post_greeting_window(self, reason: str):
         """
@@ -11113,8 +9730,6 @@ Greet briefly. Then WAIT for customer to speak."""
         if not response_id:
             return
         self._cancelled_response_ids.add(response_id)
-        # 🎯 MASTER "CALL QUALITY" - PART B2: Track cancellation timestamp for violation detection
-        setattr(self, f'_cancel_ts_{response_id}', time.time())
         if source:
             print(f"🪓 [BARGE-IN] Marked response {response_id[:20]}... as cancelled ({source})")
     
@@ -11730,346 +10345,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         "output": json.dumps({
                             "success": False,
                             "error_code": "invalid_arguments"
-                        })
-                    }
-                })
-                await client.send_event({"type": "response.create"})
-        
-        elif function_name == "check_availability":
-            # 🔥 CHECK AVAILABILITY: Validate slot availability before booking
-            try:
-                args = json.loads(arguments_str)
-                print(f"📅 [CHECK_AVAIL] Request from AI: {args}")
-                
-                business_id = args.get("business_id") or getattr(self, 'business_id', None)
-                service = args.get("service", "").strip()
-                date_str = args.get("date", "").strip()  # YYYY-MM-DD
-                time_window = args.get("time_window", "").strip()  # HH:MM or 'morning'/'afternoon'/'evening'
-                duration = args.get("duration")
-                timezone_str = args.get("timezone", "Asia/Jerusalem")
-                
-                if not business_id or not service or not date_str:
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({
-                                "available": False,
-                                "error_code": "missing_parameters",
-                                "message": "נדרשים פרטי שירות, תאריך ועסק"
-                            })
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
-                
-                # 🔥 WRAP IN APP CONTEXT - Critical for DB access
-                from datetime import datetime, timedelta
-                import pytz
-                from server.policy.business_policy import get_business_policy
-                
-                app = _get_flask_app()
-                with app.app_context():
-                    policy = get_business_policy(business_id)
-                    tz = pytz.timezone(policy.tz)
-                    
-                    # Use policy duration if not provided
-                    if not duration:
-                        duration = policy.slot_size_min
-                    
-                    # Parse time window
-                    # If time_window is HH:MM, use it directly
-                    # If it's 'morning'/'afternoon'/'evening', convert to time range
-                    time_slots = []
-                    if ':' in time_window:
-                        # Specific time provided
-                        time_slots = [time_window]
-                    elif time_window.lower() in ['בוקר', 'morning']:
-                        time_slots = ['09:00', '10:00', '11:00', '12:00']
-                    elif time_window.lower() in ['צהריים', 'afternoon']:
-                        time_slots = ['13:00', '14:00', '15:00', '16:00']
-                    elif time_window.lower() in ['ערב', 'evening']:
-                        time_slots = ['17:00', '18:00', '19:00', '20:00']
-                    else:
-                        # Default: try common business hours
-                        time_slots = ['09:00', '12:00', '15:00', '18:00']
-                    
-                    # Check availability for each time slot
-                    available_slots = []
-                    for time_str in time_slots:
-                        try:
-                            datetime_str = f"{date_str} {time_str}"
-                            requested_dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
-                            requested_dt = tz.localize(requested_dt)
-                            
-                            # Check if slot is available
-                            is_available = validate_appointment_slot(business_id, requested_dt)
-                            if is_available:
-                                available_slots.append({
-                                    "time": time_str,
-                                    "datetime_iso": requested_dt.isoformat()
-                                })
-                        except Exception as slot_err:
-                            print(f"⚠️ [CHECK_AVAIL] Error checking slot {time_str}: {slot_err}")
-                            continue
-                    
-                    if available_slots:
-                        # Found available slots
-                        print(f"✅ [CHECK_AVAIL] Found {len(available_slots)} available slot(s)")
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "available": True,
-                                    "slots": available_slots,
-                                    "service": service,
-                                    "date": date_str,
-                                    "message": f"נמצאו {len(available_slots)} מועדים פנויים"
-                                })
-                            }
-                        })
-                    else:
-                        # No available slots
-                        print(f"❌ [CHECK_AVAIL] No available slots for {date_str} {time_window}")
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "available": False,
-                                    "message": "אין מועדים פנויים בזמן המבוקש",
-                                    "suggestion": "נסה תאריך אחר או שעה אחרת"
-                                })
-                            }
-                        })
-                    
-                    await client.send_event({"type": "response.create"})
-                
-            except Exception as e:
-                # 🎯 D5 REQUIREMENT: Fallback error handling for check_availability
-                print(f"❌ [CHECK_AVAIL] APPT_TOOL_FAILED: {e}")
-                logger.error(f"[D5 CHECK_AVAIL_FAILED] Exception in check_availability: {e}")
-                import traceback
-                traceback.print_exc()
-                await client.send_event({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps({
-                            "available": False,
-                            "error_code": "server_error",
-                            "message": "שגיאה בבדיקת זמינות - לקחתי את הפרטים ונציג יחזור אליך"
-                        })
-                    }
-                })
-                await client.send_event({"type": "response.create"})
-        
-        elif function_name == "book_appointment":
-            # 🔥 BOOK APPOINTMENT: Actually create the appointment after availability check
-            try:
-                args = json.loads(arguments_str)
-                print(f"📅 [BOOK_APPT] Request from AI: {args}")
-                
-                business_id = args.get("business_id") or getattr(self, 'business_id', None)
-                service = args.get("service", "").strip()
-                datetime_iso = args.get("datetime", "").strip()  # ISO 8601 format
-                duration = args.get("duration")
-                customer_name = args.get("customer_name", "").strip()
-                customer_phone = args.get("customer_phone", "").strip()
-                notes = args.get("notes", "").strip()
-                
-                # Use phone from call context if not provided
-                if not customer_phone:
-                    customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
-                
-                # Validate required fields
-                if not all([business_id, service, datetime_iso, customer_name, customer_phone]):
-                    missing = []
-                    if not business_id: missing.append("business_id")
-                    if not service: missing.append("service")
-                    if not datetime_iso: missing.append("datetime")
-                    if not customer_name: missing.append("customer_name")
-                    if not customer_phone: missing.append("customer_phone")
-                    
-                    print(f"❌ [BOOK_APPT] Missing required fields: {missing}")
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({
-                                "success": False,
-                                "error_code": "missing_fields",
-                                "missing_fields": missing,
-                                "message": "חסרים פרטים נדרשים ליצירת הפגישה"
-                            })
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
-                
-                # Check if already created appointment in this session
-                if getattr(self, '_appointment_created_this_session', False):
-                    print(f"⚠️ [BOOK_APPT] Already created appointment in this session - blocking duplicate")
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({
-                                "success": False,
-                                "error_code": "appointment_already_created",
-                                "message": "כבר נוצרה פגישה בשיחה הזו"
-                            })
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
-                
-                # 🔥 WRAP IN APP CONTEXT - Critical for DB access
-                # Import once at module level to avoid repeated imports
-                from datetime import datetime, timedelta
-                import pytz
-                from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
-                from server.policy.business_policy import get_business_policy
-                
-                app = _get_flask_app()
-                with app.app_context():
-                    policy = get_business_policy(business_id)
-                    tz = pytz.timezone(policy.tz)
-                    
-                    # Parse ISO datetime - handle both Z suffix and explicit timezone
-                    # Using fromisoformat after normalizing Z to +00:00
-                    # 🎯 D4 REQUIREMENT: Verify timezone correctness (Asia/Jerusalem +02:00)
-                    try:
-                        requested_dt = datetime.fromisoformat(datetime_iso.replace('Z', '+00:00'))
-                    except ValueError:
-                        # Fallback for malformed ISO strings
-                        print(f"⚠️ [BOOK_APPT] Invalid ISO format: {datetime_iso}, attempting manual parse")
-                        # Try parsing as YYYY-MM-DDTHH:MM:SS
-                        requested_dt = datetime.strptime(datetime_iso[:19], "%Y-%m-%dT%H:%M:%S")
-                    
-                    # 🎯 D4: Normalize to business timezone
-                    if requested_dt.tzinfo is None:
-                        requested_dt = tz.localize(requested_dt)
-                        logger.info(f"[D4 TIMEZONE] Localized naive datetime to {tz}: {requested_dt.isoformat()}")
-                    else:
-                        requested_dt = requested_dt.astimezone(tz)
-                        logger.info(f"[D4 TIMEZONE] Converted to {tz}: {requested_dt.isoformat()}")
-                    
-                    # Use policy duration if not provided
-                    if not duration:
-                        duration = policy.slot_size_min
-                    
-                    # Calculate end time
-                    end_dt = requested_dt + timedelta(minutes=duration)
-                    
-                    print(f"📅 [BOOK_APPT] Creating: {requested_dt.isoformat()} -> {end_dt.isoformat()}")
-                    
-                    # Create appointment using unified implementation
-                    input_data = CreateAppointmentInput(
-                        business_id=business_id,
-                        customer_name=customer_name,
-                        customer_phone=customer_phone,
-                        treatment_type=service,
-                        start_iso=requested_dt.isoformat(),
-                        end_iso=end_dt.isoformat(),
-                        notes=notes or "Scheduled via phone call",
-                        source="realtime_phone"
-                    )
-                    
-                    context = {
-                        "customer_phone": customer_phone,
-                        "channel": "phone"
-                    }
-                    
-                    # Call unified implementation
-                    result = _calendar_create_appointment_impl(input_data, context=context, session=self)
-                    
-                    # Handle result
-                    if hasattr(result, 'appointment_id'):
-                        # Success - CreateAppointmentOutput
-                        appt_id = result.appointment_id
-                        print(f"✅ [BOOK_APPT] SUCCESS! ID={appt_id}, status={result.status}")
-                        
-                        # Mark as created to prevent duplicates
-                        self._appointment_created_this_session = True
-                        
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "success": True,
-                                    "appointment_id": appt_id,
-                                    "start_time": requested_dt.isoformat(),
-                                    "end_time": end_dt.isoformat(),
-                                    "customer_name": customer_name,
-                                    "message": f"הפגישה נקבעה בהצלחה ל-{requested_dt.strftime('%d/%m/%Y')} בשעה {requested_dt.strftime('%H:%M')}"
-                                })
-                            }
-                        })
-                        await client.send_event({"type": "response.create"})
-                    else:
-                        # Error or unexpected format
-                        error_msg = "שגיאה ביצירת הפגישה"
-                        if isinstance(result, dict):
-                            error_msg = result.get("message", error_msg)
-                        
-                        print(f"❌ [BOOK_APPT] Failed: {error_msg}")
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "success": False,
-                                    "error_code": "creation_failed",
-                                    "message": error_msg
-                                })
-                            }
-                        })
-                        await client.send_event({"type": "response.create"})
-                
-            except Exception as e:
-                # 🎯 D5 REQUIREMENT: Fallback path logging
-                # APPT_TOOL_FAILED → FALLBACK_LEAD_CREATED → AI says "לקחתי פרטים ונציג יחזור"
-                print(f"❌ [BOOK_APPT] APPT_TOOL_FAILED: {e}")
-                logger.error(f"[D5 APPT_TOOL_FAILED] Exception in book_appointment: {e}")
-                import traceback
-                traceback.print_exc()
-                
-                # 🔥 FALLBACK_LEAD_CREATED: Ensure lead exists for manual processing
-                # Note: Lead should already exist from ensure_lead() at call start
-                # Verify and create if needed for safety
-                print(f"📋 [BOOK_APPT] FALLBACK_LEAD_CREATED: Verifying lead exists for manual processing")
-                logger.info(f"[D5 FALLBACK_LEAD_CREATED] Activating fallback flow - ensuring lead exists")
-                try:
-                    # Ensure lead is saved (idempotent - won't create duplicate)
-                    if hasattr(self, 'ensure_lead') and callable(self.ensure_lead):
-                        self.ensure_lead()
-                        print(f"✅ [BOOK_APPT] Lead verified/created for follow-up")
-                        logger.info(f"[D5 FALLBACK_LEAD_CREATED] Lead saved successfully for manual processing")
-                except Exception as lead_err:
-                    logger.error(f"⚠️ [D5 FALLBACK_LEAD_CREATED] Could not verify lead: {lead_err}")
-                    print(f"⚠️ [BOOK_APPT] Could not verify lead: {lead_err}")
-                    # Continue anyway - rep can still call back using caller ID
-                
-                await client.send_event({
-                    "type": "conversation.item.create",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": json.dumps({
-                            "success": False,
-                            "error_code": "server_error",
-                            "message": "לקחתי את הפרטים שלך ונציג יחזור אליך לאישור התור. תודה!"
                         })
                     }
                 })
@@ -13103,16 +11378,10 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _tx_loop(self):
         """
-        🎯 TASK B: Clocked Sender - Precise 20ms frame pacing
-        
-        Implements time-based scheduling to send exactly 50 frames/second (20ms intervals).
-        This prevents bursts and gaps that cause "fast speech" artifacts.
-        
-        Features:
-        - next_send deadline tracks when next frame should be sent
-        - Sleeps until deadline to maintain precise timing
-        - Resets clock when queue is empty (no audio to send)
-        - Never sends faster than 50fps, even with backlog
+        ⚡ BUILD 115.1 FINAL: Production-grade TX loop
+        - Precise 20ms/frame timing with next_deadline
+        - Back-pressure at 90% threshold
+        - Real-time telemetry (fps/q/drops)
         
         🔥 PART C DEBUG: Added logging to trace first frame sent to Twilio
         🎯 TASK 0.4: Enhanced logging for Master BUG HUNT
@@ -13120,10 +11389,9 @@ Greet briefly. Then WAIT for customer to speak."""
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
         _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
-        # 🎯 TASK B: Clocked sender timing
-        FRAME_SEC = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms = 0.020 seconds
-        next_send = time.monotonic()  # Start clock immediately
-        
+        # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
+        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
+        next_deadline = time.monotonic()
         tx_count = 0
         frames_sent_total = 0
         frames_blocked_total = 0
@@ -13132,7 +11400,7 @@ Greet briefly. Then WAIT for customer to speak."""
         _first_frame_sent = False
         
         # ═══════════════════════════════════════════════════════════════════════════
-        # 🎯 TASK D: TX timing metrics - log per-second, not per-frame
+        # 🎯 TASK D.1: TX timing metrics to detect stutters (Master QA)
         # ═══════════════════════════════════════════════════════════════════════════
         frames_sent_last_sec = 0
         drops_last_sec = 0
@@ -13144,8 +11412,6 @@ Greet briefly. Then WAIT for customer to speak."""
             try:
                 item = self.tx_q.get(timeout=0.5)
             except queue.Empty:
-                # Queue empty - reset clock to avoid drift
-                next_send = time.monotonic()
                 continue
             
             if item.get("type") == "end":
@@ -13160,25 +11426,27 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Handle "media" event (both old format and new Realtime format)
             if item.get("type") == "media" or item.get("event") == "media":
+                # 🔥 Support both formats:
+                # Old: {"type": "media", "payload": "..."}
+                # New Realtime: {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
                 queue_size = self.tx_q.qsize()
                 
-                # 🎯 TASK B: Wait until deadline before sending
-                now = time.monotonic()
-                delay = next_send - now
+                # 🔍 DEBUG: Log what format we received
+                if tx_count < 3:
+                    print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
                 
-                # 🎯 VERIFICATION FIX: Prevent clock runaway if CPU was delayed
-                # If we're already behind schedule (now > next_send), resync to now
-                # This prevents sleep(-X) errors and burst catch-up attempts
-                if delay < 0:
-                    # We're behind - skip the sleep and resync clock
-                    next_send = now
-                elif delay > 0:
-                    # Normal case - sleep until deadline
-                    time.sleep(delay)
-                
-                # Send the frame
+                # If already has correct format (from Realtime), send as-is
                 if item.get("event") == "media" and "media" in item:
                     success = self._ws_send(json.dumps(item))
+                    if tx_count < 3:
+                        print(f"[TX_LOOP] Sent Realtime format: success={success}")
+                    if success:
+                        self.tx += 1  # ✅ Increment tx counter!
+                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
+                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                        if not _first_frame_sent:
+                            _first_frame_sent = True
+                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 else:
                     # Old format - convert
                     success = self._ws_send(json.dumps({
@@ -13186,41 +11454,44 @@ Greet briefly. Then WAIT for customer to speak."""
                         "streamSid": self.stream_sid,
                         "media": {"payload": item["payload"]}
                     }))
-                
-                if success:
-                    self.tx += 1  # ✅ Increment tx counter!
-                    frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                    # 🔥 PART C: Log first frame sent for tx=0 diagnostics
-                    if not _first_frame_sent:
-                        _first_frame_sent = True
-                        _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
+                    if tx_count < 3:
+                        print(f"[TX_LOOP] Sent old format (converted): success={success}")
+                    if success:
+                        self.tx += 1  # ✅ Increment tx counter!
+                        frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
+                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                        if not _first_frame_sent:
+                            _first_frame_sent = True
+                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
                 
                 tx_count += 1
                 frames_sent_last_sec += 1
                 
-                # ⚡ TASK B: Advance deadline by FRAME_SEC (20ms)
-                next_send += FRAME_SEC
+                # ⚡ Precise timing with next_deadline
+                next_deadline += FRAME_INTERVAL
+                delay = next_deadline - time.monotonic()
+                if delay > 0:
+                    time.sleep(delay)
+                else:
+                    # Missed deadline - resync
+                    next_deadline = time.monotonic()
                 
-                # 🎯 TASK B: Reset clock if queue was empty (prevents drift during pauses)
-                # Note: Small race condition possible, but harmless - just resets clock as safety
-                if self.tx_q.empty():
-                    next_send = time.monotonic()
-                
-                # 🎯 TASK D: Track frame-to-frame interval for gap detection
+                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
                 now = time.monotonic()
                 frame_gap_ms = (now - last_frame_time) * 1000.0
                 if frame_gap_ms > max_gap_ms:
                     max_gap_ms = frame_gap_ms
                 last_frame_time = now
                 
-                # ⚡ TASK D: Telemetry - Print stats every second (not per-frame!)
+                # ⚡ Telemetry: Print stats every second with max_gap_ms
                 if now - last_telemetry_time >= 1.0:
                     queue_size = self.tx_q.qsize()
                     queue_maxsize = self.tx_q.maxsize
                     actual_fps = frames_sent_last_sec  # Frames sent in last second
-                    # 🎯 A1 REQUIREMENT: ALWAYS log TX_METRICS for production monitoring
-                    # fps should be ≈50 (47-52), max_gap_ms should be <60ms
-                    print(f"[TX_METRICS] fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, frames={frames_sent_last_sec}, q={queue_size}/{queue_maxsize}", flush=True)
+                    # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
+                    queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
+                    if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
+                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window
