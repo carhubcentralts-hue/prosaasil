@@ -1632,6 +1632,8 @@ class MediaStreamHandler:
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
         self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
+        # 🔄 ADAPTIVE: Second confirmation for barge-in - require OpenAI speech_started confirmation
+        self._openai_speech_started_confirmed = False  # Set on speech_started event, cleared after barge-in
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
         # ✅ NEW REQ 4: Add TTL tracking to prevent memory leak
         self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
@@ -3623,6 +3625,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
                     self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
                     
+                    # 🔄 ADAPTIVE: Set confirmation flag for barge-in second signal
+                    # This confirms OpenAI's VAD detected real speech (not just RMS threshold)
+                    if self.is_ai_speaking_event.is_set():
+                        self._openai_speech_started_confirmed = True
+                        print(f"✅ [BARGE-IN CONFIRM] OpenAI speech_started confirmed while AI speaking")
+                    
                     # Note: user_has_spoken will be set ONLY in transcription.completed after full validation
                     if self._post_greeting_window_active:
                         self._post_greeting_heard_user = True
@@ -3726,6 +3734,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 BUILD 166: Clear speech active flag when speech ends
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
+                    # 🔄 ADAPTIVE: Clear OpenAI confirmation flag when speech stops
+                    if self._openai_speech_started_confirmed:
+                        print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
+                        self._openai_speech_started_confirmed = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
                     
                     # 🔥 FIX BUG 2: Start timeout for user turn finalization
@@ -7376,16 +7388,27 @@ Greet briefly. Then WAIT for customer to speak."""
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
                                 # ✅ P0-2: Trigger barge-in only on sustained speech (240ms+)
-                                if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
+                                # 🔄 ADAPTIVE: Require BOTH RMS confirmation AND OpenAI speech_started confirmation
+                                # This prevents false triggers from noise/echo while remaining responsive
+                                if (self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES and 
+                                    self._openai_speech_started_confirmed):
                                     # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning
                                     print(f"[BARGE_IN_TRIGGER] rms={rms:.0f} threshold={speech_threshold:.0f} consec_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES} "
+                                          f"openai_confirmed={self._openai_speech_started_confirmed} "
                                           f"ai_speaking={self.is_ai_speaking_event.is_set()} "
                                           f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
-                                              f"(rms={rms:.1f}, threshold={speech_threshold:.1f}, frames={self.barge_in_voice_frames})")
+                                              f"(rms={rms:.1f}, threshold={speech_threshold:.1f}, frames={self.barge_in_voice_frames}, openai_confirmed=True)")
                                     self._handle_realtime_barge_in()
                                     self.barge_in_voice_frames = 0
+                                    # Clear confirmation flag after successful barge-in
+                                    self._openai_speech_started_confirmed = False
                                     continue
+                                elif self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES and not self._openai_speech_started_confirmed:
+                                    # Log when RMS threshold met but missing OpenAI confirmation
+                                    if self.barge_in_voice_frames == BARGE_IN_VOICE_FRAMES:  # Log once
+                                        print(f"⏸️ [BARGE-IN WAIT] RMS threshold met ({rms:.0f}>={speech_threshold:.0f}, {self.barge_in_voice_frames} frames) but waiting for OpenAI speech_started confirmation")
+
                             else:
                                 # Voice dropped below threshold - gradual reset
                                 self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 2)
@@ -11592,7 +11615,9 @@ Greet briefly. Then WAIT for customer to speak."""
             frames_this_cycle = 0
             cycle_start = time.monotonic()
             
-            # ✅ NEW REQ 2: Hard cap of 2 frames per tick to prevent bursts
+            # 🔄 ADAPTIVE: Hard cap only when backlog is high (not always)
+            # Normal operation: no cap, full speed
+            # High backlog (>200 frames = 4s): cap at 2 frames/tick
             MAX_FRAMES_PER_TICK = 2
             frames_sent_this_tick = 0
             
@@ -11613,8 +11638,13 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Handle "media" event (both old format and new Realtime format)
             if item.get("type") == "media" or item.get("event") == "media":
-                # ✅ NEW REQ 2: Hard cap enforcement - don't send more than 2 frames per tick
-                if frames_sent_this_tick >= MAX_FRAMES_PER_TICK:
+                # 🔄 ADAPTIVE: Check backlog size
+                queue_size = self.tx_q.qsize()
+                
+                # 🔄 ADAPTIVE: Only enforce hard cap when backlog is critically high (>200 frames = 4s)
+                # This allows normal operation to flow freely while protecting against extreme bursts
+                CRITICAL_BACKLOG_THRESHOLD = 200  # 4 seconds of audio
+                if queue_size > CRITICAL_BACKLOG_THRESHOLD and frames_sent_this_tick >= MAX_FRAMES_PER_TICK:
                     # Put frame back in queue and wait for next tick
                     try:
                         self.tx_q.put_nowait(item)
@@ -11624,13 +11654,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     time.sleep(FRAME_INTERVAL)
                     continue
                 
-                # ✅ P0-1: BURST PROTECTION - Cap frames per cycle to prevent "dumping"
-                queue_size = self.tx_q.qsize()
-                
-                # If queue has big backlog, drop old frames instead of rapid sending
-                if queue_size > TX_BACKLOG_THRESHOLD_FRAMES:  # Significant backlog (>2 seconds of audio)
-                    # Drop oldest frames to prevent burst
-                    frames_to_drop = min(queue_size - TX_BACKLOG_TARGET_FRAMES, TX_BACKLOG_MAX_DROP_FRAMES)
+                # 🔄 ADAPTIVE: Gradual backlog dropping - only at very high backlog (>300 frames = 6s)
+                # Don't drop during normal long responses (100-300 frames is acceptable)
+                VERY_HIGH_BACKLOG_THRESHOLD = 300  # 6 seconds of audio - truly excessive
+                if queue_size > VERY_HIGH_BACKLOG_THRESHOLD:
+                    # Drop gradually - only drop a few frames at a time
+                    frames_to_drop = min(5, queue_size - 250)  # Drop max 5 frames, target 250 (5s)
                     dropped = 0
                     for _ in range(frames_to_drop):
                         try:
@@ -11643,7 +11672,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         now = time.time()
                         # Throttled logging - max once per 2 seconds
                         if now - last_burst_log_time > 2.0:
-                            print(f"[TX_BACKLOG_DROP] dropped_frames={dropped} reason=burst_protection backlog_was={queue_size}")
+                            print(f"[TX_BACKLOG_DROP] dropped_frames={dropped} reason=very_high_backlog backlog_was={queue_size}")
                             last_burst_log_time = now
                         drops_last_sec += dropped
                 
