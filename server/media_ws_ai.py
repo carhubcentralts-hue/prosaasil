@@ -8052,34 +8052,18 @@ Greet briefly. Then WAIT for customer to speak."""
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK A.2: Confirm SIMPLE MODE behavior (Master QA)
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
-                        # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
-                        # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
-                        # 🔥 BUILD 320: AUDIO_GUARD - Intelligent filtering for noisy PSTN calls
+                        # 🔥 FIX #3: SIMPLE_MODE must NOT drop frames due to filtering
+                        # SIMPLE_MODE = silence monitoring only, NOT audio pipeline filtering
+                        # All audio MUST pass through to OpenAI for best STT quality
                         if SIMPLE_MODE:
-                            # 🔥 BUILD 320: Use AUDIO_GUARD for intelligent speech filtering
-                            # Replaces simple RMS threshold with dynamic noise floor + ZCR analysis
-                            if getattr(self, '_audio_guard_enabled', False):
-                                # Compute ZCR for this frame (need PCM16 data)
-                                zcr = self._compute_zcr(pcm16) if pcm16 else 0.0
-                                
-                                # 🛡️ During barge-in or active speech - BYPASS audio guard
-                                if self.barge_in_active or self._realtime_speech_active:
-                                    should_send_audio = True
-                                else:
-                                    # Apply intelligent audio guard
-                                    should_send_audio = self._update_audio_guard_state(rms, zcr)
-                            elif COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
-                                # Fallback: Simple RMS threshold if audio guard disabled
-                                should_send_audio = False
-                                if not hasattr(self, '_cost_silence_blocked'):
-                                    self._cost_silence_blocked = 0
-                                self._cost_silence_blocked += 1
-                                if self._cost_silence_blocked % 200 == 0:
-                                    print(f"💰 [COST SAVE] Blocked {self._cost_silence_blocked} silence frames (rms={rms:.0f} < {COST_MIN_RMS_THRESHOLD})")
-                            else:
-                                should_send_audio = True  # SIMPLE_MODE: send audio above threshold
-                            is_noise = False  # Trust OpenAI's VAD for actual noise filtering
+                            # 🎯 SIMPLE_MODE: Trust OpenAI's VAD completely - send ALL audio
+                            # No RMS filtering, no noise gates, no audio guard
+                            should_send_audio = True
+                            is_noise = False
+                            
+                            # 🎯 Log mode confirmation (first 3 frames only)
+                            if self._twilio_audio_chunks_sent <= 3:
+                                print(f"✅ [SIMPLE_MODE] Bypassing all audio filters - sending ALL frames to OpenAI")
                         elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
