@@ -102,8 +102,11 @@ except ImportError:
         # ✅ P0-3: TX queue overflow thresholds (TX_QUEUE_MAX = 250 frames = 5s)
         "tx_queue_drop_threshold_pct": 0.952,  # Drop at >=238/250 frames (95.2% ≈ 4.76s) to prevent artifacts
         "tx_queue_drop_target_pct": 0.3,       # Drop to 30% when triggered (75/250 frames ≈ 1.5s)
+        "tx_queue_emergency_target_pct": 0.6,  # Emergency drop to 60% when queue.Full (150/250 frames)
         "tx_queue_warning_pct": 0.8,           # Warn at 80% (200/250 frames = 4s) - NO drop, just log
         "tx_queue_log_throttle_sec": 10,       # Log queue full errors max once per 10s
+        "tx_log_initial_frames": 5,            # Log first N frames for diagnostics
+        "tx_log_every_nth": 50,                # Then log every Nth frame to reduce spam
     }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
@@ -3601,7 +3604,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                 )
                                 self._mark_response_cancelled_locally(cancelled_id, "greeting_barge")
                             elif not self.is_ai_speaking:
-                                print(f"[GREETING_BARGE] Skipping cancel - AI not speaking (response_id={cancelled_id[:20] if cancelled_id else 'None'}...)")
+                                print(f"[GREETING_BARGE] Skipping cancel - AI not speaking (response_id={cancelled_id[:20] if cancelled_id and len(cancelled_id) >= 20 else (cancelled_id or 'None')}...)")
                         except Exception as e:
                             # 🎯 P1: Log response_cancel_not_active at DEBUG level (not error)
                             if "response_cancel_not_active" in str(e).lower() or "not active" in str(e).lower():
@@ -3704,7 +3707,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         elif not self.realtime_client:
                             print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
                         elif not self.is_ai_speaking:
-                            print(f"[BARGE-IN] Skipping cancel - AI not speaking (response_id={cancelled_id[:20]}...)")
+                            print(f"[BARGE-IN] Skipping cancel - AI not speaking (response_id={cancelled_id[:20] if len(cancelled_id) >= 20 else cancelled_id}...)")
                         
                         # 2) Clear local guards (ALWAYS, even if cancel failed)
                         # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
@@ -6658,8 +6661,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         if not hasattr(self, '_tx_enqueue_log_counter'):
                             self._tx_enqueue_log_counter = 0
                         self._tx_enqueue_log_counter += 1
-                        # Log first 5 frames and then every 50th frame to avoid spam
-                        if self._tx_enqueue_log_counter <= 5 or self._tx_enqueue_log_counter % 50 == 0:
+                        # Log first N frames and then every Nth frame to avoid spam
+                        initial_frames = AUDIO_CONFIG["tx_log_initial_frames"]
+                        every_nth = AUDIO_CONFIG["tx_log_every_nth"]
+                        if self._tx_enqueue_log_counter <= initial_frames or self._tx_enqueue_log_counter % every_nth == 0:
                             print(f"[TX_ENQUEUE] q={queue_size_after}/{queue_maxsize} added_frames=1 total={self._tx_enqueue_log_counter}")
                     except queue.Full:
                         # 🔥 P0 FIX: Queue completely full - drop OLDEST frames and re-put current frame
@@ -6667,8 +6672,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         now = time.time()
                         throttle_sec = AUDIO_CONFIG["tx_queue_log_throttle_sec"]
                         
-                        # Drop oldest frames to make room (drop to 60% capacity)
-                        target_size = int(queue_maxsize * 0.6)  # 150 frames
+                        # Drop oldest frames to make room (drop to emergency target)
+                        target_size = int(queue_maxsize * AUDIO_CONFIG["tx_queue_emergency_target_pct"])  # 60% = 150 frames
                         dropped_count = 0
                         while self.tx_q.qsize() > target_size:
                             try:
@@ -11729,8 +11734,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 if not hasattr(self, '_tx_send_log_counter'):
                     self._tx_send_log_counter = 0
                 self._tx_send_log_counter += 1
-                # Log first 5 frames and then every 50th frame
-                if self._tx_send_log_counter <= 5 or self._tx_send_log_counter % 50 == 0:
+                # Log first N frames and then every Nth frame
+                initial_frames = AUDIO_CONFIG["tx_log_initial_frames"]
+                every_nth = AUDIO_CONFIG["tx_log_every_nth"]
+                if self._tx_send_log_counter <= initial_frames or self._tx_send_log_counter % every_nth == 0:
                     print(f"[TX_SEND] q={queue_size}/{queue_maxsize} sent=1 total={self._tx_send_log_counter}")
                 
                 # ✅ P0-3: Backlog dropping is now handled at enqueue time (in _realtime_audio_out_loop)
