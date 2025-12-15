@@ -1055,6 +1055,25 @@ SILENCE_FOLLOWUP_2_MS = 17000  # Final follow-up after 17s of silence (was repea
 
 # BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
 BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
+# 🔥 BUG #3 FIX: Force cancel thresholds for LOCAL_VAD barge-in
+FORCE_CANCEL_VAD_FRAMES = 10   # 10 frames = 200ms for force cancel (more aggressive than BARGE_IN)
+FORCE_CANCEL_CANDIDATE_VAD_FRAMES = 8  # 8 frames = 160ms for candidate detection
+
+# 🔥 BUG #1 FIX: Session management constants
+MAX_SESSION_RECONNECT_ATTEMPTS = 2  # Maximum reconnection attempts for session_expired
+
+# 🔥 BUG #5 FIX: Latency bottleneck thresholds (in milliseconds)
+BOTTLENECK_STT_MS = 800         # STT should complete within 800ms
+BOTTLENECK_CREATE_MS = 300      # response.create should send within 300ms (DB/locks check)
+BOTTLENECK_AUDIO1_MS = 1200     # First audio should arrive within 1200ms (OpenAI/network)
+
+# 🔥 BUG #6 FIX: Post-AI listen window extension
+LISTEN_WINDOW_EXTENSION_SEC = 1.5  # Extend breathing window by 1.5s when VAD detected
+LISTEN_WINDOW_VAD_THRESHOLD = 5    # 5 frames = 100ms to trigger extension
+
+# 🔥 BUG #4 FIX: Hebrew city/service name detection
+HEBREW_CITY_MIN_WORDS = 2       # Minimum words for multi-word city names (e.g., "בית שמש")
+HEBREW_CITY_MIN_CHARS = 4       # Minimum characters for single-word cities (e.g., "ירושלים")
 
 # STT MERGING - Hebrew segment handling
 STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
@@ -1244,12 +1263,13 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
     # 4) Echo suppression window - reject if AI is speaking AND <200ms since audio started
     # 🔥 MASTER "CALL QUALITY" - PART B3: Enhanced bypass logic for fast user responses
     # CRITICAL: Never drop a transcript if local VAD had ≥N voice_frames OR candidate_user_speaking=True
+    # 🔥 BUG #4 FIX: Echo window MUST bypass when LOCAL_VAD or candidate is active
     # Echo window should ONLY drop when text is highly similar to AI's own last audio transcript
     if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
         # 🎯 MASTER "CALL QUALITY" - PART B3: Priority bypass conditions (ALWAYS accept)
         # These indicate REAL user speech, not echo
         has_user_speech_candidate = candidate_user_speaking
-        has_sustained_vad = local_vad_voice_frames >= 5  # Changed from 8 to 5 frames = 100ms (more sensitive)
+        has_sustained_vad = local_vad_voice_frames >= 5  # 5 frames = 100ms (sensitive detection)
         
         # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced similarity check
         # Only drop if text is HIGHLY similar to last AI transcript (actual echo)
@@ -1262,20 +1282,34 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
             is_new_content = stt_normalized not in ai_normalized or len(stt_normalized) < len(ai_normalized) * 0.7
         
         # 🎯 C1: Fast response bypass - if utterance is >=100ms and has real Hebrew content, allow it
-        # This catches fast answers like "בית שאן" (0.1-0.3s after "איזו עיר?")
+        # This catches fast answers like "בית שאן" or "בית שמש" (0.1-0.3s after "איזו עיר?")
         is_fast_but_real_response = (
             utterance_ms >= 100 and  # At least 100ms duration
             len(stt_text.strip()) >= 3 and  # At least 3 chars
             any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in stt_text)  # Has Hebrew characters
         )
         
+        # 🔥 BUG #4 FIX: Hebrew city/service name validation
+        # If text contains Hebrew words (2+ words or 1 compound word), accept it
+        is_hebrew_city_or_service = False
+        if any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in stt_text):
+            # Has Hebrew characters - check if it looks like a city/service name
+            # Accept if: 2+ Hebrew words OR 1 word with 4+ Hebrew letters
+            hebrew_words = [w for w in stt_text.split() if any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in w)]
+            is_hebrew_city_or_service = (
+                len(hebrew_words) >= HEBREW_CITY_MIN_WORDS or  # Multiple Hebrew words (e.g., "בית שמש", "קריית אתא")
+                (len(hebrew_words) == 1 and len(hebrew_words[0]) >= HEBREW_CITY_MIN_CHARS)  # Single Hebrew word 4+ chars (e.g., "ירושלים")
+            )
+        
         # 🎯 MASTER "CALL QUALITY" - PART B3: FORCE bypass if candidate_user_speaking OR local VAD
+        # 🔥 BUG #4 FIX: Also bypass for Hebrew cities/services with high VAD
         # These are HARD indicators of real speech - never drop!
         should_bypass_echo_window = (
             has_user_speech_candidate or  # Speech_started event fired
             has_sustained_vad or           # Local VAD detected voice frames
             is_new_content or              # Text different from AI
-            is_fast_but_real_response      # Fast but real (>=100ms + Hebrew)
+            is_fast_but_real_response or   # Fast but real (>=100ms + Hebrew)
+            is_hebrew_city_or_service      # Hebrew city/service name
         )
         
         if should_bypass_echo_window:
@@ -1288,11 +1322,13 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
                 bypass_reasons.append("new_content")
             if is_fast_but_real_response:
                 bypass_reasons.append(f"fast_response_{utterance_ms:.0f}ms")
+            if is_hebrew_city_or_service:
+                bypass_reasons.append("hebrew_city_or_service")
             
             # 🎯 MASTER "CALL QUALITY" - PART B3: Enhanced bypass logging
             logger.info(
-                f"[C1 STT_GUARD] ✅ ACCEPTED (echo_window bypass: {', '.join(bypass_reasons)}) "
-                f"text='{stt_text[:30]}...' local_vad={local_vad_voice_frames} candidate={has_user_speech_candidate}"
+                f"[STT_ACCEPT] reason=echo_bypass bypass_conditions={', '.join(bypass_reasons)} "
+                f"candidate={has_user_speech_candidate} vad={local_vad_voice_frames} text='{stt_text[:30]}...'"
             )
             _orig_print(
                 f"[STT_ACCEPT] Echo bypass: {', '.join(bypass_reasons)} | text='{stt_text[:40]}...'",
@@ -1842,6 +1878,10 @@ class MediaStreamHandler:
         self.call_state = CallState.WARMUP  # Start in warmup, transition to ACTIVE after 800ms
         self.call_config: Optional[CallConfig] = None  # Loaded at call start
         self.call_start_time = time.time()  # Track call duration
+        
+        # 🔥 SESSION LIFETIME TRACKING: Track OpenAI session for 60-minute limit
+        self.session_started_at = None  # Timestamp when OpenAI session was created
+        self.session_reconnect_count = 0  # Track reconnection attempts
         
         # 🔥 BUILD 172: SILENCE TIMER - Track user/AI speech for auto-hangup
         self._last_speech_time = time.time()  # Either user or AI speech
@@ -2393,6 +2433,11 @@ class MediaStreamHandler:
             
             self.realtime_client = client
             
+            # 🔥 SESSION_LIFETIME: Track session creation time for 60-minute limit
+            self.session_started_at = time.time()
+            _orig_print(f"📅 [SESSION_LIFETIME] OpenAI session created at {self.session_started_at:.2f}", flush=True)
+            logger.info(f"[SESSION_LIFETIME] session_started_at={self.session_started_at:.2f} call_sid={self.call_sid}")
+            
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             logger.info("[REALTIME] Connected")
@@ -2511,6 +2556,26 @@ class MediaStreamHandler:
             greeting_prompt_to_use = compact_prompt
             print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
             logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
+            
+            # 🔥 BUG #7 FIX: PROMPT_BIND logging - verify dynamic prompt configuration
+            import hashlib
+            prompt_hash = hashlib.md5(full_prompt.encode() if full_prompt else b"").hexdigest()[:16]
+            call_goal = getattr(self, 'call_goal', 'unknown')
+            scheduling_enabled = getattr(self, 'call_config', None)
+            if scheduling_enabled:
+                scheduling_enabled = getattr(scheduling_enabled, 'enable_calendar_scheduling', False)
+            else:
+                scheduling_enabled = False
+            
+            logger.info(
+                f"[PROMPT_BIND] business_id={business_id_safe} prompt_hash={prompt_hash} "
+                f"direction={call_direction} call_goal={call_goal} scheduling={scheduling_enabled}"
+            )
+            _orig_print(
+                f"📋 [PROMPT_BIND] business={business_id_safe}, hash={prompt_hash}, "
+                f"direction={call_direction}, goal={call_goal}, scheduling={scheduling_enabled}",
+                flush=True
+            )
             
             # Store full prompt for session.update after greeting
             self._full_prompt_for_upgrade = full_prompt
@@ -3053,6 +3118,39 @@ Greet briefly. Then WAIT for customer to speak."""
                             f"🔶 [LOCAL_VAD] CANDIDATE barge-in detected: {local_vad_frames} voice_frames "
                             f"→ enabling forward + flush_preroll"
                         )
+                    
+                    # 🔥 BUG #3 FIX: FORCE CANCEL when LOCAL_VAD reaches threshold (200-240ms)
+                    # This ensures barge-in works even if STT is blocked/delayed
+                    if local_vad_frames >= FORCE_CANCEL_VAD_FRAMES and self.active_response_id:
+                        # Force cancel - user is clearly speaking!
+                        _orig_print(
+                            f"🛑 [BARGE-IN FORCE] local_vad_frames={local_vad_frames}, rms={frame_rms:.1f}, "
+                            f"response_id={self.active_response_id[:20]}...",
+                            flush=True
+                        )
+                        logger.warning(
+                            f"[BARGE-IN FORCE] Forcing cancel due to sustained LOCAL_VAD: "
+                            f"frames={local_vad_frames}, rms={frame_rms:.1f}"
+                        )
+                        
+                        # Cancel active response
+                        try:
+                            await client.cancel_response(self.active_response_id)
+                            _orig_print(f"✅ [BARGE-IN FORCE] cancel sent for {self.active_response_id[:20]}", flush=True)
+                        except Exception as cancel_err:
+                            _orig_print(f"⚠️ [BARGE-IN FORCE] cancel failed: {cancel_err}", flush=True)
+                        
+                        # Flush Twilio TX queue
+                        try:
+                            while not self.tx_q.empty():
+                                self.tx_q.get_nowait()
+                            _orig_print(f"✅ [BARGE-IN FORCE] Twilio TX queue flushed", flush=True)
+                        except:
+                            pass
+                        
+                        # Mark as confirmed to prevent re-triggering
+                        self._barge_confirmed = True
+                        _orig_print(f"✅ [BARGE-IN FORCE] Marked as confirmed", flush=True)
                 
                 if ai_currently_speaking and not self._barge_pending and not self._barge_confirmed:
                     # HALF-DUPLEX: AI is speaking and no barge-in in progress
@@ -3451,6 +3549,9 @@ Greet briefly. Then WAIT for customer to speak."""
         Returns:
             True if response was triggered, False if blocked
         """
+        # 🔥 BUG #5 FIX: BOTTLE_NECK tracking - measure time to response.create
+        t_trigger_start = time.time()
+        
         # Use stored client if not provided
         _client = client or self.realtime_client
         if not _client:
@@ -3502,17 +3603,41 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"🛑 [RESPONSE GUARD] Too many consecutive responses ({self._consecutive_ai_responses}) - blocking ({reason})")
                     return False
         
+        # 🔥 BUG #5 FIX: BOTTLE_NECK - measure guard time
+        t_guards_done = time.time()
+        guards_ms = (t_guards_done - t_trigger_start) * 1000
+        
         # ✅ All guards passed - trigger response
         try:
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
+            
+            # 🔥 BUG #5 FIX: BOTTLE_NECK - measure send time
+            t_before_send = time.time()
             await _client.send_event({"type": "response.create"})
+            t_after_send = time.time()
+            
+            send_ms = (t_after_send - t_before_send) * 1000
+            total_ms = (t_after_send - t_trigger_start) * 1000
             
             # 🎯 MASTER "CALL QUALITY" - PART A1: Track response.create sent timestamp
             self._turn_response_create_sent_ts = time.time()
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
             self._response_create_count += 1
-            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}]")
+            
+            # 🔥 BUG #5 FIX: BOTTLE_NECK logging - identify where time is spent
+            if total_ms > 300:
+                logger.warning(
+                    f"[BOTTLE_NECK] trigger_response SLOW: total={total_ms:.0f}ms "
+                    f"(guards={guards_ms:.0f}ms, send={send_ms:.0f}ms) reason={reason}"
+                )
+                _orig_print(
+                    f"⚠️ [BOTTLE_NECK] trigger_response took {total_ms:.0f}ms "
+                    f"(guards={guards_ms:.0f}ms + send={send_ms:.0f}ms) - target: <300ms",
+                    flush=True
+                )
+            
+            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}] [{total_ms:.0f}ms]")
             return True
         except Exception as e:
             # 🔓 CRITICAL: Clear lock immediately on failure
@@ -3789,7 +3914,81 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 DEBUG: Log errors and cancellations
                 if event_type == "error":
                     error = event.get("error", {})
+                    error_code = error.get("code", "")
+                    error_message = error.get("message", "")
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
+                    
+                    # 🔥 BUG #1: Handle session_expired error (60-minute limit)
+                    if error_code == "session_expired":
+                        session_uptime_s = time.time() - self.session_started_at if self.session_started_at else 0
+                        _orig_print(f"❌ [SESSION_EXPIRED] call_sid={self.call_sid} stream_sid={self.stream_sid if hasattr(self, 'stream_sid') else 'N/A'} uptime_s={session_uptime_s:.1f}", flush=True)
+                        logger.error(f"[SESSION_EXPIRED] Session expired after {session_uptime_s:.1f}s (60-minute limit)")
+                        
+                        # Check if stream is still active (Twilio call ongoing)
+                        # If yes, attempt reconnection; if no, clean close
+                        if not self.realtime_stop_flag and not self.hangup_triggered:
+                            # Stream still active - attempt reconnection
+                            self.session_reconnect_count += 1
+                            if self.session_reconnect_count <= MAX_SESSION_RECONNECT_ATTEMPTS:  # Max attempts from constant
+                                _orig_print(f"🔄 [SESSION_RECONNECT] Attempting reconnection #{self.session_reconnect_count}...", flush=True)
+                                logger.info(f"[SESSION_RECONNECT] Reconnection attempt #{self.session_reconnect_count}")
+                                
+                                try:
+                                    # Close old connection
+                                    if client and client.ws:
+                                        try:
+                                            await client.ws.close()
+                                        except:
+                                            pass
+                                    
+                                    # Create new session
+                                    await client.connect(max_retries=2, backoff_base=0.5)
+                                    self.session_started_at = time.time()
+                                    _orig_print(f"✅ [SESSION_RECONNECT] New session created", flush=True)
+                                    
+                                    # Restore session.update with system + business prompt
+                                    business_id_safe = getattr(self, 'business_id', None)
+                                    if business_id_safe and hasattr(self, '_full_prompt_for_upgrade'):
+                                        full_prompt = self._full_prompt_for_upgrade
+                                        await client.send_event({
+                                            "type": "session.update",
+                                            "session": {
+                                                "instructions": full_prompt
+                                            }
+                                        })
+                                        _orig_print(f"✅ [SESSION_RECONNECT] session.update sent with full prompt", flush=True)
+                                    
+                                    # Continue audio streaming
+                                    _orig_print(f"✅ [SESSION_RECONNECT] Ready to continue call", flush=True)
+                                    continue  # Continue event loop
+                                    
+                                except Exception as reconnect_err:
+                                    _orig_print(f"❌ [SESSION_RECONNECT] Failed: {reconnect_err}", flush=True)
+                                    logger.error(f"[SESSION_RECONNECT] Reconnection failed: {reconnect_err}")
+                            else:
+                                _orig_print(f"❌ [SESSION_RECONNECT] Max reconnection attempts reached", flush=True)
+                        
+                        # Clean shutdown - stop loops, drain queues, close websocket once
+                        _orig_print(f"🛑 [SESSION_EXPIRED] Initiating clean shutdown", flush=True)
+                        self.realtime_stop_flag = True
+                        
+                        # Drain queues
+                        try:
+                            while not self.realtime_audio_in_queue.empty():
+                                self.realtime_audio_in_queue.get_nowait()
+                        except:
+                            pass
+                        
+                        # Close websocket if not already closed (guard against double close)
+                        if client and client.ws and not client.ws.closed:
+                            try:
+                                await client.disconnect(reason="session_expired")
+                                _orig_print(f"✅ [SESSION_EXPIRED] WebSocket closed cleanly", flush=True)
+                            except Exception as ws_err:
+                                _orig_print(f"⚠️ [SESSION_EXPIRED] WebSocket close error: {ws_err}", flush=True)
+                        
+                        return  # Exit event loop
+                        
                 if event_type == "response.cancelled":
                     _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
                 
@@ -4329,6 +4528,25 @@ Greet briefly. Then WAIT for customer to speak."""
                             f"total(stop→audio1)={total_stop_to_audio1_ms:.0f}ms | "
                             f"direction={call_direction} business_id={business_id}"
                         )
+                        
+                        # 🔥 BUG #5 FIX: BOTTLE_NECK analysis - identify slow stages
+                        bottlenecks = []
+                        if commit_to_stt_ms > BOTTLENECK_STT_MS:
+                            bottlenecks.append(f"STT={commit_to_stt_ms:.0f}ms>{BOTTLENECK_STT_MS}ms")
+                        if stt_to_create_ms > BOTTLENECK_CREATE_MS:
+                            bottlenecks.append(f"CREATE={stt_to_create_ms:.0f}ms>{BOTTLENECK_CREATE_MS}ms_DB/LOCKS?")
+                        if create_to_audio1_ms > BOTTLENECK_AUDIO1_MS:
+                            bottlenecks.append(f"AUDIO1={create_to_audio1_ms:.0f}ms>{BOTTLENECK_AUDIO1_MS}ms_OPENAI/NETWORK?")
+                        
+                        if bottlenecks:
+                            logger.warning(
+                                f"[BOTTLE_NECK] Turn latency bottlenecks detected: {', '.join(bottlenecks)}"
+                            )
+                            _orig_print(
+                                f"⚠️ [BOTTLE_NECK] Slow stages: {', '.join(bottlenecks)}",
+                                flush=True
+                            )
+                        
                         _orig_print(
                             f"[TURN_LATENCY] total={total_stop_to_audio1_ms:.0f}ms "
                             f"(stt={commit_to_stt_ms:.0f} + create={stt_to_create_ms:.0f} + audio1={create_to_audio1_ms:.0f})",
@@ -10198,6 +10416,9 @@ Greet briefly. Then WAIT for customer to speak."""
             if self._post_greeting_window_open():
                 print(f"🧘 [SILENCE] Waiting {self._post_greeting_breath_window_sec:.1f}s breathing window before monitoring")
             while self._post_greeting_window_open():
+                # 🔥 BUG #6 FIX: Check if we should extend window based on VAD activity
+                self._extend_post_greeting_window_if_vad()
+                
                 # If user already completed one speech cycle, end window immediately
                 if self._post_greeting_speech_cycle_complete:
                     self._maybe_release_post_greeting_window("user_spoke")
@@ -10390,7 +10611,7 @@ Greet briefly. Then WAIT for customer to speak."""
     async def _send_silence_warning(self):
         """
         Send a gentle prompt to continue the conversation.
-        🔥 BUILD 311.1: Made fully dynamic - AI decides based on context, no hardcoded phrases
+        🔥 BUG #2 FIX: Use response.create with instructions instead of injecting SYSTEM messages
         🔥 BUILD 339: Added critical state checks to prevent loop after goodbye
         """
         try:
@@ -10413,15 +10634,56 @@ Greet briefly. Then WAIT for customer to speak."""
                 print(f"🔇 [SILENCE] BLOCKED - hangup pending/triggered, not sending warning")
                 return
             
+            # 🔥 BUG #2 FIX: Use response.create with instructions instead of sending as user input
+            # This prevents AI_INPUT_BLOCKED errors and stays dynamic without hardcode
+            
+            # Calculate silence duration for logging
+            silence_duration = time.time() - self._last_speech_time if hasattr(self, '_last_speech_time') else 0
+            
             # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
             fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
-            if fields_collected and not self.verification_confirmed:
-                warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
+            
+            if SIMPLE_MODE:
+                # OPTION A: In SIMPLE_MODE, just log and keep line open - no AI intervention
+                print(f"🔇 [SILENCE] SIMPLE_MODE - keeping line open after {silence_duration:.1f}s silence")
+                logger.info(f"[SILENCE] keeping line open... duration={silence_duration:.1f}s")
+                return
             else:
-                # 🔥 BUILD 311.1: Dynamic - let AI continue naturally based on conversation context
-                # Let AI decide based on context and Business Prompt
-                warning_prompt = "[SYSTEM] Customer is silent. Continue naturally per your instructions."
-            await self._send_text_to_ai(warning_prompt)
+                # OPTION B: Use response.create with instructions for dynamic follow-up
+                if fields_collected and not self.verification_confirmed:
+                    # Need confirmation - more specific instruction
+                    silence_instructions = (
+                        "User has been silent for several seconds after providing details. "
+                        "As the assistant, ask one short helpful follow-up question to confirm "
+                        "the information provided, based on the BUSINESS PROMPT."
+                    )
+                else:
+                    # General silence - let AI decide based on context
+                    silence_instructions = (
+                        f"User has been silent for {int(silence_duration)} seconds. "
+                        "As the assistant, ask one short helpful follow-up question "
+                        "based on the conversation context and your BUSINESS PROMPT instructions."
+                    )
+                
+                print(f"🔇 [SILENCE] Sending response.create with instructions (silence={silence_duration:.1f}s)")
+                logger.info(f"[SILENCE] response.create with dynamic instructions duration={silence_duration:.1f}s")
+                
+                # Use realtime client to send response.create with instructions
+                if hasattr(self, 'realtime_client') and self.realtime_client:
+                    try:
+                        await self.realtime_client.send_event({
+                            "type": "response.create",
+                            "response": {
+                                "instructions": silence_instructions
+                            }
+                        })
+                        print(f"✅ [SILENCE] response.create sent successfully")
+                    except Exception as send_err:
+                        logger.error(f"[SILENCE] Failed to send response.create: {send_err}")
+                        print(f"❌ [SILENCE] Failed to send response.create: {send_err}")
+                else:
+                    print(f"⚠️ [SILENCE] realtime_client not available, skipping follow-up")
+                    
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
     
@@ -10467,6 +10729,30 @@ Greet briefly. Then WAIT for customer to speak."""
     def _post_greeting_window_open(self) -> bool:
         """Return True while the breathing window is still protecting the user."""
         return getattr(self, '_post_greeting_window_active', False) and not getattr(self, '_post_greeting_window_finished', False)
+    
+    def _extend_post_greeting_window_if_vad(self):
+        """
+        🔥 BUG #6 FIX: Extend breathing window when candidate/local_vad is detected
+        This gives user 1-2 extra seconds to complete their thought when they start speaking
+        """
+        if not self._post_greeting_window_open():
+            return  # Window already closed
+        
+        # Check if user is currently speaking (VAD or candidate)
+        local_vad_frames = getattr(self, '_local_vad_voice_frames', 0)
+        candidate_speaking = getattr(self, '_candidate_user_speaking', False)
+        
+        if local_vad_frames >= LISTEN_WINDOW_VAD_THRESHOLD or candidate_speaking:
+            # User is speaking! Extend the window
+            if hasattr(self, '_post_greeting_window_started_at') and self._post_greeting_window_started_at:
+                current_elapsed = time.time() - self._post_greeting_window_started_at
+                extension_needed = max(0, (self._post_greeting_breath_window_sec + LISTEN_WINDOW_EXTENSION_SEC) - current_elapsed)
+                
+                if extension_needed > 0:
+                    # Extend window
+                    self._post_greeting_window_started_at = time.time() - (self._post_greeting_breath_window_sec - extension_needed)
+                    print(f"🧘 [BUG #6 FIX] Extended breathing window by {extension_needed:.1f}s (VAD={local_vad_frames}, candidate={candidate_speaking})")
+                    logger.info(f"[LISTEN_WINDOW_EXTEND] Extended by {extension_needed:.1f}s due to active VAD")
 
     def _maybe_release_post_greeting_window(self, reason: str):
         """
