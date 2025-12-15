@@ -3793,6 +3793,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         if self._cancelled_response_needs_recovery:
                             print(f"🔄 [P0-5] New response created - cancelling recovery")
                             self._cancelled_response_needs_recovery = False
+                        # 🎯 P0-5: Reset retry flag for new response (allows recovery for this response)
+                        self._cancel_retry_attempted = False
                         # 🔥 BUILD 305: Reset gap detector for new response
                         # This prevents false "AUDIO GAP" warnings between responses
                         self._last_audio_chunk_ts = time.time()
