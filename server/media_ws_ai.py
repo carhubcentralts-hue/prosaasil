@@ -1055,6 +1055,25 @@ SILENCE_FOLLOWUP_2_MS = 17000  # Final follow-up after 17s of silence (was repea
 
 # BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
 BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
+# 🔥 BUG #3 FIX: Force cancel thresholds for LOCAL_VAD barge-in
+FORCE_CANCEL_VAD_FRAMES = 10   # 10 frames = 200ms for force cancel (more aggressive than BARGE_IN)
+FORCE_CANCEL_CANDIDATE_VAD_FRAMES = 8  # 8 frames = 160ms for candidate detection
+
+# 🔥 BUG #1 FIX: Session management constants
+MAX_SESSION_RECONNECT_ATTEMPTS = 2  # Maximum reconnection attempts for session_expired
+
+# 🔥 BUG #5 FIX: Latency bottleneck thresholds (in milliseconds)
+BOTTLENECK_STT_MS = 800         # STT should complete within 800ms
+BOTTLENECK_CREATE_MS = 300      # response.create should send within 300ms (DB/locks check)
+BOTTLENECK_AUDIO1_MS = 1200     # First audio should arrive within 1200ms (OpenAI/network)
+
+# 🔥 BUG #6 FIX: Post-AI listen window extension
+LISTEN_WINDOW_EXTENSION_SEC = 1.5  # Extend breathing window by 1.5s when VAD detected
+LISTEN_WINDOW_VAD_THRESHOLD = 5    # 5 frames = 100ms to trigger extension
+
+# 🔥 BUG #4 FIX: Hebrew city/service name detection
+HEBREW_CITY_MIN_WORDS = 2       # Minimum words for multi-word city names (e.g., "בית שמש")
+HEBREW_CITY_MIN_CHARS = 4       # Minimum characters for single-word cities (e.g., "ירושלים")
 
 # STT MERGING - Hebrew segment handling
 STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
@@ -1278,8 +1297,8 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
             # Accept if: 2+ Hebrew words OR 1 word with 4+ Hebrew letters
             hebrew_words = [w for w in stt_text.split() if any(ord(c) >= 0x0590 and ord(c) <= 0x05FF for c in w)]
             is_hebrew_city_or_service = (
-                len(hebrew_words) >= 2 or  # Multiple Hebrew words (e.g., "בית שמש", "קריית אתא")
-                (len(hebrew_words) == 1 and len(hebrew_words[0]) >= 4)  # Single Hebrew word 4+ chars (e.g., "ירושלים")
+                len(hebrew_words) >= HEBREW_CITY_MIN_WORDS or  # Multiple Hebrew words (e.g., "בית שמש", "קריית אתא")
+                (len(hebrew_words) == 1 and len(hebrew_words[0]) >= HEBREW_CITY_MIN_CHARS)  # Single Hebrew word 4+ chars (e.g., "ירושלים")
             )
         
         # 🎯 MASTER "CALL QUALITY" - PART B3: FORCE bypass if candidate_user_speaking OR local VAD
@@ -3100,9 +3119,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             f"→ enabling forward + flush_preroll"
                         )
                     
-                    # 🔥 BUG #3 FIX: FORCE CANCEL when LOCAL_VAD reaches 10-12 frames (200-240ms)
+                    # 🔥 BUG #3 FIX: FORCE CANCEL when LOCAL_VAD reaches threshold (200-240ms)
                     # This ensures barge-in works even if STT is blocked/delayed
-                    if local_vad_frames >= 10 and self.active_response_id:
+                    if local_vad_frames >= FORCE_CANCEL_VAD_FRAMES and self.active_response_id:
                         # Force cancel - user is clearly speaking!
                         _orig_print(
                             f"🛑 [BARGE-IN FORCE] local_vad_frames={local_vad_frames}, rms={frame_rms:.1f}, "
@@ -3910,7 +3929,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         if not self.realtime_stop_flag and not self.hangup_triggered:
                             # Stream still active - attempt reconnection
                             self.session_reconnect_count += 1
-                            if self.session_reconnect_count <= 2:  # Max 2 reconnection attempts
+                            if self.session_reconnect_count <= MAX_SESSION_RECONNECT_ATTEMPTS:  # Max attempts from constant
                                 _orig_print(f"🔄 [SESSION_RECONNECT] Attempting reconnection #{self.session_reconnect_count}...", flush=True)
                                 logger.info(f"[SESSION_RECONNECT] Reconnection attempt #{self.session_reconnect_count}")
                                 
@@ -4512,12 +4531,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🔥 BUG #5 FIX: BOTTLE_NECK analysis - identify slow stages
                         bottlenecks = []
-                        if commit_to_stt_ms > 800:
-                            bottlenecks.append(f"STT={commit_to_stt_ms:.0f}ms>800ms")
-                        if stt_to_create_ms > 300:
-                            bottlenecks.append(f"CREATE={stt_to_create_ms:.0f}ms>300ms_DB/LOCKS?")
-                        if create_to_audio1_ms > 1200:
-                            bottlenecks.append(f"AUDIO1={create_to_audio1_ms:.0f}ms>1200ms_OPENAI/NETWORK?")
+                        if commit_to_stt_ms > BOTTLENECK_STT_MS:
+                            bottlenecks.append(f"STT={commit_to_stt_ms:.0f}ms>{BOTTLENECK_STT_MS}ms")
+                        if stt_to_create_ms > BOTTLENECK_CREATE_MS:
+                            bottlenecks.append(f"CREATE={stt_to_create_ms:.0f}ms>{BOTTLENECK_CREATE_MS}ms_DB/LOCKS?")
+                        if create_to_audio1_ms > BOTTLENECK_AUDIO1_MS:
+                            bottlenecks.append(f"AUDIO1={create_to_audio1_ms:.0f}ms>{BOTTLENECK_AUDIO1_MS}ms_OPENAI/NETWORK?")
                         
                         if bottlenecks:
                             logger.warning(
@@ -10723,11 +10742,11 @@ Greet briefly. Then WAIT for customer to speak."""
         local_vad_frames = getattr(self, '_local_vad_voice_frames', 0)
         candidate_speaking = getattr(self, '_candidate_user_speaking', False)
         
-        if local_vad_frames >= 5 or candidate_speaking:
-            # User is speaking! Extend the window by 1.5 seconds
+        if local_vad_frames >= LISTEN_WINDOW_VAD_THRESHOLD or candidate_speaking:
+            # User is speaking! Extend the window
             if hasattr(self, '_post_greeting_window_started_at') and self._post_greeting_window_started_at:
                 current_elapsed = time.time() - self._post_greeting_window_started_at
-                extension_needed = max(0, (self._post_greeting_breath_window_sec + 1.5) - current_elapsed)
+                extension_needed = max(0, (self._post_greeting_breath_window_sec + LISTEN_WINDOW_EXTENSION_SEC) - current_elapsed)
                 
                 if extension_needed > 0:
                     # Extend window
