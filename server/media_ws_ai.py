@@ -6604,7 +6604,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         drop_target = int(queue_maxsize * 0.4)  # 48 frames = 40%
                         
                         # 🔥 NEW: Gentle backpressure at 80% - let TX loop catch up
-                        # Sleep 10-20ms to give TX thread time to drain queue
+                        # Sleep 15ms to give TX thread time to drain queue
                         # This is MUCH better than dropping 72 frames and causing jumps
                         if queue_size >= backpressure_threshold:
                             now = time.time()

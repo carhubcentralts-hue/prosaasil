@@ -167,9 +167,9 @@ All 5 tests should pass.
 
 ## Rollback Plan
 
-If issues arise, revert commit `af832c5`:
+If issues arise, revert the commits from this PR:
 ```bash
-git revert af832c5
+git revert <commit-hash>  # Use the actual commit hash from this PR
 git push origin copilot/fix-burst-audio-dropping
 ```
 

@@ -68,7 +68,7 @@ def test_gap_detection():
     print("✅ Test 4: TX gap detection")
     
     # Simulate frame-to-frame gaps
-    gaps_ms = [20, 30, 40, 121, 500, 4255]  # Last one is the reported bug
+    gaps_ms = [20, 30, 40, 121, 500, 4255]  # Last one is the reported 4.2s TX stall bug
     
     for gap_ms in gaps_ms:
         if gap_ms > 120.0:
