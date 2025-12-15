@@ -2704,26 +2704,21 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 BUILD 341: Count incoming frames
                 _frames_in += 1
                 
-                # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
-                # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
-                # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
-                # Solution: Don't send audio to OpenAI until greeting finishes playing.
-                # OLD: if self.is_playing_greeting:
-                # NEW: Only block during actual greeting (first response)
-                if self.greeting_mode_active and not self.greeting_completed:
-                    if not _greeting_block_logged:
-                        print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
-                        _greeting_block_logged = True
-                    # 🔥 BUILD 200: Track blocked audio stats
-                    self._stats_audio_blocked += 1
-                    # 🔥 BUILD 341: Count as dropped
-                    _frames_dropped += 1
-                    # Drop the audio chunk - don't send to OpenAI during greeting
-                    continue
-                elif _greeting_block_logged and not _greeting_resumed_logged:
-                    # Greeting finished - resume sending audio
-                    print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
-                    _greeting_resumed_logged = True
+                # 🔥 P0 FIX: VAD MUST RUN BEFORE GATING
+                # Problem: Blocking audio before sending to OpenAI prevents VAD from detecting speech
+                # Solution: Always send audio to OpenAI so server-side VAD can run, handle barge-in at event level
+                # 
+                # OLD LOGIC (REMOVED):
+                # - Blocked audio during greeting to prevent cancellation
+                # - This prevented barge-in from working (barge_in_events=0)
+                # 
+                # NEW LOGIC:
+                # - ALWAYS send audio to OpenAI (VAD runs first)
+                # - Handle greeting protection via event filtering (speech_started during greeting)
+                # - This allows barge-in to work properly
+                # 
+                # Note: Greeting barge-in handling moved to speech_started event handler (line ~3470)
+                
                 
                 # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
                 current_time = time.time()
@@ -3226,6 +3221,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._cancelled_response_ids.discard(response_id)
                         print(f"🪓 [BARGE-IN] Ignoring final event for cancelled response {response_id[:20]}... (type={event_type})")
                     else:
+                        # 🔥 P0 FIX: Log post-cancel audio violations (per requirements)
+                        if event_type == "response.audio.delta":
+                            logger.warning(f"[BARGE_IN] post_cancel_audio_violation response_id={response_id[:20]} - dropping audio after cancel")
                         print(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
                         continue
                 
@@ -3462,6 +3460,16 @@ Greet briefly. Then WAIT for customer to speak."""
                                 # Do NOT mark candidate_user_speaking, do NOT start utterance, do NOT trigger barge-in
                                 continue
                     
+                    # 🔥 P0 FIX: Log barge-in candidate detection (per requirements)
+                    # Track VAD frames and RMS for barge-in monitoring
+                    current_rms = getattr(self, '_recent_audio_rms', 0)
+                    current_noise_floor = getattr(self, 'noise_floor', 50.0)
+                    vad_frames_count = getattr(self, '_consecutive_voice_frames', 0)
+                    
+                    # Check if this is a barge-in candidate (AI is speaking)
+                    if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                        logger.info(f"[BARGE_IN] candidate vad_frames={vad_frames_count} rms={current_rms:.1f} noise_floor={current_noise_floor:.1f}")
+                    
                     # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
                     # Instead of ignoring, treat this as valid input and stop the greeting
                     if self.is_playing_greeting:
@@ -3562,6 +3570,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         cancelled_id = self.active_response_id
                         if cancelled_id and self.realtime_client:
                             try:
+                                # 🔥 P0 FIX: Log cancel send (per requirements)
+                                logger.info(f"[BARGE_IN] cancel sent response_id={cancelled_id}")
+                                
                                 # Use asyncio.wait_for with 0.5s timeout to avoid blocking
                                 await asyncio.wait_for(
                                     self.realtime_client.cancel_response(cancelled_id),
@@ -3596,6 +3607,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         tx_q_before = self.tx_q.qsize()
                         try:
                             flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
+                            # 🔥 P0 FIX: Log TX flush (per requirements)
+                            logger.info(f"[BARGE_IN] tx_flush cleared_frames={flushed_count}")
                         except Exception as e:
                             print(f"   ⚠️ Error flushing TX queue: {e}")
                             flushed_count = 0
