@@ -10397,6 +10397,9 @@ Greet briefly. Then WAIT for customer to speak."""
             if self._post_greeting_window_open():
                 print(f"🧘 [SILENCE] Waiting {self._post_greeting_breath_window_sec:.1f}s breathing window before monitoring")
             while self._post_greeting_window_open():
+                # 🔥 BUG #6 FIX: Check if we should extend window based on VAD activity
+                self._extend_post_greeting_window_if_vad()
+                
                 # If user already completed one speech cycle, end window immediately
                 if self._post_greeting_speech_cycle_complete:
                     self._maybe_release_post_greeting_window("user_spoke")
@@ -10707,6 +10710,30 @@ Greet briefly. Then WAIT for customer to speak."""
     def _post_greeting_window_open(self) -> bool:
         """Return True while the breathing window is still protecting the user."""
         return getattr(self, '_post_greeting_window_active', False) and not getattr(self, '_post_greeting_window_finished', False)
+    
+    def _extend_post_greeting_window_if_vad(self):
+        """
+        🔥 BUG #6 FIX: Extend breathing window when candidate/local_vad is detected
+        This gives user 1-2 extra seconds to complete their thought when they start speaking
+        """
+        if not self._post_greeting_window_open():
+            return  # Window already closed
+        
+        # Check if user is currently speaking (VAD or candidate)
+        local_vad_frames = getattr(self, '_local_vad_voice_frames', 0)
+        candidate_speaking = getattr(self, '_candidate_user_speaking', False)
+        
+        if local_vad_frames >= 5 or candidate_speaking:
+            # User is speaking! Extend the window by 1.5 seconds
+            if hasattr(self, '_post_greeting_window_started_at') and self._post_greeting_window_started_at:
+                current_elapsed = time.time() - self._post_greeting_window_started_at
+                extension_needed = max(0, (self._post_greeting_breath_window_sec + 1.5) - current_elapsed)
+                
+                if extension_needed > 0:
+                    # Extend window
+                    self._post_greeting_window_started_at = time.time() - (self._post_greeting_breath_window_sec - extension_needed)
+                    print(f"🧘 [BUG #6 FIX] Extended breathing window by {extension_needed:.1f}s (VAD={local_vad_frames}, candidate={candidate_speaking})")
+                    logger.info(f"[LISTEN_WINDOW_EXTEND] Extended by {extension_needed:.1f}s due to active VAD")
 
     def _maybe_release_post_greeting_window(self, reason: str):
         """
