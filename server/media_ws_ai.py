@@ -11544,7 +11544,8 @@ Greet briefly. Then WAIT for customer to speak."""
         max_gap_ms = 0.0  # Track maximum frame-to-frame interval
         
         # ✅ P0-1: Burst protection - prevent chipmunk by enforcing max frames per cycle
-        MAX_FRAMES_PER_CYCLE = 2  # Max 2 frames (40ms) to catch up, prevents "dumping" audio
+        # Note: Burst protection is now handled by dropping old frames when backlog builds up
+        # rather than limiting frames per cycle, which is more effective for maintaining cadence
         frames_this_cycle = 0
         last_burst_log_time = 0
         
