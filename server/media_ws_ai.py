@@ -1047,6 +1047,12 @@ RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
 RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
+# 🎯 MASTER DIRECTIVE 4: CONVERSATION PACING - Human-like turn-taking
+# Stop "she doesn't let user talk" problem with proper listening windows
+MIN_LISTEN_AFTER_AI_MS = 2000  # Minimum 2s listening window after AI finishes speaking
+SILENCE_FOLLOWUP_1_MS = 10000  # First gentle follow-up after 10s of silence (was 3s - too aggressive)
+SILENCE_FOLLOWUP_2_MS = 17000  # Final follow-up after 17s of silence (was repeat at 3s intervals)
+
 # BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
 BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
 
@@ -5270,6 +5276,30 @@ Greet briefly. Then WAIT for customer to speak."""
                         if hasattr(self, '_flush_preroll'):
                             self._flush_preroll = False
                         logger.debug(f"[HALF-DUPLEX] Reset flags - AI finished speaking")
+                    
+                    # 🎯 MASTER DIRECTIVE 3.4: FORCED STATE RESET - Prevent stuck barge-in
+                    # Hard rule: If ai_speaking == False AND active_response_id is None → force reset ALL barge state
+                    # This prevents "barge_in=True while AI not speaking" stuck state
+                    if (not self.is_ai_speaking_event.is_set() and 
+                        self.active_response_id is None and
+                        (getattr(self, '_barge_pending', False) or 
+                         getattr(self, 'barge_in_active', False) or
+                         getattr(self, '_barge_confirmed', False))):
+                        logger.warning(
+                            f"[BARGE-IN] FORCED RESET: AI not speaking but barge flags were set "
+                            f"(_barge_pending={getattr(self, '_barge_pending', False)}, "
+                            f"barge_in_active={getattr(self, 'barge_in_active', False)}, "
+                            f"_barge_confirmed={getattr(self, '_barge_confirmed', False)})"
+                        )
+                        self._barge_pending = False
+                        self._barge_confirmed = False
+                        self.barge_in_active = False
+                        self._candidate_user_speaking = False
+                        if hasattr(self, '_flush_preroll'):
+                            self._flush_preroll = False
+                        if hasattr(self, 'barge_in_voice_frames'):
+                            self.barge_in_voice_frames = 0
+                        logger.info(f"[BARGE-IN] State reset complete")
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
