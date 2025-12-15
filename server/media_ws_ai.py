@@ -664,8 +664,8 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
     """
     Find or create lead at call start
     
-    ⚠️ P0-1 FIX: This function is NO LONGER called directly in hot paths.
-    Use ensure_lead_async() for non-blocking operation.
+    ⚠️ P0-1 FIX: This function runs in background threads with proper session management.
+    Each call creates its own scoped session for thread safety.
     
     Args:
         business_id: Business ID
@@ -682,7 +682,10 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
         
         app = _get_flask_app()
         with app.app_context():
-            # ✅ P0-1: Create new session for this operation (not flask db.session)
+            # ✅ P0-1: Create new scoped session for this background thread
+            # Note: Each background thread MUST have its own session. We cannot reuse
+            # Flask's db.session because it's not thread-safe. Creating a new scoped
+            # session for each operation ensures proper isolation.
             engine = db.engine
             Session = scoped_session(sessionmaker(bind=engine))
             session = Session()
@@ -3434,9 +3437,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Safety: Only ONE retry per response (prevent loops)
                         if status == "cancelled" and len(output) == 0 and not self.user_has_spoken:
                             # Check if we already retried this response
-                            if not hasattr(self, '_cancel_retry_attempted'):
-                                self._cancel_retry_attempted = False
-                            
                             if not self._cancel_retry_attempted:
                                 _orig_print(f"🔄 [P0-5] Response cancelled with NO audio and NO user speech - scheduling retry...", flush=True)
                                 self._cancelled_response_needs_recovery = True
