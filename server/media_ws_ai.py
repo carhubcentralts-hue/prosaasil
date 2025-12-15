@@ -664,6 +664,9 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
     """
     Find or create lead at call start
     
+    ⚠️ P0-1 FIX: This function is NO LONGER called directly in hot paths.
+    Use ensure_lead_async() for non-blocking operation.
+    
     Args:
         business_id: Business ID
         customer_phone: Customer phone in E.164 format
@@ -672,46 +675,66 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
         Lead ID if found/created, None on error
     """
     try:
-        from server.models_sql import db, Lead
+        from server.models_sql import Lead
+        from server.db import db
+        from sqlalchemy.orm import scoped_session, sessionmaker
         from datetime import datetime
         
         app = _get_flask_app()
         with app.app_context():
-            # Normalize phone to E.164
-            phone = customer_phone.strip()
-            if not phone.startswith('+'):
-                if phone.startswith('0'):
-                    phone = '+972' + phone[1:]
-                else:
-                    phone = '+972' + phone
+            # ✅ P0-1: Create new session for this operation (not flask db.session)
+            engine = db.engine
+            Session = scoped_session(sessionmaker(bind=engine))
+            session = Session()
             
-            # Search for existing lead
-            lead = Lead.query.filter_by(
-                tenant_id=business_id,
-                phone_e164=phone
-            ).first()
-            
-            if lead:
-                # Update last contact time
-                lead.last_contact_at = datetime.utcnow()
-                db.session.commit()
-                print(f"✅ [CRM] Found existing lead #{lead.id} for {phone}")
-                return lead.id
-            else:
-                # Create new lead
-                lead = Lead(
+            try:
+                # Normalize phone to E.164
+                phone = customer_phone.strip()
+                if not phone.startswith('+'):
+                    if phone.startswith('0'):
+                        phone = '+972' + phone[1:]
+                    else:
+                        phone = '+972' + phone
+                
+                # Search for existing lead
+                lead = session.query(Lead).filter_by(
                     tenant_id=business_id,
-                    phone_e164=phone,
-                    first_name="Customer",  # Will be updated during call
-                    source="phone_call",
-                    status="new",
-                    created_at=datetime.utcnow(),
-                    last_contact_at=datetime.utcnow()
-                )
-                db.session.add(lead)
-                db.session.commit()
-                print(f"✅ [CRM] Created new lead #{lead.id} for {phone}")
-                return lead.id
+                    phone_e164=phone
+                ).first()
+                
+                if lead:
+                    # Update last contact time
+                    lead.last_contact_at = datetime.utcnow()
+                    session.commit()
+                    lead_id = lead.id
+                    print(f"✅ [CRM] Found existing lead #{lead_id} for {phone}")
+                    return lead_id
+                else:
+                    # Create new lead
+                    lead = Lead(
+                        tenant_id=business_id,
+                        phone_e164=phone,
+                        first_name="Customer",  # Will be updated during call
+                        source="phone_call",
+                        status="new",
+                        created_at=datetime.utcnow(),
+                        last_contact_at=datetime.utcnow()
+                    )
+                    session.add(lead)
+                    session.commit()
+                    lead_id = lead.id
+                    print(f"✅ [CRM] Created new lead #{lead_id} for {phone}")
+                    return lead_id
+                    
+            except Exception as e:
+                session.rollback()
+                print(f"❌ [CRM] ensure_lead DB error: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+            finally:
+                session.close()
+                Session.remove()
                 
     except Exception as e:
         print(f"❌ [CRM] ensure_lead error: {e}")
@@ -725,6 +748,8 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
     """
     Update lead at call end with summary/status
     
+    ✅ P0-1 FIX: Uses proper session management for background threads
+    
     Args:
         lead_id: Lead ID to update
         summary: Call summary (optional)
@@ -732,32 +757,49 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
         notes: Additional notes (optional)
     """
     try:
-        from server.models_sql import db, Lead
+        from server.models_sql import Lead
+        from server.db import db
+        from sqlalchemy.orm import scoped_session, sessionmaker
         from datetime import datetime
         
         app = _get_flask_app()
         with app.app_context():
-            lead = Lead.query.get(lead_id)
-            if not lead:
-                print(f"⚠️ [CRM] Lead #{lead_id} not found")
-                return
+            # ✅ P0-1: Create new session for this operation
+            engine = db.engine
+            Session = scoped_session(sessionmaker(bind=engine))
+            session = Session()
             
-            # Update fields
-            if summary:
-                lead.summary = summary
-            
-            if status:
-                lead.status = status
-            
-            if notes:
-                existing_notes = lead.notes or ""
-                timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-                lead.notes = f"{existing_notes}\n\n[{timestamp}] {notes}".strip()
-            
-            lead.updated_at = datetime.utcnow()
-            db.session.commit()
-            
-            print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+            try:
+                lead = session.query(Lead).get(lead_id)
+                if not lead:
+                    print(f"⚠️ [CRM] Lead #{lead_id} not found")
+                    return
+                
+                # Update fields
+                if summary:
+                    lead.summary = summary
+                
+                if status:
+                    lead.status = status
+                
+                if notes:
+                    existing_notes = lead.notes or ""
+                    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                    lead.notes = f"{existing_notes}\n\n[{timestamp}] {notes}".strip()
+                
+                lead.updated_at = datetime.utcnow()
+                session.commit()
+                
+                print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+                
+            except Exception as e:
+                session.rollback()
+                print(f"❌ [CRM] update_lead_on_call DB error: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                session.close()
+                Session.remove()
             
     except Exception as e:
         print(f"❌ [CRM] update_lead_on_call error: {e}")
@@ -2581,17 +2623,31 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
                             
-                            # 🔥 CRITICAL FIX: Link CallLog to lead_id
+                            # 🔥 P0-1 FIX: Link CallLog to lead_id with proper session management
                             if lead_id and hasattr(self, 'call_sid') and self.call_sid:
                                 try:
                                     from server.models_sql import CallLog
-                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                                    if call_log and not call_log.lead_id:
-                                        call_log.lead_id = lead_id
-                                        db.session.commit()
-                                        print(f"✅ [CRM] Linked CallLog {self.call_sid} to lead {lead_id}")
-                                    elif call_log and call_log.lead_id:
-                                        print(f"ℹ️ [CRM] CallLog {self.call_sid} already linked to lead {call_log.lead_id}")
+                                    from sqlalchemy.orm import scoped_session, sessionmaker
+                                    
+                                    # ✅ P0-1: Create new session for this background thread
+                                    engine = db.engine
+                                    Session = scoped_session(sessionmaker(bind=engine))
+                                    session = Session()
+                                    
+                                    try:
+                                        call_log = session.query(CallLog).filter_by(call_sid=self.call_sid).first()
+                                        if call_log and not call_log.lead_id:
+                                            call_log.lead_id = lead_id
+                                            session.commit()
+                                            print(f"✅ [CRM] Linked CallLog {self.call_sid} to lead {lead_id}")
+                                        elif call_log and call_log.lead_id:
+                                            print(f"ℹ️ [CRM] CallLog {self.call_sid} already linked to lead {call_log.lead_id}")
+                                    except Exception as commit_error:
+                                        session.rollback()
+                                        print(f"⚠️ [CRM] DB error linking CallLog: {commit_error}")
+                                    finally:
+                                        session.close()
+                                        Session.remove()
                                 except Exception as link_error:
                                     print(f"⚠️ [CRM] Failed to link CallLog to lead: {link_error}")
                             
@@ -2708,9 +2764,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
                 # Solution: Don't send audio to OpenAI until greeting finishes playing.
+                # 🔥 P0-4: Skip greeting protection in SIMPLE_MODE (passthrough only)
                 # OLD: if self.is_playing_greeting:
                 # NEW: Only block during actual greeting (first response)
-                if self.greeting_mode_active and not self.greeting_completed:
+                if not SIMPLE_MODE and self.greeting_mode_active and not self.greeting_completed:
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
@@ -7021,67 +7078,72 @@ Greet briefly. Then WAIT for customer to speak."""
                             continue  # Don't enqueue audio during greeting
                         
                         if not self.barge_in_enabled_after_greeting:
-                            # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
-                            # This prevents OpenAI from transcribing its own voice output as user speech!
-                            # The AI's TTS audio echoes back through the phone line and causes hallucinations
-                            # 
-                            # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
-                            # So we can't just use RMS threshold - we must block ALL audio during AI speech
-                            # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
-                            
-                            # Track consecutive high-RMS frames for barge-in detection
-                            if not hasattr(self, '_echo_gate_consec_frames'):
-                                self._echo_gate_consec_frames = 0
-                            
-                            # Use calibrated noise floor for RMS-based speech detection
-                            # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
-                            noise_floor_rms = getattr(self, 'noise_floor', 100.0)
-                            # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
-                            rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
-                            is_above_speech = rms > rms_speech_threshold
-                            
-                            # Count consecutive frames above RMS speech threshold
-                            if is_above_speech:
-                                self._echo_gate_consec_frames += 1
+                            # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
+                            if SIMPLE_MODE:
+                                # SIMPLE_MODE = no guards, passthrough all audio + logs only
+                                pass  # Skip all echo gate logic
                             else:
-                                # Reset quickly when audio drops - echo is intermittent
-                                self._echo_gate_consec_frames = 0
-                            
-                            # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
-                            # Echo spikes are typically 1-3 frames, real speech is sustained
-                            # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
-                            is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
-                            
-                            if self.is_ai_speaking_event.is_set():
-                                # AI is actively speaking - block ALL audio UNLESS proven barge-in
-                                if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
-                                    # Block - this is echo or noise
-                                    if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
-                                        print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
-                                        self._echo_gate_logged = True
-                                    continue
-                                elif is_likely_real_speech:
-                                    # 5+ frames = real barge-in, let it through
-                                    if not hasattr(self, '_echo_barge_logged'):
-                                        print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
-                                        self._echo_barge_logged = True
-                            
-                            # Check echo decay period (800ms after AI stops speaking)
-                            if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
-                                echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
-                                if echo_decay_ms < POST_AI_COOLDOWN_MS:
-                                    # Still in echo decay period - block unless proven real speech
-                                    if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
-                                        if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
-                                            print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
-                                            self._echo_decay_logged = True
-                                        continue
-                                else:
-                                    # Echo decay complete - reset log flags for next AI response
-                                    self._echo_gate_logged = False
-                                    self._echo_decay_logged = False
-                                    self._echo_barge_logged = False
+                                # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
+                                # This prevents OpenAI from transcribing its own voice output as user speech!
+                                # The AI's TTS audio echoes back through the phone line and causes hallucinations
+                                # 
+                                # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
+                                # So we can't just use RMS threshold - we must block ALL audio during AI speech
+                                # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
+                                
+                                # Track consecutive high-RMS frames for barge-in detection
+                                if not hasattr(self, '_echo_gate_consec_frames'):
                                     self._echo_gate_consec_frames = 0
+                                
+                                # Use calibrated noise floor for RMS-based speech detection
+                                # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
+                                noise_floor_rms = getattr(self, 'noise_floor', 100.0)
+                                # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
+                                rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
+                                is_above_speech = rms > rms_speech_threshold
+                                
+                                # Count consecutive frames above RMS speech threshold
+                                if is_above_speech:
+                                    self._echo_gate_consec_frames += 1
+                                else:
+                                    # Reset quickly when audio drops - echo is intermittent
+                                    self._echo_gate_consec_frames = 0
+                                
+                                # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
+                                # Echo spikes are typically 1-3 frames, real speech is sustained
+                                # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
+                                is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
+                                
+                                if self.is_ai_speaking_event.is_set():
+                                    # AI is actively speaking - block ALL audio UNLESS proven barge-in
+                                    if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
+                                        # Block - this is echo or noise
+                                        if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
+                                            print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
+                                            self._echo_gate_logged = True
+                                        continue
+                                    elif is_likely_real_speech:
+                                        # 5+ frames = real barge-in, let it through
+                                        if not hasattr(self, '_echo_barge_logged'):
+                                            print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
+                                            self._echo_barge_logged = True
+                                
+                                # Check echo decay period (800ms after AI stops speaking)
+                                if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
+                                    echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
+                                    if echo_decay_ms < POST_AI_COOLDOWN_MS:
+                                        # Still in echo decay period - block unless proven real speech
+                                        if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
+                                            if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
+                                                print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
+                                                self._echo_decay_logged = True
+                                            continue
+                                    else:
+                                        # Echo decay complete - reset log flags for next AI response
+                                        self._echo_gate_logged = False
+                                        self._echo_decay_logged = False
+                                        self._echo_barge_logged = False
+                                        self._echo_gate_consec_frames = 0
                         else:
                             # Greeting finished - don't block user speech at all, let OpenAI detect barge-in
                             self._echo_gate_consec_frames = 0
@@ -7102,36 +7164,18 @@ Greet briefly. Then WAIT for customer to speak."""
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
                         
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🎯 TASK A.2: Confirm SIMPLE MODE behavior (Master QA)
+                        # 🎯 P0-4: SIMPLE_MODE Must Be Passthrough (Master Instruction)
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
-                        # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
-                        # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
-                        # 🔥 BUILD 320: AUDIO_GUARD - Intelligent filtering for noisy PSTN calls
+                        # ❌ NO guards in SIMPLE_MODE
+                        # ❌ NO frame dropping in SIMPLE_MODE  
+                        # ❌ NO echo_window in SIMPLE_MODE
+                        # ❌ NO hallucination filters in SIMPLE_MODE
+                        # ✅ Passthrough + logs only
+                        # ═══════════════════════════════════════════════════════════════════════
                         if SIMPLE_MODE:
-                            # 🔥 BUILD 320: Use AUDIO_GUARD for intelligent speech filtering
-                            # Replaces simple RMS threshold with dynamic noise floor + ZCR analysis
-                            if getattr(self, '_audio_guard_enabled', False):
-                                # Compute ZCR for this frame (need PCM16 data)
-                                zcr = self._compute_zcr(pcm16) if pcm16 else 0.0
-                                
-                                # 🛡️ During barge-in or active speech - BYPASS audio guard
-                                if self.barge_in_active or self._realtime_speech_active:
-                                    should_send_audio = True
-                                else:
-                                    # Apply intelligent audio guard
-                                    should_send_audio = self._update_audio_guard_state(rms, zcr)
-                            elif COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
-                                # Fallback: Simple RMS threshold if audio guard disabled
-                                should_send_audio = False
-                                if not hasattr(self, '_cost_silence_blocked'):
-                                    self._cost_silence_blocked = 0
-                                self._cost_silence_blocked += 1
-                                if self._cost_silence_blocked % 200 == 0:
-                                    print(f"💰 [COST SAVE] Blocked {self._cost_silence_blocked} silence frames (rms={rms:.0f} < {COST_MIN_RMS_THRESHOLD})")
-                            else:
-                                should_send_audio = True  # SIMPLE_MODE: send audio above threshold
-                            is_noise = False  # Trust OpenAI's VAD for actual noise filtering
+                            # 🔥 P0-4: SIMPLE_MODE = passthrough ONLY, trust OpenAI completely
+                            should_send_audio = True  # ALWAYS send in SIMPLE_MODE
+                            is_noise = False  # Trust OpenAI's VAD for noise filtering
                         elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
