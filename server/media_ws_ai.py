@@ -6268,11 +6268,21 @@ Greet briefly. Then WAIT for customer to speak."""
                         appt_id = None
                     
                     if appt_id:
-                        # ✅ Mark as created in DB to prevent duplicates
+                        # 🔥 P0 FIX: Move DB commit to background thread to prevent blocking
+                        # This prevents appointment creation from blocking the audio loop
                         if call_session:
-                            call_session.last_confirmed_slot = appt_hash
-                            from server.db import db
-                            db.session.commit()
+                            def update_call_session_async():
+                                try:
+                                    call_session.last_confirmed_slot = appt_hash
+                                    from server.db import db
+                                    db.session.commit()
+                                    print(f"✅ [ASYNC] CallSession updated in background")
+                                except Exception as e:
+                                    print(f"⚠️ [ASYNC] Failed to update CallSession: {e}")
+                            
+                            import threading
+                            thread = threading.Thread(target=update_call_session_async, daemon=True, name=f"UpdateCallSession-{self.call_sid[:8] if hasattr(self, 'call_sid') else 'unknown'}")
+                            thread.start()
                         
                         print(f"")
                         print(f"=" * 80)
