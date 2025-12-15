@@ -4948,10 +4948,9 @@ Greet briefly. Then WAIT for customer to speak."""
                                 if self._speak_exact_resend_count < 2:
                                     self._speak_exact_resend_count += 1
                                     print(f"🔁 [BUILD 339] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
-                                    # 🔥 FIX: Clear stale state before resend
-                                    asyncio.create_task(self._send_server_event_to_ai(
-                                        f"[SPEAK_EXACT] עצור! אמרת פרטים שגויים. אמור בדיוק: \"{expected}\""
-                                    ))
+                                    # 🔥 FIX #2: Don't send server events - they get blocked anyway
+                                    # Instead, the AI will learn from conversation context
+                                    logger.info(f"[SPEAK_EXACT] AI deviated from expected text - will retry naturally")
                                 else:
                                     print(f"❌ [BUILD 339] Max resends reached - AI keeps deviating")
                                     # 🔥 FIX: Reset state to allow retry with fresh data
@@ -4997,10 +4996,11 @@ Greet briefly. Then WAIT for customer to speak."""
                                             f"Current: '{transcript[:50]}...' | "
                                             f"Previous: '{last_response[:50]}...'"
                                         )
-                                        # 🎯 G: Force pause to let user speak
-                                        asyncio.create_task(self._send_server_event_to_ai(
-                                            "[SYSTEM] אתה שואל את אותה שאלה שוב. המתן לתשובת הלקוח לפני שאתה ממשיך. הקשב בסבלנות."
-                                        ))
+                                        # 🔥 FIX #2: Anti-loop guard - Don't send server events
+                                        # Instead engage loop guard to prevent repeating
+                                        logger.warning(f"[ANTI_LOOP] Duplicate question - engaging loop guard")
+                                        self._loop_guard_engaged = True
+                                        self._loop_guard_reason = "duplicate_question"
                                 
                                 # Also check if similar to any of last 3 (general loop detection)
                                 if not is_repeating:
@@ -5137,9 +5137,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             # 🛑 ENGAGE GUARD FIRST - before any other operations to prevent race conditions
                             self._loop_guard_engaged = True
                             
-                            # Send clarification request to AI before blocking
-                            clarification_text = "[SERVER] זיהיתי שאתה חוזר על עצמך. אמור: 'לא שמעתי טוב, אפשר לחזור?' ותמתין בשקט."
-                            asyncio.create_task(self._send_server_event_to_ai(clarification_text))
+                            # 🔥 FIX #2: Don't send server events - they get blocked
+                            # Loop guard is already engaged, that's enough
+                            logger.info(f"[LOOP_GUARD] Engaged - blocking responses until user speaks")
                             
                             # 🔥 BUILD 305: DON'T clear TX queue - causes choppy mid-sentence audio!
                             # Instead: just block NEW audio from being added via _tx_enqueue guard
@@ -5190,10 +5190,8 @@ Greet briefly. Then WAIT for customer to speak."""
                                 # LEGACY: Trigger NLP immediately to try to create the appointment
                                 print(f"🔥 [LEGACY GUARD] Triggering immediate NLP check to create appointment...")
                                 self._check_appointment_confirmation(transcript)
-                            # Send immediate correction event
-                            asyncio.create_task(self._send_server_event_to_ai(
-                                "⚠️ Appointment not yet confirmed by system"
-                            ))
+                            # 🔥 FIX #2: Don't send server events - they get blocked anyway
+                            logger.warning(f"[GUARD] AI confirmed without system approval - will handle via prompt")
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
@@ -6369,11 +6367,10 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self.call_state = CallState.CLOSING
                                     print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (user_goodbye, auto_end=True)")
                                 
-                                # If auto_end_on_goodbye is ON, send explicit instruction to AI
-                                if self.auto_end_on_goodbye:
-                                    asyncio.create_task(self._send_server_event_to_ai(
-                                        "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
-                                    ))
+                                # 🔥 FIX #2: Don't send server events - let AI handle goodbye naturally
+                                # The AI prompt already knows how to say goodbye politely
+                                # No need for [SERVER] messages that get blocked anyway
+                                logger.info(f"[GOODBYE] User said goodbye - AI will respond naturally per business prompt")
                                 
                                 # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
                                 asyncio.create_task(self._fallback_hangup_after_timeout(10, "user_goodbye"))
