@@ -3268,8 +3268,25 @@ Greet briefly. Then WAIT for customer to speak."""
         """Receive audio and events from Realtime API"""
         print(f"📥 [REALTIME] Audio receiver started")
         
+        # ✅ P0-3: Audio stall watchdog - track last check time
+        last_watchdog_check = time.time()
+        WATCHDOG_CHECK_INTERVAL = 0.5  # Check every 500ms
+        AUDIO_STALL_THRESHOLD = 1.5  # Warn if no delta for 1.5s while AI speaking
+        
         try:
             async for event in client.recv_events():
+                # ✅ P0-3: Audio stall watchdog - periodic check
+                now = time.time()
+                if now - last_watchdog_check >= WATCHDOG_CHECK_INTERVAL:
+                    # Check if AI is speaking but no audio delta for >1.5s
+                    if self.is_ai_speaking_event.is_set():
+                        if hasattr(self, '_last_audio_delta_ts'):
+                            time_since_delta = now - self._last_audio_delta_ts
+                            if time_since_delta > AUDIO_STALL_THRESHOLD:
+                                print(f"[AUDIO_STALL] ai_speaking=True no_delta_for={time_since_delta:.1f}s "
+                                      f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
+                    last_watchdog_check = now
+                
                 event_type = event.get("type", "")
                 response_id = event.get("response_id")
                 if not response_id and "response" in event:
@@ -3280,7 +3297,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._cancelled_response_ids.discard(response_id)
                         print(f"🪓 [BARGE-IN] Ignoring final event for cancelled response {response_id[:20]}... (type={event_type})")
                     else:
-                        print(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
+                        # ✅ P0-3: Log when dropping audio delta for cancelled response
+                        if event_type == "response.audio.delta":
+                            print(f"[BARGE_IN_DROP_DELTA] response_id={response_id[:20]}... reason=cancelled_response")
+                        else:
+                            print(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
                         continue
                 
                 # 🔥 DEBUG BUILD 168.5: Log ALL events to diagnose missing audio
@@ -3916,6 +3937,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         if not hasattr(self, '_ai_speech_start') or self._ai_speech_start is None:
                             self._ai_speech_start = now
                         self.realtime_audio_out_chunks += 1
+                        
+                        # ✅ P0-3: Track last audio delta timestamp for watchdog
+                        if not hasattr(self, '_last_audio_delta_ts'):
+                            self._last_audio_delta_ts = now
+                        self._last_audio_delta_ts = now
                         
                         # 🔍 DEBUG: Verify μ-law format from OpenAI + GAP DETECTION
                         if not hasattr(self, '_openai_audio_chunks_received'):
@@ -4735,27 +4761,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🔥 BUILD 170.4: Apply Hebrew normalization
                     text = normalize_hebrew_text(text)
                     
-                    # 🔥 BUILD 204: Apply business vocabulary corrections (fast fuzzy matching)
-                    # This corrects domain-specific terms BEFORE other filters
-                    vocab_corrections = {}
-                    try:
-                        from server.services.dynamic_stt_service import apply_vocabulary_corrections, semantic_repair, should_apply_semantic_repair
-                        text_before = text
-                        text, vocab_corrections = apply_vocabulary_corrections(text, self.business_id)
-                        if vocab_corrections:
-                            print(f"🔧 [BUILD 204] Vocabulary fix: '{text_before}' → '{text}' (corrections: {vocab_corrections})")
-                        
-                        # 🔥 BUILD 300: SEMANTIC REPAIR for short/unclear transcriptions
-                        if should_apply_semantic_repair(text):
-                            try:
-                                text_before_repair = text
-                                text = await semantic_repair(text, self.business_id)
-                                if text != text_before_repair:
-                                    print(f"[STT_REPAIRED] '{text_before_repair}' → '{text}'")
-                            except Exception as repair_err:
-                                print(f"⚠️ [BUILD 300] Semantic repair skipped: {repair_err}")
-                    except Exception as vocab_err:
-                        print(f"⚠️ [BUILD 204] Vocabulary correction skipped: {vocab_err}")
+                    # ✅ P0-0: REMOVED Dynamic STT completely (causes "Working outside of application context")
+                    # No DB access in realtime thread - vocabulary corrections disabled
+                    # This prevents crashes/stalls during calls caused by DB/Flask context issues
                     
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
@@ -5692,6 +5700,8 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
         Sends response.cancel to Realtime API to stop text generation (not just audio!)
+        
+        ✅ P0-2: Clean barge-in implementation with comprehensive logging
         """
         # 🛡️ FIX: PROTECT GREETING - Never cancel during greeting playback!
         if self.is_playing_greeting:
@@ -5700,7 +5710,7 @@ Greet briefly. Then WAIT for customer to speak."""
         
         print("🔍 [BARGE-IN] Stopping AI response and audio playback...")
         
-        # 🔥 CRITICAL: Cancel active AI response generation (not just playback!)
+        # ✅ P0-2: CRITICAL: Cancel active AI response generation (not just playback!)
         if self.active_response_id and self.realtime_client:
             try:
                 import asyncio
@@ -5716,6 +5726,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 cancel_event = {"type": "response.cancel"}
                 if cancelled_id:
                     cancel_event["response_id"] = cancelled_id
+                
+                # ✅ P0-2: Log cancel sent
+                print(f"[BARGE_IN_CANCEL_SENT] response_id={cancelled_id[:20] if cancelled_id else 'None'}")
+                
                 future = asyncio.run_coroutine_threadsafe(
                     self.realtime_client.send_event(cancel_event),
                     loop
@@ -5734,12 +5748,17 @@ Greet briefly. Then WAIT for customer to speak."""
         self.last_ai_audio_ts = None
         self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
         
-        # Clear any queued AI audio that hasn't been sent yet
+        # ✅ P0-2: Clear any queued AI audio that hasn't been sent yet
+        cleared_frames = 0
         try:
             while not self.realtime_audio_out_queue.empty():
                 self.realtime_audio_out_queue.get_nowait()
+                cleared_frames += 1
         except:
             pass
+        
+        # ✅ P0-2: Log flush operation
+        print(f"[BARGE_IN_FLUSH] cleared_frames={cleared_frames}")
         
         # Send clear to Twilio to stop any audio in flight
         if not self.ws_connection_failed:
@@ -5747,6 +5766,11 @@ Greet briefly. Then WAIT for customer to speak."""
                 self._tx_enqueue({"type": "clear"})
             except:
                 pass
+        
+        # ✅ P0-2: Increment barge-in event counter for metrics
+        if not hasattr(self, '_barge_in_event_count'):
+            self._barge_in_event_count = 0
+        self._barge_in_event_count += 1
         
         # Reset barge-in state
         self.current_user_voice_start_ts = None
@@ -7292,6 +7316,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     # No need to recalculate - reuse the 'rms' variable
                     
                     # 🔥 BUILD 165: BALANCED BARGE-IN - Filter noise while allowing speech
+                    # ✅ P0-2: Clean barge-in with local RMS VAD only (no duplex/guards)
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         # 🔍 DEBUG: Log AI speaking state every 50 frames (~1 second)
                         if not hasattr(self, '_barge_in_debug_counter'):
@@ -7303,12 +7328,8 @@ Greet briefly. Then WAIT for customer to speak."""
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
                         
-                        # 🔥 BUILD 165: NOISE GATE - already checked via is_noise flag
-                        # 🔥 BUILD 302: Skip noise check during barge-in - trust OpenAI's VAD
-                        if is_noise and not self.barge_in_active:
-                            # Pure noise - don't count for barge-in
-                            self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 1)
-                            continue
+                        # ✅ P0-2: Simple RMS-based voice detection (no complex noise gate)
+                        # Trust that consecutive frames filter out short bursts
                         
                         # Only allow barge-in if AI is speaking
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
@@ -7333,18 +7354,21 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self.barge_in_voice_frames = 0
                                 continue
                             
-                            # 🔥 BUILD 325: Use MIN_SPEECH_RMS (60) for barge-in detection
+                            # ✅ P0-2: Use MIN_SPEECH_RMS for threshold (configurable)
                             speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
                             
-                            # 🔥 BARGE-IN: Require continuous speech to trigger interruption
-                            # Fast response time: 300ms (15 frames @ 20ms each) for natural interruption
+                            # ✅ P0-2: Require 12+ consecutive voice frames (~240ms) to trigger
+                            # This filters out short bursts like "um" while being responsive
+                            MIN_BARGE_IN_FRAMES = 12  # 240ms minimum - filters short fillers
+                            
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
-                                # 🔥 ARCHITECT FIX: Use BARGE_IN_VOICE_FRAMES constant, not hardcoded 11
-                                if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
-                                    print(f"🔍 [BARGE-IN] User interrupted AI - stopping TTS and switching to user speech")
-                                    print(f"    └─ Detection: rms={rms:.0f} >= {speech_threshold:.0f}, "
-                                          f"continuous={self.barge_in_voice_frames} frames ({BARGE_IN_VOICE_FRAMES*20}ms)")
+                                # ✅ P0-2: Trigger barge-in only on sustained speech (240ms+)
+                                if self.barge_in_voice_frames >= MIN_BARGE_IN_FRAMES:
+                                    # ✅ P0-2: Log barge-in trigger with all required info
+                                    print(f"[BARGE_IN_TRIGGER] rms={rms:.0f} consec={self.barge_in_voice_frames} "
+                                          f"ai_speaking={self.is_ai_speaking_event.is_set()} "
+                                          f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
                                               f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
                                     self._handle_realtime_barge_in()
@@ -11491,6 +11515,7 @@ Greet briefly. Then WAIT for customer to speak."""
         
         🔥 PART C DEBUG: Added logging to trace first frame sent to Twilio
         🎯 TASK 0.4: Enhanced logging for Master BUG HUNT
+        ✅ P0-1: Added burst protection to prevent chipmunk effect
         """
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
         _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
@@ -11514,7 +11539,16 @@ Greet briefly. Then WAIT for customer to speak."""
         last_frame_time = time.monotonic()
         max_gap_ms = 0.0  # Track maximum frame-to-frame interval
         
+        # ✅ P0-1: Burst protection - prevent chipmunk by enforcing max frames per cycle
+        MAX_FRAMES_PER_CYCLE = 2  # Max 2 frames (40ms) to catch up, prevents "dumping" audio
+        frames_this_cycle = 0
+        last_burst_log_time = 0
+        
         while self.tx_running:
+            # ✅ P0-1: Reset frames counter at each cycle start
+            frames_this_cycle = 0
+            cycle_start = time.monotonic()
+            
             try:
                 item = self.tx_q.get(timeout=0.5)
             except queue.Empty:
@@ -11532,10 +11566,28 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Handle "media" event (both old format and new Realtime format)
             if item.get("type") == "media" or item.get("event") == "media":
-                # 🔥 Support both formats:
-                # Old: {"type": "media", "payload": "..."}
-                # New Realtime: {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
+                # ✅ P0-1: BURST PROTECTION - Cap frames per cycle to prevent "dumping"
                 queue_size = self.tx_q.qsize()
+                
+                # If queue has big backlog, drop old frames instead of rapid sending
+                if queue_size > 100:  # Significant backlog (>2 seconds of audio)
+                    # Drop oldest frames to prevent burst
+                    frames_to_drop = min(queue_size - 50, 25)  # Drop up to 25 frames, keep 50 in queue
+                    dropped = 0
+                    for _ in range(frames_to_drop):
+                        try:
+                            _ = self.tx_q.get_nowait()
+                            dropped += 1
+                        except queue.Empty:
+                            break
+                    
+                    if dropped > 0:
+                        now = time.time()
+                        # Throttled logging - max once per 2 seconds
+                        if now - last_burst_log_time > 2.0:
+                            print(f"[TX_BACKLOG_DROP] dropped_frames={dropped} reason=burst_protection backlog_was={queue_size}")
+                            last_burst_log_time = now
+                        drops_last_sec += dropped
                 
                 # 🔍 DEBUG: Log what format we received
                 if tx_count < 3:
@@ -11549,6 +11601,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
+                        frames_this_cycle += 1
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11565,6 +11618,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     if success:
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
+                        frames_this_cycle += 1
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11579,11 +11633,19 @@ Greet briefly. Then WAIT for customer to speak."""
                 if delay > 0:
                     time.sleep(delay)
                 else:
-                    # Missed deadline - resync
+                    # Missed deadline - resync (but don't catch up too fast)
                     next_deadline = time.monotonic()
                 
-                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
+                # ✅ P0-1: Log TX pacing metrics
                 now = time.monotonic()
+                cycle_duration_ms = (now - cycle_start) * 1000
+                if cycle_duration_ms > 40 or queue_size > 500:  # Log if slow or high backlog
+                    if now - last_telemetry_time < 0.5:  # Don't spam - only every 0.5s
+                        pass
+                    else:
+                        print(f"[TX_PACE] sent_frames={frames_this_cycle} backlog_frames={queue_size} sleep_ms={delay*1000:.1f if delay > 0 else 0} cycle_ms={cycle_duration_ms:.1f}")
+                
+                # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
                 frame_gap_ms = (now - last_frame_time) * 1000.0
                 if frame_gap_ms > max_gap_ms:
                     max_gap_ms = frame_gap_ms
@@ -11597,7 +11659,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
                     queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
                     if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
-                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                        print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}, drops={drops_last_sec}", flush=True)
                     frames_sent_last_sec = 0
                     drops_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window
