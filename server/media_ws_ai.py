@@ -2406,6 +2406,10 @@ class MediaStreamHandler:
             logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
             _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
             
+            # 🎯 MASTER DIRECTIVE 6: DIRECTION logging (required for verification)
+            logger.info(f"[DIRECTION] call_sid={self.call_sid} direction={call_direction}")
+            _orig_print(f"📞 [DIRECTION] {call_direction.upper()} call (call_sid={self.call_sid[:16] if self.call_sid else 'N/A'})", flush=True)
+            
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
             # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
@@ -2559,6 +2563,19 @@ Greet briefly. Then WAIT for customer to speak."""
             total_ms = (t_after_config - t_start) * 1000
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
+            
+            # 🎯 MASTER DIRECTIVE 5.3: PROMPT_BIND logging (required for verification)
+            import hashlib
+            prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:16] if greeting_prompt else "none"
+            logger.info(
+                f"[PROMPT_BIND] business_id={business_id_safe}, prompt_hash={prompt_hash}, "
+                f"direction={call_direction}, mode=compact, system_len={len(greeting_prompt)}, "
+                f"voice={call_voice}, vad_threshold=0.85"
+            )
+            _orig_print(
+                f"📋 [PROMPT_BIND] business_id={business_id_safe}, direction={call_direction}, "
+                f"prompt_hash={prompt_hash}, len={len(greeting_prompt)}", flush=True
+            )
             
             # 🚀 Start audio/text bridges FIRST (before CRM)
             logger.info(f"[REALTIME] Starting audio/text bridge tasks...")
@@ -2940,6 +2957,18 @@ Greet briefly. Then WAIT for customer to speak."""
                             # Decay voice frames slowly
                             if self._local_vad_voice_frames > 0:
                                 self._local_vad_voice_frames = max(0, self._local_vad_voice_frames - 1)
+                        
+                        # 🎯 MASTER DIRECTIVE 2.2: VAD_VIOLATION detection
+                        # If RMS is high but voice_frames stays 0 for >200ms (10+ frames), this indicates
+                        # VAD is failing to detect voice despite strong signal
+                        if frame_rms > speech_threshold and self._local_vad_silence_frames > 10:
+                            # Log once per second to avoid spam
+                            if _frames_in % 50 == 0:
+                                logger.warning(
+                                    f"[VAD_VIOLATION] rms={frame_rms:.1f} > threshold={speech_threshold:.1f} "
+                                    f"but voice_frames=0 for {self._local_vad_silence_frames} frames "
+                                    f"(>{10*20}ms) - VAD may be failing"
+                                )
                 except Exception as vad_err:
                     # Don't crash if VAD fails - just log and continue
                     if _frames_in % 100 == 0:  # Log occasionally to avoid spam
@@ -3861,6 +3890,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.info(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
                         logger.info(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         logger.info(f"   time_since_ai_start={time_since_ai_start_ms:.0f}ms")
+                        
+                        # 🎯 MASTER DIRECTIVE 3.1: Enhanced CANDIDATE stage logging
+                        _orig_print(
+                            f"[BARGE-IN] CANDIDATE stage: time_since_ai_start_ms={time_since_ai_start_ms:.0f}, "
+                            f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...",
+                            flush=True
+                        )
                         
                         # Set candidate barge-in flags
                         # These will be read by audio sender to start forwarding audio with preroll
@@ -5178,6 +5214,14 @@ Greet briefly. Then WAIT for customer to speak."""
                         if should_confirm_barge_in:
                             # CONFIRMED BARGE-IN - Cancel AI response
                             logger.info(f"[BARGE-IN] ✅ CONFIRMED: {confirm_reason} text='{text[:40]}...'")
+                            
+                            # 🎯 MASTER DIRECTIVE 3.1: Enhanced CONFIRMED stage logging
+                            _orig_print(
+                                f"[BARGE-IN] CONFIRMED stage: reason={confirm_reason}, "
+                                f"text='{text[:40]}...', word_count={word_count}, "
+                                f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...",
+                                flush=True
+                            )
                             
                             # Cancel active AI response
                             cancelled_id = self.active_response_id
