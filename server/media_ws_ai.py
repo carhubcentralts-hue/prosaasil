@@ -6615,10 +6615,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.realtime_tx_frames += 1
                     except queue.Full:
                         # ✅ P0 FIX: Always drop OLDEST frames to return to real-time
-                        # Drop from full queue down to target (30-40%)
+                        # Drop from full queue down to target (40%)
                         queue_maxsize = self.tx_q.maxsize
+                        queue_size_now = self.tx_q.qsize()  # Get current size
                         drop_target = int(queue_maxsize * 0.4)  # Target 40% after drop
-                        frames_to_drop = queue_size - drop_target
+                        frames_to_drop = max(0, queue_size_now - drop_target)  # Ensure positive
                         dropped = 0
                         
                         # Drop oldest frames to make room
@@ -6646,7 +6647,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Log the drop (throttled)
                         now = time.time()
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > 5:
-                            print(f"🗑️ [AUDIO DROP_OLDEST] Dropped {dropped} oldest frames (queue was full, now at {self.tx_q.qsize()}/{queue_maxsize})")
+                            print(f"🗑️ [AUDIO DROP_OLDEST] Dropped {dropped} oldest frames (queue was {queue_size_now}/{queue_maxsize}, now at {self.tx_q.qsize()}/{queue_maxsize})")
                             self._last_full_error = now
                     
             except queue.Empty:
@@ -9981,12 +9982,13 @@ Greet briefly. Then WAIT for customer to speak."""
         # Mark that we're sending cancel for this ID
         self._cancel_sent_for_response_ids.add(response_id)
         
-        # Clean up old entries (keep last 50)
-        if len(self._cancel_sent_for_response_ids) > 50:
-            # Remove oldest half (simple cleanup, not timestamp-based)
-            to_remove = list(self._cancel_sent_for_response_ids)[:25]
-            for rid in to_remove:
-                self._cancel_sent_for_response_ids.discard(rid)
+        # ✅ Simple cleanup: when set grows large, clear it completely
+        # Response IDs are short-lived (seconds), so full reset is safe
+        if len(self._cancel_sent_for_response_ids) > 100:
+            print(f"🧹 [CANCEL_GUARD] Clearing guard set (size={len(self._cancel_sent_for_response_ids)})")
+            self._cancel_sent_for_response_ids.clear()
+            # Re-add current ID after clear
+            self._cancel_sent_for_response_ids.add(response_id)
         
         return True
     
