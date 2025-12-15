@@ -6594,33 +6594,43 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     try:
                         # ═══════════════════════════════════════════════════════════════════════
-                        # ✅ P0 FIX: Drop-oldest policy to maintain real-time delivery
-                        # When queue fills up, drop old frames to make room for new ones
-                        # This prevents chipmunk effect from queue saturation
+                        # ✅ P0 FIX: Backpressure instead of burst drops
+                        # When queue fills up (≥80%), apply gentle backpressure instead of
+                        # dropping 72 frames at once. This prevents mid-sentence audio jumps.
                         # ═══════════════════════════════════════════════════════════════════════
                         queue_size = self.tx_q.qsize()
-                        queue_maxsize = self.tx_q.maxsize  # Now 100 frames = 2s
-                        high_watermark = int(queue_maxsize * 0.8)  # Warn at 80%
-                        drop_target = int(queue_maxsize * 0.4)  # Drop to 40%
+                        queue_maxsize = self.tx_q.maxsize  # 120 frames = 2.4s
+                        backpressure_threshold = int(queue_maxsize * 0.8)  # 96 frames = 80%
+                        drop_target = int(queue_maxsize * 0.4)  # 48 frames = 40%
                         
-                        # Warn at high watermark (80%)
-                        if queue_size >= high_watermark:
+                        # 🔥 NEW: Gentle backpressure at 80% - let TX loop catch up
+                        # Sleep 15ms to give TX thread time to drain queue
+                        # This is MUCH better than dropping 72 frames and causing jumps
+                        if queue_size >= backpressure_threshold:
                             now = time.time()
-                            if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO WARNING] TX queue high watermark: {queue_size}/{queue_maxsize} (80%)")
-                                self._last_overflow_warning = now
+                            if not hasattr(self, '_last_backpressure_log') or now - self._last_backpressure_log > 5:
+                                print(f"⏸️ [BACKPRESSURE] Queue high ({queue_size}/{queue_maxsize}), pausing 15ms to let TX catch up")
+                                self._last_backpressure_log = now
+                            
+                            # Apply gentle backpressure - let TX loop drain
+                            time.sleep(0.015)  # 15ms pause
                         
-                        # Use put_nowait with drop-oldest fallback
+                        # Use put_nowait with drop-oldest fallback (only if backpressure wasn't enough)
                         self.tx_q.put_nowait(twilio_frame)
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # ✅ P0 FIX: Always drop OLDEST frames to return to real-time
-                        # Drop from full queue down to target (40%)
+                        # ✅ P0 FIX: Drop OLDEST frames but limit max drop to prevent jumps
+                        # OLD: Dropped from 120→48 (72 frames!) causing mid-sentence jumps
+                        # NEW: Drop max 10 frames at a time, then apply backpressure
                         queue_size_now = self.tx_q.qsize()  # Get current size
-                        frames_to_drop = max(0, queue_size_now - drop_target)  # Ensure positive
+                        
+                        # 🔥 CRITICAL: Limit max drop to 10 frames (200ms) to prevent jumps
+                        # If queue needs more draining, backpressure will handle it next iteration
+                        MAX_DROP_PER_BURST = 10  # 10 frames = 200ms - won't cause audible jump
+                        frames_to_drop = min(MAX_DROP_PER_BURST, max(0, queue_size_now - drop_target))
                         dropped = 0
                         
-                        # Drop oldest frames to make room
+                        # Drop oldest frames to make room (limited burst)
                         for _ in range(frames_to_drop):
                             try:
                                 _ = self.tx_q.get_nowait()
@@ -6633,7 +6643,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             self.tx_q.put_nowait(twilio_frame)
                             self.realtime_tx_frames += 1
                         except queue.Full:
-                            # Still full somehow - drop one more and retry
+                            # Still full - drop one more and retry
                             try:
                                 _ = self.tx_q.get_nowait()
                                 self.tx_q.put_nowait(twilio_frame)
@@ -6642,10 +6652,13 @@ Greet briefly. Then WAIT for customer to speak."""
                             except:
                                 pass  # Give up on this frame
                         
-                        # Log the drop (throttled)
+                        # Log the drop (throttled) with warning if drop was limited
                         now = time.time()
                         if not hasattr(self, '_last_full_error') or now - self._last_full_error > 5:
-                            print(f"🗑️ [AUDIO DROP_OLDEST] Dropped {dropped} oldest frames (queue was {queue_size_now}/{queue_maxsize}, now at {self.tx_q.qsize()}/{queue_maxsize})")
+                            if dropped >= MAX_DROP_PER_BURST:
+                                print(f"🗑️ [AUDIO DROP_LIMITED] Dropped {dropped} frames (limited from {queue_size_now - drop_target} to prevent jumps), queue: {queue_size_now}→{self.tx_q.qsize()}/{queue_maxsize}")
+                            else:
+                                print(f"🗑️ [AUDIO DROP_OLDEST] Dropped {dropped} frames, queue: {queue_size_now}→{self.tx_q.qsize()}/{queue_maxsize}")
                             self._last_full_error = now
                     
             except queue.Empty:
@@ -11737,6 +11750,31 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
                 now = time.monotonic()
                 frame_gap_ms = (now - last_frame_time) * 1000.0
+                
+                # 🔥 P0 WATCHDOG: Detect TX stalls > 120ms and log stack traces
+                # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
+                # This watchdog will catch what's blocking the TX thread
+                if frame_gap_ms > 120.0:
+                    import sys
+                    import traceback
+                    import threading
+                    
+                    print(f"🚨 [TX_STALL] DETECTED! gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
+                    print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
+                    
+                    # Log stack traces of all threads to find the culprit
+                    if frame_gap_ms > 500.0:  # Only full dump for severe stalls
+                        print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
+                        for thread_id, frame in sys._current_frames().items():
+                            thread_name = None
+                            for t in threading.enumerate():
+                                if t.ident == thread_id:
+                                    thread_name = t.name
+                                    break
+                            print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                            traceback.print_stack(frame)
+                            print(flush=True)
+                
                 if frame_gap_ms > max_gap_ms:
                     max_gap_ms = frame_gap_ms
                 last_frame_time = now
@@ -11747,9 +11785,15 @@ Greet briefly. Then WAIT for customer to speak."""
                     queue_maxsize = self.tx_q.maxsize
                     actual_fps = frames_sent_last_sec  # Frames sent in last second
                     # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
+                    # 🔥 P0: Always log if max_gap_ms > 40ms to catch stalls early
                     queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
-                    if queue_size > queue_threshold or max_gap_ms > 40:  # Log if queue high or gaps detected
+                    if queue_size > queue_threshold or max_gap_ms > 40:
                         print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                    
+                    # 🚨 P0: Always warn if max_gap_ms exceeded threshold
+                    if max_gap_ms > 120.0:
+                        print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last second (target: <40ms, acceptable: <120ms)", flush=True)
+                    
                     frames_sent_last_sec = 0
                     max_gap_ms = 0.0  # Reset for next window
                     last_telemetry_time = now
