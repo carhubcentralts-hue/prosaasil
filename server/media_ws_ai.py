@@ -4008,6 +4008,17 @@ Greet briefly. Then WAIT for customer to speak."""
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
+                        
+                        # 🔥 P0-1 INVARIANT: Check if response.created came within 200ms of STT_FINAL
+                        if hasattr(self, '_stt_trigger_timestamp') and self._stt_trigger_timestamp:
+                            stt_to_created_ms = (time.time() - self._stt_trigger_timestamp) * 1000
+                            if stt_to_created_ms > 200:
+                                logger.warning(
+                                    f"⚠️ [P0-1 VIOLATION] STT_FINAL to response.created took {stt_to_created_ms:.0f}ms (>200ms threshold)! "
+                                    f"This indicates delayed response trigger."
+                                )
+                            self._stt_trigger_timestamp = None  # Reset for next turn
+                        
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Per-response markers to track audio delivery quality
                         # ═══════════════════════════════════════════════════════════════════════
@@ -4016,7 +4027,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._response_tracking[resp_id] = {
                             'start_time': time.time(),
                             'frames_sent': 0,
-                            'first_audio_ts': None
+                            'first_audio_ts': None,
+                            'cancel_count': 0  # Track for P0-5 violation detection
                         }
                         print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
                     else:
@@ -4108,6 +4120,17 @@ Greet briefly. Then WAIT for customer to speak."""
                     # If frames_sent == 0, we need to retry to ensure user gets a response
                     if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
                         frames_sent = self._response_tracking[resp_id]['frames_sent']
+                        cancel_count = self._response_tracking[resp_id].get('cancel_count', 0)
+                        cancel_count += 1
+                        self._response_tracking[resp_id]['cancel_count'] = cancel_count
+                        
+                        # 🔥 P0-5 INVARIANT: Detect multiple consecutive frames_sent=0 cancellations
+                        if frames_sent == 0 and cancel_count > 1:
+                            logger.error(
+                                f"⚠️ [P0-5 VIOLATION] Multiple consecutive frames_sent=0 cancellations detected! "
+                                f"Response {resp_id[:20]}... cancelled {cancel_count} times with NO audio. "
+                                f"This indicates a persistent barge-in or recovery issue."
+                            )
                         
                         if frames_sent == 0:
                             # Response was cancelled before ANY audio was sent!
@@ -6412,6 +6435,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             # Start latency tracking for this turn
                             self._turn_trigger_reason = "STT_COMPLETED"
+                            self._stt_trigger_timestamp = time.time()  # Track when trigger was sent
                             
                             # Trigger response immediately
                             asyncio.create_task(self.trigger_response("STT_COMPLETED"))
