@@ -2440,6 +2440,25 @@ class MediaStreamHandler:
             logger.info(f"[DIRECTION] call_sid={self.call_sid} direction={call_direction}")
             _orig_print(f"📞 [DIRECTION] {call_direction.upper()} call (call_sid={self.call_sid[:16] if self.call_sid else 'N/A'})", flush=True)
             
+            # 🎯 MASTER "CALL QUALITY" - PART C2: DIRECTION_POLICY logging
+            # Log how direction affects behavior (policy only, not hardcoded content)
+            call_goal = getattr(self, 'call_goal', 'lead_only')
+            scheduling_enabled = getattr(self, 'call_config', None)
+            if scheduling_enabled:
+                scheduling_enabled = getattr(scheduling_enabled, 'enable_calendar_scheduling', False)
+            else:
+                scheduling_enabled = False
+            
+            logger.info(
+                f"[DIRECTION_POLICY] direction={call_direction} call_goal={call_goal} "
+                f"scheduling_enabled={scheduling_enabled}"
+            )
+            _orig_print(
+                f"📋 [DIRECTION_POLICY] {call_direction}: goal={call_goal}, "
+                f"scheduling={scheduling_enabled}",
+                flush=True
+            )
+            
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
             # Strategy: Webhook pre-builds compact 600-800 char prompt, stored in registry
