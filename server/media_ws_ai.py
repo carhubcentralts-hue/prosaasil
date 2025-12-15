@@ -664,6 +664,9 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
     """
     Find or create lead at call start
     
+    ⚠️ P0-1 FIX: This function runs in background threads with proper session management.
+    Each call creates its own scoped session for thread safety.
+    
     Args:
         business_id: Business ID
         customer_phone: Customer phone in E.164 format
@@ -672,46 +675,69 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
         Lead ID if found/created, None on error
     """
     try:
-        from server.models_sql import db, Lead
+        from server.models_sql import Lead
+        from server.db import db
+        from sqlalchemy.orm import scoped_session, sessionmaker
         from datetime import datetime
         
         app = _get_flask_app()
         with app.app_context():
-            # Normalize phone to E.164
-            phone = customer_phone.strip()
-            if not phone.startswith('+'):
-                if phone.startswith('0'):
-                    phone = '+972' + phone[1:]
-                else:
-                    phone = '+972' + phone
+            # ✅ P0-1: Create new scoped session for this background thread
+            # Note: Each background thread MUST have its own session. We cannot reuse
+            # Flask's db.session because it's not thread-safe. Creating a new scoped
+            # session for each operation ensures proper isolation.
+            engine = db.engine
+            Session = scoped_session(sessionmaker(bind=engine))
+            session = Session()
             
-            # Search for existing lead
-            lead = Lead.query.filter_by(
-                tenant_id=business_id,
-                phone_e164=phone
-            ).first()
-            
-            if lead:
-                # Update last contact time
-                lead.last_contact_at = datetime.utcnow()
-                db.session.commit()
-                print(f"✅ [CRM] Found existing lead #{lead.id} for {phone}")
-                return lead.id
-            else:
-                # Create new lead
-                lead = Lead(
+            try:
+                # Normalize phone to E.164
+                phone = customer_phone.strip()
+                if not phone.startswith('+'):
+                    if phone.startswith('0'):
+                        phone = '+972' + phone[1:]
+                    else:
+                        phone = '+972' + phone
+                
+                # Search for existing lead
+                lead = session.query(Lead).filter_by(
                     tenant_id=business_id,
-                    phone_e164=phone,
-                    first_name="Customer",  # Will be updated during call
-                    source="phone_call",
-                    status="new",
-                    created_at=datetime.utcnow(),
-                    last_contact_at=datetime.utcnow()
-                )
-                db.session.add(lead)
-                db.session.commit()
-                print(f"✅ [CRM] Created new lead #{lead.id} for {phone}")
-                return lead.id
+                    phone_e164=phone
+                ).first()
+                
+                if lead:
+                    # Update last contact time
+                    lead.last_contact_at = datetime.utcnow()
+                    session.commit()
+                    lead_id = lead.id
+                    print(f"✅ [CRM] Found existing lead #{lead_id} for {phone}")
+                    return lead_id
+                else:
+                    # Create new lead
+                    lead = Lead(
+                        tenant_id=business_id,
+                        phone_e164=phone,
+                        first_name="Customer",  # Will be updated during call
+                        source="phone_call",
+                        status="new",
+                        created_at=datetime.utcnow(),
+                        last_contact_at=datetime.utcnow()
+                    )
+                    session.add(lead)
+                    session.commit()
+                    lead_id = lead.id
+                    print(f"✅ [CRM] Created new lead #{lead_id} for {phone}")
+                    return lead_id
+                    
+            except Exception as e:
+                session.rollback()
+                print(f"❌ [CRM] ensure_lead DB error: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+            finally:
+                session.close()
+                Session.remove()
                 
     except Exception as e:
         print(f"❌ [CRM] ensure_lead error: {e}")
@@ -725,6 +751,8 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
     """
     Update lead at call end with summary/status
     
+    ✅ P0-1 FIX: Uses proper session management for background threads
+    
     Args:
         lead_id: Lead ID to update
         summary: Call summary (optional)
@@ -732,32 +760,49 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
         notes: Additional notes (optional)
     """
     try:
-        from server.models_sql import db, Lead
+        from server.models_sql import Lead
+        from server.db import db
+        from sqlalchemy.orm import scoped_session, sessionmaker
         from datetime import datetime
         
         app = _get_flask_app()
         with app.app_context():
-            lead = Lead.query.get(lead_id)
-            if not lead:
-                print(f"⚠️ [CRM] Lead #{lead_id} not found")
-                return
+            # ✅ P0-1: Create new session for this operation
+            engine = db.engine
+            Session = scoped_session(sessionmaker(bind=engine))
+            session = Session()
             
-            # Update fields
-            if summary:
-                lead.summary = summary
-            
-            if status:
-                lead.status = status
-            
-            if notes:
-                existing_notes = lead.notes or ""
-                timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-                lead.notes = f"{existing_notes}\n\n[{timestamp}] {notes}".strip()
-            
-            lead.updated_at = datetime.utcnow()
-            db.session.commit()
-            
-            print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+            try:
+                lead = session.query(Lead).get(lead_id)
+                if not lead:
+                    print(f"⚠️ [CRM] Lead #{lead_id} not found")
+                    return
+                
+                # Update fields
+                if summary:
+                    lead.summary = summary
+                
+                if status:
+                    lead.status = status
+                
+                if notes:
+                    existing_notes = lead.notes or ""
+                    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                    lead.notes = f"{existing_notes}\n\n[{timestamp}] {notes}".strip()
+                
+                lead.updated_at = datetime.utcnow()
+                session.commit()
+                
+                print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+                
+            except Exception as e:
+                session.rollback()
+                print(f"❌ [CRM] update_lead_on_call DB error: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                session.close()
+                Session.remove()
             
     except Exception as e:
         print(f"❌ [CRM] update_lead_on_call error: {e}")
@@ -1628,8 +1673,9 @@ class MediaStreamHandler:
         # When response is cancelled before any audio is sent (turn_detected), we need to trigger new response
         self._cancelled_response_needs_recovery = False
         self._cancelled_response_recovery_ts = 0
-        self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
+        self._cancelled_response_recovery_delay_sec = 0.25  # 🎯 P0-5: 250ms (200-300ms range)
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
+        self._cancel_retry_attempted = False  # 🎯 P0-5: Track if we already attempted retry (one retry only)
         
         # 🔥 BUILD 302: HARD BARGE-IN - When user speaks over AI, we hard-cancel everything
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
@@ -2581,17 +2627,31 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
                             
-                            # 🔥 CRITICAL FIX: Link CallLog to lead_id
+                            # 🔥 P0-1 FIX: Link CallLog to lead_id with proper session management
                             if lead_id and hasattr(self, 'call_sid') and self.call_sid:
                                 try:
                                     from server.models_sql import CallLog
-                                    call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
-                                    if call_log and not call_log.lead_id:
-                                        call_log.lead_id = lead_id
-                                        db.session.commit()
-                                        print(f"✅ [CRM] Linked CallLog {self.call_sid} to lead {lead_id}")
-                                    elif call_log and call_log.lead_id:
-                                        print(f"ℹ️ [CRM] CallLog {self.call_sid} already linked to lead {call_log.lead_id}")
+                                    from sqlalchemy.orm import scoped_session, sessionmaker
+                                    
+                                    # ✅ P0-1: Create new session for this background thread
+                                    engine = db.engine
+                                    Session = scoped_session(sessionmaker(bind=engine))
+                                    session = Session()
+                                    
+                                    try:
+                                        call_log = session.query(CallLog).filter_by(call_sid=self.call_sid).first()
+                                        if call_log and not call_log.lead_id:
+                                            call_log.lead_id = lead_id
+                                            session.commit()
+                                            print(f"✅ [CRM] Linked CallLog {self.call_sid} to lead {lead_id}")
+                                        elif call_log and call_log.lead_id:
+                                            print(f"ℹ️ [CRM] CallLog {self.call_sid} already linked to lead {call_log.lead_id}")
+                                    except Exception as commit_error:
+                                        session.rollback()
+                                        print(f"⚠️ [CRM] DB error linking CallLog: {commit_error}")
+                                    finally:
+                                        session.close()
+                                        Session.remove()
                                 except Exception as link_error:
                                     print(f"⚠️ [CRM] Failed to link CallLog to lead: {link_error}")
                             
@@ -2708,9 +2768,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
                 # Solution: Don't send audio to OpenAI until greeting finishes playing.
+                # 🔥 P0-4: Skip greeting protection in SIMPLE_MODE (passthrough only)
                 # OLD: if self.is_playing_greeting:
                 # NEW: Only block during actual greeting (first response)
-                if self.greeting_mode_active and not self.greeting_completed:
+                if not SIMPLE_MODE and self.greeting_mode_active and not self.greeting_completed:
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
@@ -3362,14 +3423,27 @@ Greet briefly. Then WAIT for customer to speak."""
                             _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
                             # greeting_sent stays True to bypass GUARD for next response
                         
-                        # 🔥 BUILD 187: RECOVERY for cancelled responses with NO audio!
-                        # When user speaks/noise triggers turn_detected BEFORE AI sends any audio,
-                        # the response gets cancelled and no new one is created = silence.
-                        # Solution: Schedule a recovery response.create after short delay
-                        if status == "cancelled" and len(output) == 0 and self.user_has_spoken:
-                            _orig_print(f"🔄 [BUILD 187] Response cancelled with NO audio! Scheduling recovery...", flush=True)
-                            self._cancelled_response_needs_recovery = True
-                            self._cancelled_response_recovery_ts = time.time()
+                        # 🎯 P0-5: RECOVERY for false cancel (Master Instruction)
+                        # When response is cancelled before ANY audio was sent:
+                        # - Could be false positive (echo/noise triggered turn_detected)
+                        # - If user is NOT actually speaking, retry ONCE after 200-300ms
+                        # - This prevents silence when cancel was spurious
+                        #
+                        # Conditions for recovery (ALL must be true):
+                        # 1. status == "cancelled"
+                        # 2. frames_sent == 0 (no audio was delivered)
+                        # 3. !user_has_spoken (not a real user interruption)
+                        #
+                        # Safety: Only ONE retry per response (prevent loops)
+                        if status == "cancelled" and len(output) == 0 and not self.user_has_spoken:
+                            # Check if we already retried this response
+                            if not self._cancel_retry_attempted:
+                                _orig_print(f"🔄 [P0-5] Response cancelled with NO audio and NO user speech - scheduling retry...", flush=True)
+                                self._cancelled_response_needs_recovery = True
+                                self._cancelled_response_recovery_ts = time.time()
+                                self._cancel_retry_attempted = True  # Mark that we're attempting retry
+                            else:
+                                _orig_print(f"⚠️ [P0-5] Response cancelled again - already attempted retry, not retrying again", flush=True)
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
@@ -3656,37 +3730,39 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
-                        print(f"🔄 [BUILD 187] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for OpenAI...")
+                        print(f"🔄 [P0-5] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for recovery...")
                         # Schedule a delayed recovery check in a separate task
                         async def _recovery_check():
                             await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
-                            # 🛡️ BUILD 187 HARDENED: Multiple guards to prevent double triggers
+                            # 🎯 P0-5: Multiple guards to prevent double triggers
                             # Guard 1: Check if recovery is still needed
                             if not self._cancelled_response_needs_recovery:
-                                print(f"🔄 [BUILD 187] Recovery cancelled - flag cleared")
+                                print(f"🔄 [P0-5] Recovery cancelled - flag cleared")
                                 return
                             # Guard 2: Check if AI is already speaking
                             if self.is_ai_speaking_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - AI already speaking")
+                                print(f"🔄 [P0-5] Recovery skipped - AI already speaking")
                                 return
                             # Guard 3: Check if there's a pending response
                             if self.response_pending_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - response pending")
+                                print(f"🔄 [P0-5] Recovery skipped - response pending")
                                 return
-                            # Guard 4: Check if speech is active (user still talking)
-                            if self._realtime_speech_active:
+                            # Guard 4: Check if user is speaking (prevents retry during real user speech)
+                            if self._realtime_speech_active or self.user_has_spoken:
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - user still speaking")
+                                print(f"🔄 [P0-5] Recovery skipped - user is speaking")
                                 return
                             
                             # All guards passed - trigger recovery via central function
                             # 🔥 BUILD 200: Use trigger_response for consistent response management
                             self._cancelled_response_needs_recovery = False  # Clear BEFORE triggering
-                            triggered = await self.trigger_response("BUILD_187_RECOVERY", client)
+                            triggered = await self.trigger_response("P0-5_FALSE_CANCEL_RECOVERY", client)
                             if not triggered:
-                                print(f"⚠️ [BUILD 187] Recovery was blocked by trigger_response guards")
+                                print(f"⚠️ [P0-5] Recovery was blocked by trigger_response guards")
+                            else:
+                                print(f"✅ [P0-5] Recovery response triggered successfully")
                         asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
@@ -3715,8 +3791,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._response_created_ts = time.time()
                         # 🔥 BUILD 187: Clear recovery flag - new response was created!
                         if self._cancelled_response_needs_recovery:
-                            print(f"🔄 [BUILD 187] New response created - cancelling recovery")
+                            print(f"🔄 [P0-5] New response created - cancelling recovery")
                             self._cancelled_response_needs_recovery = False
+                        # 🎯 P0-5: Reset retry flag for new response (allows recovery for this response)
+                        self._cancel_retry_attempted = False
                         # 🔥 BUILD 305: Reset gap detector for new response
                         # This prevents false "AUDIO GAP" warnings between responses
                         self._last_audio_chunk_ts = time.time()
@@ -3822,7 +3900,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
-                                print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
+                                print(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
                         
                         # 🔥 BARGE-IN FIX: Ensure flag is ALWAYS set (safety redundancy)
@@ -7021,67 +7099,113 @@ Greet briefly. Then WAIT for customer to speak."""
                             continue  # Don't enqueue audio during greeting
                         
                         if not self.barge_in_enabled_after_greeting:
-                            # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
-                            # This prevents OpenAI from transcribing its own voice output as user speech!
-                            # The AI's TTS audio echoes back through the phone line and causes hallucinations
-                            # 
-                            # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
-                            # So we can't just use RMS threshold - we must block ALL audio during AI speech
-                            # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
-                            
-                            # Track consecutive high-RMS frames for barge-in detection
-                            if not hasattr(self, '_echo_gate_consec_frames'):
-                                self._echo_gate_consec_frames = 0
-                            
-                            # Use calibrated noise floor for RMS-based speech detection
-                            # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
-                            noise_floor_rms = getattr(self, 'noise_floor', 100.0)
-                            # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
-                            rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
-                            is_above_speech = rms > rms_speech_threshold
-                            
-                            # Count consecutive frames above RMS speech threshold
-                            if is_above_speech:
-                                self._echo_gate_consec_frames += 1
+                            # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
+                            if SIMPLE_MODE:
+                                # SIMPLE_MODE = no guards, passthrough all audio + logs only
+                                pass  # Skip all echo gate logic
                             else:
-                                # Reset quickly when audio drops - echo is intermittent
-                                self._echo_gate_consec_frames = 0
-                            
-                            # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
-                            # Echo spikes are typically 1-3 frames, real speech is sustained
-                            # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
-                            is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
-                            
-                            if self.is_ai_speaking_event.is_set():
-                                # AI is actively speaking - block ALL audio UNLESS proven barge-in
-                                if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
-                                    # Block - this is echo or noise
-                                    if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
-                                        print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
-                                        self._echo_gate_logged = True
-                                    continue
-                                elif is_likely_real_speech:
-                                    # 5+ frames = real barge-in, let it through
-                                    if not hasattr(self, '_echo_barge_logged'):
-                                        print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
-                                        self._echo_barge_logged = True
-                            
-                            # Check echo decay period (800ms after AI stops speaking)
-                            if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
-                                echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
-                                if echo_decay_ms < POST_AI_COOLDOWN_MS:
-                                    # Still in echo decay period - block unless proven real speech
-                                    if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
-                                        if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
-                                            print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
-                                            self._echo_decay_logged = True
-                                        continue
-                                else:
-                                    # Echo decay complete - reset log flags for next AI response
-                                    self._echo_gate_logged = False
-                                    self._echo_decay_logged = False
-                                    self._echo_barge_logged = False
+                                # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
+                                # This prevents OpenAI from transcribing its own voice output as user speech!
+                                # The AI's TTS audio echoes back through the phone line and causes hallucinations
+                                # 
+                                # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
+                                # So we can't just use RMS threshold - we must block ALL audio during AI speech
+                                # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
+                                
+                                # Track consecutive high-RMS frames for barge-in detection
+                                if not hasattr(self, '_echo_gate_consec_frames'):
                                     self._echo_gate_consec_frames = 0
+                                
+                                # Use calibrated noise floor for RMS-based speech detection
+                                # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
+                                noise_floor_rms = getattr(self, 'noise_floor', 100.0)
+                                # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
+                                rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
+                                is_above_speech = rms > rms_speech_threshold
+                                
+                                # Count consecutive frames above RMS speech threshold
+                                if is_above_speech:
+                                    self._echo_gate_consec_frames += 1
+                                else:
+                                    # Reset quickly when audio drops - echo is intermittent
+                                    self._echo_gate_consec_frames = 0
+                                
+                                # ═══════════════════════════════════════════════════════════════
+                                # 🎯 P0-3: Stable Barge-In with Short Forwarding Window
+                                # ═══════════════════════════════════════════════════════════════
+                                # When AI is speaking:
+                                # 1. Block ALL audio by default (no echo to OpenAI)
+                                # 2. Local VAD runs continuously (RMS + consecutive frames)
+                                # 3. When VAD confirms real speech → open SHORT forwarding window (200-400ms)
+                                # 4. After window closes → back to blocking until next VAD confirmation
+                                # ═══════════════════════════════════════════════════════════════
+                                
+                                # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
+                                # Echo spikes are typically 1-3 frames, real speech is sustained
+                                # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
+                                is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
+                                
+                                # 🎯 P0-3: Short forwarding window (200-400ms) after VAD confirmation
+                                FORWARDING_WINDOW_MS = 300  # 300ms window after VAD confirms speech
+                                
+                                # Track forwarding window state
+                                if not hasattr(self, '_forwarding_window_open_ts'):
+                                    self._forwarding_window_open_ts = None
+                                
+                                # Open forwarding window when VAD confirms real speech
+                                if is_likely_real_speech and not self._forwarding_window_open_ts:
+                                    self._forwarding_window_open_ts = time.time()
+                                    print(f"🔓 [P0-3] Opening {FORWARDING_WINDOW_MS}ms forwarding window - VAD confirmed speech")
+                                
+                                # Check if forwarding window is still open
+                                window_is_open = False
+                                if self._forwarding_window_open_ts:
+                                    elapsed_ms = (time.time() - self._forwarding_window_open_ts) * 1000
+                                    if elapsed_ms < FORWARDING_WINDOW_MS:
+                                        window_is_open = True
+                                    else:
+                                        # Window expired - close it
+                                        self._forwarding_window_open_ts = None
+                                        print(f"🔒 [P0-3] Forwarding window closed after {elapsed_ms:.0f}ms")
+                                
+                                if self.is_ai_speaking_event.is_set():
+                                    # AI is actively speaking - block ALL audio UNLESS:
+                                    # 1. Barge-in already active (user confirmed to be speaking)
+                                    # 2. OpenAI speech detection active (bypass during user turn)
+                                    # 3. Forwarding window is open (short window after VAD confirmation)
+                                    if not self.barge_in_active and not self._realtime_speech_active and not window_is_open:
+                                        # Block - this is echo or noise
+                                        if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
+                                            print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
+                                            self._echo_gate_logged = True
+                                        continue
+                                    elif window_is_open:
+                                        # Forwarding window is open - let audio through
+                                        if not hasattr(self, '_forwarding_window_logged'):
+                                            print(f"📤 [P0-3] Forwarding audio through {FORWARDING_WINDOW_MS}ms window (frames={self._echo_gate_consec_frames})")
+                                            self._forwarding_window_logged = True
+                                
+                                # Check echo decay period (800ms after AI stops speaking)
+                                if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
+                                    echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
+                                    if echo_decay_ms < POST_AI_COOLDOWN_MS:
+                                        # Still in echo decay period - block unless:
+                                        # 1. OpenAI speech detection active
+                                        # 2. Barge-in active
+                                        # 3. Forwarding window is open
+                                        if not self._realtime_speech_active and not self.barge_in_active and not window_is_open:
+                                            if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
+                                                print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
+                                                self._echo_decay_logged = True
+                                            continue
+                                    else:
+                                        # Echo decay complete - reset log flags for next AI response
+                                        self._echo_gate_logged = False
+                                        self._echo_decay_logged = False
+                                        self._forwarding_window_logged = False
+                                        self._echo_gate_consec_frames = 0
+                                        # Also close forwarding window
+                                        self._forwarding_window_open_ts = None
                         else:
                             # Greeting finished - don't block user speech at all, let OpenAI detect barge-in
                             self._echo_gate_consec_frames = 0
@@ -7102,36 +7226,18 @@ Greet briefly. Then WAIT for customer to speak."""
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
                         
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🎯 TASK A.2: Confirm SIMPLE MODE behavior (Master QA)
+                        # 🎯 P0-4: SIMPLE_MODE Must Be Passthrough (Master Instruction)
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
-                        # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
-                        # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
-                        # 🔥 BUILD 320: AUDIO_GUARD - Intelligent filtering for noisy PSTN calls
+                        # ❌ NO guards in SIMPLE_MODE
+                        # ❌ NO frame dropping in SIMPLE_MODE  
+                        # ❌ NO echo_window in SIMPLE_MODE
+                        # ❌ NO hallucination filters in SIMPLE_MODE
+                        # ✅ Passthrough + logs only
+                        # ═══════════════════════════════════════════════════════════════════════
                         if SIMPLE_MODE:
-                            # 🔥 BUILD 320: Use AUDIO_GUARD for intelligent speech filtering
-                            # Replaces simple RMS threshold with dynamic noise floor + ZCR analysis
-                            if getattr(self, '_audio_guard_enabled', False):
-                                # Compute ZCR for this frame (need PCM16 data)
-                                zcr = self._compute_zcr(pcm16) if pcm16 else 0.0
-                                
-                                # 🛡️ During barge-in or active speech - BYPASS audio guard
-                                if self.barge_in_active or self._realtime_speech_active:
-                                    should_send_audio = True
-                                else:
-                                    # Apply intelligent audio guard
-                                    should_send_audio = self._update_audio_guard_state(rms, zcr)
-                            elif COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
-                                # Fallback: Simple RMS threshold if audio guard disabled
-                                should_send_audio = False
-                                if not hasattr(self, '_cost_silence_blocked'):
-                                    self._cost_silence_blocked = 0
-                                self._cost_silence_blocked += 1
-                                if self._cost_silence_blocked % 200 == 0:
-                                    print(f"💰 [COST SAVE] Blocked {self._cost_silence_blocked} silence frames (rms={rms:.0f} < {COST_MIN_RMS_THRESHOLD})")
-                            else:
-                                should_send_audio = True  # SIMPLE_MODE: send audio above threshold
-                            is_noise = False  # Trust OpenAI's VAD for actual noise filtering
+                            # 🔥 P0-4: SIMPLE_MODE = passthrough ONLY, trust OpenAI completely
+                            should_send_audio = True  # ALWAYS send in SIMPLE_MODE
+                            is_noise = False  # Trust OpenAI's VAD for noise filtering
                         elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
