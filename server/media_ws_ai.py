@@ -1633,6 +1633,10 @@ class MediaStreamHandler:
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
         self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
+        # ✅ NEW REQ 4: Add TTL tracking to prevent memory leak
+        self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
+        self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
+        self._cancelled_response_max_size = 100  # Cap at 100 entries
         
         # 🧘 BUILD 345: Post-greeting breathing window state
         self._post_greeting_breath_window_sec = 3.5
@@ -3302,6 +3306,8 @@ Greet briefly. Then WAIT for customer to speak."""
                 if response_id and response_id in self._cancelled_response_ids:
                     if event_type in ("response.done", "response.cancelled"):
                         self._cancelled_response_ids.discard(response_id)
+                        # ✅ NEW REQ 4: Also remove from timestamps dict
+                        self._cancelled_response_timestamps.pop(response_id, None)
                         print(f"🪓 [BARGE-IN] Ignoring final event for cancelled response {response_id[:20]}... (type={event_type})")
                     else:
                         # ✅ P0-3: Log when dropping audio delta for cancelled response
@@ -7329,9 +7335,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._barge_in_debug_counter += 1
                         
                         if self._barge_in_debug_counter % 50 == 0:
+                            # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning
+                            current_threshold = MIN_SPEECH_RMS
                             print(f"🔍 [BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
-                                  f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
+                                  f"rms={rms:.0f}, threshold={current_threshold:.0f}, voice_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
                         
                         # ✅ P0-2: Simple RMS-based voice detection (no complex noise gate)
                         # Trust that consecutive frames filter out short bursts
@@ -7369,12 +7377,12 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self.barge_in_voice_frames += 1
                                 # ✅ P0-2: Trigger barge-in only on sustained speech (240ms+)
                                 if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
-                                    # ✅ P0-2: Log barge-in trigger with all required info
-                                    print(f"[BARGE_IN_TRIGGER] rms={rms:.0f} consec={self.barge_in_voice_frames} "
+                                    # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning
+                                    print(f"[BARGE_IN_TRIGGER] rms={rms:.0f} threshold={speech_threshold:.0f} consec_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES} "
                                           f"ai_speaking={self.is_ai_speaking_event.is_set()} "
                                           f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
                                     logger.info(f"[BARGE-IN] User speech detected while AI speaking "
-                                              f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
+                                              f"(rms={rms:.1f}, threshold={speech_threshold:.1f}, frames={self.barge_in_voice_frames})")
                                     self._handle_realtime_barge_in()
                                     self.barge_in_voice_frames = 0
                                     continue
@@ -9860,10 +9868,40 @@ Greet briefly. Then WAIT for customer to speak."""
         print(f"🧘 [GREETING] Breathing window ended ({reason})")
 
     def _mark_response_cancelled_locally(self, response_id: Optional[str], source: str = ""):
-        """Remember responses we cancelled so late events can be ignored."""
+        """
+        Remember responses we cancelled so late events can be ignored.
+        
+        ✅ NEW REQ 4: Added TTL and size cap to prevent memory leaks
+        """
         if not response_id:
             return
+        
+        # ✅ NEW REQ 4: Cleanup old entries before adding new one
+        now = time.time()
+        
+        # Remove entries older than max_age
+        expired_ids = [
+            rid for rid, ts in self._cancelled_response_timestamps.items()
+            if now - ts > self._cancelled_response_max_age_sec
+        ]
+        for rid in expired_ids:
+            self._cancelled_response_ids.discard(rid)
+            del self._cancelled_response_timestamps[rid]
+        
+        if expired_ids:
+            print(f"🧹 [CLEANUP] Removed {len(expired_ids)} expired cancelled response IDs (>{self._cancelled_response_max_age_sec}s old)")
+        
+        # ✅ NEW REQ 4: If at max size, remove oldest entry
+        if len(self._cancelled_response_ids) >= self._cancelled_response_max_size:
+            # Find oldest entry
+            oldest_id = min(self._cancelled_response_timestamps.items(), key=lambda x: x[1])[0]
+            self._cancelled_response_ids.discard(oldest_id)
+            del self._cancelled_response_timestamps[oldest_id]
+            print(f"🧹 [CLEANUP] Removed oldest cancelled response ID (cap={self._cancelled_response_max_size})")
+        
+        # Add new entry
         self._cancelled_response_ids.add(response_id)
+        self._cancelled_response_timestamps[response_id] = now
         if source:
             print(f"🪓 [BARGE-IN] Marked response {response_id[:20]}... as cancelled ({source})")
     
@@ -11554,6 +11592,10 @@ Greet briefly. Then WAIT for customer to speak."""
             frames_this_cycle = 0
             cycle_start = time.monotonic()
             
+            # ✅ NEW REQ 2: Hard cap of 2 frames per tick to prevent bursts
+            MAX_FRAMES_PER_TICK = 2
+            frames_sent_this_tick = 0
+            
             try:
                 item = self.tx_q.get(timeout=0.5)
             except queue.Empty:
@@ -11571,6 +11613,17 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # Handle "media" event (both old format and new Realtime format)
             if item.get("type") == "media" or item.get("event") == "media":
+                # ✅ NEW REQ 2: Hard cap enforcement - don't send more than 2 frames per tick
+                if frames_sent_this_tick >= MAX_FRAMES_PER_TICK:
+                    # Put frame back in queue and wait for next tick
+                    try:
+                        self.tx_q.put_nowait(item)
+                    except queue.Full:
+                        pass  # Frame lost, but prevents burst
+                    # Sleep for one frame interval before continuing
+                    time.sleep(FRAME_INTERVAL)
+                    continue
+                
                 # ✅ P0-1: BURST PROTECTION - Cap frames per cycle to prevent "dumping"
                 queue_size = self.tx_q.qsize()
                 
@@ -11607,6 +11660,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
                         frames_this_cycle += 1
+                        frames_sent_this_tick += 1  # ✅ NEW REQ 2: Track for hard cap
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11624,6 +11678,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.tx += 1  # ✅ Increment tx counter!
                         frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
                         frames_this_cycle += 1
+                        frames_sent_this_tick += 1  # ✅ NEW REQ 2: Track for hard cap
                         # 🔥 PART C: Log first frame sent for tx=0 diagnostics
                         if not _first_frame_sent:
                             _first_frame_sent = True
@@ -11641,11 +11696,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Missed deadline - resync (but don't catch up too fast)
                     next_deadline = time.monotonic()
                 
-                # ✅ P0-1: Log TX pacing metrics (throttled - only if slow or high backlog)
+                # ✅ NEW REQ 2: Log TX pacing with sent_frames, backlog, and max_gap
                 now = time.monotonic()
                 cycle_duration_ms = (now - cycle_start) * 1000
                 if (cycle_duration_ms > 40 or queue_size > 500) and now - last_telemetry_time >= 0.5:
-                    print(f"[TX_PACE] sent_frames={frames_this_cycle} backlog_frames={queue_size} sleep_ms={delay*1000:.1f if delay > 0 else 0} cycle_ms={cycle_duration_ms:.1f}")
+                    print(f"[TX_PACE] sent_frames={frames_sent_this_tick}/{MAX_FRAMES_PER_TICK} backlog={queue_size} max_gap_ms={max_gap_ms:.1f}")
                 
                 # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
                 frame_gap_ms = (now - last_frame_time) * 1000.0
