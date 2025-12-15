@@ -1670,8 +1670,9 @@ class MediaStreamHandler:
         # When response is cancelled before any audio is sent (turn_detected), we need to trigger new response
         self._cancelled_response_needs_recovery = False
         self._cancelled_response_recovery_ts = 0
-        self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
+        self._cancelled_response_recovery_delay_sec = 0.25  # 🎯 P0-5: 250ms (200-300ms range)
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
+        self._cancel_retry_attempted = False  # 🎯 P0-5: Track if we already attempted retry (one retry only)
         
         # 🔥 BUILD 302: HARD BARGE-IN - When user speaks over AI, we hard-cancel everything
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
@@ -3419,14 +3420,30 @@ Greet briefly. Then WAIT for customer to speak."""
                             _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
                             # greeting_sent stays True to bypass GUARD for next response
                         
-                        # 🔥 BUILD 187: RECOVERY for cancelled responses with NO audio!
-                        # When user speaks/noise triggers turn_detected BEFORE AI sends any audio,
-                        # the response gets cancelled and no new one is created = silence.
-                        # Solution: Schedule a recovery response.create after short delay
-                        if status == "cancelled" and len(output) == 0 and self.user_has_spoken:
-                            _orig_print(f"🔄 [BUILD 187] Response cancelled with NO audio! Scheduling recovery...", flush=True)
-                            self._cancelled_response_needs_recovery = True
-                            self._cancelled_response_recovery_ts = time.time()
+                        # 🎯 P0-5: RECOVERY for false cancel (Master Instruction)
+                        # When response is cancelled before ANY audio was sent:
+                        # - Could be false positive (echo/noise triggered turn_detected)
+                        # - If user is NOT actually speaking, retry ONCE after 200-300ms
+                        # - This prevents silence when cancel was spurious
+                        #
+                        # Conditions for recovery (ALL must be true):
+                        # 1. status == "cancelled"
+                        # 2. frames_sent == 0 (no audio was delivered)
+                        # 3. !user_has_spoken (not a real user interruption)
+                        #
+                        # Safety: Only ONE retry per response (prevent loops)
+                        if status == "cancelled" and len(output) == 0 and not self.user_has_spoken:
+                            # Check if we already retried this response
+                            if not hasattr(self, '_cancel_retry_attempted'):
+                                self._cancel_retry_attempted = False
+                            
+                            if not self._cancel_retry_attempted:
+                                _orig_print(f"🔄 [P0-5] Response cancelled with NO audio and NO user speech - scheduling retry...", flush=True)
+                                self._cancelled_response_needs_recovery = True
+                                self._cancelled_response_recovery_ts = time.time()
+                                self._cancel_retry_attempted = True  # Mark that we're attempting retry
+                            else:
+                                _orig_print(f"⚠️ [P0-5] Response cancelled again - already attempted retry, not retrying again", flush=True)
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
@@ -3713,37 +3730,39 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
-                        print(f"🔄 [BUILD 187] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for OpenAI...")
+                        print(f"🔄 [P0-5] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for recovery...")
                         # Schedule a delayed recovery check in a separate task
                         async def _recovery_check():
                             await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
-                            # 🛡️ BUILD 187 HARDENED: Multiple guards to prevent double triggers
+                            # 🎯 P0-5: Multiple guards to prevent double triggers
                             # Guard 1: Check if recovery is still needed
                             if not self._cancelled_response_needs_recovery:
-                                print(f"🔄 [BUILD 187] Recovery cancelled - flag cleared")
+                                print(f"🔄 [P0-5] Recovery cancelled - flag cleared")
                                 return
                             # Guard 2: Check if AI is already speaking
                             if self.is_ai_speaking_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - AI already speaking")
+                                print(f"🔄 [P0-5] Recovery skipped - AI already speaking")
                                 return
                             # Guard 3: Check if there's a pending response
                             if self.response_pending_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - response pending")
+                                print(f"🔄 [P0-5] Recovery skipped - response pending")
                                 return
-                            # Guard 4: Check if speech is active (user still talking)
-                            if self._realtime_speech_active:
+                            # Guard 4: Check if user is speaking (prevents retry during real user speech)
+                            if self._realtime_speech_active or self.user_has_spoken:
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - user still speaking")
+                                print(f"🔄 [P0-5] Recovery skipped - user is speaking")
                                 return
                             
                             # All guards passed - trigger recovery via central function
                             # 🔥 BUILD 200: Use trigger_response for consistent response management
                             self._cancelled_response_needs_recovery = False  # Clear BEFORE triggering
-                            triggered = await self.trigger_response("BUILD_187_RECOVERY", client)
+                            triggered = await self.trigger_response("P0-5_FALSE_CANCEL_RECOVERY", client)
                             if not triggered:
-                                print(f"⚠️ [BUILD 187] Recovery was blocked by trigger_response guards")
+                                print(f"⚠️ [P0-5] Recovery was blocked by trigger_response guards")
+                            else:
+                                print(f"✅ [P0-5] Recovery response triggered successfully")
                         asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
@@ -3772,7 +3791,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._response_created_ts = time.time()
                         # 🔥 BUILD 187: Clear recovery flag - new response was created!
                         if self._cancelled_response_needs_recovery:
-                            print(f"🔄 [BUILD 187] New response created - cancelling recovery")
+                            print(f"🔄 [P0-5] New response created - cancelling recovery")
                             self._cancelled_response_needs_recovery = False
                         # 🔥 BUILD 305: Reset gap detector for new response
                         # This prevents false "AUDIO GAP" warnings between responses
@@ -3879,7 +3898,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
-                                print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
+                                print(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
                         
                         # 🔥 BARGE-IN FIX: Ensure flag is ALWAYS set (safety redundancy)
