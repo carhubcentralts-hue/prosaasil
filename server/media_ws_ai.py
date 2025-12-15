@@ -4948,10 +4948,9 @@ Greet briefly. Then WAIT for customer to speak."""
                                 if self._speak_exact_resend_count < 2:
                                     self._speak_exact_resend_count += 1
                                     print(f"🔁 [BUILD 339] Resending [SPEAK_EXACT] instruction (attempt {self._speak_exact_resend_count}/2)")
-                                    # 🔥 FIX: Clear stale state before resend
-                                    asyncio.create_task(self._send_server_event_to_ai(
-                                        f"[SPEAK_EXACT] עצור! אמרת פרטים שגויים. אמור בדיוק: \"{expected}\""
-                                    ))
+                                    # 🔥 FIX #2: Don't send server events - they get blocked anyway
+                                    # Instead, the AI will learn from conversation context
+                                    logger.info(f"[SPEAK_EXACT] AI deviated from expected text - will retry naturally")
                                 else:
                                     print(f"❌ [BUILD 339] Max resends reached - AI keeps deviating")
                                     # 🔥 FIX: Reset state to allow retry with fresh data
@@ -4997,10 +4996,11 @@ Greet briefly. Then WAIT for customer to speak."""
                                             f"Current: '{transcript[:50]}...' | "
                                             f"Previous: '{last_response[:50]}...'"
                                         )
-                                        # 🎯 G: Force pause to let user speak
-                                        asyncio.create_task(self._send_server_event_to_ai(
-                                            "[SYSTEM] אתה שואל את אותה שאלה שוב. המתן לתשובת הלקוח לפני שאתה ממשיך. הקשב בסבלנות."
-                                        ))
+                                        # 🔥 FIX #2: Anti-loop guard - Don't send server events
+                                        # Instead engage loop guard to prevent repeating
+                                        logger.warning(f"[ANTI_LOOP] Duplicate question - engaging loop guard")
+                                        self._loop_guard_engaged = True
+                                        self._loop_guard_reason = "duplicate_question"
                                 
                                 # Also check if similar to any of last 3 (general loop detection)
                                 if not is_repeating:
@@ -5137,9 +5137,9 @@ Greet briefly. Then WAIT for customer to speak."""
                             # 🛑 ENGAGE GUARD FIRST - before any other operations to prevent race conditions
                             self._loop_guard_engaged = True
                             
-                            # Send clarification request to AI before blocking
-                            clarification_text = "[SERVER] זיהיתי שאתה חוזר על עצמך. אמור: 'לא שמעתי טוב, אפשר לחזור?' ותמתין בשקט."
-                            asyncio.create_task(self._send_server_event_to_ai(clarification_text))
+                            # 🔥 FIX #2: Don't send server events - they get blocked
+                            # Loop guard is already engaged, that's enough
+                            logger.info(f"[LOOP_GUARD] Engaged - blocking responses until user speaks")
                             
                             # 🔥 BUILD 305: DON'T clear TX queue - causes choppy mid-sentence audio!
                             # Instead: just block NEW audio from being added via _tx_enqueue guard
@@ -5190,10 +5190,8 @@ Greet briefly. Then WAIT for customer to speak."""
                                 # LEGACY: Trigger NLP immediately to try to create the appointment
                                 print(f"🔥 [LEGACY GUARD] Triggering immediate NLP check to create appointment...")
                                 self._check_appointment_confirmation(transcript)
-                            # Send immediate correction event
-                            asyncio.create_task(self._send_server_event_to_ai(
-                                "⚠️ Appointment not yet confirmed by system"
-                            ))
+                            # 🔥 FIX #2: Don't send server events - they get blocked anyway
+                            logger.warning(f"[GUARD] AI confirmed without system approval - will handle via prompt")
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
@@ -6246,42 +6244,70 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
-                        # 🔥 SILENCE FAILSAFE: Start timeout waiting for AI response
-                        # If no response.created within 3 seconds, trigger fallback
-                        # Only trigger in ACTIVE state (not WARMUP or CLOSING)
+                        # 🔥 FIX #1: IMMEDIATE RESPONSE TRIGGER after transcription.completed
+                        # Problem: System was waiting for SILENCE_FAILSAFE (3s timeout) instead of responding immediately
+                        # Solution: Trigger response.create RIGHT NOW if conditions allow
+                        should_trigger_immediate_response = (
+                            self.call_state == CallState.ACTIVE and  # Call is active
+                            not self.active_response_id and  # No response already in progress
+                            not self.is_ai_speaking_event.is_set() and  # AI not speaking
+                            not getattr(self, '_waiting_for_dtmf', False)  # Not waiting for DTMF input
+                        )
+                        
+                        if should_trigger_immediate_response:
+                            # ✅ IMMEDIATE TRIGGER: User finished speaking → start response NOW (0-300ms target)
+                            logger.info(f"[TURN_TRIGGER] IMMEDIATE response.create after transcription.completed")
+                            _orig_print(f"⚡ [FIX #1] Triggering response.create IMMEDIATELY after STT (not waiting for silence)", flush=True)
+                            
+                            # Start latency tracking for this turn
+                            self._turn_trigger_reason = "STT_COMPLETED"
+                            
+                            # Trigger response immediately
+                            asyncio.create_task(self.trigger_response("STT_COMPLETED"))
+                        else:
+                            # Log why we didn't trigger
+                            skip_reason = []
+                            if self.call_state != CallState.ACTIVE:
+                                skip_reason.append(f"state={self.call_state.value}")
+                            if self.active_response_id:
+                                skip_reason.append(f"active_response={self.active_response_id[:20]}")
+                            if self.is_ai_speaking_event.is_set():
+                                skip_reason.append("ai_speaking=True")
+                            if getattr(self, '_waiting_for_dtmf', False):
+                                skip_reason.append("waiting_for_dtmf=True")
+                            logger.info(f"[TURN_TRIGGER] SKIPPED immediate response - {', '.join(skip_reason)}")
+                        
+                        # 🔥 SAFETY NET: If no response.created within 400ms, trigger fallback
+                        # This catches edge cases where OpenAI doesn't respond to response.create
                         if self.call_state == CallState.ACTIVE:
                             async def _response_timeout_check():
-                                """Wait for AI response - trigger fallback if no response"""
+                                """Safety net: trigger fallback if no response within 400ms"""
                                 try:
-                                    await asyncio.sleep(3.0)  # 3 second timeout
+                                    await asyncio.sleep(0.4)  # 400ms safety net (was 3s - too long!)
                                     
                                     # Check if response was created
                                     if not self.active_response_id and not self.is_ai_speaking_event.is_set():
                                         logger.warning(
-                                            "[SILENCE_FAILSAFE] No AI response within 3000ms – triggering fallback"
+                                            "[SAFETY_NET] No AI response within 400ms – triggering fallback"
                                         )
                                         
-                                        # Send polite fallback message
-                                        fallback_msg = "סליחה, יש לי קושי טכני רגעי. אשמח אם תוכל לחזור על מה שאמרת?"
-                                        await self._send_server_event_to_ai(f"[SERVER] {fallback_msg}")
-                                        
-                                        # Trigger response
-                                        await self.trigger_response("SILENCE_FAILSAFE_3S")
+                                        # Trigger response (no server event - just trigger)
+                                        await self.trigger_response("SAFETY_NET_400MS")
                                         
                                 except asyncio.CancelledError:
                                     # Normal cancellation when response arrives
-                                    logger.debug("[SILENCE_FAILSAFE] Cancelled - response arrived")
+                                    logger.debug("[SAFETY_NET] Cancelled - response arrived")
                                 except Exception as e:
-                                    logger.error(f"[SILENCE_FAILSAFE] Error in timeout check: {e}")
+                                    logger.error(f"[SAFETY_NET] Error in timeout check: {e}")
                             
                             # Cancel any previous timeout task
                             if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
                                 if not self._response_timeout_task.done():
                                     self._response_timeout_task.cancel()
                             
-                            # Start new timeout task
+                            # Start new timeout task (400ms instead of 3s)
                             self._response_timeout_task = asyncio.create_task(_response_timeout_check())
-                            logger.debug("[SILENCE_FAILSAFE] Started 3s response timeout")
+                            logger.debug("[SAFETY_NET] Started 400ms response timeout")
                         
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
@@ -6341,11 +6367,10 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self.call_state = CallState.CLOSING
                                     print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (user_goodbye, auto_end=True)")
                                 
-                                # If auto_end_on_goodbye is ON, send explicit instruction to AI
-                                if self.auto_end_on_goodbye:
-                                    asyncio.create_task(self._send_server_event_to_ai(
-                                        "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
-                                    ))
+                                # 🔥 FIX #2: Don't send server events - let AI handle goodbye naturally
+                                # The AI prompt already knows how to say goodbye politely
+                                # No need for [SERVER] messages that get blocked anyway
+                                logger.info(f"[GOODBYE] User said goodbye - AI will respond naturally per business prompt")
                                 
                                 # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
                                 asyncio.create_task(self._fallback_hangup_after_timeout(10, "user_goodbye"))
@@ -8027,34 +8052,18 @@ Greet briefly. Then WAIT for customer to speak."""
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK A.2: Confirm SIMPLE MODE behavior (Master QA)
                         # ═══════════════════════════════════════════════════════════════════════
-                        # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
-                        # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
-                        # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
-                        # 🔥 BUILD 320: AUDIO_GUARD - Intelligent filtering for noisy PSTN calls
+                        # 🔥 FIX #3: SIMPLE_MODE must NOT drop frames due to filtering
+                        # SIMPLE_MODE = silence monitoring only, NOT audio pipeline filtering
+                        # All audio MUST pass through to OpenAI for best STT quality
                         if SIMPLE_MODE:
-                            # 🔥 BUILD 320: Use AUDIO_GUARD for intelligent speech filtering
-                            # Replaces simple RMS threshold with dynamic noise floor + ZCR analysis
-                            if getattr(self, '_audio_guard_enabled', False):
-                                # Compute ZCR for this frame (need PCM16 data)
-                                zcr = self._compute_zcr(pcm16) if pcm16 else 0.0
-                                
-                                # 🛡️ During barge-in or active speech - BYPASS audio guard
-                                if self.barge_in_active or self._realtime_speech_active:
-                                    should_send_audio = True
-                                else:
-                                    # Apply intelligent audio guard
-                                    should_send_audio = self._update_audio_guard_state(rms, zcr)
-                            elif COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
-                                # Fallback: Simple RMS threshold if audio guard disabled
-                                should_send_audio = False
-                                if not hasattr(self, '_cost_silence_blocked'):
-                                    self._cost_silence_blocked = 0
-                                self._cost_silence_blocked += 1
-                                if self._cost_silence_blocked % 200 == 0:
-                                    print(f"💰 [COST SAVE] Blocked {self._cost_silence_blocked} silence frames (rms={rms:.0f} < {COST_MIN_RMS_THRESHOLD})")
-                            else:
-                                should_send_audio = True  # SIMPLE_MODE: send audio above threshold
-                            is_noise = False  # Trust OpenAI's VAD for actual noise filtering
+                            # 🎯 SIMPLE_MODE: Trust OpenAI's VAD completely - send ALL audio
+                            # No RMS filtering, no noise gates, no audio guard
+                            should_send_audio = True
+                            is_noise = False
+                            
+                            # 🎯 Log mode confirmation (first 3 frames only)
+                            if self._twilio_audio_chunks_sent <= 3:
+                                print(f"✅ [SIMPLE_MODE] Bypassing all audio filters - sending ALL frames to OpenAI")
                         elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
