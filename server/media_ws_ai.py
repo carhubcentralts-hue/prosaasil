@@ -3069,9 +3069,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
-                    # 🔥 BUILD 200: Track blocked audio stats
-                    self._stats_audio_blocked += 1
-                    # 🔥 BUILD 341: Count as dropped
+                    
+                    # 🔥 P0-4 FIX: In SIMPLE_MODE, don't count greeting protection as a filter violation
+                    # Greeting protection is necessary to prevent OpenAI from cancelling greeting
+                    # Only count as _stats_audio_blocked in non-SIMPLE_MODE
+                    if not SIMPLE_MODE:
+                        self._stats_audio_blocked += 1
+                    
+                    # 🔥 BUILD 341: Count as dropped in local counter (used for logging)
                     _frames_dropped += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
@@ -3246,8 +3251,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     # DO NOT send to OpenAI - just keep in preroll buffer
                     if _frames_in % 50 == 0:  # Log every 50 frames to avoid spam
                         print(f"🎤 [HALF-DUPLEX] Blocking audio to OpenAI - AI speaking (response_id={self.active_response_id[:15] if self.active_response_id else 'N/A'}, vad_frames={local_vad_frames})")
-                    # Track as blocked
-                    self._stats_audio_blocked += 1
+                    
+                    # 🔥 P0-4 FIX: In SIMPLE_MODE, don't count HALF-DUPLEX blocking as a filter violation
+                    # HALF-DUPLEX is necessary echo prevention, not an audio quality filter
+                    # Only count as _stats_audio_blocked in non-SIMPLE_MODE
+                    if not SIMPLE_MODE:
+                        self._stats_audio_blocked += 1
+                    
+                    # Track as dropped in local counter (used for logging)
                     _frames_dropped += 1
                     continue
                 
