@@ -2538,6 +2538,26 @@ class MediaStreamHandler:
             print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
             logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
             
+            # 🔥 BUG #7 FIX: PROMPT_BIND logging - verify dynamic prompt configuration
+            import hashlib
+            prompt_hash = hashlib.md5(full_prompt.encode() if full_prompt else b"").hexdigest()[:16]
+            call_goal = getattr(self, 'call_goal', 'unknown')
+            scheduling_enabled = getattr(self, 'call_config', None)
+            if scheduling_enabled:
+                scheduling_enabled = getattr(scheduling_enabled, 'enable_calendar_scheduling', False)
+            else:
+                scheduling_enabled = False
+            
+            logger.info(
+                f"[PROMPT_BIND] business_id={business_id_safe} prompt_hash={prompt_hash} "
+                f"direction={call_direction} call_goal={call_goal} scheduling={scheduling_enabled}"
+            )
+            _orig_print(
+                f"📋 [PROMPT_BIND] business={business_id_safe}, hash={prompt_hash}, "
+                f"direction={call_direction}, goal={call_goal}, scheduling={scheduling_enabled}",
+                flush=True
+            )
+            
             # Store full prompt for session.update after greeting
             self._full_prompt_for_upgrade = full_prompt
             self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
@@ -3510,6 +3530,9 @@ Greet briefly. Then WAIT for customer to speak."""
         Returns:
             True if response was triggered, False if blocked
         """
+        # 🔥 BUG #5 FIX: BOTTLE_NECK tracking - measure time to response.create
+        t_trigger_start = time.time()
+        
         # Use stored client if not provided
         _client = client or self.realtime_client
         if not _client:
@@ -3561,17 +3584,41 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"🛑 [RESPONSE GUARD] Too many consecutive responses ({self._consecutive_ai_responses}) - blocking ({reason})")
                     return False
         
+        # 🔥 BUG #5 FIX: BOTTLE_NECK - measure guard time
+        t_guards_done = time.time()
+        guards_ms = (t_guards_done - t_trigger_start) * 1000
+        
         # ✅ All guards passed - trigger response
         try:
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
+            
+            # 🔥 BUG #5 FIX: BOTTLE_NECK - measure send time
+            t_before_send = time.time()
             await _client.send_event({"type": "response.create"})
+            t_after_send = time.time()
+            
+            send_ms = (t_after_send - t_before_send) * 1000
+            total_ms = (t_after_send - t_trigger_start) * 1000
             
             # 🎯 MASTER "CALL QUALITY" - PART A1: Track response.create sent timestamp
             self._turn_response_create_sent_ts = time.time()
             
             # 🔥 BUILD 338: Track response.create count for cost debugging
             self._response_create_count += 1
-            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}]")
+            
+            # 🔥 BUG #5 FIX: BOTTLE_NECK logging - identify where time is spent
+            if total_ms > 300:
+                logger.warning(
+                    f"[BOTTLE_NECK] trigger_response SLOW: total={total_ms:.0f}ms "
+                    f"(guards={guards_ms:.0f}ms, send={send_ms:.0f}ms) reason={reason}"
+                )
+                _orig_print(
+                    f"⚠️ [BOTTLE_NECK] trigger_response took {total_ms:.0f}ms "
+                    f"(guards={guards_ms:.0f}ms + send={send_ms:.0f}ms) - target: <300ms",
+                    flush=True
+                )
+            
+            print(f"🎯 [BUILD 200] response.create triggered ({reason}) [TOTAL: {self._response_create_count}] [{total_ms:.0f}ms]")
             return True
         except Exception as e:
             # 🔓 CRITICAL: Clear lock immediately on failure
@@ -4462,6 +4509,25 @@ Greet briefly. Then WAIT for customer to speak."""
                             f"total(stop→audio1)={total_stop_to_audio1_ms:.0f}ms | "
                             f"direction={call_direction} business_id={business_id}"
                         )
+                        
+                        # 🔥 BUG #5 FIX: BOTTLE_NECK analysis - identify slow stages
+                        bottlenecks = []
+                        if commit_to_stt_ms > 800:
+                            bottlenecks.append(f"STT={commit_to_stt_ms:.0f}ms>800ms")
+                        if stt_to_create_ms > 300:
+                            bottlenecks.append(f"CREATE={stt_to_create_ms:.0f}ms>300ms_DB/LOCKS?")
+                        if create_to_audio1_ms > 1200:
+                            bottlenecks.append(f"AUDIO1={create_to_audio1_ms:.0f}ms>1200ms_OPENAI/NETWORK?")
+                        
+                        if bottlenecks:
+                            logger.warning(
+                                f"[BOTTLE_NECK] Turn latency bottlenecks detected: {', '.join(bottlenecks)}"
+                            )
+                            _orig_print(
+                                f"⚠️ [BOTTLE_NECK] Slow stages: {', '.join(bottlenecks)}",
+                                flush=True
+                            )
+                        
                         _orig_print(
                             f"[TURN_LATENCY] total={total_stop_to_audio1_ms:.0f}ms "
                             f"(stt={commit_to_stt_ms:.0f} + create={stt_to_create_ms:.0f} + audio1={create_to_audio1_ms:.0f})",
