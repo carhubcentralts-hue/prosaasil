@@ -659,6 +659,11 @@ def stream_ended():
     """Stream ended - trigger recording + fast response"""
     call_sid = request.form.get('CallSid', '')
     
+    # 🔥 VERIFICATION #1: Close handler from webhook
+    if call_sid:
+        from server.media_ws_ai import close_handler_from_webhook
+        close_handler_from_webhook(call_sid, "webhook_stream_ended")
+    
     # החזרה מיידית
     resp = make_response("", 204)
     resp.headers["Cache-Control"] = "no-store"
@@ -880,6 +885,11 @@ def call_status():
         if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled"]:
             # ✅ BUILD 106: Save with duration and direction
             save_call_status(call_sid, call_status_val, int(call_duration), direction)
+            
+            # 🔥 VERIFICATION #1: Close handler from webhook for terminal statuses
+            if call_sid:
+                from server.media_ws_ai import close_handler_from_webhook
+                close_handler_from_webhook(call_sid, f"webhook_call_status_{call_status_val}")
             
             # 🔥 CRITICAL FIX: Close WebSocket immediately on terminal call status
             # This prevents unnecessary Twilio charges from WebSocket staying open

@@ -930,6 +930,11 @@ _sessions_registry = {}  # call_sid -> {"session": StreamingSTTSession, "utteran
 _registry_lock = threading.RLock()
 MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "50"))
 
+# 🔥 SESSION LIFECYCLE: Handler registry for webhook-triggered close
+# Maps call_sid -> MediaStreamHandler instance for external close triggers
+_handler_registry = {}  # call_sid -> MediaStreamHandler
+_handler_registry_lock = threading.RLock()
+
 def _register_session(call_sid: str, session, tenant_id=None):
     """Register a new STT session for a call (thread-safe)"""
     with _registry_lock:
@@ -972,6 +977,41 @@ def _close_session(call_sid: str):
             if DEBUG: print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
         except Exception as e:
             if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
+
+def _register_handler(call_sid: str, handler):
+    """Register MediaStreamHandler for webhook-triggered close (thread-safe)"""
+    with _handler_registry_lock:
+        _handler_registry[call_sid] = handler
+        _orig_print(f"✅ [HANDLER_REGISTRY] Registered handler for {call_sid}", flush=True)
+
+def _get_handler(call_sid: str):
+    """Get MediaStreamHandler for a call (thread-safe)"""
+    with _handler_registry_lock:
+        return _handler_registry.get(call_sid)
+
+def _unregister_handler(call_sid: str):
+    """Remove handler from registry (thread-safe)"""
+    with _handler_registry_lock:
+        handler = _handler_registry.pop(call_sid, None)
+        if handler:
+            _orig_print(f"✅ [HANDLER_REGISTRY] Unregistered handler for {call_sid}", flush=True)
+        return handler
+
+def close_handler_from_webhook(call_sid: str, reason: str):
+    """
+    🔥 SESSION LIFECYCLE: Close handler from webhook (call_status, stream_ended)
+    
+    This is called by Twilio webhooks when call ends externally.
+    Returns True if handler was found and closed, False otherwise.
+    """
+    handler = _get_handler(call_sid)
+    if handler and hasattr(handler, 'close_session'):
+        _orig_print(f"🔥 [WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}", flush=True)
+        handler.close_session(reason)
+        return True
+    else:
+        _orig_print(f"⚠️ [WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})", flush=True)
+        return False
 
 def _create_dispatcher_callbacks(call_sid: str):
     """Create partial/final callbacks that route to the correct call's utterance"""
@@ -3912,18 +3952,20 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self.speaking_start_ts = now
                             self.is_ai_speaking_event.set()
                             self.is_playing_greeting = True
-                            try:
-                                self.realtime_audio_out_queue.put_nowait(audio_b64)
-                                # 🎯 PROBE 4: Track enqueue for rate monitoring
-                                self._enq_counter += 1
-                                now_mono = time.monotonic()
-                                if now_mono - self._enq_last_log_time >= 1.0:
-                                    qsize = self.realtime_audio_out_queue.qsize()
-                                    _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
-                                    self._enq_counter = 0
-                                    self._enq_last_log_time = now_mono
-                            except queue.Full:
-                                pass
+                            # 🔥 VERIFICATION #3: Block enqueue if closed
+                            if not self.closed:
+                                try:
+                                    self.realtime_audio_out_queue.put_nowait(audio_b64)
+                                    # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                    self._enq_counter += 1
+                                    now_mono = time.monotonic()
+                                    if now_mono - self._enq_last_log_time >= 1.0:
+                                        qsize = self.realtime_audio_out_queue.qsize()
+                                        _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                        self._enq_counter = 0
+                                        self._enq_last_log_time = now_mono
+                                except queue.Full:
+                                    pass
                             continue
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
@@ -4006,13 +4048,15 @@ Greet briefly. Then WAIT for customer to speak."""
                                 import base64
                                 # Generate 160-byte μ-law silence frames (0xFF = silence in μ-law)
                                 silence_frame = base64.b64encode(bytes([0xFF] * 160)).decode('utf-8')
-                                for _ in range(silence_frames_needed):
-                                    try:
-                                        self.realtime_audio_out_queue.put_nowait(silence_frame)
-                                        # 🎯 PROBE 4: Track enqueue for rate monitoring
-                                        self._enq_counter += 1
-                                    except queue.Full:
-                                        break
+                                # 🔥 VERIFICATION #3: Block silence fill if closed
+                                if not self.closed:
+                                    for _ in range(silence_frames_needed):
+                                        try:
+                                            self.realtime_audio_out_queue.put_nowait(silence_frame)
+                                            # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                            self._enq_counter += 1
+                                        except queue.Full:
+                                            break
                                 print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms) for {gap_ms:.0f}ms gap")
                         self._last_audio_chunk_ts = now
                         
@@ -4025,24 +4069,26 @@ Greet briefly. Then WAIT for customer to speak."""
                             audio_type = "[GREETING]" if self.is_playing_greeting else "[AI_TALK]"
                             print(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         
-                        try:
-                            self.realtime_audio_out_queue.put_nowait(audio_b64)
-                            # 🎯 PROBE 4: Track enqueue for rate monitoring
-                            self._enq_counter += 1
-                            now_mono = time.monotonic()
-                            if now_mono - self._enq_last_log_time >= 1.0:
-                                qsize = self.realtime_audio_out_queue.qsize()
-                                _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
-                                self._enq_counter = 0
-                                self._enq_last_log_time = now_mono
-                            # 🎯 TASK D.2: Track frames sent for this response
-                            response_id = event.get("response_id")
-                            if response_id and hasattr(self, '_response_tracking') and response_id in self._response_tracking:
-                                self._response_tracking[response_id]['frames_sent'] += 1
-                                if self._response_tracking[response_id]['first_audio_ts'] is None:
-                                    self._response_tracking[response_id]['first_audio_ts'] = time.time()
-                        except queue.Full:
-                            pass
+                        # 🔥 VERIFICATION #3: Block audio enqueue if closed
+                        if not self.closed:
+                            try:
+                                self.realtime_audio_out_queue.put_nowait(audio_b64)
+                                # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                self._enq_counter += 1
+                                now_mono = time.monotonic()
+                                if now_mono - self._enq_last_log_time >= 1.0:
+                                    qsize = self.realtime_audio_out_queue.qsize()
+                                    _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                    self._enq_counter = 0
+                                    self._enq_last_log_time = now_mono
+                                # 🎯 TASK D.2: Track frames sent for this response
+                                response_id = event.get("response_id")
+                                if response_id and hasattr(self, '_response_tracking') and response_id in self._response_tracking:
+                                    self._response_tracking[response_id]['frames_sent'] += 1
+                                    if self._response_tracking[response_id]['first_audio_ts'] is None:
+                                        self._response_tracking[response_id]['first_audio_ts'] = time.time()
+                            except queue.Full:
+                                pass
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
@@ -6819,16 +6865,44 @@ Greet briefly. Then WAIT for customer to speak."""
         # The realtime_stop_flag will make the async tasks exit naturally
         
         # STEP 5: Wait for TX thread to finish draining
-        _orig_print(f"   [5/7] Waiting for TX thread to drain...", flush=True)
-        if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
-            try:
-                self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
-                if self.tx_thread.is_alive():
-                    _orig_print(f"   ⚠️ TX thread still alive after 2s timeout", flush=True)
-                else:
-                    _orig_print(f"   ✅ TX thread drained and stopped", flush=True)
-            except:
-                pass
+        # 🔥 VERIFICATION #2: Only drain politely if AI initiated hangup
+        # If Twilio closed (call_status/stream_ended), clear queues immediately
+        ai_initiated = 'twilio' not in reason and 'call_status' not in reason and 'stream_ended' not in reason
+        
+        if ai_initiated:
+            _orig_print(f"   [5/7] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
+            if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
+                try:
+                    self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
+                    if self.tx_thread.is_alive():
+                        _orig_print(f"   ⚠️ TX thread still alive after 2s timeout", flush=True)
+                    else:
+                        _orig_print(f"   ✅ TX thread drained and stopped", flush=True)
+                except:
+                    pass
+        else:
+            # Twilio closed - clear queues immediately, no drain
+            _orig_print(f"   [5/7] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
+            if hasattr(self, 'tx_q'):
+                cleared = 0
+                while not self.tx_q.empty():
+                    try:
+                        self.tx_q.get_nowait()
+                        cleared += 1
+                    except:
+                        break
+                if cleared > 0:
+                    _orig_print(f"   🧹 Cleared {cleared} frames from TX queue", flush=True)
+            if hasattr(self, 'realtime_audio_out_queue'):
+                cleared = 0
+                while not self.realtime_audio_out_queue.empty():
+                    try:
+                        self.realtime_audio_out_queue.get_nowait()
+                        cleared += 1
+                    except:
+                        break
+                if cleared > 0:
+                    _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
         
         # STEP 6: Close Twilio WebSocket
         _orig_print(f"   [6/7] Closing Twilio WebSocket...", flush=True)
@@ -6843,12 +6917,13 @@ Greet briefly. Then WAIT for customer to speak."""
                 _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
         
         # STEP 7: Unregister session from registry
-        _orig_print(f"   [7/7] Unregistering session...", flush=True)
+        _orig_print(f"   [7/7] Unregistering session and handler...", flush=True)
         if self.call_sid:
             _close_session(self.call_sid)
-            _orig_print(f"   ✅ Session unregistered for call_sid={self.call_sid}", flush=True)
+            _unregister_handler(self.call_sid)
+            _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
         
-        _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
+        _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason}, ai_initiated={ai_initiated})", flush=True)
     
     def run(self):
         """⚡ BUILD 168.2: Streamlined main loop - minimal logging
@@ -7074,12 +7149,20 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
                         if self.phone_number:
                             self._update_lead_capture_state('phone', self.phone_number)
+                        
+                        # 🔥 SESSION LIFECYCLE: Register handler for webhook-triggered close
+                        if self.call_sid:
+                            _register_handler(self.call_sid, self)
                     else:
                         # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
                         self.stream_sid = evt.get("streamSid")
                         self.call_sid = evt.get("callSid")
                         self.phone_number = evt.get("from") or evt.get("phone_number")
                         self.to_number = evt.get("to") or evt.get("called")
+                        
+                        # 🔥 SESSION LIFECYCLE: Register handler for webhook-triggered close
+                        if self.call_sid:
+                            _register_handler(self.call_sid, self)
                         
                         # 🔥 BUILD 174: Outbound call parameters (direct format)
                         # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
@@ -8546,7 +8629,12 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         ⚡ BUILD 115.1: Enqueue with drop-oldest policy
         If queue is full, drop oldest frame and insert new one (Real-time > past)
+        🔥 VERIFICATION #3: Block enqueue when session is closed
         """
+        # 🔥 VERIFICATION #3: No enqueue after close
+        if self.closed:
+            return  # Silently drop - session is closing/closed
+        
         # 🛑 BUILD 165: LOOP GUARD - Block all audio except "clear" when engaged
         # 🔥 BUILD 178: Disabled for outbound calls
         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
