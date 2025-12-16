@@ -284,13 +284,16 @@ def start_outbound_calls():
                 
                 client = get_twilio_client()
                 
+                # 🔥 FIX: Add recordingStatusCallback to ensure recordings are linked to leads
                 twilio_call = client.calls.create(
                     to=normalized_phone,  # Use normalized phone
                     from_=from_phone,
                     url=webhook_url,
                     status_callback=f"https://{host}/webhook/call_status",
                     status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                    record=True
+                    record=True,
+                    recording_status_callback=f"https://{host}/webhook/handle_recording",
+                    recording_status_callback_event=['completed']
                 )
                 
                 call_log.call_sid = twilio_call.sid

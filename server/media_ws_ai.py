@@ -2444,9 +2444,11 @@ Greet briefly. Then WAIT for customer to speak."""
             # 🔥 BUILD 304: Changed to 'ash' - conversational male, lower pitch, no jumps
             # User reported coral was too high-pitched and had voice jumps
             # 'ash' = calm conversational male, better for professional calls
-            call_voice = "ash"
+            # 🔥 CRITICAL: ALWAYS use male voice - NEVER change based on customer gender!
+            # Male voice is locked for all calls regardless of customer gender detection
+            call_voice = "ash"  # Male voice - NEVER change this!
             self._call_voice = call_voice  # Store for session.update reuse
-            print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
+            print(f"🎤 [VOICE] Using voice={call_voice} (MALE) for entire call (business={self.business_id})")
             
             # 🔥 FIX: Calculate max_tokens based on greeting length
             # Long greetings (14 seconds = ~280 words in Hebrew) need 500+ tokens

@@ -229,27 +229,33 @@ def send_call_completed_webhook(
     print(f"[WEBHOOK]    phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
     print(f"[WEBHOOK]    duration={duration_sec}s, transcript={len(transcript or '')} chars, summary={len(summary or '')} chars")
     
+    # 🔥 FIX: Ensure ALL fields are properly serialized with NO null/undefined values
+    # Monday.com and n8n expect consistent field types
     data = {
         "call_id": str(call_id) if call_id else "",
         "lead_id": str(lead_id) if lead_id else "",
-        "phone": phone or "",
-        "customer_name": customer_name or "",
-        "city": city or "",
-        "raw_city": raw_city or "",
-        "city_confidence": city_confidence if city_confidence is not None else "",
-        "city_raw_attempts": city_raw_attempts or [],
-        "city_autocorrected": city_autocorrected,
-        "name_raw_attempts": name_raw_attempts or [],
-        "service_category": service_category or "",
-        "preferred_time": preferred_time or "",
+        "phone": str(phone) if phone else "",
+        "customer_name": str(customer_name) if customer_name else "",
+        "city": str(city) if city else "",
+        "raw_city": str(raw_city) if raw_city else "",
+        "city_confidence": float(city_confidence) if city_confidence is not None else 0.0,
+        "city_raw_attempts": list(city_raw_attempts) if city_raw_attempts else [],
+        "city_autocorrected": bool(city_autocorrected) if city_autocorrected else False,
+        "name_raw_attempts": list(name_raw_attempts) if name_raw_attempts else [],
+        "service_category": str(service_category) if service_category else "",
+        "preferred_time": str(preferred_time) if preferred_time else "",
         "started_at": started_at.isoformat() if started_at else "",
         "ended_at": ended_at.isoformat() if ended_at else datetime.utcnow().isoformat(),
-        "duration_sec": duration_sec,
-        "transcript": transcript or "",
-        "summary": summary or "",
-        "agent_name": agent_name or "Assistant",
-        "direction": direction,
-        "metadata": metadata or {}
+        "duration_sec": int(duration_sec) if duration_sec else 0,
+        "transcript": str(transcript) if transcript else "",
+        "summary": str(summary) if summary else "",
+        "agent_name": str(agent_name) if agent_name else "Assistant",
+        "direction": str(direction) if direction else "inbound",
+        "metadata": dict(metadata) if metadata else {},
+        # 🔥 Monday.com field mapping (alternative field names for compatibility)
+        "service": str(service_category) if service_category else "",  # Some integrations use "service" not "service_category"
+        "call_status": "completed",  # Explicit status for filtering
+        "call_direction": str(direction) if direction else "inbound"  # Alternative field name
     }
     
     # 🔥 BUILD 183: Pass direction for webhook routing
