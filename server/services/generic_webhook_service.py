@@ -5,6 +5,7 @@ Sends call data to n8n, Zapier, Monday.com, or any webhook endpoint
 import hashlib
 import hmac
 import json
+import logging
 import os
 import threading
 import time
@@ -12,6 +13,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "prosaas-webhook-secret-key")
 MAX_RETRIES = 3
@@ -61,11 +64,11 @@ def send_generic_webhook(
             try:
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
             except Exception as db_err:
-                print(f"[WEBHOOK] Could not load settings for business {business_id} (DB schema issue): {db_err}")
+                logger.error(f"[WEBHOOK] Could not load settings for business {business_id} (DB schema issue): {db_err}")
                 return False
             
             if not settings:
-                print(f"[WEBHOOK] No settings found for business {business_id}")
+                logger.warning(f"[WEBHOOK] No settings found for business {business_id}")
                 return False
             
             # 🔥 BUILD 183: Route webhook by call direction
@@ -73,10 +76,9 @@ def send_generic_webhook(
                 # Outbound calls: ONLY use outbound_webhook_url - no fallback
                 webhook_url = getattr(settings, 'outbound_webhook_url', None)
                 if not webhook_url:
-                    print(f"[WEBHOOK] ⚠️ No outbound webhook URL configured for business {business_id} - skipping webhook send")
-                    print(f"[WEBHOOK]    Direction: {direction}, Event: {event_type}")
+                    logger.warning(f"[WEBHOOK] No outbound webhook URL configured for business {business_id} - skipping webhook send (direction={direction}, event={event_type})")
                     return False
-                print(f"[WEBHOOK] ✅ Using outbound_webhook_url for business {business_id}: {webhook_url[:60]}...")
+                logger.info(f"[WEBHOOK] Using outbound_webhook_url for business {business_id}")
             elif direction == "inbound":
                 # Inbound calls: Use inbound_webhook_url, fallback to generic
                 inbound_url = getattr(settings, 'inbound_webhook_url', None)
@@ -84,21 +86,20 @@ def send_generic_webhook(
                 
                 webhook_url = inbound_url or generic_url
                 if not webhook_url:
-                    print(f"[WEBHOOK] ⚠️ No inbound/generic webhook URL configured for business {business_id}")
-                    print(f"[WEBHOOK]    Direction: {direction}, Event: {event_type}")
+                    logger.warning(f"[WEBHOOK] No inbound/generic webhook URL configured for business {business_id} (direction={direction}, event={event_type})")
                     return False
                 
                 if inbound_url:
-                    print(f"[WEBHOOK] ✅ Using inbound_webhook_url for business {business_id}: {webhook_url[:60]}...")
+                    logger.info(f"[WEBHOOK] Using inbound_webhook_url for business {business_id}")
                 else:
-                    print(f"[WEBHOOK] ✅ Using generic_webhook_url (fallback) for business {business_id}: {webhook_url[:60]}...")
+                    logger.info(f"[WEBHOOK] Using generic_webhook_url (fallback) for business {business_id}")
             else:
                 # Non-call events or unspecified: Use generic webhook
                 if not settings.generic_webhook_url:
-                    print(f"[WEBHOOK] ⚠️ No webhook URL configured for business {business_id}")
+                    logger.warning(f"[WEBHOOK] No webhook URL configured for business {business_id}")
                     return False
                 webhook_url = settings.generic_webhook_url
-                print(f"[WEBHOOK] ✅ Using generic_webhook_url for business {business_id}: {webhook_url[:60]}...")
+                logger.info(f"[WEBHOOK] Using generic_webhook_url for business {business_id}")
         
         if not webhook_url:
             return False
@@ -115,7 +116,7 @@ def send_generic_webhook(
         
         # 🔍 Enhanced logging: Show payload preview (first 300 chars for debugging)
         payload_preview = payload_json[:300] + "..." if len(payload_json) > 300 else payload_json
-        print(f"[WEBHOOK] 📦 Payload preview ({len(payload_json)} bytes): {payload_preview}")
+        logger.debug(f"[WEBHOOK] Payload preview ({len(payload_json)} bytes): {payload_preview}")
         
         headers = {
             "Content-Type": "application/json; charset=utf-8",
@@ -130,7 +131,7 @@ def send_generic_webhook(
             
             for attempt in range(MAX_RETRIES):
                 try:
-                    print(f"[WEBHOOK] Sending {event_type} to {current_url[:50]}... (attempt {attempt + 1})")
+                    logger.info(f"[WEBHOOK] Sending {event_type} to webhook (attempt {attempt + 1}/{MAX_RETRIES})")
                     
                     # Disable auto-redirects to handle them manually (preserve POST on redirect)
                     response = requests.post(
@@ -145,29 +146,27 @@ def send_generic_webhook(
                     if response.status_code in (301, 302, 307, 308):
                         redirect_url = response.headers.get('Location')
                         if redirect_url:
-                            print(f"[WEBHOOK] 🔀 Following redirect to: {redirect_url}")
+                            logger.info(f"[WEBHOOK] Following redirect to: {redirect_url}")
                             current_url = redirect_url
                             continue  # Retry with new URL
                     
                     if response.status_code >= 200 and response.status_code < 300:
-                        print(f"[WEBHOOK] ✅ Success: {event_type} sent to webhook")
-                        print(f"[WEBHOOK]    Status: {response.status_code}, Response: {response.text[:100]}")
+                        logger.info(f"[WEBHOOK] Successfully sent {event_type} (status: {response.status_code})")
                         return True
                     else:
-                        print(f"[WEBHOOK] ⚠️ Webhook returned error status {response.status_code}")
-                        print(f"[WEBHOOK]    Response body: {response.text[:200]}")
+                        logger.warning(f"[WEBHOOK] Webhook returned error status {response.status_code}, response: {response.text[:200]}")
                         
                 except requests.exceptions.Timeout:
-                    print(f"[WEBHOOK] ⏱️ Timeout on attempt {attempt + 1}")
+                    logger.warning(f"[WEBHOOK] Timeout on attempt {attempt + 1}/{MAX_RETRIES}")
                 except requests.exceptions.RequestException as e:
-                    print(f"[WEBHOOK] ❌ Request error on attempt {attempt + 1}: {e}")
+                    logger.warning(f"[WEBHOOK] Request error on attempt {attempt + 1}/{MAX_RETRIES}: {e}")
                 
                 if attempt < MAX_RETRIES - 1:
                     delay = RETRY_DELAYS[attempt]
-                    print(f"[WEBHOOK] Retrying in {delay}s...")
+                    logger.info(f"[WEBHOOK] Retrying in {delay}s...")
                     time.sleep(delay)
             
-            print(f"[WEBHOOK] ❌ Failed after {MAX_RETRIES} attempts")
+            logger.error(f"[WEBHOOK] Failed to send {event_type} after {MAX_RETRIES} attempts")
             return False
         
         thread = threading.Thread(target=send_with_retry, daemon=True)
@@ -227,11 +226,10 @@ def send_call_completed_webhook(
         recording_url: URL to call recording (if available)
     """
     # 🔍 Enhanced logging: Show all key parameters for debugging
-    print(f"[WEBHOOK] 📞 send_call_completed_webhook called:")
-    print(f"[WEBHOOK]    call_id={call_id}, business_id={business_id}, direction={direction}")
-    print(f"[WEBHOOK]    phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
-    print(f"[WEBHOOK]    duration={duration_sec}s, transcript={len(transcript or '')} chars, summary={len(summary or '')} chars")
-    print(f"[WEBHOOK]    recording_url={'Available' if recording_url else 'N/A'}")
+    logger.info(f"[WEBHOOK] send_call_completed_webhook called: call_id={call_id}, business_id={business_id}, direction={direction}")
+    logger.debug(f"[WEBHOOK] Details: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
+    logger.debug(f"[WEBHOOK] Content: duration={duration_sec}s, transcript={len(transcript or '')} chars, summary={len(summary or '')} chars")
+    logger.debug(f"[WEBHOOK] Recording: {'Available' if recording_url else 'N/A'}")
     
     # 🔥 FIX: Ensure ALL fields are properly serialized with NO null/undefined values
     # Monday.com and n8n expect consistent field types
