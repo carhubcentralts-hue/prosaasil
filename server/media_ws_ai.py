@@ -4149,13 +4149,13 @@ Greet briefly. Then WAIT for customer to speak."""
                                     if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
                                         print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
                                         # Queue is stuck - check if tx_running is False
-                                        if not getattr(self, 'tx_running', True):
+                                        if not getattr(self, 'tx_running', False):
                                             print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
                                             # Clear the stuck queue
                                             while not self.tx_q.empty():
                                                 try:
                                                     self.tx_q.get_nowait()
-                                                except:
+                                                except queue.Empty:
                                                     break
                                             print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
                                             break
