@@ -3202,7 +3202,12 @@ Greet briefly. Then WAIT for customer to speak."""
         1. Proper lifecycle tracking of active_response_id
         2. Loop guard protection
         3. Consistent logging
-        4. Cancel/replace pattern for barge-in (not blocking)
+        4. 🔥 FIX: NO blocking guards - cancel happens in barge-in handler only
+        
+        Cancel/replace pattern:
+        - response.cancel is called ONLY in speech_started handler when real barge-in detected
+        - This function never blocks based on active_response_id or is_ai_speaking
+        - Allows AI to finish speaking unless user actually interrupts
         
         Args:
             reason: Why we're creating a response (for logging)
@@ -3210,7 +3215,7 @@ Greet briefly. Then WAIT for customer to speak."""
             is_greeting: If True, this is the initial greeting - skip loop guard (first response)
             
         Returns:
-            True if response was triggered, False if blocked
+            True if response was triggered, False if blocked by lifecycle guards only
         """
         # Use stored client if not provided
         _client = client or self.realtime_client
@@ -3218,35 +3223,10 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
             return False
         
-        # 🔥 FIX: Cancel/replace pattern for barge-in (not blocking)
-        # If AI is currently speaking and user has new input, cancel current response and proceed
-        if self.active_response_id is not None:
-            response_id_preview = self.active_response_id[:20]
-            print(f"🔄 [BARGE_IN] Canceling active response {response_id_preview}... and creating new one ({reason})")
-            try:
-                await _client.send_event({
-                    "type": "response.cancel"
-                })
-                # Clear the active response ID so we can create new one
-                self.active_response_id = None
-            except asyncio.TimeoutError:
-                print(f"⚠️ [BARGE_IN] Timeout canceling response {response_id_preview}. Creating new response anyway.")
-                self.active_response_id = None
-            except websockets.exceptions.ConnectionClosed:
-                print(f"⚠️ [BARGE_IN] Connection closed during cancel. Creating new response anyway.")
-                self.active_response_id = None
-            except Exception as e:
-                print(f"⚠️ [BARGE_IN] Failed to cancel response {response_id_preview}: {e}. Creating new response anyway.")
-                self.active_response_id = None
-        
-        # 🛡️ GUARD 0: BUILD 303 - Wait for first user utterance after greeting
-        # Don't let AI auto-respond before user answers the greeting question
-        if self.awaiting_greeting_answer and not is_greeting:
-            if self._post_greeting_window_open():
-                print(f"⏸️ [RESPONSE GUARD] Breathing window active - waiting before prompting ({reason})")
-                return False
-            # Window elapsed - allow AI to gently follow-up, but still treat first utterance specially
-            print(f"⏳ [RESPONSE GUARD] Greeting window elapsed - allowing prompt ({reason})")
+        # 🔥 FIX: Cancel/replace ONLY on real barge-in (user speaking while AI speaking)
+        # Do NOT cancel just because active_response_id exists - let AI finish speaking
+        # Cancel only happens in the barge-in handler (speech_started event), not here
+        # This prevents cutting off AI mid-sentence when there's no actual interruption
         
         # 🔥 CRITICAL GUARD: Block response.create while user is speaking
         # This is THE key to proper turn-taking: wait until user finishes before responding
@@ -6921,6 +6901,13 @@ Greet briefly. Then WAIT for customer to speak."""
                 _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
             
             _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
+            _orig_print(f"🔒 [SHUTDOWN_VERIFICATION] After this point, NO MORE logs should appear for:", flush=True)
+            _orig_print(f"   ❌ BARGE-IN DEBUG / BARGE-IN CONFIRM", flush=True)
+            _orig_print(f"   ❌ WS_KEEPALIVE / TX_HEARTBEAT", flush=True)
+            _orig_print(f"   ❌ SILENCE Warning / SILENCE Monitor", flush=True)
+            _orig_print(f"   ❌ VAD State / Speech started/stopped", flush=True)
+            _orig_print(f"   ❌ Any audio processing logs", flush=True)
+            _orig_print(f"   ✅ WS_DONE and final cleanup logs are OK", flush=True)
     
     def run(self):
         """⚡ BUILD 168.2: Streamlined main loop - minimal logging
@@ -9789,6 +9776,9 @@ Greet briefly. Then WAIT for customer to speak."""
             while True:
                 # 🔥 BUILD 340 CRITICAL: Check state BEFORE sleeping to exit immediately
                 # This prevents AI from speaking during the sleep window after goodbye
+                if self.closed:
+                    print(f"🔇 [SILENCE] Monitor exiting - session closed")
+                    return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - call state is {self.call_state.value}")
                     return
@@ -9799,6 +9789,9 @@ Greet briefly. Then WAIT for customer to speak."""
                 await asyncio.sleep(2.0)  # Check every 2 seconds
                 
                 # 🔥 BUILD 339 CRITICAL: Check AGAIN after sleep (state may have changed during sleep)
+                if self.closed:
+                    print(f"🔇 [SILENCE] Monitor exiting - session closed (after sleep)")
+                    return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
                     return  # Use return, not break, to completely exit
