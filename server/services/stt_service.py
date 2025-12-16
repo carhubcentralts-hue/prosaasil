@@ -1,6 +1,6 @@
 """
-STT Service - Unified Speech-to-Text with Google v2 Primary + Whisper Fallback
-שירות תמלול מאוחד - Google STT v2 מהיר + Whisper כ-fallback
+STT Service - Whisper-only Speech-to-Text (Google DISABLED for production stability)
+שירות תמלול - רק Whisper (גוגל מנוטרל ליציבות)
 """
 import os
 import logging
@@ -9,9 +9,15 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
+# 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
+DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
+
+if DISABLE_GOOGLE:
+    log.info("🚫 Google STT DISABLED (DISABLE_GOOGLE=true) - using Whisper only")
+
 def transcribe_audio_file(audio_file_path: str, call_sid: Optional[str] = None) -> str:
     """
-    תמלול קובץ אודיו עם Google STT v2 (Primary) + Whisper (Fallback)
+    תמלול קובץ אודיו עם Whisper בלבד (Google DISABLED)
     
     Args:
         audio_file_path: נתיב לקובץ אודיו
@@ -20,16 +26,7 @@ def transcribe_audio_file(audio_file_path: str, call_sid: Optional[str] = None) 
     Returns:
         טקסט מתומלל בעברית
     """
-    # 1️⃣ נסה Google STT v2 קודם (מהיר מאוד!)
-    try:
-        text = _transcribe_with_google_v2(audio_file_path)
-        if text and len(text.strip()) > 3:
-            log.info(f"✅ Google STT v2 success for {call_sid}: {len(text)} chars")
-            return text
-    except Exception as e:
-        log.warning(f"Google STT v2 failed for {call_sid}, falling back to Whisper: {e}")
-    
-    # 2️⃣ Fallback ל-Whisper (איטי יותר אבל אמין)
+    # ✅ Use Whisper for transcription (Google STT is disabled)
     try:
         with open(audio_file_path, 'rb') as f:
             audio_bytes = f.read()
@@ -38,118 +35,48 @@ def transcribe_audio_file(audio_file_path: str, call_sid: Optional[str] = None) 
         text = transcribe_he(audio_bytes, call_sid)
         
         if text and len(text.strip()) > 3:
-            log.info(f"✅ Whisper fallback success for {call_sid}: {len(text)} chars")
+            log.info(f"✅ Whisper transcription success for {call_sid}: {len(text)} chars")
             return text
         else:
             log.warning(f"⚠️ Whisper returned empty for {call_sid}")
             return ""
             
     except Exception as e:
-        log.error(f"❌ Both Google STT and Whisper failed for {call_sid}: {e}")
+        log.error(f"❌ Whisper transcription failed for {call_sid}: {e}")
         return ""
 
 def _transcribe_with_google_v2(audio_file_path: str) -> str:
     """
-    תמלול עם Google Cloud Speech-to-Text v2 (מהיר!)
+    🚫 DISABLED - Google STT v2 is turned off for production stability
     
-    Args:
-        audio_file_path: נתיב לקובץ אודיו (MP3/WAV)
-        
-    Returns:
-        טקסט מתומלל בעברית
+    This function is deprecated and should not be called.
+    Use Whisper transcription instead.
     """
-    try:
-        from google.cloud import speech_v2 as speech
-        
-        # אתחול Client עם credentials
-        client = _get_google_client_v2()
-        
-        # קריאת קובץ אודיו
-        with open(audio_file_path, "rb") as f:
-            audio_content = f.read()
-        
-        # הגדרות תמלול עברית אוניברסליות
-        config = speech.RecognitionConfig(
-            auto_decoding_config=speech.AutoDetectDecodingConfig(),  # זיהוי פורמט אוטומטי
-            language_codes=["he-IL"],  # עברית
-            model="long",  # מודל ארוך (עד 5 דקות)
-            features=speech.RecognitionFeatures(
-                enable_automatic_punctuation=True,  # סימני פיסוק אוטומטיים
-                enable_word_time_offsets=False,  # לא צריך timestamps
-                profanity_filter=False,  # ללא סינון קללות
-            )
-        )
-        
-        # בקשת תמלול
-        request = speech.RecognizeRequest(
-            recognizer=f"projects/{_get_gcp_project_id()}/locations/global/recognizers/_",
-            config=config,
-            content=audio_content
-        )
-        
-        # שליחת בקשה לGoogle
-        response = client.recognize(request=request)
-        
-        # איסוף תוצאות
-        transcript_parts = []
-        for result in response.results:
-            if result.alternatives:
-                transcript_parts.append(result.alternatives[0].transcript)
-        
-        full_transcript = " ".join(transcript_parts).strip()
-        
-        return full_transcript
-        
-    except Exception as e:
-        log.error(f"Google STT v2 error: {e}")
-        raise
+    if DISABLE_GOOGLE:
+        log.warning("⚠️ _transcribe_with_google_v2 called but Google is DISABLED")
+        raise NotImplementedError("Google STT is disabled (DISABLE_GOOGLE=true)")
+    
+    log.error("❌ Google STT should not be used - DISABLE_GOOGLE flag should be set")
+    raise NotImplementedError("Google STT is disabled for production stability")
 
 def _get_google_client_v2():
-    """יצירת Google Speech v2 Client עם credentials"""
-    from google.cloud import speech_v2 as speech
-    import json
+    """
+    🚫 DISABLED - Google client creation is turned off
+    """
+    if DISABLE_GOOGLE:
+        log.warning("⚠️ _get_google_client_v2 called but Google is DISABLED")
+        return None
     
-    # נסה להשתמש ב-service account JSON
-    sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-    if sa_json:
-        try:
-            credentials_info = json.loads(sa_json)
-            from google.oauth2 import service_account
-            credentials = service_account.Credentials.from_service_account_info(credentials_info)
-            client = speech.SpeechClient(credentials=credentials)
-            log.info("✅ Google Speech v2 client initialized with service account")
-            return client
-        except Exception as e:
-            log.warning(f"Failed to use service account, falling back to default: {e}")
-    
-    # Fallback: default credentials
-    client = speech.SpeechClient()
-    log.info("✅ Google Speech v2 client initialized (default credentials)")
-    return client
+    raise NotImplementedError("Google STT client is disabled (DISABLE_GOOGLE=true)")
 
 def _get_gcp_project_id() -> str:
-    """קבלת GCP Project ID מהסביבה"""
-    # נסה מ-environment variable
-    project_id = os.getenv('GOOGLE_CLOUD_PROJECT') or os.getenv('GCP_PROJECT')
+    """
+    🚫 DISABLED - GCP project ID lookup is turned off
+    """
+    if DISABLE_GOOGLE:
+        return "disabled"
     
-    if project_id:
-        return project_id
-    
-    # נסה לחלץ מ-service account JSON
-    sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-    if sa_json:
-        try:
-            import json
-            credentials_info = json.loads(sa_json)
-            project_id = credentials_info.get('project_id')
-            if project_id:
-                return project_id
-        except:
-            pass
-    
-    # Fallback ברירת מחדל
-    log.warning("GCP project ID not found, using default 'my-project'")
-    return "my-project"
+    raise NotImplementedError("GCP project ID lookup is disabled (DISABLE_GOOGLE=true)")
 
 def transcribe_audio_bytes(audio_bytes: bytes, call_sid: Optional[str] = None) -> str:
     """
