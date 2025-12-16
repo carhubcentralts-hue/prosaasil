@@ -210,5 +210,6 @@ def start_periodic_warmup():
         log.info("🚫 Periodic warmup DISABLED (Google services are off)")
         return
     
-    log.warning("⚠️ Periodic warmup should not run - DISABLE_GOOGLE flag should be set")
-    # Don't start the warmup thread if somehow called
+    # If somehow called with DISABLE_GOOGLE=false, still don't start warmup
+    log.warning("⚠️ Periodic warmup requested but Google services should be disabled")
+    return

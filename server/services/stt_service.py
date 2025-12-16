@@ -26,11 +26,7 @@ def transcribe_audio_file(audio_file_path: str, call_sid: Optional[str] = None) 
     Returns:
         טקסט מתומלל בעברית
     """
-    # 🚫 Google STT is DISABLED - use Whisper only
-    if DISABLE_GOOGLE:
-        log.debug("Google STT disabled - using Whisper transcription")
-    
-    # ✅ Use Whisper for transcription
+    # ✅ Use Whisper for transcription (Google STT is disabled)
     try:
         with open(audio_file_path, 'rb') as f:
             audio_bytes = f.read()
