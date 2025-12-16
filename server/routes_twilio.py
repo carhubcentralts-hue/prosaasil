@@ -350,6 +350,9 @@ def incoming_call():
     ✅ BUILD 89: צור call_log מיד + TwiML with Twilio SDK + Parameter (CRITICAL!)
     ✅ BUILD 155: Support both GET and POST (Twilio may use either)
     """
+    t0 = time.time()
+    logger.info(f"[GREETING_PROFILER] incoming_call START at {t0}")
+    
     # ✅ BUILD 155: Support both GET (query params) and POST (form data)
     if request.method == "GET":
         call_sid = request.args.get("CallSid", "")
