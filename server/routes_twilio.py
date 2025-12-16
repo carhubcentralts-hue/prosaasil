@@ -657,7 +657,18 @@ def outbound_call():
 @require_twilio_signature
 def stream_ended():
     """Stream ended - trigger recording + fast response"""
-    call_sid = request.form.get('CallSid', '')
+    # 🔥 VERIFICATION #2: Extract call_sid with fallback for different formats
+    call_sid = request.form.get('CallSid') or request.form.get('callSid', '')
+    stream_sid = request.form.get('StreamSid') or request.form.get('streamSid', '')
+    
+    # Log for debugging
+    if not call_sid:
+        print(f"⚠️ [STREAM_ENDED] No CallSid in request - stream_sid={stream_sid}, form_keys={list(request.form.keys())}")
+    
+    # 🔥 VERIFICATION #1: Close handler from webhook
+    if call_sid:
+        from server.media_ws_ai import close_handler_from_webhook
+        close_handler_from_webhook(call_sid, "webhook_stream_ended")
     
     # החזרה מיידית
     resp = make_response("", 204)
@@ -673,10 +684,8 @@ def stream_ended():
         ).start()
         
     try:
-        call_sid = request.form.get('CallSid', 'N/A')
-        stream_sid = request.form.get('StreamSid', 'N/A') 
         status = request.form.get('Status', 'N/A')
-        print(f"STREAM_ENDED call={call_sid} stream={stream_sid} status={status}")
+        print(f"STREAM_ENDED call={call_sid or 'N/A'} stream={stream_sid or 'N/A'} status={status}")
     except:
         pass
         
@@ -880,6 +889,11 @@ def call_status():
         if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled"]:
             # ✅ BUILD 106: Save with duration and direction
             save_call_status(call_sid, call_status_val, int(call_duration), direction)
+            
+            # 🔥 VERIFICATION #1: Close handler from webhook for terminal statuses
+            if call_sid:
+                from server.media_ws_ai import close_handler_from_webhook
+                close_handler_from_webhook(call_sid, f"webhook_call_status_{call_status_val}")
             
             # 🔥 CRITICAL FIX: Close WebSocket immediately on terminal call status
             # This prevents unnecessary Twilio charges from WebSocket staying open
