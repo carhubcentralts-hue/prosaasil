@@ -203,6 +203,7 @@ def send_call_completed_webhook(
     name_raw_attempts: Optional[List[str]] = None,
     preferred_time: Optional[str] = None,
     customer_name: Optional[str] = None,
+    recording_url: Optional[str] = None,
     metadata: Optional[Dict] = None
 ) -> bool:
     """
@@ -212,6 +213,7 @@ def send_call_completed_webhook(
     BUILD 184: Added raw_city and city_confidence from fuzzy matching
     BUILD 185: Added city_raw_attempts, city_autocorrected, name_raw_attempts
               for STT accuracy tracking and majority voting
+    FIX: Added recording_url to ensure Monday/n8n always get recording link
     
     Args:
         phone: Caller phone number (normalized E.164 format preferred)
@@ -222,12 +224,14 @@ def send_call_completed_webhook(
         city_raw_attempts: List of all raw STT attempts for city (for debugging)
         city_autocorrected: Whether majority voting was used to correct STT
         name_raw_attempts: List of all raw STT attempts for name (for debugging)
+        recording_url: URL to call recording (if available)
     """
     # 🔍 Enhanced logging: Show all key parameters for debugging
     print(f"[WEBHOOK] 📞 send_call_completed_webhook called:")
     print(f"[WEBHOOK]    call_id={call_id}, business_id={business_id}, direction={direction}")
     print(f"[WEBHOOK]    phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
     print(f"[WEBHOOK]    duration={duration_sec}s, transcript={len(transcript or '')} chars, summary={len(summary or '')} chars")
+    print(f"[WEBHOOK]    recording_url={'Available' if recording_url else 'N/A'}")
     
     # 🔥 FIX: Ensure ALL fields are properly serialized with NO null/undefined values
     # Monday.com and n8n expect consistent field types
@@ -251,6 +255,7 @@ def send_call_completed_webhook(
         "summary": str(summary) if summary else "",
         "agent_name": str(agent_name) if agent_name else "Assistant",
         "direction": str(direction) if direction else "inbound",
+        "recording_url": str(recording_url) if recording_url else "",  # 🔥 FIX: Always include recording URL for Monday/n8n
         "metadata": dict(metadata) if metadata else {},
         # 🔥 Monday.com field mapping (alternative field names for compatibility)
         "service": str(service_category) if service_category else "",  # Some integrations use "service" not "service_category"
