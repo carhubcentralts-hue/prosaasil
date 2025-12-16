@@ -3221,15 +3221,23 @@ Greet briefly. Then WAIT for customer to speak."""
         # 🔥 FIX: Cancel/replace pattern for barge-in (not blocking)
         # If AI is currently speaking and user has new input, cancel current response and proceed
         if self.active_response_id is not None:
-            print(f"🔄 [BARGE_IN] Canceling active response {self.active_response_id[:20]}... and creating new one ({reason})")
+            response_id_preview = self.active_response_id[:20]
+            print(f"🔄 [BARGE_IN] Canceling active response {response_id_preview}... and creating new one ({reason})")
             try:
                 await _client.send_event({
                     "type": "response.cancel"
                 })
                 # Clear the active response ID so we can create new one
                 self.active_response_id = None
+            except asyncio.TimeoutError:
+                print(f"⚠️ [BARGE_IN] Timeout canceling response {response_id_preview}. Creating new response anyway.")
+                self.active_response_id = None
+            except websockets.exceptions.ConnectionClosed:
+                print(f"⚠️ [BARGE_IN] Connection closed during cancel. Creating new response anyway.")
+                self.active_response_id = None
             except Exception as e:
-                print(f"⚠️ [BARGE_IN] Failed to cancel response: {e}")
+                print(f"⚠️ [BARGE_IN] Failed to cancel response {response_id_preview}: {e}. Creating new response anyway.")
+                self.active_response_id = None
         
         # 🛡️ GUARD 0: BUILD 303 - Wait for first user utterance after greeting
         # Don't let AI auto-respond before user answers the greeting question
