@@ -5763,10 +5763,15 @@ Greet briefly. Then WAIT for customer to speak."""
         
         No noise floor checks, no guards - just stop everything instantly.
         """
+        # 🛡️ PROTECT GREETING - Never cancel during greeting playback!
+        if hasattr(self, 'is_playing_greeting') and self.is_playing_greeting:
+            print(f"🛡️ [SIMPLE_BARGE_IN] Ignoring - greeting still playing")
+            return
+        
         # 1) Cancel OpenAI current response
         try:
             if getattr(self, "active_response_id", None) and getattr(self, "realtime_client", None):
-                import asyncio
+                # Create event loop if needed (reuse pattern from _handle_realtime_barge_in)
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
@@ -5785,8 +5790,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"✅ [SIMPLE_BARGE_IN] Cancelled response {cancelled_id[:20] if cancelled_id else 'None'}...")
                 except Exception as cancel_err:
                     print(f"⚠️ [SIMPLE_BARGE_IN] Cancel failed: {cancel_err}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ [SIMPLE_BARGE_IN] Error during cancel: {e}")
         
         # 2) Hard stop: flush queued audio to Twilio
         try:
@@ -5797,12 +5802,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     try:
                         q.get_nowait()
                         cleared += 1
-                    except:
+                    except queue.Empty:
                         break
                 if cleared > 0:
                     print(f"✅ [SIMPLE_BARGE_IN] Flushed {cleared} frames from tx_q")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ [SIMPLE_BARGE_IN] Error during flush: {e}")
         
         # 3) Local flags (optional but helps)
         try:
@@ -5810,8 +5815,8 @@ Greet briefly. Then WAIT for customer to speak."""
                 self.is_ai_speaking_event.clear()
             self.speaking = False
             self.active_response_id = None
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ [SIMPLE_BARGE_IN] Error clearing flags: {e}")
         
         print(f"🛑 [SIMPLE_BARGE_IN] Stop complete (reason={reason})")
 
