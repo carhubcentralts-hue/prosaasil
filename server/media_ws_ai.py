@@ -6837,93 +6837,102 @@ Greet briefly. Then WAIT for customer to speak."""
         
         # From here on, we're guaranteed to run only once
         
-        # STEP 1: Set stop flags for all loops
-        _orig_print(f"   [1/7] Setting stop flags...", flush=True)
-        self.realtime_stop_flag = True
-        if hasattr(self, 'tx_running'):
-            self.tx_running = False
-        
-        # STEP 2: Signal queues to stop (sentinel values)
-        _orig_print(f"   [2/7] Sending stop signals to queues...", flush=True)
-        if hasattr(self, 'realtime_audio_in_queue') and self.realtime_audio_in_queue:
-            try:
-                self.realtime_audio_in_queue.put_nowait(None)
-            except:
-                pass
-        if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
-            try:
-                self.realtime_audio_out_queue.put_nowait(None)
-            except:
-                pass
-        
-        # STEP 3: Stop timers/watchdogs
-        _orig_print(f"   [3/7] Stopping timers and watchdogs...", flush=True)
-        # (Add any timer cleanup here if needed)
-        
-        # STEP 4: Close OpenAI connection
-        _orig_print(f"   [4/7] Closing OpenAI connection...", flush=True)
-        # The realtime_stop_flag will make the async tasks exit naturally
-        
-        # STEP 5: Wait for TX thread to finish draining
-        # 🔥 VERIFICATION #2: Only drain politely if AI initiated hangup
-        # If Twilio closed (call_status/stream_ended), clear queues immediately
-        ai_initiated = 'twilio' not in reason and 'call_status' not in reason and 'stream_ended' not in reason
-        
-        if ai_initiated:
-            _orig_print(f"   [5/7] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
-            if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
+        # 🔥 VERIFICATION: Wrap in try/finally to ensure cleanup even on exception
+        try:
+            # STEP 1: Set stop flags for all loops
+            _orig_print(f"   [1/7] Setting stop flags...", flush=True)
+            self.realtime_stop_flag = True
+            if hasattr(self, 'tx_running'):
+                self.tx_running = False
+            
+            # STEP 2: Signal queues to stop (sentinel values)
+            _orig_print(f"   [2/7] Sending stop signals to queues...", flush=True)
+            if hasattr(self, 'realtime_audio_in_queue') and self.realtime_audio_in_queue:
                 try:
-                    self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
-                    if self.tx_thread.is_alive():
-                        _orig_print(f"   ⚠️ TX thread still alive after 2s timeout", flush=True)
-                    else:
-                        _orig_print(f"   ✅ TX thread drained and stopped", flush=True)
+                    self.realtime_audio_in_queue.put_nowait(None)
                 except:
                     pass
-        else:
-            # Twilio closed - clear queues immediately, no drain
-            _orig_print(f"   [5/7] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
-            if hasattr(self, 'tx_q'):
-                cleared = 0
-                while not self.tx_q.empty():
+            if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
+                try:
+                    self.realtime_audio_out_queue.put_nowait(None)
+                except:
+                    pass
+            
+            # STEP 3: Stop timers/watchdogs
+            _orig_print(f"   [3/7] Stopping timers and watchdogs...", flush=True)
+            # (Add any timer cleanup here if needed)
+            
+            # STEP 4: Close OpenAI connection
+            _orig_print(f"   [4/7] Closing OpenAI connection...", flush=True)
+            # The realtime_stop_flag will make the async tasks exit naturally
+            
+            # STEP 5: Wait for TX thread to finish draining
+            # 🔥 VERIFICATION #2: Only drain politely if AI initiated hangup
+            # If Twilio closed (call_status/stream_ended), clear queues immediately
+            ai_initiated = 'twilio' not in reason and 'call_status' not in reason and 'stream_ended' not in reason
+            
+            if ai_initiated:
+                _orig_print(f"   [5/7] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
+                if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
                     try:
-                        self.tx_q.get_nowait()
-                        cleared += 1
+                        self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
+                        if self.tx_thread.is_alive():
+                            _orig_print(f"   ⚠️ TX thread still alive after 2s timeout", flush=True)
+                        else:
+                            _orig_print(f"   ✅ TX thread drained and stopped", flush=True)
                     except:
-                        break
-                if cleared > 0:
-                    _orig_print(f"   🧹 Cleared {cleared} frames from TX queue", flush=True)
-            if hasattr(self, 'realtime_audio_out_queue'):
-                cleared = 0
-                while not self.realtime_audio_out_queue.empty():
-                    try:
-                        self.realtime_audio_out_queue.get_nowait()
-                        cleared += 1
-                    except:
-                        break
-                if cleared > 0:
-                    _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
+                        pass
+            else:
+                # Twilio closed - clear queues immediately, no drain
+                _orig_print(f"   [5/7] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
+                if hasattr(self, 'tx_q'):
+                    cleared = 0
+                    while not self.tx_q.empty():
+                        try:
+                            self.tx_q.get_nowait()
+                            cleared += 1
+                        except:
+                            break
+                    if cleared > 0:
+                        _orig_print(f"   🧹 Cleared {cleared} frames from TX queue", flush=True)
+                if hasattr(self, 'realtime_audio_out_queue'):
+                    cleared = 0
+                    while not self.realtime_audio_out_queue.empty():
+                        try:
+                            self.realtime_audio_out_queue.get_nowait()
+                            cleared += 1
+                        except:
+                            break
+                    if cleared > 0:
+                        _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
+            
+            # STEP 6: Close Twilio WebSocket
+            _orig_print(f"   [6/7] Closing Twilio WebSocket...", flush=True)
+            try:
+                if hasattr(self.ws, 'close') and not self._ws_closed:
+                    self.ws.close()
+                    self._ws_closed = True
+                    _orig_print(f"   ✅ WebSocket closed", flush=True)
+            except Exception as e:
+                error_msg = str(e).lower()
+                if 'websocket.close' not in error_msg and 'asgi' not in error_msg:
+                    _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
         
-        # STEP 6: Close Twilio WebSocket
-        _orig_print(f"   [6/7] Closing Twilio WebSocket...", flush=True)
-        try:
-            if hasattr(self.ws, 'close') and not self._ws_closed:
-                self.ws.close()
-                self._ws_closed = True
-                _orig_print(f"   ✅ WebSocket closed", flush=True)
-        except Exception as e:
-            error_msg = str(e).lower()
-            if 'websocket.close' not in error_msg and 'asgi' not in error_msg:
-                _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
-        
-        # STEP 7: Unregister session from registry
-        _orig_print(f"   [7/7] Unregistering session and handler...", flush=True)
-        if self.call_sid:
-            _close_session(self.call_sid)
-            _unregister_handler(self.call_sid)
-            _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
-        
-        _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason}, ai_initiated={ai_initiated})", flush=True)
+        finally:
+            # STEP 7: Unregister session from registry - ALWAYS runs even on exception
+            _orig_print(f"   [7/7] Unregistering session and handler...", flush=True)
+            if self.call_sid:
+                try:
+                    _close_session(self.call_sid)
+                except Exception as e:
+                    _orig_print(f"   ⚠️ Error unregistering session: {e}", flush=True)
+                try:
+                    _unregister_handler(self.call_sid)
+                except Exception as e:
+                    _orig_print(f"   ⚠️ Error unregistering handler: {e}", flush=True)
+                _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
+            
+            _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
     
     def run(self):
         """⚡ BUILD 168.2: Streamlined main loop - minimal logging

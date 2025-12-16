@@ -657,7 +657,13 @@ def outbound_call():
 @require_twilio_signature
 def stream_ended():
     """Stream ended - trigger recording + fast response"""
-    call_sid = request.form.get('CallSid', '')
+    # 🔥 VERIFICATION #2: Extract call_sid with fallback for different formats
+    call_sid = request.form.get('CallSid') or request.form.get('callSid', '')
+    stream_sid = request.form.get('StreamSid') or request.form.get('streamSid', '')
+    
+    # Log for debugging
+    if not call_sid:
+        print(f"⚠️ [STREAM_ENDED] No CallSid in request - stream_sid={stream_sid}, form_keys={list(request.form.keys())}")
     
     # 🔥 VERIFICATION #1: Close handler from webhook
     if call_sid:
@@ -678,10 +684,8 @@ def stream_ended():
         ).start()
         
     try:
-        call_sid = request.form.get('CallSid', 'N/A')
-        stream_sid = request.form.get('StreamSid', 'N/A') 
         status = request.form.get('Status', 'N/A')
-        print(f"STREAM_ENDED call={call_sid} stream={stream_sid} status={status}")
+        print(f"STREAM_ENDED call={call_sid or 'N/A'} stream={stream_sid or 'N/A'} status={status}")
     except:
         pass
         
