@@ -5766,7 +5766,7 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         # Log deprecated usage for tracking
         logger.warning(f"[DEPRECATED] _send_server_event_to_ai called but does nothing. "
-                      f"Remove this call. Preview: '{message_text[:50]}'")
+                      f"Remove this call. Preview: '{message_text[:100]}'")
         return
     
     async def _send_silence_warning(self):
