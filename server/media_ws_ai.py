@@ -3203,6 +3203,7 @@ Greet briefly. Then WAIT for customer to speak."""
         2. Proper lifecycle tracking of active_response_id
         3. Loop guard protection
         4. Consistent logging
+        5. 🔥 FIX: No new responses while AI is speaking (prevents mid-sentence interruptions)
         
         Args:
             reason: Why we're creating a response (for logging)
@@ -3216,6 +3217,18 @@ Greet briefly. Then WAIT for customer to speak."""
         _client = client or self.realtime_client
         if not _client:
             print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
+            return False
+        
+        # 🔥 CRITICAL GUARD C: Block response.create while AI is speaking
+        # This prevents "doesn't finish sentences" issue - only allow new response after response.audio.done
+        audio_state = getattr(self, 'audio_state', None)
+        if audio_state and audio_state.is_ai_speaking:
+            print(f"🛑 [RESPONSE GUARD] AI is speaking - blocking new response until audio.done ({reason})")
+            return False
+        
+        # 🔥 CRITICAL GUARD C: Check if response is already active
+        if self.active_response_id is not None:
+            print(f"🛑 [RESPONSE GUARD] Active response in progress ({self.active_response_id[:20]}...) - blocking new response ({reason})")
             return False
         
         # 🛡️ GUARD 0: BUILD 303 - Wait for first user utterance after greeting
@@ -3247,11 +3260,6 @@ Greet briefly. Then WAIT for customer to speak."""
             # Clear the flag - AI can respond (but city is empty so it will ask dynamically)
             self._awaiting_user_correction = False
             print(f"🔄 [BUILD 308] User rejected - city cleared, AI will ask dynamically")
-        
-        # 🛡️ GUARD 1: Check if response is already active
-        if self.active_response_id is not None:
-            print(f"⏸️ [RESPONSE GUARD] Active response in progress ({self.active_response_id[:20]}...) - skipping ({reason})")
-            return False
         
         # 🛡️ GUARD 2: Check if response is pending (race condition prevention)
         if self.response_pending_event.is_set():
@@ -5567,41 +5575,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
                         # 🔥 SILENCE FAILSAFE: Start timeout waiting for AI response
-                        # If no response.created within 3 seconds, trigger fallback
-                        # Only trigger in ACTIVE state (not WARMUP or CLOSING)
-                        if self.call_state == CallState.ACTIVE:
-                            async def _response_timeout_check():
-                                """Wait for AI response - trigger fallback if no response"""
-                                try:
-                                    await asyncio.sleep(3.0)  # 3 second timeout
-                                    
-                                    # Check if response was created
-                                    if not self.active_response_id and not self.is_ai_speaking_event.is_set():
-                                        logger.warning(
-                                            "[SILENCE_FAILSAFE] No AI response within 3000ms – triggering fallback"
-                                        )
-                                        
-                                        # Send polite fallback message
-                                        fallback_msg = "סליחה, יש לי קושי טכני רגעי. אשמח אם תוכל לחזור על מה שאמרת?"
-                                        await self._send_server_event_to_ai(f"[SERVER] {fallback_msg}")
-                                        
-                                        # Trigger response
-                                        await self.trigger_response("SILENCE_FAILSAFE_3S")
-                                        
-                                except asyncio.CancelledError:
-                                    # Normal cancellation when response arrives
-                                    logger.debug("[SILENCE_FAILSAFE] Cancelled - response arrived")
-                                except Exception as e:
-                                    logger.error(f"[SILENCE_FAILSAFE] Error in timeout check: {e}")
-                            
-                            # Cancel any previous timeout task
-                            if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
-                                if not self._response_timeout_task.done():
-                                    self._response_timeout_task.cancel()
-                            
-                            # Start new timeout task
-                            self._response_timeout_task = asyncio.create_task(_response_timeout_check())
-                            logger.debug("[SILENCE_FAILSAFE] Started 3s response timeout")
+                        # 🔥 FIX: SILENCE_FAILSAFE completely removed
+                        # No synthetic fallback content should be sent to the model
+                        # If user spoke, AI should respond naturally or silence monitor handles it
                         
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
@@ -5771,22 +5747,16 @@ Greet briefly. Then WAIT for customer to speak."""
     
     async def _send_server_event_to_ai(self, message_text: str):
         """
-        🔥 DISABLED: Server events should NOT be sent as user input
+        🔥 COMPLETELY REMOVED: Server events should NOT be sent to the model
         
-        This function has been disabled because sending [SERVER] prefixed messages
-        with role="user" violates the "transcription is truth" principle.
-        The AI receives these as if the customer said them, causing confusion.
+        This function is a stub that does nothing. All calls to it are being removed.
+        Server-generated synthetic content should never be sent to the AI model.
         
         Args:
-            message_text: Message to send to AI (in Hebrew) - IGNORED
+            message_text: Message text - IGNORED (function does nothing)
         """
-        # 🔥 FIX: Do NOT send server events as user input
-        # The AI should respond based on actual user speech only, not synthetic server messages
-        
-        # 🔥 REQUIREMENT: Mandatory logging when blocking server events
-        logger.warning(f"[AI_INPUT_BLOCKED] kind=server_event reason=never_send_to_model text_preview='{message_text[:100]}'")
-        print(f"⚠️ [SERVER_EVENT] BLOCKED - server events disabled to prevent prompt confusion")
-        print(f"   └─ Would have sent: {message_text[:100]}")
+        # 🔥 FIX: Do nothing - this function should never inject synthetic content
+        # All callers of this function should be removed
         return
     
     async def _send_silence_warning(self):
@@ -9823,51 +9793,25 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"🔇 [SILENCE] Monitor exiting - pending_hangup=True")
                     return
                 
-                # 🔥 SILENCE FAILSAFE: Hard 10s timeout for total silence in ACTIVE state
-                # If absolutely no audio activity (no user, no AI) for 10s, trigger polite closing
-                # This prevents getting stuck in 10-20s silent gaps
-                # 🔥 FIX: In SIMPLE_MODE, skip hard timeout but allow regular silence monitoring below
-                silence_duration = time.time() - self._last_speech_time
-                if self.user_has_spoken and silence_duration >= 10.0 and not SIMPLE_MODE:
-                    # Hard timeout - 10s of total silence after user spoke
-                    if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                        logger.warning(
-                            f"[SILENCE_FAILSAFE] Hard timeout – ending call politely after 10s of silence"
-                        )
-                        print(f"🔇 [SILENCE_FAILSAFE] 10s total silence - triggering polite closing")
-                        
-                        # 🔥 METRICS: Increment 10s silence counter
-                        self._silence_10s_count += 1
-                        
-                        # Transition to CLOSING state
-                        self.call_state = CallState.CLOSING
-                        
-                        # Send polite closing message
-                        closing_msg = "תודה שהתקשרת. נשמח לעזור לך בפעם הבאה. יום נעים!"
-                        if self.call_config and self.call_config.closing_sentence:
-                            closing_msg = self.call_config.closing_sentence
-                        
-                        await self._send_text_to_ai(f"[SYSTEM] 10s silence detected. Say: {closing_msg}")
-                        
-                        # Schedule hangup after TTS
-                        await asyncio.sleep(3.0)
-                        self._trigger_auto_hangup("hard_silence_timeout_10s")
-                        return
+                # 🔥 FIX: SILENCE FAILSAFE completely removed - proper idle timeout instead
+                # Rule: 2 valid states only:
+                # 1. User never spoke + silence > 30s → close_session(idle_timeout)
+                # 2. User spoke + silence → End-of-utterance → AI must respond
                 
                 # 🔥 BUILD 312: NEVER count silence until user has spoken at least once!
                 # This prevents AI from responding "are you there?" before user says anything
                 if not self.user_has_spoken:
-                    # User hasn't spoken yet - extend grace period indefinitely
-                    # But add a safety limit of 60 seconds to avoid zombie calls
+                    # User hasn't spoken yet - check for idle timeout
+                    # But add a safety limit of 30 seconds to avoid zombie calls
                     if self.greeting_completed_at:
                         time_since_greeting = time.time() - self.greeting_completed_at
-                        if time_since_greeting > 60.0:
-                            # 60 seconds with no user speech - this is a dead call
-                            # But only close if call is still ACTIVE!
+                        if time_since_greeting > 30.0:
+                            # 30 seconds with no user speech - idle timeout
+                            # Close immediately without AI message
                             if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [SILENCE] 60s+ no user speech - closing dead call")
+                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
                                 self.call_state = CallState.CLOSING
-                                self._trigger_auto_hangup("no_user_speech_timeout")
+                                self._trigger_auto_hangup("idle_timeout_no_user_speech")
                             return
                     # Still waiting for user to speak - don't count silence
                     continue
@@ -9887,14 +9831,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
                         print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
                         
-                        # 🔥 BUILD 338 COST FIX: Only send AI prompt on LAST warning (not all warnings)
-                        # This reduces response.create calls by ~50% in silence scenarios
-                        if self._silence_warning_count >= self.silence_max_warnings:
-                            # Last warning - actually send AI prompt (but _send_silence_warning has its own guards)
+                        # 🔥 FIX: If user has spoken, ALWAYS trigger AI response (not dependent on SIMPLE_MODE)
+                        # This is end-of-utterance - AI must respond
+                        if self.user_has_spoken:
                             await self._send_silence_warning()
-                        else:
-                            # Not last warning - just log, don't spend tokens
-                            print(f"🔇 [SILENCE] Skipping AI prompt (cost optimization) - waiting for timeout")
                         
                         # Reset timer
                         self._last_speech_time = time.time()
