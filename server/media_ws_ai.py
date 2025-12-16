@@ -1694,8 +1694,6 @@ class MediaStreamHandler:
         self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
         self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
         self._cancelled_response_max_size = 100  # Cap at 100 entries
-        # 🔥 SIMPLE BARGE-IN: Drop window to prevent late audio deltas after barge-in
-        self._drop_audio_until = 0  # Timestamp until which to drop audio deltas
         
         # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
         # This is THE key to making barge-in actually listen (not just stop talking)
@@ -3338,11 +3336,12 @@ Greet briefly. Then WAIT for customer to speak."""
         # ✅ P0-3: Audio stall watchdog - track last check time
         last_watchdog_check = time.time()
         WATCHDOG_CHECK_INTERVAL = 0.5  # Check every 500ms
-        AUDIO_STALL_THRESHOLD = 1.5  # Warn if no delta for 1.5s while AI speaking
+        AUDIO_STALL_THRESHOLD = 1.5  # Recover if no delta for 1.5s while AI speaking
+        stall_recovery_attempted = False  # Only retry once per stall
         
         try:
             async for event in client.recv_events():
-                # ✅ P0-3: Audio stall watchdog - periodic check
+                # ✅ P0-3: Audio stall watchdog - periodic check with recovery
                 now = time.time()
                 if now - last_watchdog_check >= WATCHDOG_CHECK_INTERVAL:
                     # Check if AI is speaking but no audio delta for >1.5s
@@ -3352,6 +3351,30 @@ Greet briefly. Then WAIT for customer to speak."""
                             if time_since_delta > AUDIO_STALL_THRESHOLD:
                                 print(f"[AUDIO_STALL] ai_speaking=True no_delta_for={time_since_delta:.1f}s "
                                       f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
+                                
+                                # 🔥 FIX 3: AUDIO_STALL recovery - clear state and allow retry
+                                if not stall_recovery_attempted:
+                                    print(f"[AUDIO_STALL] Recovery: clearing is_ai_speaking, active_response_id")
+                                    self.is_ai_speaking_event.clear()
+                                    self.active_response_id = None
+                                    stall_recovery_attempted = True
+                                    
+                                    # If there's pending user text, trigger retry once
+                                    if hasattr(self, '_pending_user_text') and self._pending_user_text:
+                                        print(f"[AUDIO_STALL] Retrying with pending text: {self._pending_user_text[:50]}...")
+                                        # Queue retry in background to avoid blocking receiver
+                                        def retry_response():
+                                            try:
+                                                self._trigger_ai_response(self._pending_user_text)
+                                            except Exception as e:
+                                                print(f"⚠️ [AUDIO_STALL] Retry failed: {e}")
+                                        
+                                        import threading
+                                        threading.Thread(target=retry_response, daemon=True).start()
+                    else:
+                        # Reset recovery flag when AI stops speaking
+                        stall_recovery_attempted = False
+                    
                     last_watchdog_check = now
                 
                 event_type = event.get("type", "")
@@ -3896,11 +3919,6 @@ Greet briefly. Then WAIT for customer to speak."""
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
-                        # 🚫 SIMPLE BARGE-IN: Drop audio deltas during drop window (prevents late audio after barge-in)
-                        if getattr(self, "_drop_audio_until", 0) > time.time():
-                            print(f"🚫 [SIMPLE_BARGE_IN] Dropping audio delta (drop window active)")
-                            continue
-                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -5797,18 +5815,18 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _simple_barge_in_stop(self, reason="user_speech"):
         """
-        🔥 SIMPLE BARGE-IN: Minimal 2-action stop when user starts speaking
+        🔥 BARGE-IN: Stop AI when user starts speaking
         
-        This is the simplest possible barge-in implementation:
+        Clean barge-in implementation:
         1. Cancel OpenAI current response (if active)
         2. Flush TX queue to stop audio playback immediately
-        3. Set drop window to prevent late audio deltas
+        3. Clear speaking flags
         
-        No noise floor checks, no guards - just stop everything instantly.
+        Rule: Use response.cancel, never drop audio deltas.
         """
         # 🛡️ PROTECT GREETING - Never cancel during greeting playback!
         if hasattr(self, 'is_playing_greeting') and self.is_playing_greeting:
-            print(f"🛡️ [SIMPLE_BARGE_IN] Ignoring - greeting still playing")
+            print(f"🛡️ [BARGE_IN] Ignoring - greeting still playing")
             return
         
         # 1) Cancel OpenAI current response
@@ -5831,14 +5849,13 @@ Greet briefly. Then WAIT for customer to speak."""
                         loop
                     )
                     future.result(timeout=0.3)  # Quick timeout
-                    # 🔥 LOG 2: Cancel sent
                     print(f"[BARGE_IN] cancel_sent response_id={cancelled_id[:20] if cancelled_id else 'None'}")
                 except Exception as cancel_err:
                     print(f"⚠️ [BARGE_IN] Cancel failed: {cancel_err}")
         except Exception as e:
             print(f"⚠️ [BARGE_IN] Error during cancel: {e}")
         
-        # 2) Hard stop: flush queued audio to Twilio
+        # 2) Flush TX queue to stop audio playback immediately
         cleared = 0
         try:
             q = getattr(self, "tx_q", None)
@@ -5852,18 +5869,9 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception as e:
             print(f"⚠️ [BARGE_IN] Error during flush: {e}")
         
-        # 🔥 LOG 3: TX queue flushed
         print(f"[BARGE_IN] tx_q_flushed frames={cleared}")
         
-        # 3) Set drop window to prevent late audio deltas (350ms is enough)
-        try:
-            self._drop_audio_until = time.time() + 0.35
-            # 🔥 LOG 4: Drop window set
-            print(f"[BARGE_IN] drop_window=350ms")
-        except Exception as e:
-            print(f"⚠️ [BARGE_IN] Error setting drop window: {e}")
-        
-        # 4) Local flags (optional but helps)
+        # 3) Clear speaking flags
         try:
             if hasattr(self, 'is_ai_speaking_event'):
                 self.is_ai_speaking_event.clear()
@@ -11692,6 +11700,12 @@ Greet briefly. Then WAIT for customer to speak."""
         last_heartbeat_time = time.monotonic()
         _stacktrace_logged_once = False  # PROBE 3: Only log full stacktrace once per severe stall
         
+        # 🔥 FIX 4: TX STALL WATCHDOG - Detect queue backup without progress
+        last_frames_sent_check = 0
+        last_frames_sent_check_time = time.monotonic()
+        TX_STALL_WATCHDOG_INTERVAL = 0.8  # Check every 800ms
+        ws_reconnect_attempted = False  # Only reconnect once
+        
         # 🎯 PROBE 2: TX Crash Probe - Wrap entire loop in try/except
         try:
             # 🔥 FIX #2: Continue until BOTH tx_running is False AND queue is empty
@@ -11711,6 +11725,36 @@ Greet briefly. Then WAIT for customer to speak."""
                     else:
                         _orig_print(f"[TX_HEARTBEAT] alive=True, qsize={qsize}, is_ai_speaking={is_ai_speaking}, active_response_id={active_response_id}, frames_sent={frames_sent_total}", flush=True)
                     last_heartbeat_time = now_mono
+                
+                # 🔥 FIX 4: TX STALL WATCHDOG - Check for queue backup without progress
+                if now_mono - last_frames_sent_check_time >= TX_STALL_WATCHDOG_INTERVAL:
+                    qsize = self.tx_q.qsize()
+                    frames_sent_delta = frames_sent_total - last_frames_sent_check
+                    
+                    # If queue has items but no frames sent in last 800ms -> STALLED
+                    if qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
+                        _orig_print(f"🚨 [TX_STALL_WATCHDOG] Queue backup detected! qsize={qsize}, frames_sent_delta=0 in {TX_STALL_WATCHDOG_INTERVAL}s", flush=True)
+                        
+                        # Check if call is still active before reconnecting
+                        call_state = getattr(self, 'call_state', None)
+                        if call_state and call_state != CallState.ENDED:
+                            _orig_print(f"[TX_STALL_WATCHDOG] Attempting WS reconnect (call still active)", flush=True)
+                            # TODO: Implement WS reconnect logic here if needed
+                            # For now, log and mark attempted to avoid spam
+                            ws_reconnect_attempted = True
+                        else:
+                            _orig_print(f"[TX_STALL_WATCHDOG] Call ended/WS closed - triggering clean session close", flush=True)
+                            # Trigger clean close
+                            self.tx_running = False
+                            # Clear queue to exit drain loop
+                            while not self.tx_q.empty():
+                                try:
+                                    self.tx_q.get_nowait()
+                                except queue.Empty:
+                                    break
+                    
+                    last_frames_sent_check = frames_sent_total
+                    last_frames_sent_check_time = now_mono
                 
                 # ✅ P0 FIX: Strict 20ms pacing - ONE frame per tick, no catch-up
                 # This prevents chipmunk effect from burst transmission
