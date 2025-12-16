@@ -1647,6 +1647,10 @@ class MediaStreamHandler:
         # 🔥 SIMPLE BARGE-IN: Drop window to prevent late audio deltas after barge-in
         self._drop_audio_until = 0  # Timestamp until which to drop audio deltas
         
+        # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
+        # This is THE key to making barge-in actually listen (not just stop talking)
+        self.user_speaking = False  # True from speech_started until speech_stopped+transcription.completed
+        
         # ✅ P0 FIX: Track which response IDs we've sent cancel for (prevent duplicate cancel)
         self._cancel_sent_for_response_ids = set()  # Response IDs we've already sent cancel event for
         
@@ -3190,6 +3194,12 @@ Greet briefly. Then WAIT for customer to speak."""
             # Window elapsed - allow AI to gently follow-up, but still treat first utterance specially
             print(f"⏳ [RESPONSE GUARD] Greeting window elapsed - allowing prompt ({reason})")
         
+        # 🔥 CRITICAL GUARD: Block response.create while user is speaking
+        # This is THE key to proper turn-taking: wait until user finishes before responding
+        if getattr(self, 'user_speaking', False):
+            print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
+            return False
+        
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
         # Don't let AI start new conversation loops after call should end
         if getattr(self, 'pending_hangup', False):
@@ -3642,6 +3652,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
                     self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
                     
+                    # 🔥 CRITICAL: Set user_speaking=True to block response.create until user finishes
+                    # This is THE KEY to proper turn-taking: AI won't interrupt user mid-speech
+                    self.user_speaking = True
+                    print(f"🛑 [TURN_TAKING] user_speaking=True - response.create blocked until speech complete")
+                    
                     # 🔄 ADAPTIVE: Set confirmation flag for barge-in second signal
                     # This confirms OpenAI's VAD detected real speech (not just RMS threshold)
                     if self.is_ai_speaking_event.is_set():
@@ -3756,6 +3771,10 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
                         self._openai_speech_started_confirmed = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
+                    # Don't allow response.create between speech_stopped and transcription
+                    print(f"⏸️ [TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
                     
                     # 🔥 FIX BUG 2: Start timeout for user turn finalization
                     # If no transcription arrives within 1.8s, finalize the turn anyway
@@ -4925,6 +4944,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
                     
+                    # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
+                    # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
+                    self.user_speaking = False
+                    print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
+                    
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
                     if is_filler_only:
@@ -5777,6 +5801,7 @@ Greet briefly. Then WAIT for customer to speak."""
             return
         
         # 1) Cancel OpenAI current response
+        cancelled_id = None
         try:
             if getattr(self, "active_response_id", None) and getattr(self, "realtime_client", None):
                 # Create event loop if needed (reuse pattern from _handle_realtime_barge_in)
@@ -5795,34 +5820,37 @@ Greet briefly. Then WAIT for customer to speak."""
                         loop
                     )
                     future.result(timeout=0.3)  # Quick timeout
-                    print(f"✅ [SIMPLE_BARGE_IN] Cancelled response {cancelled_id[:20] if cancelled_id else 'None'}...")
+                    # 🔥 LOG 2: Cancel sent
+                    print(f"[BARGE_IN] cancel_sent response_id={cancelled_id[:20] if cancelled_id else 'None'}")
                 except Exception as cancel_err:
-                    print(f"⚠️ [SIMPLE_BARGE_IN] Cancel failed: {cancel_err}")
+                    print(f"⚠️ [BARGE_IN] Cancel failed: {cancel_err}")
         except Exception as e:
-            print(f"⚠️ [SIMPLE_BARGE_IN] Error during cancel: {e}")
+            print(f"⚠️ [BARGE_IN] Error during cancel: {e}")
         
         # 2) Hard stop: flush queued audio to Twilio
+        cleared = 0
         try:
             q = getattr(self, "tx_q", None)
             if q:
-                cleared = 0
                 while True:
                     try:
                         q.get_nowait()
                         cleared += 1
                     except queue.Empty:
                         break
-                if cleared > 0:
-                    print(f"✅ [SIMPLE_BARGE_IN] Flushed {cleared} frames from tx_q")
         except Exception as e:
-            print(f"⚠️ [SIMPLE_BARGE_IN] Error during flush: {e}")
+            print(f"⚠️ [BARGE_IN] Error during flush: {e}")
+        
+        # 🔥 LOG 3: TX queue flushed
+        print(f"[BARGE_IN] tx_q_flushed frames={cleared}")
         
         # 3) Set drop window to prevent late audio deltas (350ms is enough)
         try:
             self._drop_audio_until = time.time() + 0.35
-            print(f"🚫 [SIMPLE_BARGE_IN] Drop window set for 350ms")
+            # 🔥 LOG 4: Drop window set
+            print(f"[BARGE_IN] drop_window=350ms")
         except Exception as e:
-            print(f"⚠️ [SIMPLE_BARGE_IN] Error setting drop window: {e}")
+            print(f"⚠️ [BARGE_IN] Error setting drop window: {e}")
         
         # 4) Local flags (optional but helps)
         try:
@@ -5831,9 +5859,9 @@ Greet briefly. Then WAIT for customer to speak."""
             self.speaking = False
             self.active_response_id = None
         except Exception as e:
-            print(f"⚠️ [SIMPLE_BARGE_IN] Error clearing flags: {e}")
+            print(f"⚠️ [BARGE_IN] Error clearing flags: {e}")
         
-        print(f"🛑 [SIMPLE_BARGE_IN] Stop complete (reason={reason})")
+        print(f"🛑 [BARGE_IN] Stop complete (reason={reason})")
 
     async def _check_appointment_confirmation_async(self):
         """
@@ -7440,7 +7468,8 @@ Greet briefly. Then WAIT for customer to speak."""
                                 # 🔥 SIMPLE BARGE-IN: Trigger immediately when threshold met (3 frames = 60ms)
                                 # No OpenAI confirmation, no complex guards - just stop!
                                 if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
-                                    print(f"[SIMPLE_BARGE_IN_TRIGGER] rms={rms:.0f} threshold={speech_threshold:.0f} frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
+                                    # 🔥 LOG 1: Barge-in triggered
+                                    print(f"[BARGE_IN] triggered rms={rms:.0f} threshold={speech_threshold:.0f} frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES} is_ai_speaking={self.is_ai_speaking_event.is_set()} active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
                                     self._simple_barge_in_stop()
                                     self.barge_in_voice_frames = 0
                                     continue
