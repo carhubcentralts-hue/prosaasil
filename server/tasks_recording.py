@@ -795,25 +795,30 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
                 log.info("PostgreSQL call status updated: %s -> %s (duration=%s)", call_sid, status, duration)
                 
                 # ✅ Update OutboundCallJob if this is part of a bulk run
+                # 🔥 GUARD: Protect against missing outbound_call_jobs table
                 if status in ["completed", "busy", "no-answer", "failed", "canceled"]:
-                    job = OutboundCallJob.query.filter_by(call_sid=call_sid).first()
-                    if job:
-                        job.status = "completed" if status == "completed" else "failed"
-                        job.completed_at = datetime.utcnow()
-                        
-                        # Update run counts
-                        run = OutboundCallRun.query.get(job.run_id)
-                        if run:
-                            run.in_progress_count = max(0, run.in_progress_count - 1)
-                            if job.status == "completed":
-                                run.completed_count += 1
-                            else:
-                                run.failed_count += 1
-                                if job.error_message:
-                                    run.last_error = job.error_message[:500]
-                        
-                        db.session.commit()
-                        log.info(f"[BulkCall] Updated job {job.id} status: {job.status}")
+                    try:
+                        job = OutboundCallJob.query.filter_by(call_sid=call_sid).first()
+                        if job:
+                            job.status = "completed" if status == "completed" else "failed"
+                            job.completed_at = datetime.utcnow()
+                            
+                            # Update run counts
+                            run = OutboundCallRun.query.get(job.run_id)
+                            if run:
+                                run.in_progress_count = max(0, run.in_progress_count - 1)
+                                if job.status == "completed":
+                                    run.completed_count += 1
+                                else:
+                                    run.failed_count += 1
+                                    if job.error_message:
+                                        run.last_error = job.error_message[:500]
+                            
+                            db.session.commit()
+                            log.info(f"[BulkCall] Updated job {job.id} status: {job.status}")
+                    except Exception as outbound_err:
+                        # 🔥 GUARD: If outbound_call_jobs table doesn't exist, log and continue
+                        log.warning(f"[BulkCall] Could not update OutboundCallJob (table may not exist): {outbound_err}")
             else:
                 log.warning("Call SID not found for status update: %s", call_sid)
         

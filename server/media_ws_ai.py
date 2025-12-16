@@ -2372,6 +2372,26 @@ class MediaStreamHandler:
                 print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
                 print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
                 print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
+                
+                # 🔥 VERIFICATION: Ensure pre-built prompt matches current call direction
+                # Check if the prompt was built for the correct direction
+                prompt_direction_check = "outbound" if "outbound" in full_prompt.lower() or self.call_direction == "outbound" else "inbound"
+                if prompt_direction_check != call_direction:
+                    print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt may not match call direction!")
+                    print(f"   Expected: {call_direction}, Detected: {prompt_direction_check}")
+                    print(f"   Rebuilding prompts to ensure correct direction...")
+                    # Rebuild with correct direction
+                    try:
+                        from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
+                        app = _get_flask_app()
+                        with app.app_context():
+                            compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
+                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                            print(f"✅ [PROMPT] Rebuilt with correct direction: {call_direction}")
+                    except Exception as rebuild_err:
+                        print(f"❌ [PROMPT] Failed to rebuild: {rebuild_err}")
+                else:
+                    print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
             
             # Use compact for initial greeting (fast!)
             greeting_prompt_to_use = compact_prompt
@@ -6899,6 +6919,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 BUILD 174: Outbound call parameters
                         # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
                         self.call_direction = custom_params.get("direction", "inbound")
+                        
+                        # 🔥 VERIFICATION: Log call_direction to detect inbound/outbound confusion
+                        print(f"🔍 [CALL_DIRECTION] Set from customParameters: {self.call_direction}")
+                        _orig_print(f"[CALL_DIRECTION] call_sid={self.call_sid[:8]}... direction={self.call_direction}", flush=True)
+                        
                         self.outbound_lead_id = custom_params.get("lead_id")
                         self.outbound_lead_name = custom_params.get("lead_name")
                         self.outbound_template_id = custom_params.get("template_id")
@@ -6939,6 +6964,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 BUILD 174: Outbound call parameters (direct format)
                         # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
                         self.call_direction = evt.get("direction", "inbound")
+                        
+                        # 🔥 VERIFICATION: Log call_direction to detect inbound/outbound confusion
+                        print(f"🔍 [CALL_DIRECTION] Set from direct format: {self.call_direction}")
+                        _orig_print(f"[CALL_DIRECTION] call_sid={self.call_sid[:8]}... direction={self.call_direction}", flush=True)
+                        
                         self.outbound_lead_id = evt.get("lead_id")
                         self.outbound_lead_name = evt.get("lead_name")
                         self.outbound_template_id = evt.get("template_id")
