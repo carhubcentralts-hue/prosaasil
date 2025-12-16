@@ -7657,41 +7657,9 @@ Greet briefly. Then WAIT for customer to speak."""
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, threshold={current_threshold:.0f}, voice_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
                         
-                        # 🔥 SIMPLE BARGE-IN: Minimal logic - just detect user speech and stop
-                        # No noise floor, no guards - trust the voice_frames threshold
-                        
-                        # Only allow barge-in if AI is speaking
-                        if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
-                            # 🔥 BARGE-IN: Always enabled (unless explicitly disabled or waiting for DTMF)
-                            # Allow user to interrupt at ANY time during AI speech
-                            if not self.barge_in_enabled:
-                                self.barge_in_voice_frames = 0
-                                continue
-                            
-                            # 🛡️ PROTECT GREETING: Never barge-in during greeting playback!
-                            # (Allow barge-in AFTER greeting starts, just not during the audio file playback)
-                            if self.is_playing_greeting:
-                                self.barge_in_voice_frames = 0
-                                continue
-                            
-                            # 🔥 SIMPLE: Use MIN_SPEECH_RMS for threshold (no complex noise floor)
-                            speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
-                            
-                            # 🔥 SIMPLE: Count frames above threshold
-                            if rms >= speech_threshold:
-                                self.barge_in_voice_frames += 1
-                                # 🔥 SIMPLE BARGE-IN: Trigger immediately when threshold met (3 frames = 60ms)
-                                # No OpenAI confirmation, no complex guards - just stop!
-                                if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
-                                    # 🔥 LOG 1: Barge-in triggered
-                                    print(f"[BARGE_IN] triggered rms={rms:.0f} threshold={speech_threshold:.0f} frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES} is_ai_speaking={self.is_ai_speaking_event.is_set()} active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
-                                    self._simple_barge_in_stop()
-                                    self.barge_in_voice_frames = 0
-                                    continue
-
-                            else:
-                                # Voice dropped below threshold - gradual reset
-                                self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 2)
+                        # 🔥 FIX 2: Barge-in moved to speech_started ONLY
+                        # No RMS-based barge-in here - trust OpenAI VAD in speech_started event
+                        # This section previously had RMS-based barge-in logic (removed)
                     
                     # 🔥 BUILD 165: Calibration already done above (before audio routing)
                     # No duplicate calibration needed here
