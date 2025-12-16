@@ -3592,55 +3592,19 @@ Greet briefly. Then WAIT for customer to speak."""
                                 # Do NOT mark candidate_user_speaking, do NOT start utterance, do NOT trigger barge-in
                                 continue
                     
-                    # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
-                    # Instead of ignoring, treat this as valid input and stop the greeting
+                    # 🔥 SIMPLIFIED BARGE-IN: User can interrupt at ANY time
+                    # Remove all greeting protections and grace periods
+                    # If user speaks, AI stops immediately - no exceptions
+                    
+                    # Handle greeting barge-in
                     if self.is_playing_greeting:
-                        print(f"⛔ [BARGE-IN GREETING] User started talking during greeting - stopping greeting!")
+                        print(f"⛔ [BARGE-IN] User interrupted greeting - stopping immediately")
                         self.is_playing_greeting = False
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()
-                        
-                        # 🔥 BUILD 303: User is answering the greeting question
                         self.awaiting_greeting_answer = True
-                        self.greeting_completed_at = time.time()  # Mark greeting as done
+                        self.greeting_completed_at = time.time()
                         self._post_greeting_window_active = False
                         self._post_greeting_window_finished = True
-                        
-                        # Flush TX queue to stop greeting audio
-                        try:
-                            self._flush_twilio_tx_queue(reason="GREETING_BARGE_IN")
-                        except Exception as e:
-                            print(f"   ⚠️ Error flushing TX queue: {e}")
-                        
-                        # Cancel any pending response (with duplicate guard)
-                        try:
-                            cancelled_id = self.active_response_id
-                            if self.realtime_client and cancelled_id and self._should_send_cancel(cancelled_id):
-                                await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(cancelled_id),
-                                    timeout=0.5
-                                )
-                                self._mark_response_cancelled_locally(cancelled_id, "greeting_barge")
-                        except Exception:
-                            pass
-                        
-                        self.active_response_id = None
-                        self.response_pending_event.clear()
-                        self.is_ai_speaking_event.clear()
-                        
-                        # Enable barge-in for rest of call
                         self.barge_in_enabled_after_greeting = True
-                        print(f"   ✅ [BARGE-IN GREETING] Greeting stopped, listening to user...")
-                    
-                    # 🔥 BUILD 187: RESPONSE GRACE PERIOD - Ignore speech_started within 500ms of response.created
-                    # This prevents echo/noise from cancelling the response before audio starts
-                    RESPONSE_GRACE_PERIOD_MS = 500
-                    response_created_ts = getattr(self, '_response_created_ts', 0)
-                    time_since_response = (time.time() - response_created_ts) * 1000 if response_created_ts else 99999
-                    if time_since_response < RESPONSE_GRACE_PERIOD_MS and self.active_response_id:
-                        print(f"🛡️ [BUILD 187 GRACE] Ignoring speech_started - only {time_since_response:.0f}ms since response.created (grace={RESPONSE_GRACE_PERIOD_MS}ms)")
-                        # Don't mark user_has_spoken, don't bypass noise gate - just ignore this event
-                        continue
                     
                     # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
                     # 🔥 BUILD 341: REMOVED early user_has_spoken=True on RMS detection
@@ -6790,6 +6754,17 @@ Greet briefly. Then WAIT for customer to speak."""
                 if self._limit_exceeded:
                     print(f"🛑 [BUILD 331] LIMIT_EXCEEDED flag detected in main loop - exiting immediately")
                     break
+                
+                # 🔥 CRITICAL FIX: Check if call ended externally (call_status webhook)
+                # This prevents WebSocket from staying open after call completes
+                if self.call_sid:
+                    session = stream_registry.get(self.call_sid)
+                    if session.get('ended'):
+                        end_reason = session.get('end_reason', 'external_signal')
+                        print(f"🛑 [CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
+                        self.hangup_triggered = True
+                        self.call_state = CallState.ENDED
+                        break
                 
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None

@@ -896,6 +896,16 @@ def call_status():
         if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled"]:
             # ✅ BUILD 106: Save with duration and direction
             save_call_status(call_sid, call_status_val, int(call_duration), direction)
+            
+            # 🔥 CRITICAL FIX: Close WebSocket immediately on terminal call status
+            # This prevents unnecessary Twilio charges from WebSocket staying open
+            if call_sid:
+                session = stream_registry.get(call_sid)
+                if session:
+                    print(f"🛑 [CALL_STATUS] Call {call_status_val} - triggering WebSocket close for {call_sid}")
+                    # Mark session as ended to trigger cleanup
+                    session['ended'] = True
+                    session['end_reason'] = f'call_status_{call_status_val}'
     except Exception:
         current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
     
