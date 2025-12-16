@@ -349,11 +349,7 @@ def incoming_call():
     """
     ✅ BUILD 89: צור call_log מיד + TwiML with Twilio SDK + Parameter (CRITICAL!)
     ✅ BUILD 155: Support both GET and POST (Twilio may use either)
-    🔥 GREETING OPTIMIZATION: Profile full greeting path for latency analysis
     """
-    t0 = time.time()
-    logger.info(f"[GREETING_PROFILER] incoming_call START at {t0}")
-    
     # ✅ BUILD 155: Support both GET (query params) and POST (form data)
     if request.method == "GET":
         call_sid = request.args.get("CallSid", "")
@@ -380,22 +376,11 @@ def incoming_call():
         
         if business:
             business_id = business.id
-            print(f"✅ Resolved business_id={business_id} from to_number={to_number} (Business: {business.name})")
         else:
-            print(f"⚠️ No business found for to_number={to_number}")
-            # Debug: show what we have
-            all_businesses = Business.query.filter_by(is_active=True).all()
-            print(f"📋 Active businesses: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
-    
-    # Fallback: עסק פעיל ראשון
-    if not business_id:
-        business = Business.query.filter_by(is_active=True).first()
-        if business:
-            business_id = business.id
-            print(f"⚠️ Using fallback active business_id={business_id}")
-        else:
-            print(f"❌ No active business found for to_number={to_number}")
-            business_id = None  # Will create call_log without business association
+            # Fallback: עסק פעיל ראשון
+            business = Business.query.filter_by(is_active=True).first()
+            if business:
+                business_id = business.id
     
     # BUILD 174: Check inbound call concurrency limits
     if business_id:
@@ -429,11 +414,8 @@ def incoming_call():
                 )
                 db.session.add(call_log)
                 db.session.commit()
-                print(f"✅ call_log created immediately for {call_sid}")
-            else:
-                print(f"✅ call_log already exists for {call_sid}")
         except Exception as e:
-            print(f"⚠️ Failed to create call_log immediately: {e}")
+            logger.error(f"Failed to create call_log: {e}")
             db.session.rollback()
     
     # בנה host נכון - PUBLIC_HOST מקבל עדיפות ראשונה!
@@ -455,7 +437,6 @@ def incoming_call():
     # 🎧 BUILD: Echo prevention - no greeting duplication
     # Recording starts AFTER stream ends (in stream_ended webhook)
     # This ensures clean recordings without AI greeting echo
-    print(f"[CALL_SETUP] Greeting mode: ai_only (no static Play/Say)")
     
     # ✅ Connect + Stream - Minimal required parameters
     # track="inbound_track" ensures only user audio is sent to AI (not AI's own voice)

@@ -490,7 +490,8 @@ def process_recording_async(form_data):
                             agent_name=business.name or "Assistant",
                             direction=direction,
                             city=extracted_city,
-                            service_category=extracted_service
+                            service_category=extracted_service,
+                            recording_url=call_log.recording_url  # 🔥 FIX: Always include recording URL
                         )
                         
                         if webhook_sent:
