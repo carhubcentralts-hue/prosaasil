@@ -1092,9 +1092,9 @@ RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
 RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
-# BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
-# ✅ P0-2: Updated to 12 frames (240ms) to filter short fillers while staying responsive
-BARGE_IN_VOICE_FRAMES = 12     # 12 frames = 240ms continuous speech to trigger barge-in - filters "um", "ah"
+# BARGE-IN - Responsive interruption detection (40-60ms for immediate response)
+# 🔥 SIMPLE MODE: Reduced to 2-3 frames for instant barge-in feel
+BARGE_IN_VOICE_FRAMES = 3     # 3 frames = 60ms continuous speech to trigger barge-in - immediate feel
 
 # TX BURST PROTECTION - Prevent chipmunk effect from audio bursts
 # ✅ P0-1: Constants for queue backlog management
@@ -5753,6 +5753,68 @@ Greet briefly. Then WAIT for customer to speak."""
         else:
             print(f"[TURN_END] AI response already in progress - no action needed")
     
+    def _simple_barge_in_stop(self, reason="user_speech"):
+        """
+        🔥 SIMPLE BARGE-IN: Minimal 2-action stop when user starts speaking
+        
+        This is the simplest possible barge-in implementation:
+        1. Cancel OpenAI current response (if active)
+        2. Flush TX queue to stop audio playback immediately
+        
+        No noise floor checks, no guards - just stop everything instantly.
+        """
+        # 1) Cancel OpenAI current response
+        try:
+            if getattr(self, "active_response_id", None) and getattr(self, "realtime_client", None):
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                cancelled_id = self.active_response_id
+                cancel_event = {"type": "response.cancel", "response_id": cancelled_id}
+                
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.realtime_client.send_event(cancel_event),
+                        loop
+                    )
+                    future.result(timeout=0.3)  # Quick timeout
+                    print(f"✅ [SIMPLE_BARGE_IN] Cancelled response {cancelled_id[:20] if cancelled_id else 'None'}...")
+                except Exception as cancel_err:
+                    print(f"⚠️ [SIMPLE_BARGE_IN] Cancel failed: {cancel_err}")
+        except Exception:
+            pass
+        
+        # 2) Hard stop: flush queued audio to Twilio
+        try:
+            q = getattr(self, "tx_q", None)
+            if q:
+                cleared = 0
+                while True:
+                    try:
+                        q.get_nowait()
+                        cleared += 1
+                    except:
+                        break
+                if cleared > 0:
+                    print(f"✅ [SIMPLE_BARGE_IN] Flushed {cleared} frames from tx_q")
+        except Exception:
+            pass
+        
+        # 3) Local flags (optional but helps)
+        try:
+            if hasattr(self, 'is_ai_speaking_event'):
+                self.is_ai_speaking_event.clear()
+            self.speaking = False
+            self.active_response_id = None
+        except Exception:
+            pass
+        
+        print(f"🛑 [SIMPLE_BARGE_IN] Stop complete (reason={reason})")
+
     def _handle_realtime_barge_in(self):
         """
         🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
@@ -7411,8 +7473,8 @@ Greet briefly. Then WAIT for customer to speak."""
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, threshold={current_threshold:.0f}, voice_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
                         
-                        # ✅ P0-2: Simple RMS-based voice detection (no complex noise gate)
-                        # Trust that consecutive frames filter out short bursts
+                        # 🔥 SIMPLE BARGE-IN: Minimal logic - just detect user speech and stop
+                        # No noise floor, no guards - trust the voice_frames threshold
                         
                         # Only allow barge-in if AI is speaking
                         if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
@@ -7428,44 +7490,19 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self.barge_in_voice_frames = 0
                                 continue
                             
-                            current_time = time.monotonic()
-                            time_since_tts_start = current_time - self.speaking_start_ts if hasattr(self, 'speaking_start_ts') and self.speaking_start_ts else 999
-                            
-                            # 🔥 BUILD 164B: 150ms grace period
-                            grace_period = 0.15  # 150ms grace period
-                            if time_since_tts_start < grace_period:
-                                self.barge_in_voice_frames = 0
-                                continue
-                            
-                            # ✅ P0-2: Use MIN_SPEECH_RMS for threshold (configurable)
+                            # 🔥 SIMPLE: Use MIN_SPEECH_RMS for threshold (no complex noise floor)
                             speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
                             
-                            # ✅ P0-2: Use global BARGE_IN_VOICE_FRAMES constant (12 frames = 240ms)
-                            # This filters out short bursts like "um" while being responsive
-                            
+                            # 🔥 SIMPLE: Count frames above threshold
                             if rms >= speech_threshold:
                                 self.barge_in_voice_frames += 1
-                                # ✅ P0-2: Trigger barge-in only on sustained speech (240ms+)
-                                # 🔄 ADAPTIVE: Require BOTH RMS confirmation AND OpenAI speech_started confirmation
-                                # This prevents false triggers from noise/echo while remaining responsive
-                                if (self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES and 
-                                    self._openai_speech_started_confirmed):
-                                    # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning
-                                    print(f"[BARGE_IN_TRIGGER] rms={rms:.0f} threshold={speech_threshold:.0f} consec_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES} "
-                                          f"openai_confirmed={self._openai_speech_started_confirmed} "
-                                          f"ai_speaking={self.is_ai_speaking_event.is_set()} "
-                                          f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
-                                    logger.info(f"[BARGE-IN] User speech detected while AI speaking "
-                                              f"(rms={rms:.1f}, threshold={speech_threshold:.1f}, frames={self.barge_in_voice_frames}, openai_confirmed=True)")
-                                    self._handle_realtime_barge_in()
+                                # 🔥 SIMPLE BARGE-IN: Trigger immediately when threshold met (3 frames = 60ms)
+                                # No OpenAI confirmation, no complex guards - just stop!
+                                if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
+                                    print(f"[SIMPLE_BARGE_IN_TRIGGER] rms={rms:.0f} threshold={speech_threshold:.0f} frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
+                                    self._simple_barge_in_stop()
                                     self.barge_in_voice_frames = 0
-                                    # Clear confirmation flag after successful barge-in
-                                    self._openai_speech_started_confirmed = False
                                     continue
-                                elif self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES and not self._openai_speech_started_confirmed:
-                                    # Log when RMS threshold met but missing OpenAI confirmation
-                                    if self.barge_in_voice_frames == BARGE_IN_VOICE_FRAMES:  # Log once
-                                        print(f"⏸️ [BARGE-IN WAIT] RMS threshold met ({rms:.0f}>={speech_threshold:.0f}, {self.barge_in_voice_frames} frames) but waiting for OpenAI speech_started confirmation")
 
                             else:
                                 # Voice dropped below threshold - gradual reset
