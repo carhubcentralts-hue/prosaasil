@@ -1971,34 +1971,6 @@ class MediaStreamHandler:
         """
         # Always skip initialization when Google is disabled or streaming STT is off
         return
-                
-                # Register in thread-safe registry
-                _register_session(self.call_sid, session, tenant_id=self.business_id)
-                
-                self.s1_stream_opened = time.time()  # ⚡ [S1] STT stream opened
-                if DEBUG: print(f"✅ [S1={self.s1_stream_opened:.3f}] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id}, attempt: {attempt+1}, Δ={(self.s1_stream_opened - self.t0_connected)*1000:.0f}ms from T0)")
-                return  # Success!
-                
-            except RuntimeError as e:
-                if DEBUG: print(f"🚨 [STT] Over capacity (attempt {attempt+1}/3): {e}")
-                if attempt < 2:
-                    time.sleep(0.2)  # Brief delay before retry
-                    continue
-                # Don't crash - will use fallback STT
-                return
-                
-            except Exception as e:
-                if DEBUG: print(f"⚠️ [STT] Streaming start failed (attempt {attempt+1}/3): {e}", flush=True)
-                if attempt < 2:
-                    time.sleep(0.2)  # Brief delay before retry
-                    continue
-                if DEBUG:
-                    import traceback
-                    traceback.print_exc()
-                return
-        
-        # If we get here, all 3 attempts failed
-        if DEBUG: print(f"❌ [STT] All streaming attempts failed for call {self.call_sid[:8]} → using fallback single request", flush=True)
     
     def _close_streaming_stt(self):
         """Close streaming STT session at end of call"""
