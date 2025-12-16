@@ -24,17 +24,31 @@ TRANSCRIPT_SOURCE_FAILED = "failed"        # Transcription attempt failed
 # ✅ Global queue for recording jobs - single shared instance
 RECORDING_QUEUE = queue.Queue()
 
-def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number=""):
-    """Enqueue recording job for background processing"""
+def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
+    """Enqueue recording job for background processing
+    
+    Args:
+        call_sid: Twilio call SID
+        recording_url: URL to recording file
+        business_id: Business ID for the call
+        from_number: Caller phone number
+        to_number: Called phone number
+        retry_count: Current retry attempt (0-2 allowed, max 3 attempts total)
+    """
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
         "business_id": business_id,
         "from_number": from_number,
         "to_number": to_number,
+        "retry_count": retry_count  # Track retry attempts
     })
-    print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid}")
-    log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
+    if retry_count == 0:
+        print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid}")
+        log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
+    else:
+        print(f"🔁 [OFFLINE_STT] Job re-enqueued for {call_sid} (retry {retry_count}/2)")
+        log.info(f"[OFFLINE_STT] Recording job retry {retry_count}: {call_sid}")
 
 def enqueue_recording(form_data):
     """Legacy wrapper - converts form_data to new queue format"""
@@ -64,9 +78,20 @@ def start_recording_worker(app):
     
     DB RESILIENCE: This worker continues processing even if DB is temporarily unavailable.
     Jobs that fail due to DB errors are logged but don't crash the worker.
+    
+    RETRY LOGIC: If recording isn't ready yet, retries with exponential backoff:
+    - Attempt 1: Immediate (0s delay)
+    - Attempt 2: After 10s delay
+    - Attempt 3: After 30s delay  
+    - Attempt 4: After 90s delay (final attempt)
+    Max 3 retries = 4 total attempts
     """
     print("✅ [OFFLINE_STT] Recording worker loop started")
     log.info("[OFFLINE_STT] Recording worker thread initialized")
+    
+    # Retry backoff delays in seconds (0s, 10s, 30s, 90s)
+    RETRY_DELAYS = [0, 10, 30, 90]
+    MAX_RETRIES = 2  # 0-indexed, so 0, 1, 2 = 3 total attempts
     
     with app.app_context():
         while True:
@@ -79,9 +104,10 @@ def start_recording_worker(app):
                 business_id = job.get("business_id")
                 from_number = job.get("from_number", "")
                 to_number = job.get("to_number", "")
+                retry_count = job.get("retry_count", 0)
                 
-                print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid}")
-                log.info(f"[OFFLINE_STT] Processing recording: {call_sid}")
+                print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
+                log.info(f"[OFFLINE_STT] Processing recording: {call_sid} (attempt {retry_count + 1})")
                 
                 # Build form_data for legacy processing function
                 form_data = {
@@ -92,10 +118,39 @@ def start_recording_worker(app):
                 }
                 
                 # Process the recording
-                process_recording_async(form_data)
+                success = process_recording_async(form_data)
                 
-                print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
-                log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
+                # Check if recording was actually processed (audio file existed)
+                # If audio_file was None, we should retry
+                if success is False and retry_count < MAX_RETRIES:
+                    # Recording not ready yet - schedule retry with backoff
+                    import time
+                    import threading
+                    
+                    delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
+                    print(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
+                    log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
+                    
+                    # Schedule retry in background thread
+                    def delayed_retry():
+                        time.sleep(delay)
+                        enqueue_recording_job(
+                            call_sid=call_sid,
+                            recording_url=recording_url,
+                            business_id=business_id,
+                            from_number=from_number,
+                            to_number=to_number,
+                            retry_count=retry_count + 1
+                        )
+                    
+                    retry_thread = threading.Thread(target=delayed_retry, daemon=True)
+                    retry_thread.start()
+                elif retry_count >= MAX_RETRIES and not success:
+                    print(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
+                    log.error(f"[OFFLINE_STT] Max retries ({MAX_RETRIES}) exceeded for {call_sid}")
+                else:
+                    print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
+                    log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
                 
             except (OperationalError, DisconnectionError) as e:
                 # 🔥 DB RESILIENCE: DB error - log and continue with next job
@@ -126,7 +181,11 @@ def start_recording_worker(app):
                 RECORDING_QUEUE.task_done()
 
 def process_recording_async(form_data):
-    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION"""
+    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION
+    
+    Returns:
+        bool: True if processing succeeded (audio file existed), False if recording not ready (should retry)
+    """
     try:
         recording_url = form_data.get("RecordingUrl")
         call_sid = form_data.get("CallSid")
@@ -141,6 +200,7 @@ def process_recording_async(form_data):
         
         # Get CallLog to access recording_url (single source of truth)
         audio_file = None
+        call_log = None
         try:
             app = get_process_app()
             with app.app_context():
@@ -164,8 +224,9 @@ def process_recording_async(form_data):
                 pass
         
         if not audio_file:
-            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline processing")
+            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - need retry")
             log.warning(f"[OFFLINE_STT] Audio file not available for {call_sid}")
+            return False  # Signal that retry is needed
         
         # 2. תמלול עברית (Google STT v2 + Whisper fallback) - for summary
         # transcribe_hebrew handles None gracefully and returns ""
@@ -446,10 +507,14 @@ def process_recording_async(form_data):
             import traceback
             traceback.print_exc()
         
+        # Return success
+        return True
+        
     except Exception as e:
         log.error("❌ Recording processing failed: %s", e)
         import traceback
         traceback.print_exc()
+        return False  # Processing failed, may need retry
 
 def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
     """
