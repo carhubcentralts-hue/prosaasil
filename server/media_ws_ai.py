@@ -3199,11 +3199,10 @@ Greet briefly. Then WAIT for customer to speak."""
         
         ALL response.create calls MUST go through this function!
         This ensures:
-        1. Only ONE response is active at a time
-        2. Proper lifecycle tracking of active_response_id
-        3. Loop guard protection
-        4. Consistent logging
-        5. 🔥 FIX: No new responses while AI is speaking (prevents mid-sentence interruptions)
+        1. Proper lifecycle tracking of active_response_id
+        2. Loop guard protection
+        3. Consistent logging
+        4. Cancel/replace pattern for barge-in (not blocking)
         
         Args:
             reason: Why we're creating a response (for logging)
@@ -3219,17 +3218,18 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
             return False
         
-        # 🔥 CRITICAL GUARD C: Block response.create while AI is speaking
-        # This prevents "doesn't finish sentences" issue - only allow new response after response.audio.done
-        audio_state = getattr(self, 'audio_state', None)
-        if audio_state and audio_state.is_ai_speaking:
-            print(f"🛑 [RESPONSE GUARD] AI is speaking - blocking new response until audio.done ({reason})")
-            return False
-        
-        # 🔥 CRITICAL GUARD C: Check if response is already active
+        # 🔥 FIX: Cancel/replace pattern for barge-in (not blocking)
+        # If AI is currently speaking and user has new input, cancel current response and proceed
         if self.active_response_id is not None:
-            print(f"🛑 [RESPONSE GUARD] Active response in progress ({self.active_response_id[:20]}...) - blocking new response ({reason})")
-            return False
+            print(f"🔄 [BARGE_IN] Canceling active response {self.active_response_id[:20]}... and creating new one ({reason})")
+            try:
+                await _client.send_event({
+                    "type": "response.cancel"
+                })
+                # Clear the active response ID so we can create new one
+                self.active_response_id = None
+            except Exception as e:
+                print(f"⚠️ [BARGE_IN] Failed to cancel response: {e}")
         
         # 🛡️ GUARD 0: BUILD 303 - Wait for first user utterance after greeting
         # Don't let AI auto-respond before user answers the greeting question
