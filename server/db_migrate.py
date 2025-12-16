@@ -1051,6 +1051,76 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 40: Outbound Call Management - Bulk calling infrastructure
+    # 🔒 CRITICAL: These tables are referenced in routes_outbound.py and tasks_recording.py
+    # Creates: outbound_call_runs (campaigns) and outbound_call_jobs (individual calls)
+    if not check_table_exists('outbound_call_runs'):
+        checkpoint("Migration 40a: Creating outbound_call_runs table for bulk calling campaigns")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                CREATE TABLE outbound_call_runs (
+                    id SERIAL PRIMARY KEY,
+                    business_id INTEGER NOT NULL REFERENCES business(id),
+                    outbound_list_id INTEGER REFERENCES outbound_lead_lists(id),
+                    concurrency INTEGER DEFAULT 3,
+                    total_leads INTEGER DEFAULT 0,
+                    queued_count INTEGER DEFAULT 0,
+                    in_progress_count INTEGER DEFAULT 0,
+                    completed_count INTEGER DEFAULT 0,
+                    failed_count INTEGER DEFAULT 0,
+                    status VARCHAR(32) DEFAULT 'running',
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                )
+            """))
+            
+            # Create indexes for performance
+            db.session.execute(text("CREATE INDEX idx_outbound_call_runs_business_id ON outbound_call_runs(business_id)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_runs_status ON outbound_call_runs(status)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_runs_created_at ON outbound_call_runs(created_at)"))
+            
+            migrations_applied.append('create_outbound_call_runs_table')
+            log.info("✅ Applied migration 40a: create_outbound_call_runs_table - Bulk calling campaign tracking")
+        except Exception as e:
+            log.error(f"❌ Migration 40a failed: {e}")
+            db.session.rollback()
+            raise
+    
+    if not check_table_exists('outbound_call_jobs'):
+        checkpoint("Migration 40b: Creating outbound_call_jobs table for individual call tracking")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                CREATE TABLE outbound_call_jobs (
+                    id SERIAL PRIMARY KEY,
+                    run_id INTEGER NOT NULL REFERENCES outbound_call_runs(id),
+                    lead_id INTEGER NOT NULL REFERENCES leads(id),
+                    call_log_id INTEGER REFERENCES call_log(id),
+                    status VARCHAR(32) DEFAULT 'queued',
+                    error_message TEXT,
+                    call_sid VARCHAR(64),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP
+                )
+            """))
+            
+            # Create indexes for performance
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_run_id ON outbound_call_jobs(run_id)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_lead_id ON outbound_call_jobs(lead_id)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_status ON outbound_call_jobs(status)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_call_sid ON outbound_call_jobs(call_sid)"))
+            
+            migrations_applied.append('create_outbound_call_jobs_table')
+            log.info("✅ Applied migration 40b: create_outbound_call_jobs_table - Individual call job tracking")
+        except Exception as e:
+            log.error(f"❌ Migration 40b failed: {e}")
+            db.session.rollback()
+            raise
+    
     checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()
