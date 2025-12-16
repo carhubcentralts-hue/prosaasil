@@ -1447,6 +1447,11 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         
+        # 🔥 SESSION LIFECYCLE GUARD: Atomic close protection
+        self.closed = False
+        self.close_lock = threading.Lock()
+        self.close_reason = None
+        
         # 🔥 FIX: Guard against double-close websocket error
         self._ws_closed = False
         
@@ -2760,7 +2765,7 @@ Greet briefly. Then WAIT for customer to speak."""
         _limit_exceeded = False
         _limit_logged = False
         
-        while not self.realtime_stop_flag:
+        while not self.realtime_stop_flag and not self.closed:
             try:
                 if not hasattr(self, 'realtime_audio_in_queue'):
                     await asyncio.sleep(0.01)
@@ -3246,7 +3251,7 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         print(f"📝 [REALTIME] Text sender started")
         
-        while not self.realtime_stop_flag:
+        while not self.realtime_stop_flag and not self.closed:
             try:
                 if not hasattr(self, 'realtime_text_input_queue'):
                     await asyncio.sleep(0.01)
@@ -6609,8 +6614,9 @@ Greet briefly. Then WAIT for customer to speak."""
         _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
         # 🔥 FIX #1: Continue until queue is empty OR sentinel received
+        # 🔥 SESSION LIFECYCLE: Also check self.closed to exit immediately on session close
         # Don't exit just because stop_flag is set - drain the queue first!
-        while not self.realtime_stop_flag or not self.realtime_audio_out_queue.empty():
+        while (not self.realtime_stop_flag or not self.realtime_audio_out_queue.empty()) and not self.closed:
             # 🎯 PROBE 4: Queue Flow Probe - Log enqueue rate every 1 second
             now_mono = time.monotonic()
             if now_mono - _last_enqueue_rate_time >= 1.0:
@@ -6761,6 +6767,88 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception as e:
             print(f"❌ [COST] Error calculating cost: {e}")
             return 0.0
+    
+    def close_session(self, reason: str):
+        """
+        🔥 SESSION LIFECYCLE GUARD: Atomic session close - runs ONCE only
+        
+        This is the SINGLE SOURCE OF TRUTH for session cleanup.
+        All close triggers must call this method.
+        
+        Args:
+            reason: Why the session is closing (e.g., "stop_event", "ws_disconnect", "call_status_completed")
+        """
+        with self.close_lock:
+            if self.closed:
+                # Already closed - this is idempotent
+                _orig_print(f"🔒 [SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})", flush=True)
+                return
+            
+            # Mark as closed FIRST to prevent re-entry
+            self.closed = True
+            self.close_reason = reason
+            _orig_print(f"🔒 [SESSION_CLOSE] Closing session (reason={reason}, call_sid={self.call_sid}, stream_sid={self.stream_sid})", flush=True)
+        
+        # From here on, we're guaranteed to run only once
+        
+        # STEP 1: Set stop flags for all loops
+        _orig_print(f"   [1/7] Setting stop flags...", flush=True)
+        self.realtime_stop_flag = True
+        if hasattr(self, 'tx_running'):
+            self.tx_running = False
+        
+        # STEP 2: Signal queues to stop (sentinel values)
+        _orig_print(f"   [2/7] Sending stop signals to queues...", flush=True)
+        if hasattr(self, 'realtime_audio_in_queue') and self.realtime_audio_in_queue:
+            try:
+                self.realtime_audio_in_queue.put_nowait(None)
+            except:
+                pass
+        if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
+            try:
+                self.realtime_audio_out_queue.put_nowait(None)
+            except:
+                pass
+        
+        # STEP 3: Stop timers/watchdogs
+        _orig_print(f"   [3/7] Stopping timers and watchdogs...", flush=True)
+        # (Add any timer cleanup here if needed)
+        
+        # STEP 4: Close OpenAI connection
+        _orig_print(f"   [4/7] Closing OpenAI connection...", flush=True)
+        # The realtime_stop_flag will make the async tasks exit naturally
+        
+        # STEP 5: Wait for TX thread to finish draining
+        _orig_print(f"   [5/7] Waiting for TX thread to drain...", flush=True)
+        if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
+            try:
+                self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
+                if self.tx_thread.is_alive():
+                    _orig_print(f"   ⚠️ TX thread still alive after 2s timeout", flush=True)
+                else:
+                    _orig_print(f"   ✅ TX thread drained and stopped", flush=True)
+            except:
+                pass
+        
+        # STEP 6: Close Twilio WebSocket
+        _orig_print(f"   [6/7] Closing Twilio WebSocket...", flush=True)
+        try:
+            if hasattr(self.ws, 'close') and not self._ws_closed:
+                self.ws.close()
+                self._ws_closed = True
+                _orig_print(f"   ✅ WebSocket closed", flush=True)
+        except Exception as e:
+            error_msg = str(e).lower()
+            if 'websocket.close' not in error_msg and 'asgi' not in error_msg:
+                _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
+        
+        # STEP 7: Unregister session from registry
+        _orig_print(f"   [7/7] Unregistering session...", flush=True)
+        if self.call_sid:
+            _close_session(self.call_sid)
+            _orig_print(f"   ✅ Session unregistered for call_sid={self.call_sid}", flush=True)
+        
+        _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
     
     def run(self):
         """⚡ BUILD 168.2: Streamlined main loop - minimal logging
@@ -7875,25 +7963,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
                     # ✅ CRITICAL: סיכום שיחה בסיום
                     self._finalize_call_on_stop()
-                    # Send close frame properly with double-close guard
-                    try:
-                        if hasattr(self.ws, 'close') and not self._ws_closed:
-                            self.ws.close()
-                            self._ws_closed = True
-                    except Exception as e:
-                        # 🔥 FIX: Catch "websocket.close" ASGI error and reduce to debug
-                        error_msg = str(e).lower()
-                        if 'websocket.close' in error_msg or 'asgi' in error_msg:
-                            print(f"[DEBUG] Websocket already closed (expected): {e}")
-                        else:
-                            print(f"Error closing websocket: {e}")
+                    # 🔥 SESSION LIFECYCLE: Call atomic close_session instead of manual cleanup
+                    self.close_session("twilio_stop_event")
                     break
 
         except ConnectionClosed as e:
             print(f"📞 WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx} reason=ConnectionClosed")
-            # ✅ ניסיון התאוששות אם השיחה עדיין פעילה
-            if self.call_sid:
-                print(f"🔄 WS connection lost for active call {self.call_sid} - recovery might be possible via Twilio REST API")
+            # 🔥 SESSION LIFECYCLE: Call atomic close_session
+            self.close_session("ws_connection_closed")
         except Exception as e:
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME_FATAL: Unhandled exception in main run loop
@@ -7997,42 +8074,10 @@ Greet briefly. Then WAIT for customer to speak."""
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
             
-            # 🚀 REALTIME API: Signal threads to stop
-            self.realtime_stop_flag = True
-            if self.realtime_audio_in_queue:
-                try:
-                    self.realtime_audio_in_queue.put_nowait(None)
-                except:
-                    pass
-            if self.realtime_audio_out_queue:
-                try:
-                    self.realtime_audio_out_queue.put_nowait(None)
-                except:
-                    pass
-            
-            # Clean up TX thread
-            if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
-                self.tx_running = False
-                try:
-                    self.tx_thread.join(timeout=1.0)
-                except:
-                    pass
-            
-            # ✅ CRITICAL: Wait for all background threads to complete
-            # This prevents crashes when threads access DB after WebSocket closes
-            if hasattr(self, 'background_threads') and self.background_threads:
-                print(f"🧹 Waiting for {len(self.background_threads)} background threads...")
-                for i, thread in enumerate(self.background_threads):
-                    if thread.is_alive():
-                        try:
-                            thread.join(timeout=3.0)  # Max 3 seconds per thread
-                            if thread.is_alive():
-                                print(f"⚠️ Background thread {i} still running after timeout")
-                            else:
-                                print(f"✅ Background thread {i} completed")
-                        except Exception as e:
-                            print(f"❌ Error joining thread {i}: {e}")
-                print(f"✅ All background threads cleanup complete")
+            # 🔥 SESSION LIFECYCLE: Use atomic close_session for cleanup
+            # This ensures single-source-of-truth cleanup even if finally block is hit without explicit close
+            if not self.closed:
+                self.close_session("finally_block_fallback")
             
             # 💰 CALCULATE AND LOG CALL COST
             if USE_REALTIME_API:
@@ -8045,18 +8090,7 @@ Greet briefly. Then WAIT for customer to speak."""
             limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
             print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
-            # 🔥 FIX: Guard against double-close
-            try:
-                if not self._ws_closed:
-                    self.ws.close()
-                    self._ws_closed = True
-            except Exception as e:
-                # Catch "websocket.close" ASGI error and reduce to debug
-                error_msg = str(e).lower()
-                if 'websocket.close' in error_msg or 'asgi' in error_msg:
-                    print(f"[DEBUG] Websocket already closed (expected): {e}")
-                else:
-                    print(f"Error in final websocket close: {e}")
+            # 🔥 SESSION LIFECYCLE: close_session() already handled WebSocket close, no need to duplicate
             # Mark as ended
             if hasattr(self, 'call_sid') and self.call_sid:
                 stream_registry.clear(self.call_sid)
