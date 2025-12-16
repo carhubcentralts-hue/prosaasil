@@ -6759,7 +6759,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 # This prevents WebSocket from staying open after call completes
                 if self.call_sid:
                     session = stream_registry.get(self.call_sid)
-                    if session.get('ended'):
+                    if session and session.get('ended'):
                         end_reason = session.get('end_reason', 'external_signal')
                         print(f"🛑 [CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
                         self.hangup_triggered = True
@@ -6897,6 +6897,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         )
                         
                         # 🔥 BUILD 174: Outbound call parameters
+                        # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
                         self.call_direction = custom_params.get("direction", "inbound")
                         self.outbound_lead_id = custom_params.get("lead_id")
                         self.outbound_lead_name = custom_params.get("lead_name")
@@ -6936,6 +6937,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.to_number = evt.get("to") or evt.get("called")
                         
                         # 🔥 BUILD 174: Outbound call parameters (direct format)
+                        # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
                         self.call_direction = evt.get("direction", "inbound")
                         self.outbound_lead_id = evt.get("lead_id")
                         self.outbound_lead_name = evt.get("lead_name")
