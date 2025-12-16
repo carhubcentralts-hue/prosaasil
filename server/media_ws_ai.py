@@ -5576,8 +5576,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🔥 SILENCE FAILSAFE: Start timeout waiting for AI response
                         # 🔥 FIX: SILENCE_FAILSAFE completely removed
+                        # Expected flow when user speaks:
+                        # 1. User speaks → transcription.completed fires
+                        # 2. Conversation context updated with user text
+                        # 3. AI should naturally respond (no synthetic prompts needed)
+                        # 4. If AI doesn't respond after 15s, silence monitor asks "are you there?"
                         # No synthetic fallback content should be sent to the model
-                        # If user spoke, AI should respond naturally or silence monitor handles it
                         
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
@@ -5747,16 +5751,22 @@ Greet briefly. Then WAIT for customer to speak."""
     
     async def _send_server_event_to_ai(self, message_text: str):
         """
-        🔥 COMPLETELY REMOVED: Server events should NOT be sent to the model
+        🚫 DEPRECATED: This function is permanently disabled and will be removed in future versions.
         
-        This function is a stub that does nothing. All calls to it are being removed.
-        Server-generated synthetic content should never be sent to the AI model.
+        REASON: Sending server-generated events to the AI model with role="user" violated
+        the "transcription is truth" principle and caused confusion. The AI would receive
+        synthetic messages as if the customer said them, leading to inappropriate responses.
+        
+        ⚠️ WARNING: This function does nothing. If you're calling it, remove the call.
+        All server-side intelligence should be handled through proper context management,
+        not synthetic user messages.
         
         Args:
             message_text: Message text - IGNORED (function does nothing)
         """
-        # 🔥 FIX: Do nothing - this function should never inject synthetic content
-        # All callers of this function should be removed
+        # Log deprecated usage for tracking
+        logger.warning(f"[DEPRECATED] _send_server_event_to_ai called but does nothing. "
+                      f"Remove this call. Preview: '{message_text[:50]}'")
         return
     
     async def _send_silence_warning(self):
