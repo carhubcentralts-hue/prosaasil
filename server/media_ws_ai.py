@@ -1,6 +1,7 @@
 """
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
+🚫 Google STT/TTS DISABLED for production stability
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
 import builtins
@@ -9,6 +10,9 @@ from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
+
+# 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
+DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
 
 # 🚫 LOOP DETECTION: Disabled by default - wrap all loop-detect logic behind this flag
 ENABLE_LOOP_DETECT = False
@@ -1959,25 +1963,17 @@ class MediaStreamHandler:
     
     def _init_streaming_stt(self):
         """
-        ⚡ BUILD 114: Initialize streaming STT with retry mechanism
-        3 attempts before falling back to single-request mode
+        🚫 DISABLED - Google streaming STT is turned off for production stability
+        
+        This function is deprecated and should not be called.
+        Use OpenAI Realtime API instead.
         """
-        if not USE_STREAMING_STT or not self.call_sid:
+        if DISABLE_GOOGLE or not USE_STREAMING_STT:
             return
         
-        from server.services.gcp_stt_stream import StreamingSTTSession
-        
-        # ⚡ RETRY MECHANISM: 3 attempts before fallback
-        for attempt in range(3):
-            try:
-                # Create dispatcher callbacks for this specific call
-                on_partial, on_final = _create_dispatcher_callbacks(self.call_sid)
-                
-                # Create session
-                session = StreamingSTTSession(
-                    on_partial=on_partial,
-                    on_final=on_final
-                )
+        # Google STT should never be initialized when DISABLE_GOOGLE=true
+        logger.warning("⚠️ _init_streaming_stt called but Google is DISABLED")
+        return
                 
                 # Register in thread-safe registry
                 _register_session(self.call_sid, session, tenant_id=self.business_id)
@@ -8454,11 +8450,8 @@ Greet briefly. Then WAIT for customer to speak."""
             # ⏱️ TTS timing instrumentation
             tts_start = time.time()
             
-            # 🚀 TTS (blocking mode - Hebrew doesn't support streaming API yet)
-            from server.services.gcp_tts_live import maybe_warmup
-            
-            # ⚡ Pre-warm TTS
-            maybe_warmup()
+            # 🚫 Google TTS is DISABLED - OpenAI Realtime handles TTS natively
+            # This code should never run when USE_REALTIME_API=True
             
             tts_audio = self._hebrew_tts(text)
             tts_generation_time = time.time() - tts_start
@@ -8884,89 +8877,17 @@ Greet briefly. Then WAIT for customer to speak."""
                 print(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
                 # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
             
-            try:
-                from server.services.lazy_services import get_stt_client
-                from google.cloud import speech
-            except ImportError as import_error:
-                print(f"⚠️ Google Speech library not available: {import_error} - using Whisper")
+            # 🚫 Google STT is DISABLED - use Whisper only
+            if DISABLE_GOOGLE:
+                print("🚫 Google STT is DISABLED - using Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            client = get_stt_client()
-            if not client:
-                print("❌ Google STT client not available - fallback to Whisper")
-                return self._whisper_fallback(pcm16_8k)
-            
-            # ⚡ BUILD 117: FORCE default model - phone_call NOT supported for Hebrew!
-            # Google returns error: "The phone_call model is currently not supported for language : iw-IL"
-            recognition_config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,  
-                language_code="he-IL",   # עברית ישראל
-                model="default",         # ⚡ FORCED: phone_call crashes for Hebrew!
-                use_enhanced=True,       # ✅ ENHANCED model for better Hebrew accuracy!
-                enable_automatic_punctuation=False,  # מניעת הפרעות
-                # קונטקסט קל - רק לרמז
-                speech_contexts=[
-                    speech.SpeechContext(phrases=[
-                        # 🔥 BUILD 186: GENERIC Hebrew phrases only - NO hardcoded cities!
-                        # Cities should come from business settings, not hardcoded here
-                        "שלום", "היי", "בוקר טוב", "תודה", "תודה רבה", "בבקשה",
-                        "כן", "לא", "בסדר", "מעולה", "נהדר", "מצוין", "אוקיי",
-                        "תור", "פגישה", "מחר", "מחרתיים", "יום", "שבוע", "חודש",
-                        "אחד", "שניים", "שלוש", "ארבע", "חמש", "שש", "עשר", "עשרים"
-                    ], boost=15.0)  # Reduced boost - let Whisper do the heavy lifting
-                ]
-            )
-            
-            # Single request recognition (לא streaming למבע קצר)
-            audio = speech.RecognitionAudio(content=pcm16_8k)
-            
-            # ⚡ AGGRESSIVE TIMEOUT: 1.5s for speed (Hebrew usually < 1s)
-            try:
-                response = client.recognize(
-                    config=recognition_config,
-                    audio=audio,
-                    timeout=1.5  # ✅ FAST: 1.5s timeout (was 3s)
-                )
-            except Exception as timeout_error:
-                # Timeout = likely empty audio, return empty
-                print(f"⚠️ STT_TIMEOUT ({timeout_error}) - likely silence")
-                return ""
-            
-            if DEBUG: print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
-            
-            if response.results and response.results[0].alternatives:
-                hebrew_text = response.results[0].alternatives[0].transcript.strip()
-                confidence = response.results[0].alternatives[0].confidence
-                if DEBUG: print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
-                
-                # ⚡ ACCURACY FIX: LOWER confidence thresholds to accept more valid Hebrew
-                # Hebrew speech often has lower confidence scores than English
-                if confidence < 0.25:  # ⚡ LOWERED: 0.25 instead of 0.4 - accept more valid Hebrew
-                    print(f"🚫 VERY_LOW_CONFIDENCE: {confidence:.2f} < 0.25 - rejecting result")
-                    return ""  # Return empty instead of nonsense
-                
-                # ⚡ ACCURACY FIX: Accept short phrases with lower confidence
-                # "חמישים אפשר" might have 0.5-0.6 confidence but is valid!
-                word_count = len(hebrew_text.split())
-                if word_count <= 2 and confidence < 0.2:  # 🔥 BUILD 114: LOWERED 0.4 → 0.2 for Hebrew names
-                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.2 - likely noise")
-                    return ""
-                
-                # 🔥 BUILD 134: Log alternative transcripts for debugging
-                if len(response.results[0].alternatives) > 1:
-                    alt_text = response.results[0].alternatives[1].transcript
-                    print(f"   📝 Alternative: '{alt_text}'")
-                
-                print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' ({word_count} words, confidence: {confidence:.2f})")
-                return hebrew_text
-            else:
-                # No results = silence
-                print("⚠️ STT_NO_RESULTS - likely silence")
-                return ""
+            # Even if not disabled, warn and use Whisper
+            logger.warning("⚠️ Google STT should not be used - using Whisper fallback")
+            return self._whisper_fallback(pcm16_8k)
                 
         except Exception as e:
-            print(f"❌ GOOGLE_STT_ERROR: {e}")
+            print(f"❌ STT_ERROR: {e}")
             return ""
     
     def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
@@ -11624,86 +11545,23 @@ Greet briefly. Then WAIT for customer to speak."""
     
     
     def _hebrew_tts(self, text: str) -> bytes | None:
-        """🔥 BUILD 314: LEGACY CODE - Never used when USE_REALTIME_API=True
+        """
+        🚫 DISABLED - Google TTS is turned off for production stability
+        
+        This function should never be called when USE_REALTIME_API=True.
         OpenAI Realtime API handles ALL TTS natively.
-        This is kept only for backwards compatibility.
         """
         # 🚀 REALTIME API: Skip Google TTS completely - OpenAI Realtime generates audio natively
         if USE_REALTIME_API:
             return None
         
-        try:
-            print(f"🔊 TTS_START: Generating Natural Hebrew TTS for '{text[:50]}...' ({len(text)} chars)")
-            
-            # ✅ OPTION 1: Use punctuation polish if enabled
-            try:
-                from server.services.punctuation_polish import polish_hebrew_text
-                text = polish_hebrew_text(text)
-                print(f"✅ Punctuation polished: '{text[:40]}...'")
-            except Exception as e:
-                print(f"⚠️ Punctuation polish unavailable: {e}")
-            
-            # ✅ OPTION 2: Use upgraded TTS with SSML, natural voice, telephony profile
-            try:
-                from server.services.gcp_tts_live import get_hebrew_tts, maybe_warmup
-                
-                # ⚡ Phase 2: Pre-warm TTS (כל 8 דקות)
-                maybe_warmup()
-                
-                tts_service = get_hebrew_tts()
-                audio_bytes = tts_service.synthesize_hebrew_pcm16_8k(text)
-                
-                if audio_bytes and len(audio_bytes) > 1000:
-                    duration_seconds = len(audio_bytes) / (8000 * 2)
-                    print(f"✅ TTS_SUCCESS: {len(audio_bytes)} bytes Natural Wavenet ({duration_seconds:.1f}s)")
-                    return audio_bytes
-                else:
-                    print("⚠️ TTS returned empty or too short")
-                    return None
-                    
-            except ImportError as ie:
-                print(f"⚠️ Upgraded TTS unavailable ({ie}), using fallback...")
-                
-                # ✅ FALLBACK: Basic Google TTS (if upgraded version fails)
-                from server.services.lazy_services import get_tts_client
-                from google.cloud import texttospeech
-                
-                client = get_tts_client()
-                if not client:
-                    print("❌ Google TTS client not available")
-                    return None
-                
-                # ✅ קבלת הגדרות מ-ENV - לא מקודד!
-                voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")
-                speaking_rate = float(os.getenv("TTS_RATE", "0.96"))
-                pitch = float(os.getenv("TTS_PITCH", "-2.0"))
-                
-                synthesis_input = texttospeech.SynthesisInput(text=text)
-                voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name=voice_name)
-                audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                    sample_rate_hertz=8000,
-                    speaking_rate=speaking_rate,
-                    pitch=pitch,
-                    effects_profile_id=["telephony-class-application"]
-                )
-                
-                response = client.synthesize_speech(
-                    input=synthesis_input,
-                    voice=voice,
-                    audio_config=audio_config
-                )
-                
-                duration_seconds = len(response.audio_content) / (8000 * 2)
-                print(f"✅ TTS_FALLBACK_SUCCESS: {len(response.audio_content)} bytes (voice={voice_name}, rate={speaking_rate}, pitch={pitch}, {duration_seconds:.1f}s)")
-                return response.audio_content
-            
-        except Exception as e:
-            print(f"❌ TTS_CRITICAL_ERROR: {e}")
-            print(f"   Text was: '{text}'")
-            import traceback
-            traceback.print_exc()
+        # 🚫 Google TTS is DISABLED
+        if DISABLE_GOOGLE:
+            logger.warning("⚠️ _hebrew_tts called but Google TTS is DISABLED")
             return None
+        
+        logger.error("❌ Google TTS should not be used - DISABLE_GOOGLE flag should be set")
+        return None
     
     def _tx_loop(self):
         """
