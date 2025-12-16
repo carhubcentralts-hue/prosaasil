@@ -3991,11 +3991,13 @@ Greet briefly. Then WAIT for customer to speak."""
                             
                             # 🔥 BUILD 181: GAP RECOVERY - Insert silence frames for gaps >3 seconds
                             # 🔥 BUILD 320: DISABLED when AUDIO_GUARD is ON - let real timing flow naturally
+                            # 🔥 FIX #3: Fill up to 2000ms instead of 500ms for better stream stability
                             # This prevents audio distortion by maintaining continuous playback
                             if gap_ms > 3000 and not getattr(self, '_audio_guard_enabled', False):
                                 # Calculate how many silence frames needed to smooth transition
-                                # Don't add full gap - just 500ms transition buffer
-                                silence_frames_needed = min(25, int(gap_ms / 100))  # 25 frames max = 500ms
+                                # Fill up to 2000ms cap (was 500ms) to stabilize stream
+                                fill_ms = min(gap_ms, 2000)  # Cap at 2000ms as per fix requirements
+                                silence_frames_needed = int(fill_ms / 20)  # 20ms per frame
                                 import base64
                                 # Generate 160-byte μ-law silence frames (0xFF = silence in μ-law)
                                 silence_frame = base64.b64encode(bytes([0xFF] * 160)).decode('utf-8')
@@ -4006,7 +4008,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                         self._enq_counter += 1
                                     except queue.Full:
                                         break
-                                print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms)")
+                                print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms) for {gap_ms:.0f}ms gap")
                         self._last_audio_chunk_ts = now
                         
                         if self._openai_audio_chunks_received <= 3:
@@ -4129,12 +4131,39 @@ Greet briefly. Then WAIT for customer to speak."""
                                 await asyncio.sleep(0.1)
                             
                             # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
+                            # 🔥 FIX #4: Add drain watchdog to detect stuck queue
                             # Each frame is 20ms, so 500 frames = 10 seconds of audio
+                            last_tx_size = self.tx_q.qsize()
+                            stuck_iterations = 0
+                            STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
+                            
                             for i in range(100):  # 100 * 100ms = 10 seconds max
                                 tx_size = self.tx_q.qsize()
                                 if tx_size == 0:
                                     print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
                                     break
+                                
+                                # 🔥 FIX #4: Detect if queue is stuck (not draining)
+                                if tx_size == last_tx_size:
+                                    stuck_iterations += 1
+                                    if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
+                                        print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
+                                        # Queue is stuck - check if tx_running is False
+                                        if not getattr(self, 'tx_running', True):
+                                            print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
+                                            # Clear the stuck queue
+                                            while not self.tx_q.empty():
+                                                try:
+                                                    self.tx_q.get_nowait()
+                                                except:
+                                                    break
+                                            print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
+                                            break
+                                else:
+                                    stuck_iterations = 0  # Reset on progress
+                                
+                                last_tx_size = tx_size
+                                
                                 if i % 10 == 0:  # Log every second
                                     print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
                                 await asyncio.sleep(0.1)
@@ -6559,6 +6588,7 @@ Greet briefly. Then WAIT for customer to speak."""
         """⚡ BUILD 168.2: Optimized audio bridge - minimal logging
         
         🔥 PART C DEBUG: Added logging to trace tx=0 issues
+        🔥 FIX #1: Continue draining queue even after stop flag
         """
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
@@ -6578,7 +6608,9 @@ Greet briefly. Then WAIT for customer to speak."""
         
         _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
-        while not self.realtime_stop_flag:
+        # 🔥 FIX #1: Continue until queue is empty OR sentinel received
+        # Don't exit just because stop_flag is set - drain the queue first!
+        while not self.realtime_stop_flag or not self.realtime_audio_out_queue.empty():
             # 🎯 PROBE 4: Queue Flow Probe - Log enqueue rate every 1 second
             now_mono = time.monotonic()
             if now_mono - _last_enqueue_rate_time >= 1.0:
@@ -6666,10 +6698,18 @@ Greet briefly. Then WAIT for customer to speak."""
                         pass
                     
             except queue.Empty:
+                # 🔥 FIX #1: If stop flag is set and queue is empty, we're done draining
+                if self.realtime_stop_flag:
+                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] Stop flag set, queue empty - drain complete", flush=True)
+                    break
                 continue
             except Exception as e:
                 logger.error(f"[AUDIO] Bridge error: {e}")
                 break
+        
+        # 🔥 FIX #1: Log drain completion
+        remaining = self.realtime_audio_out_queue.qsize()
+        _orig_print(f"🔊 [AUDIO_OUT_LOOP] Exiting - frames_enqueued={self.realtime_tx_frames}, remaining_in_queue={remaining}", flush=True)
 
     def _calculate_and_log_cost(self):
         """💰 Calculate and log call cost - called at end of every call"""
@@ -11572,7 +11612,9 @@ Greet briefly. Then WAIT for customer to speak."""
         
         # 🎯 PROBE 2: TX Crash Probe - Wrap entire loop in try/except
         try:
-            while self.tx_running:
+            # 🔥 FIX #2: Continue until BOTH tx_running is False AND queue is empty
+            # This ensures we drain all audio before exiting
+            while self.tx_running or not self.tx_q.empty():
                 # 🎯 PROBE 1: TX Liveness Probe - Heartbeat every 1 second
                 now_mono = time.monotonic()
                 if now_mono - last_heartbeat_time >= 1.0:
@@ -11580,7 +11622,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
                     active_response_id = audio_state.active_response_id if audio_state else None
                     qsize = self.tx_q.qsize()
-                    _orig_print(f"[TX_HEARTBEAT] alive=True, qsize={qsize}, is_ai_speaking={is_ai_speaking}, active_response_id={active_response_id}, frames_sent={frames_sent_total}", flush=True)
+                    # 🔥 FIX #2: Log drain state when tx_running is False
+                    drain_mode = not self.tx_running and qsize > 0
+                    if drain_mode:
+                        _orig_print(f"🛡️ [TX_DRAIN_MODE] Waiting for audio (tx_running=False, tx_q={qsize}, ai_speaking={is_ai_speaking})", flush=True)
+                    else:
+                        _orig_print(f"[TX_HEARTBEAT] alive=True, qsize={qsize}, is_ai_speaking={is_ai_speaking}, active_response_id={active_response_id}, frames_sent={frames_sent_total}", flush=True)
                     last_heartbeat_time = now_mono
                 
                 # ✅ P0 FIX: Strict 20ms pacing - ONE frame per tick, no catch-up
@@ -11589,6 +11636,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 try:
                     item = self.tx_q.get(timeout=0.5)
                 except queue.Empty:
+                    # 🔥 FIX #2: If tx_running is False and queue is empty, drain is complete
+                    if not self.tx_running:
+                        _orig_print(f"✅ [TX_DRAIN] Complete - tx_running=False, queue empty", flush=True)
+                        break
                     continue
                 
                 if item.get("type") == "end":
