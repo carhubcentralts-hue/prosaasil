@@ -2373,25 +2373,19 @@ class MediaStreamHandler:
                 print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
                 print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
                 
-                # 🔥 VERIFICATION: Ensure pre-built prompt matches current call direction
-                # Check if the prompt was built for the correct direction
+                # 🔥 HARD LOCK: Verify call_direction matches pre-built prompt
+                # If mismatch detected - LOG WARNING but DO NOT REBUILD
+                # The call continues with the already-loaded prompt
                 prompt_direction_check = "outbound" if "outbound" in full_prompt.lower() or self.call_direction == "outbound" else "inbound"
                 if prompt_direction_check != call_direction:
-                    print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt may not match call direction!")
-                    print(f"   Expected: {call_direction}, Detected: {prompt_direction_check}")
-                    print(f"   Rebuilding prompts to ensure correct direction...")
-                    # Rebuild with correct direction
-                    try:
-                        from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
-                        app = _get_flask_app()
-                        with app.app_context():
-                            compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] Rebuilt with correct direction: {call_direction}")
-                    except Exception as rebuild_err:
-                        print(f"❌ [PROMPT] Failed to rebuild: {rebuild_err}")
+                    # 🔥 CRITICAL: DO NOT REBUILD - just log and continue
+                    print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt direction mismatch detected!")
+                    print(f"   Expected: {call_direction}, Pre-built for: {prompt_direction_check}")
+                    print(f"   ❌ NOT rebuilding - continuing with pre-built prompt (HARD LOCK)")
+                    _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prompt_direction_check} action=CONTINUE_NO_REBUILD", flush=True)
                 else:
                     print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
+                    _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... direction={call_direction} status=MATCHED", flush=True)
             
             # Use compact for initial greeting (fast!)
             greeting_prompt_to_use = compact_prompt
@@ -2493,6 +2487,13 @@ Greet briefly. Then WAIT for customer to speak."""
                 max_tokens=greeting_max_tokens,
                 transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
             )
+            
+            # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
+            import hashlib
+            prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
+            print(f"🔒 [PROMPT_BIND] business_id={business_id_safe} direction={call_direction} hash={prompt_hash} binding=INITIAL")
+            _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... business_id={business_id_safe} direction={call_direction} hash={prompt_hash}", flush=True)
+            
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
             total_ms = (t_after_config - t_start) * 1000
@@ -3409,7 +3410,12 @@ Greet briefly. Then WAIT for customer to speak."""
                                 full_prompt = self._full_prompt_for_upgrade
                                 upgrade_time = time.time()
                                 
-                                print(f"🔄 [PROMPT UPGRADE] Upgrading from COMPACT ({len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else '~800'} chars) to FULL ({len(full_prompt)} chars)")
+                                print(f"🔄 [PROMPT UPGRADE] Expanding from COMPACT to FULL (planned transition, NOT rebuild)")
+                                print(f"   Compact: ~{len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else 800} chars → Full: {len(full_prompt)} chars")
+                                
+                                # Calculate hash for logging
+                                import hashlib
+                                full_prompt_hash = hashlib.md5(full_prompt.encode()).hexdigest()[:8]
                                 
                                 # Send session.update with full prompt (non-blocking, AI continues working)
                                 await client.send_event({
@@ -3422,12 +3428,13 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self._prompt_upgraded_to_full = True
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
                                 
-                                print(f"✅ [PROMPT UPGRADE] Successfully upgraded to FULL prompt in {upgrade_duration}ms")
-                                print(f"   └─ AI now has complete business context for rest of conversation")
-                                logger.info(f"[PROMPT UPGRADE] Upgraded business_id={self.business_id} in {upgrade_duration}ms")
+                                print(f"✅ [PROMPT UPGRADE] Expanded to FULL in {upgrade_duration}ms (hash={full_prompt_hash})")
+                                print(f"   └─ This is a planned EXPANSION, not a rebuild - same direction/business")
+                                _orig_print(f"[PROMPT_UPGRADE] call_sid={self.call_sid[:8]}... hash={full_prompt_hash} type=EXPANSION_NOT_REBUILD", flush=True)
+                                logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms")
                                 
                             except Exception as upgrade_err:
-                                logger.error(f"❌ [PROMPT UPGRADE] Failed to upgrade prompt: {upgrade_err}")
+                                logger.error(f"❌ [PROMPT UPGRADE] Failed to expand prompt: {upgrade_err}")
                                 import traceback
                                 traceback.print_exc()
                                 # Don't fail the call if upgrade fails - compact prompt is still functional
@@ -6918,11 +6925,24 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🔥 BUILD 174: Outbound call parameters
                         # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
-                        self.call_direction = custom_params.get("direction", "inbound")
+                        # 🔥 HARD LOCK: Prevent any attempt to change direction after initial set
+                        incoming_direction = custom_params.get("direction", "inbound")
                         
-                        # 🔥 VERIFICATION: Log call_direction to detect inbound/outbound confusion
-                        print(f"🔍 [CALL_DIRECTION] Set from customParameters: {self.call_direction}")
-                        _orig_print(f"[CALL_DIRECTION] call_sid={self.call_sid[:8]}... direction={self.call_direction}", flush=True)
+                        # Check if direction was already set (should never happen, but guard against it)
+                        if hasattr(self, 'call_direction') and self.call_direction:
+                            if self.call_direction != incoming_direction:
+                                # 🔥 CRITICAL ERROR: Attempt to change direction after it was set
+                                print(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
+                                print(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
+                                print(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
+                                _orig_print(f"[ERROR] CALL_DIRECTION_CHANGE_BLOCKED call_sid={self.call_sid[:8]}... current={self.call_direction} attempted={incoming_direction}", flush=True)
+                            else:
+                                print(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
+                        else:
+                            # First time setting direction - this is the ONLY allowed assignment
+                            self.call_direction = incoming_direction
+                            print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
+                            _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
                         
                         self.outbound_lead_id = custom_params.get("lead_id")
                         self.outbound_lead_name = custom_params.get("lead_name")
@@ -6963,11 +6983,24 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🔥 BUILD 174: Outbound call parameters (direct format)
                         # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
-                        self.call_direction = evt.get("direction", "inbound")
+                        # 🔥 HARD LOCK: Prevent any attempt to change direction after initial set
+                        incoming_direction = evt.get("direction", "inbound")
                         
-                        # 🔥 VERIFICATION: Log call_direction to detect inbound/outbound confusion
-                        print(f"🔍 [CALL_DIRECTION] Set from direct format: {self.call_direction}")
-                        _orig_print(f"[CALL_DIRECTION] call_sid={self.call_sid[:8]}... direction={self.call_direction}", flush=True)
+                        # Check if direction was already set (should never happen, but guard against it)
+                        if hasattr(self, 'call_direction') and self.call_direction:
+                            if self.call_direction != incoming_direction:
+                                # 🔥 CRITICAL ERROR: Attempt to change direction after it was set
+                                print(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
+                                print(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
+                                print(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
+                                _orig_print(f"[ERROR] CALL_DIRECTION_CHANGE_BLOCKED call_sid={self.call_sid[:8]}... current={self.call_direction} attempted={incoming_direction}", flush=True)
+                            else:
+                                print(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
+                        else:
+                            # First time setting direction - this is the ONLY allowed assignment
+                            self.call_direction = incoming_direction
+                            print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
+                            _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
                         
                         self.outbound_lead_id = evt.get("lead_id")
                         self.outbound_lead_name = evt.get("lead_name")
