@@ -103,32 +103,12 @@ def warmup_services_async():
             log.warning("WARMUP_OPENAI_ERR")
         
         # 🚫 SKIP Google TTS warmup (DISABLED)
-        if not DISABLE_GOOGLE:
-            print("  🔥 Warming Google TTS client...")
-            client = get_tts_client()
-            if client:
-                print("    ✅ TTS client ready")
-                log.info("WARMUP_TTS_OK")
-            else:
-                print("    ❌ TTS client failed")
-                log.warning("WARMUP_TTS_ERR")
-        else:
-            print("  🚫 Google TTS warmup SKIPPED (DISABLE_GOOGLE=true)")
-            log.info("WARMUP_TTS_SKIPPED")
+        print("  🚫 Google TTS warmup SKIPPED (DISABLE_GOOGLE=true)")
+        log.info("WARMUP_TTS_SKIPPED")
         
         # 🚫 SKIP Google STT warmup (DISABLED)
-        if not DISABLE_GOOGLE:
-            print("  🔥 Warming Google STT client...")
-            client = get_stt_client()
-            if client:
-                print("    ✅ STT client ready")
-                log.info("WARMUP_STT_OK")
-            else:
-                print("    ❌ STT client failed")
-                log.warning("WARMUP_STT_ERR")
-        else:
-            print("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
-            log.info("WARMUP_STT_SKIPPED")
+        print("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
+        log.info("WARMUP_STT_SKIPPED")
         
         # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
         try:

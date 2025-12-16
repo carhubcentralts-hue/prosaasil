@@ -1969,11 +1969,11 @@ class MediaStreamHandler:
         This function is deprecated and should not be called.
         Use OpenAI Realtime API instead.
         """
+        # Google STT should never be initialized when DISABLE_GOOGLE=true
         if DISABLE_GOOGLE or not USE_STREAMING_STT:
             return
         
-        # Google STT should never be initialized when DISABLE_GOOGLE=true
-        logger.warning("⚠️ _init_streaming_stt called but Google is DISABLED")
+        logger.warning("⚠️ _init_streaming_stt called but Google STT is disabled or not configured")
         return
                 
                 # Register in thread-safe registry

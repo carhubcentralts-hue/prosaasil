@@ -27,8 +27,8 @@ def transcribe_audio_file(audio_file_path: str, call_sid: Optional[str] = None) 
         טקסט מתומלל בעברית
     """
     # 🚫 Google STT is DISABLED - use Whisper only
-    if not DISABLE_GOOGLE:
-        log.warning("⚠️ Google STT is available but should be disabled! Set DISABLE_GOOGLE=true")
+    if DISABLE_GOOGLE:
+        log.debug("Google STT disabled - using Whisper transcription")
     
     # ✅ Use Whisper for transcription
     try:
