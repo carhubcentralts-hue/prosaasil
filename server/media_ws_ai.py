@@ -1644,6 +1644,8 @@ class MediaStreamHandler:
         self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
         self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
         self._cancelled_response_max_size = 100  # Cap at 100 entries
+        # 🔥 SIMPLE BARGE-IN: Drop window to prevent late audio deltas after barge-in
+        self._drop_audio_until = 0  # Timestamp until which to drop audio deltas
         
         # ✅ P0 FIX: Track which response IDs we've sent cancel for (prevent duplicate cancel)
         self._cancel_sent_for_response_ids = set()  # Response IDs we've already sent cancel event for
@@ -3874,6 +3876,11 @@ Greet briefly. Then WAIT for customer to speak."""
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     if audio_b64:
+                        # 🚫 SIMPLE BARGE-IN: Drop audio deltas during drop window (prevents late audio after barge-in)
+                        if getattr(self, "_drop_audio_until", 0) > time.time():
+                            print(f"🚫 [SIMPLE_BARGE_IN] Dropping audio delta (drop window active)")
+                            continue
+                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -5760,6 +5767,7 @@ Greet briefly. Then WAIT for customer to speak."""
         This is the simplest possible barge-in implementation:
         1. Cancel OpenAI current response (if active)
         2. Flush TX queue to stop audio playback immediately
+        3. Set drop window to prevent late audio deltas
         
         No noise floor checks, no guards - just stop everything instantly.
         """
@@ -5809,7 +5817,14 @@ Greet briefly. Then WAIT for customer to speak."""
         except Exception as e:
             print(f"⚠️ [SIMPLE_BARGE_IN] Error during flush: {e}")
         
-        # 3) Local flags (optional but helps)
+        # 3) Set drop window to prevent late audio deltas (350ms is enough)
+        try:
+            self._drop_audio_until = time.time() + 0.35
+            print(f"🚫 [SIMPLE_BARGE_IN] Drop window set for 350ms")
+        except Exception as e:
+            print(f"⚠️ [SIMPLE_BARGE_IN] Error setting drop window: {e}")
+        
+        # 4) Local flags (optional but helps)
         try:
             if hasattr(self, 'is_ai_speaking_event'):
                 self.is_ai_speaking_event.clear()
