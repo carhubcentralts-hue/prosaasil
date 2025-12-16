@@ -25,6 +25,7 @@ ENABLE_LEGACY_CITY_LOGIC = False
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
+DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
 _orig_print = builtins.print
 
 def _dprint(*args, **kwargs):
@@ -3368,7 +3369,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Log all response-related events with details
                     if event_type == "response.audio.delta":
                         delta = event.get("delta", "")
-                        _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
+                        # 🚫 Production mode: Only log in DEBUG
+                        if DEBUG:
+                            _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
                     elif event_type == "response.done":
                         response = event.get("response", {})
                         status = response.get("status", "?")
@@ -3973,13 +3976,16 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🔥 BARGE-IN FIX: ALWAYS ensure is_ai_speaking is set on audio.delta
                         # This guarantees the flag tracks actual audio playback
                         if not self.is_ai_speaking_event.is_set():
-                            print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
+                            # 🚫 Production mode: Only log in DEBUG
+                            if DEBUG:
+                                print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
                             # 🔥 FIX BUG 3: Track AI audio start time for echo suppression
                             self._last_ai_audio_start_ts = now
-                            print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
+                            if DEBUG:
+                                print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [P0-5] Audio started - cancelling recovery")
@@ -11652,7 +11658,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     # TX loop ONLY sends frames at strict 20ms pace
                     
                     # 🔍 DEBUG: Log what format we received
-                    if tx_count < 3:
+                    # 🚫 Production mode: Only log in DEBUG
+                    if DEBUG and tx_count < 3:
                         print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
                     
                     # If already has correct format (from Realtime), send as-is
@@ -11697,9 +11704,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         send_ms = (time.monotonic() - send_start) * 1000.0
                         if send_ms > 50.0:
                             _orig_print(f"[TX_SEND_SLOW] type=media_old, send_ms={send_ms:.1f}, qsize={queue_size}", flush=True)
-                            if send_ms > 500.0 and not _stacktrace_logged_once:
+                            
+                            # Only dump stack traces in debug mode for severe stalls
+                            if DEBUG_TX and send_ms > 500.0 and not _stacktrace_logged_once:
                                 _stacktrace_logged_once = True
-                                _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks:", flush=True)
+                                _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks (DEBUG_TX=1):", flush=True)
                                 import sys, traceback, threading
                                 for thread_id, frame in sys._current_frames().items():
                                     thread_name = None
@@ -11741,30 +11750,33 @@ Greet briefly. Then WAIT for customer to speak."""
                     # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
                     # This watchdog will catch what's blocking the TX thread
                     if frame_gap_ms > 120.0:
-                        import sys
-                        import traceback
-                        import threading
+                        # 🚨 Single-line log for production (no stack traces unless DEBUG_TX=1)
+                        _orig_print(f"🚨 [TX_STALL] gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
                         
-                        print(f"🚨 [TX_STALL] DETECTED! gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
-                        # ✅ FIX: Define queue_maxsize before use to prevent UnboundLocalError crash
-                        try:
-                            queue_maxsize = getattr(self.tx_q, "maxsize", -1)
-                            print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
-                        except Exception as e:
-                            print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
-                        
-                        # Log stack traces of all threads to find the culprit
-                        if frame_gap_ms > 500.0:  # Only full dump for severe stalls
-                            print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
+                        # Only dump stack traces in debug mode
+                        if DEBUG_TX and frame_gap_ms > 500.0:
+                            import sys
+                            import traceback
+                            import threading
+                            
+                            # ✅ FIX: Define queue_maxsize before use to prevent UnboundLocalError crash
+                            try:
+                                queue_maxsize = getattr(self.tx_q, "maxsize", -1)
+                                _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
+                            except Exception as e:
+                                _orig_print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
+                            
+                            # Log stack traces of all threads to find the culprit
+                            _orig_print(f"🔍 [TX_STALL] Stack traces of all threads (DEBUG_TX=1):", flush=True)
                             for thread_id, frame in sys._current_frames().items():
                                 thread_name = None
                                 for t in threading.enumerate():
                                     if t.ident == thread_id:
                                         thread_name = t.name
                                         break
-                                print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                                _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
                                 traceback.print_stack(frame)
-                                print(flush=True)
+                                _orig_print(flush=True)
                     
                     if frame_gap_ms > max_gap_ms:
                         max_gap_ms = frame_gap_ms
