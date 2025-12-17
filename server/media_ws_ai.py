@@ -6750,6 +6750,13 @@ Greet briefly. Then WAIT for customer to speak."""
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
                     _first_frame_logged = True
                 
+                # 🔥 RECORDING TRIGGER: Start recording when first audio sent (from TX loop flag)
+                # This is done here in background thread, NOT in TX loop itself
+                if getattr(self, '_first_audio_sent', False) and not getattr(self, '_recording_started', False):
+                    self._recording_started = True
+                    _orig_print(f"✅ [AUDIO_OUT_LOOP] Starting recording (triggered by FIRST_AUDIO_SENT flag)", flush=True)
+                    threading.Thread(target=self._start_call_recording, daemon=True).start()
+                
                 if not self.stream_sid:
                     _frames_skipped_no_stream_sid += 1
                     if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
@@ -11868,14 +11875,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         if success:
                             self.tx += 1  # ✅ Increment tx counter!
                             frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                            # 🔥 FIRST_AUDIO_SENT: Start recording now (after first audio frame)
+                            # 🔥 FIRST_AUDIO_SENT: Set flag (recording will start from background thread)
                             if not _first_frame_sent:
                                 _first_frame_sent = True
                                 _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
-                                # 🔥 Start recording AFTER first audio sent (not during greeting)
-                                if not getattr(self, '_recording_started', False):
-                                    self._recording_started = True
-                                    threading.Thread(target=self._start_call_recording, daemon=True).start()
+                                # 🔥 Set flag - recording will be triggered from _realtime_audio_out_loop
+                                self._first_audio_sent = True
                     else:
                         # Old format - convert
                         # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
@@ -11894,14 +11899,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         if success:
                             self.tx += 1  # ✅ Increment tx counter!
                             frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                            # 🔥 FIRST_AUDIO_SENT: Start recording now (after first audio frame)
+                            # 🔥 FIRST_AUDIO_SENT: Set flag (recording will start from background thread)
                             if not _first_frame_sent:
                                 _first_frame_sent = True
                                 _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
-                                # 🔥 Start recording AFTER first audio sent (not during greeting)
-                                if not getattr(self, '_recording_started', False):
-                                    self._recording_started = True
-                                    threading.Thread(target=self._start_call_recording, daemon=True).start()
+                                # 🔥 Set flag - recording will be triggered from _realtime_audio_out_loop
+                                self._first_audio_sent = True
                 
                     tx_count += 1
                     frames_sent_last_sec += 1
