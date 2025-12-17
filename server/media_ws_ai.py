@@ -3741,6 +3741,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._barge_in_started_ts = time.time()  # Track for failsafe timeout
                         
                         # 1) Cancel response on OpenAI side (with timeout protection and duplicate guard)
+                        # 🔥 FIX ISSUE 1: Save cancelled_id BEFORE clearing active_response_id
                         cancelled_id = self.active_response_id
                         if cancelled_id and self.realtime_client and self._should_send_cancel(cancelled_id):
                             try:
@@ -3754,13 +3755,20 @@ Greet briefly. Then WAIT for customer to speak."""
                             except asyncio.TimeoutError:
                                 print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
                             except Exception as e:
-                                print(f"   ⚠️ Error cancelling response: {e}")
+                                # 🔥 FIX ISSUE 1: Ignore "response_cancel_not_active" errors (already cancelled)
+                                error_str = str(e).lower()
+                                if 'response_cancel_not_active' in error_str or 'not_active' in error_str:
+                                    print(f"   ℹ️ Response already cancelled/inactive: {cancelled_id[:20]}... (ignoring)")
+                                else:
+                                    print(f"   ⚠️ Error cancelling response: {e}")
                         elif not cancelled_id:
                             print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
                         elif not self.realtime_client:
                             print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
                         
                         # 2) Clear local guards (ALWAYS, even if cancel failed)
+                        # 🔥 FIX ISSUE 1: Clear active_response_id AFTER cancel is sent (not before)
+                        # This ensures cancel guard is set before clearing the ID
                         # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
                         self.active_response_id = None
                         self.response_pending_event.clear()
@@ -5802,6 +5810,45 @@ Greet briefly. Then WAIT for customer to speak."""
         - But no transcription.completed was received
         
         The AI should always reply, even if transcription failed.
+        """
+        print(f"[TURN_END] Timeout finalization triggered")
+        
+        # Clear candidate flag
+        self._candidate_user_speaking = False
+        self._utterance_start_ts = None
+        
+        # Check if we're truly stuck (no response in progress)
+        if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
+            # No AI response in progress - this means we're stuck
+            # The transcription probably failed or was rejected
+            print(f"[TURN_END] No AI response in progress - system was stuck in silence")
+            
+            # CORRECTIVE ACTION: Clear any stale state that might block response
+            if self.active_response_id:
+                print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
+                self.active_response_id = None
+            
+            if self.has_pending_ai_response:
+                print(f"[TURN_END] Clearing stale has_pending_ai_response flag")
+                self.has_pending_ai_response = False
+            
+            # The silence monitor will detect this and trigger a prompt for user to speak
+            # We don't force a response here to avoid AI hallucinations
+            print(f"[TURN_END] State cleared - silence monitor will handle next action")
+        else:
+            print(f"[TURN_END] AI response already in progress - no action needed")
+    
+    def _finalize_user_turn_on_timeout(self):
+        """
+        🔥 FIX ISSUE 2: Finalize user turn when timeout expires without transcription
+        
+        This prevents the system from getting stuck in silence when:
+        - speech_started fired
+        - speech_stopped fired
+        - But no transcription.completed was received
+        
+        The AI should always reply, even if transcription failed.
+        This method is called from the timeout check in speech_started handler.
         """
         print(f"[TURN_END] Timeout finalization triggered")
         
