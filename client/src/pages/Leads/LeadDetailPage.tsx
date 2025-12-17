@@ -898,8 +898,21 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
 
             return (
               <div key={call.id} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`call-${call.id}`}>
-                {/* Call Header */}
-                <div className="p-4 bg-gray-50 hover:bg-gray-100 transition-colors">
+                {/* Call Header - Clickable */}
+                <div 
+                  className="p-4 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+                  onClick={() => handleToggleExpand(callId, hasRecording)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  aria-label={`שיחה ${call.call_type === 'incoming' ? 'נכנסת' : 'יוצאת'} מתאריך ${formatDate(call.created_at)}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleToggleExpand(callId, hasRecording);
+                    }
+                  }}
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 flex-1">
                       <div className={`p-2 rounded-full ${call.call_type === 'incoming' ? 'bg-green-100' : 'bg-blue-100'}`}>
@@ -913,29 +926,35 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                       </div>
                       <div className="text-left">
                         <p className="text-sm font-medium text-gray-700">{formatDuration(call.duration)}</p>
-                        <div className="flex gap-1 mt-1">
-                          {hasRecording && (
-                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">הקלטה</span>
-                          )}
-                          {hasTranscript && (
-                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">תמליל</span>
-                          )}
-                          {hasSummary && (
-                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">סיכום</span>
-                          )}
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${hasRecording ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                            🎧 הקלטה
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${hasTranscript ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400'}`}>
+                            📝 תמליל
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${hasSummary ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                            📋 סיכום
+                          </span>
                         </div>
+                        {(hasRecording || hasTranscript || hasSummary) && (
+                          <p className="text-xs text-blue-600 mt-1 font-medium">
+                            👆 לחץ להצגה
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleDeleteCall(getCallId(call));
                         }}
                         disabled={deleting === getCallId(call)}
-                        className="p-2 hover:bg-red-100 rounded-full transition-colors"
+                        className="p-2 hover:bg-red-100 rounded-full transition-colors touch-manipulation"
                         data-testid={`button-delete-call-${call.id}`}
                         title="מחק שיחה"
+                        aria-label="מחק שיחה"
                       >
                         {deleting === getCallId(call) ? (
                           <Loader2 className="w-4 h-4 animate-spin text-red-500" />
@@ -945,9 +964,13 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                       </button>
                       <button
                         onClick={() => handleToggleExpand(callId, hasRecording)}
-                        className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+                        className="p-2 sm:p-2.5 hover:bg-blue-100 active:bg-blue-200 rounded-full transition-colors touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center"
+                        data-testid={`button-expand-call-${call.id}`}
+                        title={isExpanded ? 'סגור פרטים' : 'הצג הקלטה, תמליל וסיכום'}
+                        aria-label={isExpanded ? 'סגור פרטים' : 'הצג הקלטה, תמליל וסיכום'}
+                        aria-expanded={isExpanded}
                       >
-                        <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-5 h-5 sm:w-4 sm:h-4 text-blue-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                       </button>
                     </div>
                   </div>

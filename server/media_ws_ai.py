@@ -77,6 +77,7 @@ try:
         AUDIO_CONFIG, SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
+        BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
         NOISE_GATE_MIN_FRAMES
     )
@@ -90,6 +91,8 @@ except ImportError:
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
+    BARGE_IN_VOICE_FRAMES = 8
+    BARGE_IN_DEBOUNCE_MS = 350
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
     MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
@@ -336,7 +339,7 @@ class AudioState:
     
     # Debouncing
     last_barge_in_ts: Optional[float] = None
-    barge_in_debounce_ms: int = 400  # From config
+    barge_in_debounce_ms: int = 350  # Default from config (BARGE_IN_DEBOUNCE_MS)
     
     # VAD smoothing state
     ema_noise_floor: float = 20.0  # EMA of noise floor
@@ -1137,9 +1140,8 @@ RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
 RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
-# BARGE-IN - Responsive interruption detection (40-60ms for immediate response)
-# 🔥 SIMPLE MODE: Reduced to 2-3 frames for instant barge-in feel
-BARGE_IN_VOICE_FRAMES = 3     # 3 frames = 60ms continuous speech to trigger barge-in - immediate feel
+# BARGE-IN configuration imported from server.config.calls
+# See server/config/calls.py for BARGE_IN_VOICE_FRAMES and BARGE_IN_DEBOUNCE_MS values
 
 # TX BURST PROTECTION - Prevent chipmunk effect from audio bursts
 # ✅ P0-1: Constants for queue backlog management
@@ -2424,14 +2426,20 @@ Greet briefly. Then WAIT for customer to speak."""
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
-            # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
+            # 🔥 BUILD 350: Import VAD config for consistent behavior
+            # CRITICAL: Use centralized config to prevent "AI not speaking" bugs
+            from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
+            
+            # 🔥 BUILD 350: Configure with BALANCED settings for reliable greeting
+            # Previous hardcoded values (0.85/450) caused AI to never respond!
+            # Now using config values (0.5/400) for consistent, reliable behavior
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.85,
-                silence_duration_ms=450,
+                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
+                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
                 transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance

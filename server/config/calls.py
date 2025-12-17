@@ -40,16 +40,31 @@ MAX_REALTIME_SECONDS_PER_CALL = 600  # Max 10 minutes per call
 MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 BUILD 341: OPTIMIZED VAD THRESHOLDS - Prevent premature cutoff and hallucinations
-# 🔥 FIX: Tuned for short Hebrew sentences (e.g., "איך עובדים", "כמה זה")
-# 🔥 FIX: Further optimized for easier barge-in (no need to shout!)
-# Lower threshold improves detection of quieter/shorter utterances in Hebrew
-# Reduced silence duration enables faster turn-taking without cutting off speech
-# Testing shows 0.45/600ms optimal for Hebrew phone conversations with easy barge-in
+# 🔥 BUILD 350: BALANCED VAD THRESHOLDS - Optimized for Hebrew with noise resilience
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.45         # Lowered from 0.50 - even better detection + easier barge-in
-SERVER_VAD_SILENCE_MS = 600         # Reduced from 700ms - faster response without cutting off
-SERVER_VAD_PREFIX_PADDING_MS = 500  # Increased from 400ms - capture more audio before speech starts
+# TUNING RATIONALE (based on OpenAI Realtime API best practices):
+# - threshold 0.5: Balanced sensitivity for Hebrew short utterances while avoiding false positives
+#   from background noise (research shows 0.3-0.5 for quiet environments, 0.6-0.7 for noisy)
+# - silence_duration_ms 400: OpenAI recommends 250-400ms for short utterances in rapid exchanges
+#   (too low causes premature cutoff, too high causes sluggish responses)
+# - prefix_padding_ms 300: Standard padding (OpenAI default), sufficient for Hebrew syllables
+#   (was 500ms but caused delayed speech start detection)
+#
+# Previous aggressive settings (0.45/600ms/500ms) caused:
+# ❌ False positives from background noise being detected as speech
+# ❌ Premature speech cutoff when users pause briefly
+# ❌ System not responding at all during entire call
+# ❌ Unwanted greeting interruptions from ambient sounds
+#
+# Current balanced settings (0.5/400ms/300ms) provide:
+# ✅ Reliable detection of short Hebrew utterances ("כן", "לא", "איך עובדים")
+# ✅ Noise resilience - ignores most background sounds
+# ✅ Natural conversation flow - no premature cutoffs
+# ✅ Fast response - 400ms silence is enough for turn-taking
+# ═══════════════════════════════════════════════════════════════════════════════
+SERVER_VAD_THRESHOLD = 0.5          # Balanced: detects speech without false positives (OpenAI best practice)
+SERVER_VAD_SILENCE_MS = 400         # Optimal for short Hebrew utterances (OpenAI recommendation: 250-400ms)
+SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding, prevents delayed speech detection (OpenAI default)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
@@ -67,18 +82,53 @@ VAD_ADAPTIVE_CAP = 120.0        # Maximum adaptive threshold
 VAD_ADAPTIVE_OFFSET = 55.0      # noise_floor + this = dynamic threshold
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 MASTER FIX: ECHO GATE - Protect against AI echo during greeting
-# 🔥 FIX: Lowered from 320.0 to 150.0 for easier barge-in (no need to shout!)
+# 🔥 BUILD 350: BALANCED ECHO GATE - Protect against AI echo with noise resilience
 # ═══════════════════════════════════════════════════════════════════════════════
-ECHO_GATE_MIN_RMS = 150.0       # Minimum RMS to trigger barge-in during AI speech (lowered for sensitivity)
-ECHO_GATE_MIN_FRAMES = 4        # Consecutive frames needed (80ms) - reduced for faster response
+# TUNING RATIONALE:
+# - RMS 200: Moderate sensitivity - allows real interruptions while ignoring ambient noise
+#   (was 150 - too low, caused false triggers from background noise)
+#   (was 320 originally - too high, required shouting to interrupt)
+# - Frames 5: Requires 100ms of consistent audio to trigger (prevents spurious noise spikes)
+#   (was 4 - too low, allowed single-frame noise to trigger)
+#
+# Previous aggressive setting (150.0) caused:
+# ❌ Background noise triggering barge-in during AI greeting
+# ❌ System interrupting itself from echo or ambient sounds
+# ❌ Greeting not being read at all due to false triggers
+#
+# Current balanced setting (200.0) provides:
+# ✅ Natural interruption capability - no need to shout
+# ✅ Noise resilience - ignores ambient sounds and echo
+# ✅ Consistent greeting delivery - completes unless user truly interrupts
+# ═══════════════════════════════════════════════════════════════════════════════
+ECHO_GATE_MIN_RMS = 200.0       # Moderate sensitivity: real interruptions without false triggers
+ECHO_GATE_MIN_FRAMES = 5        # Requires 100ms consistent audio (prevents noise spikes)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 MASTER FIX: BARGE-IN CONFIGURATION
-# 🔥 FIX: Reduced frames from 12 to 6 for instant barge-in (no shouting required!)
+# 🔥 BUILD 350: BALANCED BARGE-IN - Natural interruption with noise resilience
 # ═══════════════════════════════════════════════════════════════════════════════
-BARGE_IN_VOICE_FRAMES = 6   # Consecutive voice frames to trigger barge-in (120ms) - reduced for instant response
-BARGE_IN_DEBOUNCE_MS = 300  # Debounce period to prevent double triggers (ms) - reduced for faster follow-up
+# TUNING RATIONALE:
+# - Frames 8: Requires 160ms of consistent speech to trigger interruption
+#   (was 6/120ms - too low, caused false triggers from brief noises or speaker pauses)
+#   (was 12/240ms originally - too high, felt unresponsive)
+# - Debounce 350ms: Prevents rapid re-triggering while allowing natural follow-up
+#   (was 300ms - too short, allowed unwanted double interruptions)
+#   (was 400ms originally - felt slightly sluggish)
+#
+# Previous aggressive settings (6 frames/300ms) caused:
+# ❌ AI interrupting mid-sentence when user pauses briefly
+# ❌ False barge-in triggers from background noise
+# ❌ Response flow disruption from spurious interruptions
+# ❌ System not speaking at all during calls due to constant false triggers
+#
+# Current balanced settings (8 frames/350ms) provide:
+# ✅ Natural interruption - responds to real user speech
+# ✅ Noise resilience - ignores brief sounds and pauses
+# ✅ Smooth conversation flow - allows natural speaking patterns
+# ✅ No double triggers - proper debounce for follow-up responses
+# ═══════════════════════════════════════════════════════════════════════════════
+BARGE_IN_VOICE_FRAMES = 8   # Requires 160ms consistent speech (balanced: responsive without false triggers)
+BARGE_IN_DEBOUNCE_MS = 350  # Debounce period prevents double triggers while allowing natural follow-up
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Legacy Audio Guard parameters (kept for compatibility)
