@@ -1121,6 +1121,46 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 41: Add parent_call_sid and twilio_direction to call_log
+    # 🔥 FIX: Prevents duplicate call logs and tracks original Twilio direction
+    if not check_column_exists('call_log', 'parent_call_sid'):
+        checkpoint("Migration 41a: Adding parent_call_sid to call_log for tracking parent/child call relationships")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                ALTER TABLE call_log 
+                ADD COLUMN parent_call_sid VARCHAR(64)
+            """))
+            
+            # Create index for performance
+            db.session.execute(text("CREATE INDEX idx_call_log_parent_call_sid ON call_log(parent_call_sid)"))
+            
+            migrations_applied.append('add_parent_call_sid_to_call_log')
+            log.info("✅ Applied migration 41a: add_parent_call_sid_to_call_log - Track parent/child call legs")
+        except Exception as e:
+            log.error(f"❌ Migration 41a failed: {e}")
+            db.session.rollback()
+            raise
+    
+    if not check_column_exists('call_log', 'twilio_direction'):
+        checkpoint("Migration 41b: Adding twilio_direction to call_log for storing original Twilio direction")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                ALTER TABLE call_log 
+                ADD COLUMN twilio_direction VARCHAR(32)
+            """))
+            
+            # Create index for performance
+            db.session.execute(text("CREATE INDEX idx_call_log_twilio_direction ON call_log(twilio_direction)"))
+            
+            migrations_applied.append('add_twilio_direction_to_call_log')
+            log.info("✅ Applied migration 41b: add_twilio_direction_to_call_log - Store original Twilio direction values")
+        except Exception as e:
+            log.error(f"❌ Migration 41b failed: {e}")
+            db.session.rollback()
+            raise
+    
     checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()

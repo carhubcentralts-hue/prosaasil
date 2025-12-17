@@ -719,9 +719,18 @@ def handle_recording():
     """
     ✅ BUILD 89: Handle recording webhook עם self-heal fallback
     שלב 4: שדרוג למענה מיידי עם monitoring משופר
+    🔥 FIX: Capture Direction and ParentCallSid from webhook
     """
     import time
     start_time = time.time()
+    
+    # Immediate response preparation FIRST (before any processing)
+    resp = make_response("", 200)
+    resp.headers.update({
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Connection": "close"
+    })
     
     # Fast data extraction
     call_sid = request.form.get("CallSid", "unknown")
@@ -730,9 +739,17 @@ def handle_recording():
     rec_duration = request.form.get("RecordingDuration", "0")
     rec_status = request.form.get("RecordingStatus", "unknown")
     
+    # 🔥 NEW: Capture direction and parent_call_sid from recording webhook
+    twilio_direction = request.form.get("Direction")
+    parent_call_sid = request.form.get("ParentCallSid")
+    from_number = request.form.get("From", "unknown")
+    to_number = request.form.get("To", "unknown")
+    
     # ✅ BUILD 89: עדכן או צור call_log מיד
     if call_sid and call_sid != "unknown":
         try:
+            from server.tasks_recording import normalize_call_direction
+            
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if not call_log:
                 # Self-heal: צור fallback call_log
@@ -747,17 +764,38 @@ def handle_recording():
                 biz_phone = biz.phone_e164 or "unknown"
                 print(f"📊 handle_recording fallback: business_id={biz_id}")
                 
+                # 🔥 NEW: Normalize direction when creating fallback
+                normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else "inbound"
+                
                 call_log = CallLog(
                     call_sid=call_sid,
-                    from_number="unknown",
-                    to_number=biz_phone,  # ✅ BUILD 152: Dynamic, not hardcoded
+                    parent_call_sid=parent_call_sid,  # 🔥 NEW: Store parent call SID
+                    from_number=from_number,
+                    to_number=to_number,
                     business_id=biz_id,
+                    direction=normalized_direction,  # 🔥 NEW: Normalized direction
+                    twilio_direction=twilio_direction,  # 🔥 NEW: Original Twilio direction
                     call_status="completed",  # ✅ BUILD 90: Legacy field
                     status="recorded"
                 )
                 db.session.add(call_log)
             else:
                 call_log.status = "recorded"
+                
+                # 🔥 NEW: Update direction fields if not set and available in webhook
+                if twilio_direction and not call_log.twilio_direction:
+                    call_log.twilio_direction = twilio_direction
+                    call_log.direction = normalize_call_direction(twilio_direction)
+                
+                # 🔥 NEW: Update parent_call_sid if not set and available
+                if parent_call_sid and not call_log.parent_call_sid:
+                    call_log.parent_call_sid = parent_call_sid
+                
+                # Update from/to if they were "unknown" in initial creation
+                if from_number and from_number != "unknown" and call_log.from_number == "unknown":
+                    call_log.from_number = from_number
+                if to_number and to_number != "unknown" and call_log.to_number == "unknown":
+                    call_log.to_number = to_number
             
             # 🔥 FIX: עדכן recording_url AND recording_sid
             if rec_url:
@@ -767,18 +805,10 @@ def handle_recording():
                 print(f"✅ handle_recording: Saved recording_sid {rec_sid} for {call_sid}")
             
             db.session.commit()
-            print(f"✅ handle_recording: Updated call_log for {call_sid}")
+            print(f"✅ handle_recording: Updated call_log for {call_sid} (direction={call_log.direction}, parent={parent_call_sid})")
         except Exception as e:
             print(f"⚠️ handle_recording DB error: {e}")
             db.session.rollback()
-    
-    # Immediate response preparation (no blocking operations)
-    resp = make_response("", 200)
-    resp.headers.update({
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-        "Connection": "close"
-    })
     
     # TRUE non-blocking background processing with daemon thread
     if rec_url and rec_url.strip():
@@ -827,17 +857,26 @@ def stream_status():
     """
     ✅ BUILD 89: Stream status עם self-heal fallback
     עדכן call_log ב-DB, ואם לא קיים - צור fallback
+    🔥 FIX: Capture Direction and ParentCallSid from webhook
     """
     try:
         call_sid = request.form.get('CallSid', 'N/A')
         stream_sid = request.form.get('StreamSid', 'N/A')
         event = request.form.get('Status', 'N/A')
         
-        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event}")
+        # 🔥 NEW: Capture direction and parent_call_sid
+        twilio_direction = request.form.get('Direction')
+        parent_call_sid = request.form.get('ParentCallSid')
+        from_number = request.form.get('From', 'unknown')
+        to_number = request.form.get('To', 'unknown')
+        
+        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event} direction={twilio_direction}")
         
         # ✅ BUILD 89: עדכן או צור call_log
         if call_sid and call_sid != 'N/A':
             try:
+                from server.tasks_recording import normalize_call_direction
+                
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if not call_log:
                     # Self-heal: צור fallback call_log
@@ -852,11 +891,17 @@ def stream_status():
                     biz_phone = biz.phone_e164 or "unknown"
                     print(f"📊 stream_status fallback: business_id={biz_id}")
                     
+                    # 🔥 NEW: Normalize direction when creating fallback
+                    normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else "inbound"
+                    
                     call_log = CallLog(
                         call_sid=call_sid,
-                        from_number="unknown",
-                        to_number=biz_phone,  # ✅ BUILD 152: Dynamic, not hardcoded
+                        parent_call_sid=parent_call_sid,  # 🔥 NEW: Store parent call SID
+                        from_number=from_number,
+                        to_number=to_number,
                         business_id=biz_id,
+                        direction=normalized_direction,  # 🔥 NEW: Normalized direction
+                        twilio_direction=twilio_direction,  # 🔥 NEW: Original Twilio direction
                         call_status="in-progress",  # ✅ BUILD 90: Legacy field
                         status="streaming"
                     )
@@ -864,6 +909,21 @@ def stream_status():
                 else:
                     # עדכן סטטוס
                     call_log.status = event if event != 'N/A' else "streaming"
+                    
+                    # 🔥 NEW: Update direction fields if not set and available in webhook
+                    if twilio_direction and not call_log.twilio_direction:
+                        call_log.twilio_direction = twilio_direction
+                        call_log.direction = normalize_call_direction(twilio_direction)
+                    
+                    # 🔥 NEW: Update parent_call_sid if not set and available
+                    if parent_call_sid and not call_log.parent_call_sid:
+                        call_log.parent_call_sid = parent_call_sid
+                    
+                    # Update from/to if they were "unknown" in initial creation
+                    if from_number and from_number != "unknown" and call_log.from_number == "unknown":
+                        call_log.from_number = from_number
+                    if to_number and to_number != "unknown" and call_log.to_number == "unknown":
+                        call_log.to_number = to_number
                 
                 db.session.commit()
                 print(f"✅ stream_status: Updated call_log for {call_sid}")
