@@ -3609,9 +3609,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🔥 FIX: Don't trigger barge-in if greeting is protected
                     # should_interrupt_greeting is set above based on greeting protection logic
-                    can_barge_in = True
-                    if is_greeting_active and not should_interrupt_greeting:
-                        can_barge_in = False
+                    can_barge_in = not (is_greeting_active and not should_interrupt_greeting)
+                    if not can_barge_in:
                         _orig_print(f"🛡️ [BARGE-IN] Blocked during protected greeting - waiting for transcription confirmation", flush=True)
                     
                     if can_barge_in and (self.is_ai_speaking_event.is_set() or self.active_response_id is not None):
