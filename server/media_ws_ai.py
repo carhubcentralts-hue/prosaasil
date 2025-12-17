@@ -3697,11 +3697,16 @@ Greet briefly. Then WAIT for customer to speak."""
                     # This prevents the bot from behaving like "no user speech" when transcripts are filtered
                     # Check echo guard: Only set if this is likely real user speech (not AI echo)
                     # Echo guard logic: If AI not speaking OR AI finished speaking >800ms ago
+                    # 🔥 CRITICAL FIX: Echo suppression does NOT block barge-in
+                    # Echo guard only affects user_has_spoken flag for state progression
+                    # If OpenAI sends speech_started while AI is speaking, ALWAYS cancel
+                    # This ensures "רגע רגע" in 0-200ms always stops TTS
                     ai_speaking = self.is_ai_speaking_event.is_set()
                     last_ai_audio_ts = getattr(self, '_last_ai_audio_ts', 0)
                     time_since_ai_audio_ms = (time.time() - last_ai_audio_ts) * 1000 if last_ai_audio_ts else 9999
                     # Use global ECHO_SUPPRESSION_WINDOW_MS constant for consistency
                     
+                    # Echo guard for user_has_spoken flag (state progression only)
                     echo_guard_pass = not ai_speaking or time_since_ai_audio_ms > ECHO_SUPPRESSION_WINDOW_MS
                     if echo_guard_pass and not self.user_has_spoken:
                         self.user_has_spoken = True
@@ -11772,6 +11777,10 @@ Greet briefly. Then WAIT for customer to speak."""
         last_heartbeat_time = time.monotonic()
         _stacktrace_logged_once = False  # PROBE 3: Only log full stacktrace once per severe stall
         
+        # 🔥 CRITICAL: Rate-limit stack dumps to avoid making stalls worse
+        last_stack_dump_time = 0  # Track when we last dumped stack traces
+        STACK_DUMP_INTERVAL = 10.0  # Only dump stacks once every 10 seconds
+        
         # 🔥 FIX 4: TX STALL WATCHDOG - Detect queue backup without progress
         last_frames_sent_check = 0
         last_frames_sent_check_time = time.monotonic()
@@ -11783,9 +11792,10 @@ Greet briefly. Then WAIT for customer to speak."""
             # 🔥 FIX #2: Continue until BOTH tx_running is False AND queue is empty
             # This ensures we drain all audio before exiting
             while self.tx_running or not self.tx_q.empty():
-                # 🎯 PROBE 1: TX Liveness Probe - Heartbeat every 1 second
+                # 🎯 TX_STALL FIX: Reduce heartbeat frequency - only log in DEBUG mode
+                # Changed from every 1s to every 5s, and only if DEBUG_TX=1
                 now_mono = time.monotonic()
-                if now_mono - last_heartbeat_time >= 1.0:
+                if DEBUG_TX and now_mono - last_heartbeat_time >= 5.0:
                     audio_state = getattr(self, 'audio_state', None)
                     is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
                     active_response_id = audio_state.active_response_id if audio_state else None
@@ -11803,8 +11813,37 @@ Greet briefly. Then WAIT for customer to speak."""
                     qsize = self.tx_q.qsize()
                     frames_sent_delta = frames_sent_total - last_frames_sent_check
                     
+                    # 🔥 NEW: Check if queue is stuck with old frames when AI not speaking
+                    audio_state = getattr(self, 'audio_state', None)
+                    is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
+                    active_response_id = audio_state.active_response_id if audio_state else None
+                    
+                    # 🔥 CRITICAL: Time-based flush condition to avoid flushing legitimate audio during race
+                    # Only flush if:
+                    # 1. Queue >100 frames
+                    # 2. AI not speaking AND no active_response_id
+                    # 3. No audio deltas received recently (>500ms since last AI audio)
+                    last_ai_audio_ts = getattr(self, 'last_ai_audio_ts', 0)
+                    time_since_last_audio_ms = (now_mono - last_ai_audio_ts) * 1000.0 if last_ai_audio_ts else 9999
+                    
+                    if (qsize > 100 and 
+                        not is_ai_speaking and 
+                        not active_response_id and 
+                        time_since_last_audio_ms > 500.0):
+                        
+                        age_ms = time_since_last_audio_ms
+                        _orig_print(f"🧹 [TX_QUEUE_FLUSH] Flushing {qsize} stale frames (reason: AI not speaking, no active_response_id, age={age_ms:.0f}ms)", flush=True)
+                        flushed_count = 0
+                        while not self.tx_q.empty() and flushed_count < qsize:
+                            try:
+                                self.tx_q.get_nowait()
+                                flushed_count += 1
+                            except queue.Empty:
+                                break
+                        _orig_print(f"✅ [TX_QUEUE_FLUSH] Flushed {flushed_count} frames (age={age_ms:.0f}ms)", flush=True)
+                    
                     # If queue has items but no frames sent in last 800ms -> STALLED
-                    if qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
+                    elif qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
                         _orig_print(f"🚨 [TX_STALL_WATCHDOG] Queue backup detected! qsize={qsize}, frames_sent_delta=0 in {TX_STALL_WATCHDOG_INTERVAL}s", flush=True)
                         
                         # 🔥 FIX 4: Fail-fast on TX stall - close session cleanly
@@ -11984,24 +12023,30 @@ Greet briefly. Then WAIT for customer to speak."""
                     # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
                     # This watchdog will catch what's blocking the TX thread
                     if frame_gap_ms > 120.0:
-                        # 🚨 Single-line log for production (no stack traces unless DEBUG_TX=1)
+                        # 🚨 Always log TX stall
                         _orig_print(f"🚨 [TX_STALL] gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
                         
-                        # Only dump stack traces in debug mode
-                        if DEBUG_TX and frame_gap_ms > 500.0:
+                        # 🔥 CRITICAL: Rate-limit stack dumps to once every 10 seconds
+                        # Dumping all threads is heavy and can make the stall worse
+                        now = time.monotonic()
+                        time_since_last_dump = now - last_stack_dump_time
+                        
+                        if time_since_last_dump >= STACK_DUMP_INTERVAL:
+                            _orig_print(f"   Dumping stack trace (last dump was {time_since_last_dump:.1f}s ago)...", flush=True)
+                            last_stack_dump_time = now
+                            
                             import sys
                             import traceback
                             import threading
                             
-                            # ✅ FIX: Define queue_maxsize before use to prevent UnboundLocalError crash
                             try:
                                 queue_maxsize = getattr(self.tx_q, "maxsize", -1)
-                                _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
+                                _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}, gap={frame_gap_ms:.0f}ms", flush=True)
                             except Exception as e:
                                 _orig_print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
                             
-                            # Log stack traces of all threads to find the culprit
-                            _orig_print(f"🔍 [TX_STALL] Stack traces of all threads (DEBUG_TX=1):", flush=True)
+                            # Log stack traces of ALL threads to find the culprit
+                            _orig_print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
                             for thread_id, frame in sys._current_frames().items():
                                 thread_name = None
                                 for t in threading.enumerate():
@@ -12011,25 +12056,30 @@ Greet briefly. Then WAIT for customer to speak."""
                                 _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
                                 traceback.print_stack(frame)
                                 _orig_print(flush=True)
+                        else:
+                            _orig_print(f"   (Skipping stack dump - last dump was {time_since_last_dump:.1f}s ago, interval={STACK_DUMP_INTERVAL}s)", flush=True)
                     
                     if frame_gap_ms > max_gap_ms:
                         max_gap_ms = frame_gap_ms
                     last_frame_time = now
                     
-                    # ⚡ Telemetry: Print stats every second with max_gap_ms
-                    if now - last_telemetry_time >= 1.0:
+                    # ⚡ TX_STALL FIX: Sample telemetry every 5 seconds (not every second)
+                    if now - last_telemetry_time >= 5.0:
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize
-                        actual_fps = frames_sent_last_sec  # Frames sent in last second
-                        # 🎯 TASK D.1: Log FPS and max_gap_ms for audio quality monitoring
-                        # 🔥 P0: Always log if max_gap_ms > 40ms to catch stalls early
-                        queue_threshold = int(queue_maxsize * 0.5)  # Log if > 50% full
-                        if queue_size > queue_threshold or max_gap_ms > 40:
-                            print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                        actual_fps = frames_sent_last_sec / 5.0  # Average FPS over 5 seconds
                         
-                        # 🚨 P0: Always warn if max_gap_ms exceeded threshold
+                        # 🔥 TX_STALL FIX: Only log if there's an actual problem
+                        # Check if FPS is low (< 45) or queue backup (> 70%) or gap > 120ms
+                        queue_threshold = int(queue_maxsize * 0.7)
+                        
+                        # Log if ANY issue detected
+                        if actual_fps < 45 or queue_size > queue_threshold or max_gap_ms > 120.0:
+                            _orig_print(f"[TX_METRICS] last_5s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                        
+                        # 🚨 P0: Always warn if max_gap_ms exceeded threshold (this is critical)
                         if max_gap_ms > 120.0:
-                            print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last second (target: <40ms, acceptable: <120ms)", flush=True)
+                            force_print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last 5 seconds (target: <40ms, acceptable: <120ms)")
                         
                         frames_sent_last_sec = 0
                         max_gap_ms = 0.0  # Reset for next window
@@ -12148,71 +12198,39 @@ Greet briefly. Then WAIT for customer to speak."""
     # This ensures the system works for ANY business type dynamically.
     
     def _finalize_call_on_stop(self):
-        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות
-        🔥 BUILD 183: Only generate summary if USER actually spoke!
+        """✅ TX_STALL FIX: Minimal finalization - defer heavy tasks to offline worker
+        
+        RULE 1: NO HEAVY TASKS DURING CALL
+        - No AI summary generation (defer to offline worker)
+        - No CustomerIntelligence processing (defer to offline worker)
+        - No webhook sending (defer to offline worker)
+        
+        Only lightweight operations:
+        - Log call metrics (already in memory)
+        - Save basic call_log state
+        - Save realtime transcript (already in memory)
         """
         try:
             # 🔥 CALL METRICS: Log comprehensive metrics before finalizing
             self._log_call_metrics()
             
             from server.models_sql import CallLog
-            from server.services.customer_intelligence import CustomerIntelligence
-            from server.app_factory import create_app
             from server.db import db
             import threading
             
             def finalize_in_background():
+                """Lightweight finalization - only save what's already in memory"""
                 try:
                     app = _get_flask_app()  # ✅ Use singleton
                     with app.app_context():
                         # 🔁 IMPORTANT: Load fresh CallLog from DB (not cached)
                         call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
                         if not call_log:
-                            print(f"⚠️ No call_log found for final summary: {self.call_sid}")
+                            force_print(f"⚠️ No call_log found for finalization: {self.call_sid}")
                             return
                         
-                        # 🔍 DEBUG: Log initial state
-                        print(f"[DEBUG] CallLog initial state for {self.call_sid}:")
-                        print(f"  - final_transcript: {len(call_log.final_transcript) if call_log.final_transcript else 0} chars")
-                        print(f"  - extracted_city: {call_log.extracted_city}")
-                        print(f"  - extracted_service: {call_log.extracted_service}")
-                        
-                        # 🔥 BUILD 183: Check if user actually spoke before building summary
-                        user_spoke = False
-                        user_content_length = 0
-                        
-                        if hasattr(self, 'conversation_history') and self.conversation_history:
-                            for turn in self.conversation_history:
-                                speaker = turn.get('speaker', '')
-                                text = turn.get('text', '') or turn.get('user', '')
-                                if speaker == 'user' or 'user' in turn:
-                                    content = text.strip() if text else ""
-                                    # Filter out noise
-                                    noise_patterns = ['...', '(שקט)', '(silence)', '(noise)']
-                                    if content and len(content) > 2:
-                                        is_noise = any(n in content.lower() for n in noise_patterns)
-                                        if not is_noise:
-                                            user_spoke = True
-                                            user_content_length += len(content)
-                        
-                        # 🔥 BUILD 183: If no user speech, mark as completed but DON'T generate summary
-                        if not user_spoke or user_content_length < 5:
-                            print(f"📊 [FINALIZE] NO USER SPEECH - skipping summary generation for {self.call_sid}")
-                            call_log.status = "completed"
-                            call_log.transcription = ""  # Empty transcription
-                            call_log.summary = ""  # Empty summary - DO NOT HALLUCINATE!
-                            call_log.ai_summary = ""
-                            
-                            # 🔥 FIX: Save recording_sid if available
-                            if hasattr(self, '_recording_sid') and self._recording_sid:
-                                call_log.recording_sid = self._recording_sid
-                                print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
-                            
-                            db.session.commit()
-                            print(f"✅ CALL FINALIZED (no conversation): {self.call_sid}")
-                            return  # Exit early - no webhook, no lead update
-                        
-                        # בנה סיכום מלא - only if user spoke
+                        # 🔥 TX_STALL FIX: Only save realtime transcript (already in memory)
+                        # Do NOT generate AI summary here - that's heavy and runs AFTER call ends
                         full_conversation = ""
                         if hasattr(self, 'conversation_history') and self.conversation_history:
                             # ✅ Support both formats: old {'user': X, 'bot': Y} and new {'speaker': X, 'text': Y}
@@ -12227,78 +12245,32 @@ Greet briefly. Then WAIT for customer to speak."""
                                     conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
                             full_conversation = "\n".join(conv_lines)
                         
-                        # צור סיכום AI - only if we have actual conversation
-                        business_id = getattr(self, 'business_id', None)
-                        if not business_id:
-                            print(f"❌ No business_id set for call summary - skipping")
-                            return
-                        ci = CustomerIntelligence(business_id)
-                        summary_data = ci.generate_conversation_summary(
-                            full_conversation,
-                            {'conversation_history': self.conversation_history}
-                        )
-                        
-                        # עדכן call_log
+                        # ✅ Save lightweight data only (no AI processing!)
                         call_log.status = "completed"
-                        call_log.transcription = full_conversation  # ✅ FIX: transcription not transcript!
-                        call_log.summary = summary_data.get('summary', '')
-                        call_log.ai_summary = summary_data.get('detailed_summary', '')
+                        call_log.transcription = full_conversation  # Realtime transcript (already in memory)
+                        # summary and ai_summary will be filled by offline worker
                         
                         # 🔥 FIX: Save recording_sid if available
                         if hasattr(self, '_recording_sid') and self._recording_sid:
                             call_log.recording_sid = self._recording_sid
-                            print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
+                            if DEBUG:
+                                force_print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
                         
                         db.session.commit()
+                        force_print(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")
                         
-                        print(f"✅ CALL FINALIZED: {self.call_sid}")
-                        print(f"📝 Summary: {summary_data.get('summary', 'N/A')}")
-                        print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
-                        if DEBUG: print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
-                        
-                        # 📋 CRM: Update lead with call summary (Realtime mode only)
-                        if USE_REALTIME_API and hasattr(self, 'crm_context') and self.crm_context and self.crm_context.lead_id:
-                            update_lead_on_call(
-                                lead_id=self.crm_context.lead_id,
-                                summary=summary_data.get('summary', ''),
-                                notes=f"Call {self.call_sid}: {summary_data.get('intent', 'general_inquiry')}"
-                            )
-                            print(f"✅ [CRM] Lead #{self.crm_context.lead_id} updated with call summary")
-                        
-                        # 📅 UPDATE APPOINTMENT with call summary (if appointment was created during call)
-                        if hasattr(self, 'crm_context') and self.crm_context and hasattr(self.crm_context, 'last_appointment_id') and self.crm_context.last_appointment_id:
-                            from server.models_sql import Appointment
-                            appt_id = self.crm_context.last_appointment_id
-                            appointment = Appointment.query.get(appt_id)
-                            if appointment:
-                                # Update appointment with call summary and link to call log
-                                appointment.call_summary = summary_data.get('summary', '')
-                                appointment.call_log_id = call_log.id
-                                db.session.commit()
-                                print(f"✅ [CALENDAR] Appointment #{appt_id} updated with call summary")
-                            else:
-                                print(f"⚠️ [CALENDAR] Appointment #{appt_id} not found for summary update")
-                        
-                        # 🤖 BUILD 119: Agent handles appointments during conversation!
-                        # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
-                        print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
-                        
-                        # ✅ CLEAN PIPELINE: Webhook handled by offline worker ONLY
-                        # No webhook sending, no extraction, no waiting loops here
-                        # The worker (tasks_recording.py) handles everything after call ends:
+                        # 🔥 TX_STALL FIX: Defer ALL heavy processing to offline worker
+                        # The offline worker (tasks_recording.py) will handle:
                         #   1. Download recording
-                        #   2. Whisper transcription
-                        #   3. GPT summary
+                        #   2. Offline Whisper transcription (higher quality than realtime)
+                        #   3. AI summary generation
                         #   4. Extract city/service from summary
-                        #   5. Save to DB
-                        #   6. Send webhook
-                        print(f"✅ [CLEAN PIPELINE] Call ended - realtime handler done. Worker will handle offline processing + webhook.")
-                        print(f"   Call SID: {self.call_sid}")
-                        print(f"   Business ID: {business_id}")
-                        print(f"   Offline worker will process: transcription → summary → extraction → webhook")
+                        #   5. Update lead with summary
+                        #   6. Send webhook call.completed
+                        force_print(f"✅ [TX_STALL_FIX] Call {self.call_sid} closed - offline worker will handle heavy processing")
                         
                 except Exception as e:
-                    print(f"❌ Failed to finalize call: {e}")
+                    force_print(f"❌ Failed to finalize call: {e}")
                     import traceback
                     traceback.print_exc()
                     # 🔥 CRITICAL FIX: Rollback on DB errors to prevent InFailedSqlTransaction
@@ -12313,7 +12285,7 @@ Greet briefly. Then WAIT for customer to speak."""
             self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
-            print(f"❌ Call finalization setup failed: {e}")
+            force_print(f"❌ Call finalization setup failed: {e}")
     
     def _start_call_recording(self):
         """✅ התחל הקלטת שיחה דרך Twilio REST API - מבטיח שכל השיחות מוקלטות
@@ -12549,85 +12521,18 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _process_customer_intelligence(self, user_text: str, bot_reply: str):
         """
-        ✨ עיבוד חכם של השיחה עם זיהוי/יצירת לקוח וליד אוטומטית
+        ✨ TX_STALL FIX: DISABLED - No heavy processing during call
+        
+        This function previously did heavy AI processing during active calls:
+        - generate_conversation_summary (GPT API call)
+        - auto_update_lead_status (AI processing)
+        
+        All of this is now deferred to the offline worker which runs AFTER
+        the call ends. See tasks_recording.py:save_call_to_db() for the
+        implementation.
         """
-        try:
-            # וודא שיש מספר טלפון ו-business_id
-            if not self.phone_number or not hasattr(self, 'business_id'):
-                print("⚠️ Missing phone_number or business_id for customer intelligence")
-                return
-            
-            # Import only when needed to avoid circular imports
-            from server.services.customer_intelligence import CustomerIntelligence
-            from server.app_factory import create_app
-            from server.db import db
-            
-            # הרצה אסינכרונית כדי לא לחסום את השיחה
-            import threading
-            
-            def process_in_background():
-                try:
-                    app = _get_flask_app()  # ✅ Use singleton
-                    with app.app_context():
-                        business_id = getattr(self, 'business_id', None)
-                        if not business_id:
-                            print(f"❌ No business_id for customer intelligence - skipping")
-                            return
-                        ci = CustomerIntelligence(business_id)
-                        
-                        # יצירת טקסט מלא מההיסטוריה הנוכחית
-                        full_conversation = ""
-                        if hasattr(self, 'conversation_history') and self.conversation_history:
-                            full_conversation = " ".join([
-                                f"{turn['user']} {turn['bot']}" 
-                                for turn in self.conversation_history[-5:]  # רק 5 אחרונות
-                            ])
-                        
-                        # זיהוי/יצירת לקוח וליד עם התמלול הנוכחי
-                        customer, lead, was_created = ci.find_or_create_customer_from_call(
-                            str(self.phone_number or ""),
-                            self.call_sid or f"live_{int(time.time())}",
-                            full_conversation,
-                            conversation_data={'conversation_history': self.conversation_history}
-                        )
-                        
-                        # סיכום חכם של השיחה
-                        conversation_summary = ci.generate_conversation_summary(
-                            full_conversation,
-                            {'conversation_history': self.conversation_history}
-                        )
-                        
-                        # עדכון סטטוס אוטומטי
-                        new_status = ci.auto_update_lead_status(lead, conversation_summary)
-                        
-                        # עדכון פתקיות הליד עם התקדמות השיחה הנוכחית
-                        if lead.notes:
-                            lead.notes += f"\n[Live Call]: {user_text[:100]}... → {bot_reply[:50]}..."
-                        else:
-                            lead.notes = f"[Live Call]: {user_text[:100]}... → {bot_reply[:50]}..."
-                        
-                        db.session.commit()
-                        
-                        # רישום לוגים מפורטים
-                        print(f"🎯 Live Call AI Processing: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'})")
-                        print(f"📋 Live Summary: {conversation_summary.get('summary', 'N/A')}")
-                        print(f"🎭 Live Intent: {conversation_summary.get('intent', 'N/A')}")
-                        if DEBUG: print(f"📊 Live Status: {new_status}")
-                        print(f"⚡ Live Next Action: {conversation_summary.get('next_action', 'N/A')}")
-                        
-                except Exception as e:
-                    print(f"❌ Customer Intelligence background processing failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # הרץ ברקע כדי לא לחסום את השיחה
-            thread = threading.Thread(target=process_in_background, daemon=True)
-            thread.start()
-            self.background_threads.append(thread)  # ✅ Track for cleanup
-            
-        except Exception as e:
-            print(f"❌ Customer Intelligence setup failed: {e}")
-            # אל תקריס את השיחה - המשך רגיל
+        # 🔥 TX_STALL FIX: Disabled - all processing moved to offline worker
+        return
     
     def _log_call_metrics(self):
         """
