@@ -79,7 +79,8 @@ try:
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
         BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
-        NOISE_GATE_MIN_FRAMES
+        NOISE_GATE_MIN_FRAMES,
+        GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -93,6 +94,8 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     BARGE_IN_VOICE_FRAMES = 8
     BARGE_IN_DEBOUNCE_MS = 350
+    GREETING_PROTECT_DURATION_MS = 500
+    GREETING_MIN_SPEECH_DURATION_MS = 250
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
     MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
@@ -3551,12 +3554,14 @@ Greet briefly. Then WAIT for customer to speak."""
                     # 🛡️ GREETING PROTECTION - Prevent false interruption from echo/noise
                     # ═══════════════════════════════════════════════════════════════════════
                     # During greeting playback, don't interrupt immediately on speech_started
-                    # Wait for either:
-                    #   A) transcription.completed with non-empty text, OR
-                    #   B) 250ms+ of continuous speech (prevents brief echo spikes)
                     # 
-                    # 🔥 NEW REQUIREMENT: For OUTBOUND calls, NEVER allow barge-in during greeting!
-                    # Outbound greeting must complete fully before user can speak.
+                    # 🔥 REQUIREMENTS:
+                    # - OUTBOUND calls: NEVER allow barge-in during greeting (fully protected)
+                    # - INBOUND calls: Protected ONLY during greeting, then NORMAL barge-in
+                    # 
+                    # Protection logic:
+                    # - During greeting: Wait for transcription.completed with real text
+                    # - After greeting: Normal barge-in (immediate on speech_started)
                     # ═══════════════════════════════════════════════════════════════════════
                     should_interrupt_greeting = True  # Default: allow interruption
                     is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -3568,32 +3573,14 @@ Greet briefly. Then WAIT for customer to speak."""
                             print(f"🛡️ [GREETING_PROTECT] OUTBOUND call - greeting is FULLY PROTECTED (no barge-in allowed)")
                             # Don't even set the transcription confirm flag - outbound greeting is sacred
                         else:
-                            # INBOUND: Check if we're within greeting protection window
-                            greeting_start = getattr(self, '_greeting_start_ts', None)
-                            if greeting_start:
-                                elapsed_since_greeting_ms = (time.time() - greeting_start) * 1000
-                                
-                                # Import greeting protection constants
-                                try:
-                                    from server.config.calls import (
-                                        GREETING_PROTECT_DURATION_MS,
-                                        GREETING_MIN_SPEECH_DURATION_MS
-                                    )
-                                except ImportError:
-                                    GREETING_PROTECT_DURATION_MS = 500
-                                    GREETING_MIN_SPEECH_DURATION_MS = 250
-                                
-                                # Within protection window (first 500ms of greeting)
-                                if elapsed_since_greeting_ms < GREETING_PROTECT_DURATION_MS:
-                                    # speech_started alone is NOT enough - wait for transcription
-                                    should_interrupt_greeting = False
-                                    print(f"🛡️ [GREETING_PROTECT] INBOUND - speech_started at {elapsed_since_greeting_ms:.0f}ms - waiting for transcription (protection: {GREETING_PROTECT_DURATION_MS}ms)")
-                                    
-                                    # Mark that we need transcription confirmation
-                                    self._greeting_needs_transcription_confirm = True
-                                else:
-                                    # Past protection window - allow interruption
-                                    print(f"✅ [GREETING_PROTECT] INBOUND - speech_started at {elapsed_since_greeting_ms:.0f}ms - past protection window ({GREETING_PROTECT_DURATION_MS}ms)")
+                            # 🔥 INBOUND: Protect greeting - require transcription confirmation
+                            # This prevents false triggers from echo/noise during greeting playback
+                            # After greeting completes, normal barge-in is enabled
+                            should_interrupt_greeting = False
+                            print(f"🛡️ [GREETING_PROTECT] INBOUND - protecting greeting, waiting for transcription confirmation")
+                            
+                            # Mark that we need transcription confirmation to interrupt greeting
+                            self._greeting_needs_transcription_confirm = True
                     
                     # Handle greeting interruption (only if protection allows)
                     if self.is_playing_greeting and should_interrupt_greeting:
@@ -3605,7 +3592,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.barge_in_enabled_after_greeting = True
                     elif self.is_playing_greeting and not should_interrupt_greeting:
                         # Protected greeting - don't interrupt yet
-                        direction_label = "OUTBOUND (FULL)" if is_outbound else "INBOUND (TIMED)"
+                        direction_label = "OUTBOUND (FULL)" if is_outbound else "INBOUND (GREETING ONLY)"
                         print(f"🛡️ [GREETING_PROTECT] Greeting protected ({direction_label}) - {'no barge-in allowed' if is_outbound else 'waiting for transcription confirmation'}")
                         # Don't set awaiting_greeting_answer yet - wait for transcription (inbound) or completion (outbound)
                     
