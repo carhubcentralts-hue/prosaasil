@@ -3568,8 +3568,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     # ═══════════════════════════════════════════════════════════════════════
                     should_interrupt_greeting = True  # Default: allow interruption
                     is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    is_greeting_active = self.is_playing_greeting or (self.greeting_mode_active and not self.greeting_completed)
                     
-                    if self.is_playing_greeting:
+                    if is_greeting_active:
                         # 🔥 OUTBOUND PROTECTION: Never interrupt greeting on outbound calls
                         if is_outbound:
                             should_interrupt_greeting = False
@@ -3587,14 +3588,14 @@ Greet briefly. Then WAIT for customer to speak."""
                             self._greeting_needs_transcription_confirm = True
                     
                     # Handle greeting interruption (only if protection allows)
-                    if self.is_playing_greeting and should_interrupt_greeting:
+                    if is_greeting_active and should_interrupt_greeting:
                         direction_label = "OUTBOUND" if is_outbound else "INBOUND"
                         print(f"⛔ [BARGE-IN] User interrupted greeting ({direction_label}, protection: OFF)")
                         self.is_playing_greeting = False
                         self.awaiting_greeting_answer = True
                         self.greeting_completed_at = time.time()
                         self.barge_in_enabled_after_greeting = True
-                    elif self.is_playing_greeting and not should_interrupt_greeting:
+                    elif is_greeting_active and not should_interrupt_greeting:
                         # Protected greeting - don't interrupt yet
                         direction_label = "OUTBOUND (FULL)" if is_outbound else "INBOUND (GREETING ONLY)"
                         print(f"🛡️ [GREETING_PROTECT] Greeting protected ({direction_label}) - {'no barge-in allowed' if is_outbound else 'waiting for transcription confirmation'}")
@@ -3603,10 +3604,17 @@ Greet briefly. Then WAIT for customer to speak."""
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 CRITICAL: BARGE-IN LOGIC (Simple & Powerful)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # If AI is currently speaking → STOP IT IMMEDIATELY
+                    # If AI is currently speaking → STOP IT IMMEDIATELY (unless greeting is protected)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                    # 🔥 FIX: Don't trigger barge-in if greeting is protected
+                    # should_interrupt_greeting is set above based on greeting protection logic
+                    can_barge_in = True
+                    if is_greeting_active and not should_interrupt_greeting:
+                        can_barge_in = False
+                        _orig_print(f"🛡️ [BARGE-IN] Blocked during protected greeting - waiting for transcription confirmation", flush=True)
+                    
+                    if can_barge_in and (self.is_ai_speaking_event.is_set() or self.active_response_id is not None):
                         # AI is speaking - user is interrupting
                         
                         # Step 1: Cancel active response (with duplicate guard)
@@ -3874,9 +3882,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
                         # 🔥 FIX: Disabled in SIMPLE_MODE to prevent blocking legitimate responses
+                        # 🔥 FIX: Allow greeting audio even before user speaks
                         # In SIMPLE_MODE, we trust speech_started event + RMS to detect real user speech
-                        if not SIMPLE_MODE and not self.user_has_spoken:
-                            # User never spoke, and greeting not sent yet – block it
+                        is_greeting_response = self.greeting_mode_active and not self.greeting_completed
+                        if not SIMPLE_MODE and not self.user_has_spoken and not is_greeting_response:
+                            # User never spoke, and this is not the greeting – block it
                             print(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
                             # If there is a response_id in the event, send response.cancel once (with duplicate guard)
                             response_id = event.get("response_id")
