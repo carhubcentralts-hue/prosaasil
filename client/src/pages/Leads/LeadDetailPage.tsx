@@ -737,12 +737,67 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [directionFilter, setDirectionFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');  // 🔥 NEW: Direction filter
+  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
+  const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
 
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${seconds} שניות`;
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')} דקות`;
+  };
+
+  // 🔥 FIX: Load recording as blob with authentication when call is expanded
+  const loadRecordingBlob = async (callId: string) => {
+    // Skip if already loaded
+    if (recordingUrls[callId]) return;
+    
+    setLoadingRecording(callId);
+    try {
+      const response = await fetch(`/api/calls/${callId}/download`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load recording');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      setRecordingUrls(prev => ({ ...prev, [callId]: url }));
+    } catch (error) {
+      console.error('Error loading recording:', error);
+    } finally {
+      setLoadingRecording(null);
+    }
+  };
+
+  // 🔥 FIX: Cleanup blob URLs when component unmounts
+  React.useEffect(() => {
+    return () => {
+      // Revoke all blob URLs to prevent memory leaks
+      Object.values(recordingUrls).forEach(url => {
+        window.URL.revokeObjectURL(url);
+      });
+    };
+  }, [recordingUrls]);
+
+  // 🔥 FIX: Load recording when call is expanded
+  const handleToggleExpand = (callId: string) => {
+    const isExpanding = expandedCallId !== callId;
+    setExpandedCallId(isExpanding ? callId : null);
+    
+    // Load recording blob when expanding
+    if (isExpanding) {
+      const call = calls.find(c => c.id === callId);
+      if (call?.recording_url) {
+        loadRecordingBlob(call.call_sid || call.id);
+      }
+    }
   };
 
   // 🔥 NEW: Filter calls by direction
@@ -890,7 +945,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         )}
                       </button>
                       <button
-                        onClick={() => setExpandedCallId(isExpanded ? null : call.id)}
+                        onClick={() => handleToggleExpand(call.id)}
                         className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                       >
                         <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
@@ -917,15 +972,27 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                             הורד
                           </button>
                         </div>
-                        <audio 
-                          controls 
-                          playsInline
-                          preload="none"
-                          className="w-full" 
-                          src={`/api/calls/${call.call_sid || call.id}/download`}
-                        >
-                          הדפדפן שלך לא תומך בנגן אודיו
-                        </audio>
+                        {/* 🔥 FIX: Use blob URL with authentication for audio playback */}
+                        {loadingRecording === (call.call_sid || call.id) ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                            <span className="text-sm text-gray-500 mr-2">טוען הקלטה...</span>
+                          </div>
+                        ) : recordingUrls[call.call_sid || call.id] ? (
+                          <audio 
+                            controls 
+                            playsInline
+                            preload="metadata"
+                            className="w-full" 
+                            src={recordingUrls[call.call_sid || call.id]}
+                          >
+                            הדפדפן שלך לא תומך בנגן אודיו
+                          </audio>
+                        ) : (
+                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
