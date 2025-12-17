@@ -2426,14 +2426,20 @@ Greet briefly. Then WAIT for customer to speak."""
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
-            # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
+            # 🔥 BUILD 350: Import VAD config for consistent behavior
+            # CRITICAL: Use centralized config to prevent "AI not speaking" bugs
+            from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
+            
+            # 🔥 BUILD 350: Configure with BALANCED settings for reliable greeting
+            # Previous hardcoded values (0.85/450) caused AI to never respond!
+            # Now using config values (0.5/400) for consistent, reliable behavior
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
-                vad_threshold=0.85,
-                silence_duration_ms=450,
+                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
+                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
                 transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
