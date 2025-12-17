@@ -5436,14 +5436,15 @@ Greet briefly. Then WAIT for customer to speak."""
                             print(f"✅ [SILENCE_CMD] Back to listening mode - awaiting next user input")
                             continue  # Skip all response logic
                         
-                        # 🔥 NEW REQUIREMENT: Trigger response ONLY on transcription.completed with non-empty text
-                        # This is the ONLY place where response.create should be triggered for user input
-                        # Ensures proper sequence: speech_stopped → transcription.completed → response.created
+                        # 🔥 FIX: DO NOT manually trigger response.create here
+                        # OpenAI's server_vad already automatically creates responses when speech ends
+                        # Manual triggering causes "conversation_already_has_active_response" errors
+                        # The automatic response from server_vad is sufficient and properly timed
+                        # We just log that we received the transcription
                         if transcript and len(transcript.strip()) > 0:
-                            print(f"✅ [RESPONSE_TRIGGER] Triggering response after transcription.completed: '{transcript[:40]}...'")
-                            await self.trigger_response("TRANSCRIPTION_COMPLETED", client)
+                            print(f"✅ [TRANSCRIPTION] Received user input: '{transcript[:40]}...' (response auto-created by server_vad)")
                         else:
-                            print(f"⚠️ [RESPONSE_TRIGGER] Skipping response - empty transcript")
+                            print(f"⚠️ [TRANSCRIPTION] Empty transcript received")
                         
                         # 🛡️ CHECK: Don't run NLP twice for same appointment
                         already_confirmed = getattr(self, 'appointment_confirmed_in_session', False)
