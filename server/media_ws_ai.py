@@ -1700,6 +1700,9 @@ class MediaStreamHandler:
         self.barge_in_active = False
         self._barge_in_started_ts = None  # When barge-in started (for timeout)
         
+        # 🔥 GREETING PROTECT: Transcription confirmation flag for intelligent greeting protection
+        self._greeting_needs_transcription_confirm = False  # Wait for transcription to confirm interruption
+        
         # 🎯 STT GUARD: Track utterance metadata for validation
         # Prevents hallucinated transcriptions during silence from triggering barge-in
         self._candidate_user_speaking = False  # Set on speech_started, validated on transcription.completed
@@ -3571,7 +3574,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         if is_outbound:
                             should_interrupt_greeting = False
                             print(f"🛡️ [GREETING_PROTECT] OUTBOUND call - greeting is FULLY PROTECTED (no barge-in allowed)")
-                            # Don't even set the transcription confirm flag - outbound greeting is sacred
+                            # Reset flag - outbound doesn't use transcription confirmation
+                            self._greeting_needs_transcription_confirm = False
                         else:
                             # 🔥 INBOUND: Protect greeting - require transcription confirmation
                             # This prevents false triggers from echo/noise during greeting playback
@@ -4937,9 +4941,8 @@ Greet briefly. Then WAIT for customer to speak."""
                             # Empty/filler text - false alarm, keep greeting playing
                             print(f"🛡️ [GREETING_PROTECT] Transcription was filler/empty - keeping greeting (text='{text}')")
                         
-                        # Clear protection flag (only for inbound - outbound keeps it to block all interruptions)
-                        if not is_outbound:
-                            self._greeting_needs_transcription_confirm = False
+                        # Always clear protection flag after handling (both inbound and outbound)
+                        self._greeting_needs_transcription_confirm = False
                     
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
