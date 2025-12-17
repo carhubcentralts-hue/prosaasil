@@ -739,6 +739,10 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   const [directionFilter, setDirectionFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');  // 🔥 NEW: Direction filter
   const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
   const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
+  const recordingUrlsRef = React.useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
+
+  // Helper to get consistent call identifier
+  const getCallId = (call: LeadCall) => call.call_sid || call.id;
 
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${seconds} שניות`;
@@ -756,9 +760,6 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
     try {
       const response = await fetch(`/api/calls/${callId}/download`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         credentials: 'include'
       });
       
@@ -768,6 +769,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
       
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
+      recordingUrlsRef.current[callId] = url;  // Track in ref for cleanup
       setRecordingUrls(prev => ({ ...prev, [callId]: url }));
     } catch (error) {
       console.error('Error loading recording:', error);
@@ -780,11 +782,11 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   React.useEffect(() => {
     return () => {
       // Revoke all blob URLs to prevent memory leaks
-      Object.values(recordingUrls).forEach(url => {
+      Object.values(recordingUrlsRef.current).forEach(url => {
         window.URL.revokeObjectURL(url);
       });
     };
-  }, [recordingUrls]);
+  }, []); // Only run on mount/unmount
 
   // 🔥 FIX: Load recording when call is expanded
   const handleToggleExpand = (callId: string) => {
@@ -795,7 +797,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
     if (isExpanding) {
       const call = calls.find(c => c.id === callId);
       if (call?.recording_url) {
-        loadRecordingBlob(call.call_sid || call.id);
+        loadRecordingBlob(getCallId(call));
       }
     }
   };
@@ -931,14 +933,14 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteCall(call.call_sid || call.id);
+                          handleDeleteCall(getCallId(call));
                         }}
-                        disabled={deleting === (call.call_sid || call.id)}
+                        disabled={deleting === getCallId(call)}
                         className="p-2 hover:bg-red-100 rounded-full transition-colors"
                         data-testid={`button-delete-call-${call.id}`}
                         title="מחק שיחה"
                       >
-                        {deleting === (call.call_sid || call.id) ? (
+                        {deleting === getCallId(call) ? (
                           <Loader2 className="w-4 h-4 animate-spin text-red-500" />
                         ) : (
                           <Trash2 className="w-4 h-4 text-red-500" />
@@ -963,7 +965,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
                           <button
-                            onClick={() => handleDownload(call.call_sid || call.id)}
+                            onClick={() => handleDownload(getCallId(call))}
                             className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -973,18 +975,18 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                           </button>
                         </div>
                         {/* 🔥 FIX: Use blob URL with authentication for audio playback */}
-                        {loadingRecording === (call.call_sid || call.id) ? (
+                        {loadingRecording === getCallId(call) ? (
                           <div className="flex items-center justify-center py-4">
                             <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
                             <span className="text-sm text-gray-500 mr-2">טוען הקלטה...</span>
                           </div>
-                        ) : recordingUrls[call.call_sid || call.id] ? (
+                        ) : recordingUrls[getCallId(call)] ? (
                           <audio 
                             controls 
                             playsInline
                             preload="metadata"
                             className="w-full" 
-                            src={recordingUrls[call.call_sid || call.id]}
+                            src={recordingUrls[getCallId(call)]}
                           >
                             הדפדפן שלך לא תומך בנגן אודיו
                           </audio>
