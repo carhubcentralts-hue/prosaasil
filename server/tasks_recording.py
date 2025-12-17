@@ -688,7 +688,22 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             log.info(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
             
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
-            if from_number and call_log and call_log.business_id:
+            # 🔒 CRITICAL: Use lead_id FROM CallLog (locked at call start), NOT phone lookup
+            lead = None
+            if call_log.lead_id:
+                # ✅ Use the locked lead_id from CallLog
+                from server.models_sql import Lead
+                lead = Lead.query.filter_by(id=call_log.lead_id).first()
+                if lead:
+                    print(f"✅ [LEAD_ID_LOCK] Using locked lead_id={lead.id} from CallLog for updates")
+                    log.info(f"[LEAD_ID_LOCK] Using locked lead {lead.id} for call {call_sid}")
+                else:
+                    print(f"⚠️ [LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found!")
+                    log.warning(f"[LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found")
+            
+            # If no lead_id on CallLog, fall back to creating/finding by phone (legacy behavior)
+            if not lead and from_number and call_log and call_log.business_id:
+                print(f"⚠️ [LEAD_ID_LOCK] No lead_id on CallLog, falling back to phone lookup")
                 ci = CustomerIntelligence(call_log.business_id)
                 
                 # זיהוי/יצירת לקוח וליד
