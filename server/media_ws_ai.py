@@ -339,7 +339,7 @@ class AudioState:
     
     # Debouncing
     last_barge_in_ts: Optional[float] = None
-    barge_in_debounce_ms: int = 400  # From config
+    barge_in_debounce_ms: int = 350  # Default from config (BARGE_IN_DEBOUNCE_MS)
     
     # VAD smoothing state
     ema_noise_floor: float = 20.0  # EMA of noise floor
