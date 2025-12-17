@@ -3700,9 +3700,9 @@ Greet briefly. Then WAIT for customer to speak."""
                     ai_speaking = self.is_ai_speaking_event.is_set()
                     last_ai_audio_ts = getattr(self, '_last_ai_audio_ts', 0)
                     time_since_ai_audio_ms = (time.time() - last_ai_audio_ts) * 1000 if last_ai_audio_ts else 9999
-                    ECHO_GUARD_WINDOW_MS = 800  # Relaxed from 200ms (per problem statement)
+                    # Use global ECHO_SUPPRESSION_WINDOW_MS constant for consistency
                     
-                    echo_guard_pass = not ai_speaking or time_since_ai_audio_ms > ECHO_GUARD_WINDOW_MS
+                    echo_guard_pass = not ai_speaking or time_since_ai_audio_ms > ECHO_SUPPRESSION_WINDOW_MS
                     if echo_guard_pass and not self.user_has_spoken:
                         self.user_has_spoken = True
                         print(f"✅ [STT_GUARD] user_has_spoken=True on speech_started (echo_guard_pass, time_since_ai={time_since_ai_audio_ms:.0f}ms)")
@@ -5881,20 +5881,34 @@ Greet briefly. Then WAIT for customer to speak."""
         
         The AI should always reply, even if transcription failed.
         This method is called from the timeout check in speech_started handler.
+        
+        ✅ NEW REQ: "Gentle" implementation - doesn't create response, doesn't override state
         """
         print(f"[TURN_END] Timeout finalization triggered")
+        
+        # ✅ NEW REQ: Don't act if user is still speaking
+        if getattr(self, 'user_speaking', False):
+            print(f"[TURN_END] User still speaking - skipping timeout action")
+            return
+        
+        # ✅ NEW REQ: Don't act if session is closing/closed
+        if getattr(self, 'closed', False) or getattr(self, 'hangup_triggered', False):
+            print(f"[TURN_END] Session closing - skipping timeout action")
+            return
         
         # Clear candidate flag
         self._candidate_user_speaking = False
         self._utterance_start_ts = None
         
         # Check if we're truly stuck (no response in progress)
+        # ✅ NEW REQ: Don't override state if response.created already started
         if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
             # No AI response in progress - this means we're stuck
             # The transcription probably failed or was rejected
             print(f"[TURN_END] No AI response in progress - system was stuck in silence")
             
             # CORRECTIVE ACTION: Clear any stale state that might block response
+            # ✅ NEW REQ: Only clear stale state, don't create new response
             if self.active_response_id:
                 print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
                 self.active_response_id = None
@@ -10131,19 +10145,30 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _should_send_cancel(self, response_id: Optional[str]) -> bool:
         """
-        ✅ P0 FIX: Check if we should send cancel for this response_id
-        Returns True if we haven't sent cancel for this ID yet
+        ✅ NEW REQ: Check if we should send cancel for this response_id
+        Returns True if ALL 3 conditions met:
+        1. response_id exists (not None)
+        2. We haven't already sent cancel for this ID
+        3. Response not already completed (not in cancelled_response_ids)
+        
         Prevents duplicate cancel events that cause "response_cancel_not_active" errors
         """
+        # Condition 1: response_id must exist
         if not response_id:
             return False
         
-        # Check if we already sent cancel for this response
+        # Condition 2: Check if we already sent cancel for this response
         if response_id in self._cancel_sent_for_response_ids:
             print(f"⏭️ [CANCEL_GUARD] Skipping duplicate cancel for response {response_id[:20]}... (already sent)")
             return False
         
-        # Mark that we're sending cancel for this ID
+        # Condition 3: Check if response already done/cancelled (don't cancel completed responses)
+        # If response is in _cancelled_response_ids, we already processed its completion
+        if response_id in self._cancelled_response_ids:
+            print(f"⏭️ [CANCEL_GUARD] Skipping cancel for completed response {response_id[:20]}... (already done)")
+            return False
+        
+        # All 3 conditions met - mark that we're sending cancel for this ID
         self._cancel_sent_for_response_ids.add(response_id)
         
         # ✅ Simple cleanup: when set grows large, clear it completely
