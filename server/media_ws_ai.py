@@ -1161,7 +1161,7 @@ LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 MIN_UTTERANCE_MS = 200      # Minimum utterance duration (200ms allows short valid responses like "כן", "לא")
 MIN_RMS_DELTA = AUDIO_CONFIG.get("min_rms_delta", 5.0)  # From AUDIO_CONFIG - microphone sensitivity
 MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
-ECHO_SUPPRESSION_WINDOW_MS = 200  # Reject STT within 200ms of AI audio start (echo suppression)
+ECHO_SUPPRESSION_WINDOW_MS = 800  # 🔥 FIX ISSUE 5: Relaxed from 200ms (was too aggressive with jitter)
 ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
 ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
 
@@ -3684,14 +3684,30 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.barge_in_enabled_after_greeting = True
                     
                     # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
-                    # 🔥 BUILD 341: REMOVED early user_has_spoken=True on RMS detection
-                    # Problem: Was setting user_has_spoken=True based on RMS before getting actual transcription
-                    # Fix: Only set user_has_spoken=True after receiving valid final transcription text
+                    # 🔥 FIX ISSUE 5: Set user_has_spoken=True when OpenAI speech_started fires AND echo guard passes
+                    # This prevents over-filtering where user speaks but transcripts are all rejected
+                    # If OpenAI's VAD detected speech, trust it even if transcript ends up being filtered
                     print(f"🎤 [REALTIME] Speech started - marking as candidate (will validate on transcription)")
                     self._candidate_user_speaking = True
                     self._utterance_start_ts = time.time()
                     self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
                     self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
+                    
+                    # 🔥 FIX ISSUE 5: If OpenAI fires speech_started, mark user as having spoken
+                    # This prevents the bot from behaving like "no user speech" when transcripts are filtered
+                    # Check echo guard: Only set if this is likely real user speech (not AI echo)
+                    # Echo guard logic: If AI not speaking OR AI finished speaking >800ms ago
+                    ai_speaking = self.is_ai_speaking_event.is_set()
+                    last_ai_audio_ts = getattr(self, '_last_ai_audio_ts', 0)
+                    time_since_ai_audio_ms = (time.time() - last_ai_audio_ts) * 1000 if last_ai_audio_ts else 9999
+                    # Use global ECHO_SUPPRESSION_WINDOW_MS constant for consistency
+                    
+                    echo_guard_pass = not ai_speaking or time_since_ai_audio_ms > ECHO_SUPPRESSION_WINDOW_MS
+                    if echo_guard_pass and not self.user_has_spoken:
+                        self.user_has_spoken = True
+                        print(f"✅ [STT_GUARD] user_has_spoken=True on speech_started (echo_guard_pass, time_since_ai={time_since_ai_audio_ms:.0f}ms)")
+                    elif not echo_guard_pass:
+                        print(f"⚠️ [ECHO_GUARD] Likely AI echo - NOT setting user_has_spoken yet (time_since_ai={time_since_ai_audio_ms:.0f}ms)")
                     
                     # 🔥 CRITICAL: Set user_speaking=True to block response.create until user finishes
                     # This is THE KEY to proper turn-taking: AI won't interrupt user mid-speech
@@ -3725,79 +3741,103 @@ Greet briefly. Then WAIT for customer to speak."""
                     #   3. Clear guards/flags
                     #   4. Let the new user utterance lead the next response
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                        # Track barge-in latency and timing metrics for comprehensive logging
-                        barge_in_latency_start = time.time()
-                        ai_speaking_start_ts = getattr(self, '_last_ai_audio_start_ts', None)
-                        time_since_ai_start_ms = 0
-                        if ai_speaking_start_ts:
-                            time_since_ai_start_ms = (barge_in_latency_start - ai_speaking_start_ts) * 1000
+                        # 🔥 FIX ISSUE 4: Protect greeting from early cancel (first 500ms)
+                        # Allow audio to flow but prevent cancel during initial greeting
+                        GREETING_PROTECT_MS = 500  # Don't cancel greeting for first 500ms
+                        skip_barge_in = False
+                        if self.is_playing_greeting and hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
+                            greeting_age_ms = (time.time() - self._greeting_start_ts) * 1000
+                            if greeting_age_ms < GREETING_PROTECT_MS:
+                                print(f"🛡️ [GREETING PROTECT] Blocking barge-in cancel - greeting too new ({greeting_age_ms:.0f}ms < {GREETING_PROTECT_MS}ms)")
+                                # Don't cancel yet, but still allow audio to flow to OpenAI
+                                # The transcription will be processed after greeting completes
+                                skip_barge_in = True
+                            else:
+                                # Greeting is old enough, allow normal barge-in
+                                print(f"✅ [GREETING PROTECT] Greeting old enough ({greeting_age_ms:.0f}ms) - allowing barge-in")
                         
-                        print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
-                        print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
-                        print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
-                        
-                        # Set barge-in flag - ALL audio gates will be bypassed!
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()  # Track for failsafe timeout
-                        
-                        # 1) Cancel response on OpenAI side (with timeout protection and duplicate guard)
-                        cancelled_id = self.active_response_id
-                        if cancelled_id and self.realtime_client and self._should_send_cancel(cancelled_id):
+                        if not skip_barge_in:
+                            # Track barge-in latency and timing metrics for comprehensive logging
+                            barge_in_latency_start = time.time()
+                            ai_speaking_start_ts = getattr(self, '_last_ai_audio_start_ts', None)
+                            time_since_ai_start_ms = 0
+                            if ai_speaking_start_ts:
+                                time_since_ai_start_ms = (barge_in_latency_start - ai_speaking_start_ts) * 1000
+                            
+                            print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
+                            print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
+                            print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
+                            
+                            # Set barge-in flag - ALL audio gates will be bypassed!
+                            self.barge_in_active = True
+                            self._barge_in_started_ts = time.time()  # Track for failsafe timeout
+                            
+                            # 1) Cancel response on OpenAI side (with timeout protection and duplicate guard)
+                            # 🔥 FIX ISSUE 1: Save cancelled_id BEFORE clearing active_response_id
+                            cancelled_id = self.active_response_id
+                            if cancelled_id and self.realtime_client and self._should_send_cancel(cancelled_id):
+                                try:
+                                    # Use asyncio.wait_for with 0.5s timeout to avoid blocking
+                                    await asyncio.wait_for(
+                                        self.realtime_client.cancel_response(cancelled_id),
+                                        timeout=0.5
+                                    )
+                                    self._mark_response_cancelled_locally(cancelled_id, "speech_started")
+                                    print(f"[BARGE_IN] Cancelled AI response: response_id={cancelled_id[:20]}...")
+                                except asyncio.TimeoutError:
+                                    print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
+                                except Exception as e:
+                                    # 🔥 FIX ISSUE 1: Ignore "response_cancel_not_active" errors (already cancelled)
+                                    error_str = str(e).lower()
+                                    if 'response_cancel_not_active' in error_str or 'not_active' in error_str:
+                                        print(f"   ℹ️ Response already cancelled/inactive: {cancelled_id[:20]}... (ignoring)")
+                                    else:
+                                        print(f"   ⚠️ Error cancelling response: {e}")
+                            elif not cancelled_id:
+                                print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
+                            elif not self.realtime_client:
+                                print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
+                            
+                            # 2) Clear local guards (ALWAYS, even if cancel failed)
+                            # 🔥 FIX ISSUE 1: Clear active_response_id AFTER cancel is sent (not before)
+                            # This ensures cancel guard is set before clearing the ID
+                            # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
+                            self.active_response_id = None
+                            self.response_pending_event.clear()
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
+                            self.has_pending_ai_response = False
+                            print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
+                            
+                            # ═══════════════════════════════════════════════════════════════════
+                            # 🎯 TASK C.1: Flush TX queue ONLY on confirmed barge-in (Master QA)
+                            # This only runs when actual user speech is detected during AI speech
+                            # ═══════════════════════════════════════════════════════════════════
+                            # 3) Flush both audio queues so NO old audio reaches Twilio
+                            openai_q_before = self.realtime_audio_out_queue.qsize()
+                            tx_q_before = self.tx_q.qsize()
                             try:
-                                # Use asyncio.wait_for with 0.5s timeout to avoid blocking
-                                await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(cancelled_id),
-                                    timeout=0.5
-                                )
-                                self._mark_response_cancelled_locally(cancelled_id, "speech_started")
-                                print(f"[BARGE_IN] Cancelled AI response: response_id={cancelled_id[:20]}...")
-                            except asyncio.TimeoutError:
-                                print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
+                                flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
                             except Exception as e:
-                                print(f"   ⚠️ Error cancelling response: {e}")
-                        elif not cancelled_id:
-                            print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
-                        elif not self.realtime_client:
-                            print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
-                        
-                        # 2) Clear local guards (ALWAYS, even if cancel failed)
-                        # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
-                        self.active_response_id = None
-                        self.response_pending_event.clear()
-                        self.is_ai_speaking_event.clear()
-                        self.speaking = False
-                        self.has_pending_ai_response = False
-                        print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
-                        
-                        # ═══════════════════════════════════════════════════════════════════
-                        # 🎯 TASK C.1: Flush TX queue ONLY on confirmed barge-in (Master QA)
-                        # This only runs when actual user speech is detected during AI speech
-                        # ═══════════════════════════════════════════════════════════════════
-                        # 3) Flush both audio queues so NO old audio reaches Twilio
-                        openai_q_before = self.realtime_audio_out_queue.qsize()
-                        tx_q_before = self.tx_q.qsize()
-                        try:
-                            flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
-                        except Exception as e:
-                            print(f"   ⚠️ Error flushing TX queue: {e}")
-                            flushed_count = 0
-                        
-                        # Calculate and log comprehensive barge-in metrics
-                        barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
-                        
-                        # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
-                        # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
-                        logger.info(
-                            f"[BARGE-IN] Real user interrupt detected – "
-                            f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
-                            f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
-                            f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
-                            f"latency={barge_in_latency_ms:.1f}ms"
-                        )
-                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, {flushed_count} frames flushed")
-                        
-                        # 🔥 METRICS: Increment barge-in counter
-                        self._barge_in_event_count += 1
+                                print(f"   ⚠️ Error flushing TX queue: {e}")
+                                flushed_count = 0
+                            
+                            # Calculate and log comprehensive barge-in metrics
+                            barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
+                            
+                            # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
+                            # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
+                            logger.info(
+                                f"[BARGE-IN] Real user interrupt detected – "
+                                f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
+                                f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
+                                f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
+                                f"latency={barge_in_latency_ms:.1f}ms"
+                            )
+                            print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, {flushed_count} frames flushed")
+                            
+                            # 🔥 METRICS: Increment barge-in counter
+                            self._barge_in_event_count += 1
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
@@ -5802,20 +5842,51 @@ Greet briefly. Then WAIT for customer to speak."""
         - But no transcription.completed was received
         
         The AI should always reply, even if transcription failed.
+        
+        NOTE: This is async wrapper for _finalize_user_turn_on_timeout
+        """
+        print(f"[TURN_END] Async silence warning triggered")
+        self._finalize_user_turn_on_timeout()
+    
+    def _finalize_user_turn_on_timeout(self):
+        """
+        🔥 FIX ISSUE 2: Finalize user turn when timeout expires without transcription
+        
+        This prevents the system from getting stuck in silence when:
+        - speech_started fired
+        - speech_stopped fired
+        - But no transcription.completed was received
+        
+        The AI should always reply, even if transcription failed.
+        This method is called from the timeout check in speech_started handler.
+        
+        ✅ NEW REQ: "Gentle" implementation - doesn't create response, doesn't override state
         """
         print(f"[TURN_END] Timeout finalization triggered")
+        
+        # ✅ NEW REQ: Don't act if user is still speaking
+        if getattr(self, 'user_speaking', False):
+            print(f"[TURN_END] User still speaking - skipping timeout action")
+            return
+        
+        # ✅ NEW REQ: Don't act if session is closing/closed
+        if getattr(self, 'closed', False) or getattr(self, 'hangup_triggered', False):
+            print(f"[TURN_END] Session closing - skipping timeout action")
+            return
         
         # Clear candidate flag
         self._candidate_user_speaking = False
         self._utterance_start_ts = None
         
         # Check if we're truly stuck (no response in progress)
+        # ✅ NEW REQ: Don't override state if response.created already started
         if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
             # No AI response in progress - this means we're stuck
             # The transcription probably failed or was rejected
             print(f"[TURN_END] No AI response in progress - system was stuck in silence")
             
             # CORRECTIVE ACTION: Clear any stale state that might block response
+            # ✅ NEW REQ: Only clear stale state, don't create new response
             if self.active_response_id:
                 print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
                 self.active_response_id = None
@@ -7456,15 +7527,20 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        # 🛡️ BUILD 168.5 FIX: Block audio enqueue during greeting!
-                        # OpenAI's server-side VAD detects incoming audio and cancels the greeting.
-                        # Block audio until greeting finishes OR user has already spoken.
+                        # 🔥 FIX ISSUE 4: Allow audio forwarding to OpenAI during greeting
+                        # Still forward mic audio to OpenAI (for VAD + transcription)
+                        # But prevent early barge-in/cancel during the first part of greeting
+                        # This allows "caller can speak immediately" while protecting greeting from premature cancel
+                        
+                        # Note: The actual barge-in protection during greeting happens in speech_started handler
+                        # where we check for _greeting_start_ts and prevent cancel for the first 500ms
+                        # This block only logs but no longer blocks audio enqueue
                         if self.is_playing_greeting and not self.user_has_spoken:
-                            # Log once
-                            if not hasattr(self, '_greeting_enqueue_block_logged'):
-                                print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
-                                self._greeting_enqueue_block_logged = True
-                            continue  # Don't enqueue audio during greeting
+                            # Log once for diagnostics but DON'T block audio
+                            if not hasattr(self, '_greeting_audio_allowed_logged'):
+                                print(f"🎤 [GREETING PROTECT] Allowing audio forward to OpenAI during greeting (for VAD)")
+                                self._greeting_audio_allowed_logged = True
+                            # Don't continue - allow audio to flow through
                         
                         if not self.barge_in_enabled_after_greeting:
                             # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
@@ -10047,19 +10123,30 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _should_send_cancel(self, response_id: Optional[str]) -> bool:
         """
-        ✅ P0 FIX: Check if we should send cancel for this response_id
-        Returns True if we haven't sent cancel for this ID yet
+        ✅ NEW REQ: Check if we should send cancel for this response_id
+        Returns True if ALL 3 conditions met:
+        1. response_id exists (not None)
+        2. We haven't already sent cancel for this ID
+        3. Response not already completed (not in cancelled_response_ids)
+        
         Prevents duplicate cancel events that cause "response_cancel_not_active" errors
         """
+        # Condition 1: response_id must exist
         if not response_id:
             return False
         
-        # Check if we already sent cancel for this response
+        # Condition 2: Check if we already sent cancel for this response
         if response_id in self._cancel_sent_for_response_ids:
             print(f"⏭️ [CANCEL_GUARD] Skipping duplicate cancel for response {response_id[:20]}... (already sent)")
             return False
         
-        # Mark that we're sending cancel for this ID
+        # Condition 3: Check if response already done/cancelled (don't cancel completed responses)
+        # If response is in _cancelled_response_ids, we already processed its completion
+        if response_id in self._cancelled_response_ids:
+            print(f"⏭️ [CANCEL_GUARD] Skipping cancel for completed response {response_id[:20]}... (already done)")
+            return False
+        
+        # All 3 conditions met - mark that we're sending cancel for this ID
         self._cancel_sent_for_response_ids.add(response_id)
         
         # ✅ Simple cleanup: when set grows large, clear it completely
