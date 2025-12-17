@@ -12034,7 +12034,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🚨 P0: Always warn if max_gap_ms exceeded threshold (this is critical)
                         if max_gap_ms > 120.0:
-                            _orig_print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last second (target: <40ms, acceptable: <120ms)", flush=True)
+                            force_print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last second (target: <40ms, acceptable: <120ms)")
                         
                         frames_sent_last_sec = 0
                         max_gap_ms = 0.0  # Reset for next window
