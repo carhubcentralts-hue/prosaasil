@@ -11777,6 +11777,10 @@ Greet briefly. Then WAIT for customer to speak."""
         last_heartbeat_time = time.monotonic()
         _stacktrace_logged_once = False  # PROBE 3: Only log full stacktrace once per severe stall
         
+        # 🔥 CRITICAL: Rate-limit stack dumps to avoid making stalls worse
+        last_stack_dump_time = 0  # Track when we last dumped stack traces
+        STACK_DUMP_INTERVAL = 10.0  # Only dump stacks once every 10 seconds
+        
         # 🔥 FIX 4: TX STALL WATCHDOG - Detect queue backup without progress
         last_frames_sent_check = 0
         last_frames_sent_check_time = time.monotonic()
@@ -11814,9 +11818,21 @@ Greet briefly. Then WAIT for customer to speak."""
                     is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
                     active_response_id = audio_state.active_response_id if audio_state else None
                     
-                    # If queue has items, AI not speaking, and no active response -> flush stale frames
-                    if qsize > 100 and not is_ai_speaking and not active_response_id:
-                        _orig_print(f"🧹 [TX_QUEUE_FLUSH] Flushing {qsize} stale frames (AI not speaking, no active_response_id)", flush=True)
+                    # 🔥 CRITICAL: Time-based flush condition to avoid flushing legitimate audio during race
+                    # Only flush if:
+                    # 1. Queue >100 frames
+                    # 2. AI not speaking AND no active_response_id
+                    # 3. No audio deltas received recently (>500ms since last AI audio)
+                    last_ai_audio_ts = getattr(self, 'last_ai_audio_ts', 0)
+                    time_since_last_audio_ms = (now_mono - last_ai_audio_ts) * 1000.0 if last_ai_audio_ts else 9999
+                    
+                    if (qsize > 100 and 
+                        not is_ai_speaking and 
+                        not active_response_id and 
+                        time_since_last_audio_ms > 500.0):
+                        
+                        age_ms = time_since_last_audio_ms
+                        _orig_print(f"🧹 [TX_QUEUE_FLUSH] Flushing {qsize} stale frames (reason: AI not speaking, no active_response_id, age={age_ms:.0f}ms)", flush=True)
                         flushed_count = 0
                         while not self.tx_q.empty() and flushed_count < qsize:
                             try:
@@ -11824,7 +11840,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                 flushed_count += 1
                             except queue.Empty:
                                 break
-                        _orig_print(f"✅ [TX_QUEUE_FLUSH] Flushed {flushed_count} frames", flush=True)
+                        _orig_print(f"✅ [TX_QUEUE_FLUSH] Flushed {flushed_count} frames (age={age_ms:.0f}ms)", flush=True)
                     
                     # If queue has items but no frames sent in last 800ms -> STALLED
                     elif qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
@@ -12007,32 +12023,41 @@ Greet briefly. Then WAIT for customer to speak."""
                     # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
                     # This watchdog will catch what's blocking the TX thread
                     if frame_gap_ms > 120.0:
-                        # 🚨 Always log TX stall with stack trace to identify blocker
-                        _orig_print(f"🚨 [TX_STALL] gap={frame_gap_ms:.0f}ms (threshold=120ms) - DUMPING STACK TRACE", flush=True)
+                        # 🚨 Always log TX stall
+                        _orig_print(f"🚨 [TX_STALL] gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
                         
-                        # 🔥 NEW REQUIREMENT: Always dump stack traces on ANY gap >120ms
-                        # This helps identify exactly what's blocking the TX thread
-                        import sys
-                        import traceback
-                        import threading
+                        # 🔥 CRITICAL: Rate-limit stack dumps to once every 10 seconds
+                        # Dumping all threads is heavy and can make the stall worse
+                        now = time.monotonic()
+                        time_since_last_dump = now - last_stack_dump_time
                         
-                        try:
-                            queue_maxsize = getattr(self.tx_q, "maxsize", -1)
-                            _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}, gap={frame_gap_ms:.0f}ms", flush=True)
-                        except Exception as e:
-                            _orig_print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
-                        
-                        # Log stack traces of ALL threads to find the culprit
-                        _orig_print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
-                        for thread_id, frame in sys._current_frames().items():
-                            thread_name = None
-                            for t in threading.enumerate():
-                                if t.ident == thread_id:
-                                    thread_name = t.name
-                                    break
-                            _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
-                            traceback.print_stack(frame)
-                            _orig_print(flush=True)
+                        if time_since_last_dump >= STACK_DUMP_INTERVAL:
+                            _orig_print(f"   Dumping stack trace (last dump was {time_since_last_dump:.1f}s ago)...", flush=True)
+                            last_stack_dump_time = now
+                            
+                            import sys
+                            import traceback
+                            import threading
+                            
+                            try:
+                                queue_maxsize = getattr(self.tx_q, "maxsize", -1)
+                                _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}, gap={frame_gap_ms:.0f}ms", flush=True)
+                            except Exception as e:
+                                _orig_print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
+                            
+                            # Log stack traces of ALL threads to find the culprit
+                            _orig_print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
+                            for thread_id, frame in sys._current_frames().items():
+                                thread_name = None
+                                for t in threading.enumerate():
+                                    if t.ident == thread_id:
+                                        thread_name = t.name
+                                        break
+                                _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                                traceback.print_stack(frame)
+                                _orig_print(flush=True)
+                        else:
+                            _orig_print(f"   (Skipping stack dump - last dump was {time_since_last_dump:.1f}s ago, interval={STACK_DUMP_INTERVAL}s)", flush=True)
                     
                     if frame_gap_ms > max_gap_ms:
                         max_gap_ms = frame_gap_ms
