@@ -102,6 +102,16 @@ export function UsersPage() {
     business_id: 0
   });
   const [createLoading, setCreateLoading] = useState(false);
+  const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    role: 'agent',
+    business_id: 0,
+    is_active: true
+  });
 
   useEffect(() => {
     loadData();
@@ -227,6 +237,57 @@ export function UsersPage() {
     } catch (error: any) {
       console.error('Error creating user:', error);
       alert('שגיאה ביצירת המשתמש: ' + (error?.message || 'שגיאה לא ידועה'));
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleEditUser = (user: SystemUser) => {
+    setEditingUser(user);
+    setEditForm({
+      name: user.name,
+      email: user.email,
+      phone: user.phone || '',
+      role: user.role,
+      business_id: user.business_id || 0,
+      is_active: user.is_active !== false
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!editingUser || !editForm.name || !editForm.email || !editForm.business_id) {
+      alert('נא למלא את כל השדות הנדרשים');
+      return;
+    }
+
+    setCreateLoading(true);
+    try {
+      const nameParts = editForm.name.split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      const response = await http.patch(`/api/admin/businesses/${editForm.business_id}/users/${editingUser.id}`, {
+        email: editForm.email,
+        first_name: firstName,
+        last_name: lastName,
+        role: editForm.role,
+        is_active: editForm.is_active
+      }) as any;
+      
+      if (response && response.success) {
+        alert('המשתמש עודכן בהצלחה!');
+        setShowEditModal(false);
+        setEditingUser(null);
+        await loadData();
+      } else {
+        alert('שגיאה בעדכון המשתמש: ' + (response?.error || response?.message || 'שגיאה לא ידועה'));
+      }
+    } catch (error: any) {
+      console.error('Error updating user:', error);
+      alert('שגיאה בעדכון המשתמש: ' + (error?.message || 'שגיאה לא ידועה'));
     } finally {
       setCreateLoading(false);
     }
@@ -580,7 +641,16 @@ export function UsersPage() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" title="עריכה" data-testid={`button-edit-user-${user.id}`}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          title="עריכה" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditUser(user);
+                          }}
+                          data-testid={`button-edit-user-${user.id}`}
+                        >
                           <Edit className="w-4 h-4" />
                         </Button>
                         {user.role !== 'system_admin' && (
@@ -588,7 +658,10 @@ export function UsersPage() {
                             variant="ghost" 
                             size="sm" 
                             title="מחיקה"
-                            onClick={() => handleDeleteUser(user)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUser(user);
+                            }}
                             data-testid={`button-delete-user-${user.id}`}
                           >
                             <Trash2 className="w-4 h-4 text-red-500" />
@@ -670,7 +743,15 @@ export function UsersPage() {
                       </div>
                       
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" title="עריכה">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          title="עריכה"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditUser(user);
+                          }}
+                        >
                           <Edit className="w-4 h-4" />
                         </Button>
                         {user.role !== 'system_admin' && (
@@ -678,7 +759,10 @@ export function UsersPage() {
                             variant="ghost" 
                             size="sm" 
                             title="מחיקה"
-                            onClick={() => handleDeleteUser(user)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUser(user);
+                            }}
                           >
                             <Trash2 className="w-4 h-4 text-red-500" />
                           </Button>
@@ -808,6 +892,127 @@ export function UsersPage() {
                   data-testid="button-submit-user"
                 >
                   {createLoading ? 'יוצר...' : 'צור משתמש'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Edit User Modal - Responsive */}
+      {showEditModal && editingUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="p-4 sm:p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                עריכת משתמש
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingUser(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form className="space-y-4" onSubmit={handleUpdateUser}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">שם מלא *</label>
+                  <Input 
+                    type="text" 
+                    placeholder="הזן שם מלא"
+                    value={editForm.name}
+                    onChange={(e: any) => setEditForm({...editForm, name: e.target.value})}
+                    required
+                    data-testid="input-edit-user-name"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">דוא"ל *</label>
+                  <Input 
+                    type="email" 
+                    placeholder="הזן דוא״ל"
+                    value={editForm.email}
+                    onChange={(e: any) => setEditForm({...editForm, email: e.target.value})}
+                    required
+                    data-testid="input-edit-user-email"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+                  <Input 
+                    type="tel" 
+                    placeholder="מספר טלפון"
+                    value={editForm.phone}
+                    onChange={(e: any) => setEditForm({...editForm, phone: e.target.value})}
+                    data-testid="input-edit-user-phone"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">תפקיד *</label>
+                  <select 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    value={editForm.role}
+                    onChange={(e) => setEditForm({...editForm, role: e.target.value})}
+                    data-testid="select-edit-user-role"
+                  >
+                    <option value="agent">סוכן</option>
+                    <option value="admin">מנהל</option>
+                    <option value="owner">בעלים</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">עסק *</label>
+                  <select 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    value={editForm.business_id}
+                    onChange={(e) => setEditForm({...editForm, business_id: parseInt(e.target.value)})}
+                    required
+                    data-testid="select-edit-user-business"
+                  >
+                    <option value={0}>בחר עסק...</option>
+                    {businesses.map(biz => (
+                      <option key={biz.id} value={biz.id}>{biz.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={editForm.is_active}
+                      onChange={(e) => setEditForm({...editForm, is_active: e.target.checked})}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      data-testid="checkbox-edit-user-active"
+                    />
+                    <span className="text-sm font-medium text-gray-700">משתמש פעיל</span>
+                  </label>
+                </div>
+              </div>
+              
+              <div className="flex flex-col-reverse sm:flex-row gap-3 mt-6 pt-4 border-t">
+                <Button 
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingUser(null);
+                  }}
+                  className="w-full sm:w-auto"
+                >
+                  ביטול
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={createLoading}
+                  className="w-full sm:w-auto"
+                  data-testid="button-submit-edit-user"
+                >
+                  {createLoading ? 'שומר...' : 'שמור שינויים'}
                 </Button>
               </div>
             </form>

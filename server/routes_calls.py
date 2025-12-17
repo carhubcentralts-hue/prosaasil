@@ -63,9 +63,9 @@ def list_calls():
         if status != 'all':
             query = query.filter(Call.status == status)
             
-        # Direction filter commented out as field doesn't exist in current CallLog model
-        # if direction != 'all':
-        #     query = query.filter(Call.direction == direction)
+        # ✅ Direction filter - CallLog model has direction field
+        if direction != 'all':
+            query = query.filter(Call.direction == direction)
         
         # Order by creation time desc
         query = query.order_by(Call.created_at.desc())
@@ -172,7 +172,7 @@ def get_call_details(call_sid):
 @calls_bp.route("/api/calls/<call_sid>/download", methods=["GET"])
 @require_api_auth()
 def download_recording(call_sid):
-    """הורדה מאובטחת של הקלטה דרך השרת - using unified recording service"""
+    """הורדה מאובטחת של הקלטה דרך השרת - with Range support for iOS"""
     try:
         business_id = get_business_id()
         if not business_id:
@@ -197,12 +197,53 @@ def download_recording(call_sid):
         if not audio_path:
             return jsonify({"success": False, "error": "Recording not available"}), 404
         
-        # Serve the file directly
-        return send_file(
-            audio_path,
-            mimetype="audio/mpeg",
-            as_attachment=False,
-        )
+        # 🎯 iOS FIX: Support Range requests for audio streaming
+        # Get file size for Content-Length and Range calculations
+        file_size = os.path.getsize(audio_path)
+        
+        # Check if Range header is present (iOS requires this)
+        range_header = request.headers.get('Range', None)
+        
+        if range_header:
+            # Parse Range header (format: "bytes=start-end")
+            byte_range = range_header.replace('bytes=', '').split('-')
+            start = int(byte_range[0]) if byte_range[0] else 0
+            end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+            
+            # Ensure valid range
+            if start >= file_size:
+                from flask import Response
+                return Response(status=416)  # Range Not Satisfiable
+            
+            end = min(end, file_size - 1)
+            length = end - start + 1
+            
+            # Read partial content
+            with open(audio_path, 'rb') as f:
+                f.seek(start)
+                data = f.read(length)
+            
+            # Return 206 Partial Content with proper headers
+            from flask import Response
+            rv = Response(
+                data,
+                206,
+                mimetype='audio/mpeg',
+                direct_passthrough=True
+            )
+            rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
+            rv.headers.add('Accept-Ranges', 'bytes')
+            rv.headers.add('Content-Length', str(length))
+            return rv
+        else:
+            # No Range header - serve entire file with Accept-Ranges header
+            return send_file(
+                audio_path,
+                mimetype="audio/mpeg",
+                as_attachment=False,
+                conditional=True,  # Enable conditional requests
+                max_age=3600  # Cache for 1 hour
+            )
         
     except Exception as e:
         log.error(f"Error downloading recording: {e}")
