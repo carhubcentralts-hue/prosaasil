@@ -3549,7 +3549,10 @@ Greet briefly. Then WAIT for customer to speak."""
                                     _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
                                 except Exception as e:
                                     error_str = str(e).lower()
-                                    if 'not_active' not in error_str:
+                                    # 🔥 FIX: Gracefully handle not_active errors (response already ended)
+                                    if 'not_active' in error_str or 'no active response' in error_str:
+                                        _orig_print(f"⏭️ [BARGE-IN] Response already ended - no cancel needed", flush=True)
+                                    else:
                                         _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
                             else:
                                 _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
@@ -3574,8 +3577,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.is_ai_speaking_event.clear()
                         self.active_response_id = None
                         
-                        # Step 5: Set barge-in flag
+                        # Step 5: Set barge-in flag with timestamp
                         self.barge_in_active = True
+                        self._barge_in_started_ts = time.time()  # 🔥 FIX: Set timestamp to prevent None crash
                         _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, TX flushed, Twilio cleared, barge_in=True", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
@@ -3625,7 +3629,12 @@ Greet briefly. Then WAIT for customer to speak."""
                     
                     # 🔥 BUILD 302: Clear barge-in flag when user finishes speaking
                     if self.barge_in_active:
-                        barge_duration = time.time() - getattr(self, '_barge_in_started_ts', time.time())
+                        # 🔥 FIX: Guard against None - use 0 duration if timestamp not set
+                        barge_start = getattr(self, '_barge_in_started_ts', None)
+                        if barge_start is not None:
+                            barge_duration = time.time() - barge_start
+                        else:
+                            barge_duration = 0
                         print(f"✅ [BARGE-IN] User utterance completed - barge-in ended (duration={barge_duration:.1f}s)")
                         self.barge_in_active = False
                         self._barge_in_started_ts = None
