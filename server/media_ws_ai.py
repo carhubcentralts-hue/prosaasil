@@ -3530,15 +3530,21 @@ Greet briefly. Then WAIT for customer to speak."""
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
                         # AI is speaking - user is interrupting
                         
-                        # Step 1: Cancel active response
+                        # Step 1: Cancel active response (with duplicate guard)
                         if self.active_response_id and self.realtime_client:
-                            try:
-                                await self.realtime_client.cancel_response(self.active_response_id)
-                                _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
-                            except Exception as e:
-                                error_str = str(e).lower()
-                                if 'not_active' not in error_str:
-                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
+                            # 🔥 CRITICAL: Use _should_send_cancel to prevent duplicate cancellations
+                            if self._should_send_cancel(self.active_response_id):
+                                try:
+                                    await self.realtime_client.cancel_response(self.active_response_id)
+                                    # Mark as cancelled locally to track state
+                                    self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
+                                    _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
+                                except Exception as e:
+                                    error_str = str(e).lower()
+                                    if 'not_active' not in error_str:
+                                        _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
+                            else:
+                                _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
                         
                         # Step 2: Flush TX queue (clear all pending audio frames)
                         self._flush_tx_queue()
@@ -3667,11 +3673,11 @@ Greet briefly. Then WAIT for customer to speak."""
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                         
-                        # 🔥 BARGE-IN FIX: Mark AI as speaking when response is created
-                        # This ensures is_ai_speaking flag is set BEFORE audio arrives
-                        self.is_ai_speaking_event.set()
+                        # 🔥 STATE FIX: DON'T set is_ai_speaking yet - wait for actual audio
+                        # Setting it here causes race condition where is_ai_speaking=True before transcription.completed
+                        # is_ai_speaking will be set on first response.audio.delta when actual audio arrives
                         self.barge_in_active = False  # Reset barge-in flag for new response
-                        print(f"🔊 [BARGE-IN] AI starting to speak - response_id={response_id[:20]}... is_ai_speaking=True")
+                        print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
                         
                         print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
                         # 🔥 BUILD 187: Response grace period - track when response started
@@ -3743,9 +3749,12 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self._greeting_audio_started_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
+                            # 🔥 STATE FIX: Set is_ai_speaking ONLY when actual audio arrives
+                            # This prevents race condition where is_ai_speaking=True before audio actually starts
                             if not self.is_ai_speaking_event.is_set():
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
+                                print(f"🔊 [STATE] AI started speaking (first audio.delta for greeting) - is_ai_speaking=True")
                             self.is_ai_speaking_event.set()
                             self.is_playing_greeting = True
                             # 🔥 VERIFICATION #3: Block enqueue if closed
@@ -3788,10 +3797,12 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🔥 BARGE-IN FIX: ALWAYS ensure is_ai_speaking is set on audio.delta
                         # This guarantees the flag tracks actual audio playback
+                        # 🔥 STATE FIX: This is the CORRECT place to set is_ai_speaking (not on response.created)
                         if not self.is_ai_speaking_event.is_set():
                             # 🚫 Production mode: Only log in DEBUG
                             if DEBUG:
                                 print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
+                            print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
@@ -6672,14 +6683,40 @@ Greet briefly. Then WAIT for customer to speak."""
         
         # 🔥 VERIFICATION: Wrap in try/finally to ensure cleanup even on exception
         try:
+            # STEP 0: Clear all state flags to prevent leakage between calls
+            _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
+            try:
+                # Clear speaking state
+                if hasattr(self, 'is_ai_speaking_event'):
+                    self.is_ai_speaking_event.clear()
+                self.speaking = False
+                self.active_response_id = None
+                
+                # Clear barge-in state
+                self.barge_in_active = False
+                self._barge_in_started_ts = None
+                
+                # Clear user speaking state
+                self.user_speaking = False
+                self._candidate_user_speaking = False
+                self._utterance_start_ts = None
+                
+                # Clear response tracking
+                self.has_pending_ai_response = False
+                self.response_pending_event.clear()
+                
+                _orig_print(f"   ✅ State flags cleared", flush=True)
+            except Exception as e:
+                _orig_print(f"   ⚠️ Error clearing state flags: {e}", flush=True)
+            
             # STEP 1: Set stop flags for all loops
-            _orig_print(f"   [1/7] Setting stop flags...", flush=True)
+            _orig_print(f"   [1/8] Setting stop flags...", flush=True)
             self.realtime_stop_flag = True
             if hasattr(self, 'tx_running'):
                 self.tx_running = False
             
             # STEP 2: Signal queues to stop (sentinel values)
-            _orig_print(f"   [2/7] Sending stop signals to queues...", flush=True)
+            _orig_print(f"   [2/8] Sending stop signals to queues...", flush=True)
             if hasattr(self, 'realtime_audio_in_queue') and self.realtime_audio_in_queue:
                 try:
                     self.realtime_audio_in_queue.put_nowait(None)
@@ -6692,11 +6729,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     pass
             
             # STEP 3: Stop timers/watchdogs
-            _orig_print(f"   [3/7] Stopping timers and watchdogs...", flush=True)
+            _orig_print(f"   [3/8] Stopping timers and watchdogs...", flush=True)
             # (Add any timer cleanup here if needed)
             
             # STEP 4: Close OpenAI connection
-            _orig_print(f"   [4/7] Closing OpenAI connection...", flush=True)
+            _orig_print(f"   [4/8] Closing OpenAI connection...", flush=True)
             # The realtime_stop_flag will make the async tasks exit naturally
             
             # STEP 5: Wait for TX thread to finish draining
@@ -6705,7 +6742,7 @@ Greet briefly. Then WAIT for customer to speak."""
             ai_initiated = 'twilio' not in reason and 'call_status' not in reason and 'stream_ended' not in reason
             
             if ai_initiated:
-                _orig_print(f"   [5/7] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
+                _orig_print(f"   [5/8] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
                 if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
                     try:
                         self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
@@ -6717,7 +6754,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         pass
             else:
                 # Twilio closed - clear queues immediately, no drain
-                _orig_print(f"   [5/7] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
+                _orig_print(f"   [5/8] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
                 if hasattr(self, 'tx_q'):
                     cleared = 0
                     while not self.tx_q.empty():
@@ -6740,7 +6777,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
             
             # STEP 6: Close Twilio WebSocket
-            _orig_print(f"   [6/7] Closing Twilio WebSocket...", flush=True)
+            _orig_print(f"   [6/8] Closing Twilio WebSocket...", flush=True)
             try:
                 if hasattr(self.ws, 'close') and not self._ws_closed:
                     self.ws.close()
@@ -6753,7 +6790,7 @@ Greet briefly. Then WAIT for customer to speak."""
         
         finally:
             # STEP 7: Unregister session from registry - ALWAYS runs even on exception
-            _orig_print(f"   [7/7] Unregistering session and handler...", flush=True)
+            _orig_print(f"   [7/8] Unregistering session and handler...", flush=True)
             if self.call_sid:
                 try:
                     _close_session(self.call_sid)
@@ -6764,6 +6801,14 @@ Greet briefly. Then WAIT for customer to speak."""
                 except Exception as e:
                     _orig_print(f"   ⚠️ Error unregistering handler: {e}", flush=True)
                 _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
+            
+            # STEP 8: Final state verification
+            _orig_print(f"   [8/8] Final state verification...", flush=True)
+            is_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
+            _orig_print(f"   is_ai_speaking={is_speaking}", flush=True)
+            _orig_print(f"   active_response_id={getattr(self, 'active_response_id', None)}", flush=True)
+            _orig_print(f"   user_speaking={getattr(self, 'user_speaking', False)}", flush=True)
+            _orig_print(f"   barge_in_active={getattr(self, 'barge_in_active', False)}", flush=True)
             
             _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
             _orig_print(f"🔒 [SHUTDOWN_VERIFICATION] After this point, NO MORE logs should appear for:", flush=True)
@@ -11512,29 +11557,45 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _flush_tx_queue(self):
         """
-        🔥 BARGE-IN: Immediately flush all pending frames from TX queue
+        🔥 BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing
         
         Called when user interrupts AI - clears all queued audio to prevent
         AI voice from continuing after barge-in.
         
         CRITICAL: This is the key to instant barge-in response.
+        Flushes:
+        1. realtime_audio_out_queue - Audio from OpenAI not yet in TX queue
+        2. tx_q - Audio waiting to be sent to Twilio
         """
-        flushed_count = 0
+        realtime_flushed = 0
+        tx_flushed = 0
+        
         try:
-            # Use timeout-based approach to avoid race condition
-            # Keep flushing until queue is empty or timeout
-            while True:
-                try:
-                    self.tx_q.get_nowait()
-                    flushed_count += 1
-                except queue.Empty:
-                    # Queue is empty - done flushing
-                    break
+            # Flush OpenAI → TX queue (realtime_audio_out_queue)
+            if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
+                while True:
+                    try:
+                        self.realtime_audio_out_queue.get_nowait()
+                        realtime_flushed += 1
+                    except queue.Empty:
+                        break
             
-            if flushed_count > 0:
-                _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {flushed_count} frames from TX queue", flush=True)
+            # Flush TX → Twilio queue (tx_q)
+            if hasattr(self, 'tx_q') and self.tx_q:
+                while True:
+                    try:
+                        self.tx_q.get_nowait()
+                        tx_flushed += 1
+                    except queue.Empty:
+                        break
+            
+            total_flushed = realtime_flushed + tx_flushed
+            if total_flushed > 0:
+                _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {total_flushed} frames total (realtime_queue={realtime_flushed}, tx_queue={tx_flushed})", flush=True)
+            else:
+                _orig_print(f"🧹 [BARGE-IN FLUSH] Both queues already empty", flush=True)
         except Exception as e:
-            _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queue: {e}", flush=True)
+            _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queues: {e}", flush=True)
     
     def _tx_loop(self):
         """
