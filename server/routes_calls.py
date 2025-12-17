@@ -289,6 +289,10 @@ def download_recording(call_sid):
             if origin:
                 rv.headers.add('Access-Control-Allow-Origin', origin)
                 rv.headers.add('Access-Control-Allow-Credentials', 'true')
+                # 🎯 FIX: Vary header for proper caching with multiple origins
+                rv.headers.add('Vary', 'Origin')
+                # 🎯 FIX: Expose headers so UI can read them during Range requests
+                rv.headers.add('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
             return rv
         else:
             # No Range header - serve entire file with Accept-Ranges header
@@ -309,6 +313,10 @@ def download_recording(call_sid):
             if origin:
                 response.headers['Access-Control-Allow-Origin'] = origin
                 response.headers['Access-Control-Allow-Credentials'] = 'true'
+                # 🎯 FIX: Vary header for proper caching with multiple origins
+                response.headers['Vary'] = 'Origin'
+                # 🎯 FIX: Expose headers so UI can read them during Range requests
+                response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
             return response
         
     except Exception as e:
