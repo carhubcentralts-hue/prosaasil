@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
@@ -739,7 +739,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   const [directionFilter, setDirectionFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');  // 🔥 NEW: Direction filter
   const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
   const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
-  const recordingUrlsRef = React.useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
+  const recordingUrlsRef = useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
 
   // Helper to get consistent call identifier
   const getCallId = (call: LeadCall) => call.call_sid || call.id;
@@ -753,8 +753,8 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
 
   // 🔥 FIX: Load recording as blob with authentication when call is expanded
   const loadRecordingBlob = async (callId: string) => {
-    // Skip if already loaded (check ref for source of truth)
-    if (recordingUrlsRef.current[callId]) return;
+    // Skip if already loaded or currently loading (check ref for source of truth)
+    if (recordingUrlsRef.current[callId] || loadingRecording === callId) return;
     
     setLoadingRecording(callId);
     try {
@@ -773,13 +773,14 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
       setRecordingUrls(prev => ({ ...prev, [callId]: url }));
     } catch (error) {
       console.error('Error loading recording:', error);
+      // Don't set URL in ref on error - allow retry
     } finally {
       setLoadingRecording(null);
     }
   };
 
   // 🔥 FIX: Cleanup blob URLs when component unmounts
-  React.useEffect(() => {
+  useEffect(() => {
     return () => {
       // Revoke all blob URLs to prevent memory leaks
       Object.values(recordingUrlsRef.current).forEach(url => {
