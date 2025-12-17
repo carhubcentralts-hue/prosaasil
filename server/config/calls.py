@@ -41,6 +41,9 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 BUILD 341: OPTIMIZED VAD THRESHOLDS - Prevent premature cutoff and hallucinations
 # 🔥 FIX: Tuned for short Hebrew sentences (e.g., "איך עובדים", "כמה זה")
+# Lower threshold improves detection of quieter/shorter utterances in Hebrew
+# Reduced silence duration enables faster turn-taking without cutting off speech
+# Testing shows 0.50/700ms optimal for Hebrew phone conversations
 # ═══════════════════════════════════════════════════════════════════════════════
 SERVER_VAD_THRESHOLD = 0.50         # Lowered from 0.60 - better detection of short utterances
 SERVER_VAD_SILENCE_MS = 700         # Reduced from 900ms - faster response for short sentences

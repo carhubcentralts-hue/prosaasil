@@ -2647,8 +2647,13 @@ Greet briefly. Then WAIT for customer to speak."""
                                                 session.commit()
                                                 print(f"✅ [LEAD_ID_LOCK] Linked CallLog {self.call_sid} to lead {lead_id}")
                                             elif call_log.lead_id != lead_id:
-                                                # 🔒 CRITICAL: lead_id already set but differs - log conflict
+                                                # 🔒 CRITICAL: lead_id already set but differs
+                                                # This indicates a race condition or duplicate call handling
+                                                # Always use the FIRST locked lead_id to maintain consistency
                                                 print(f"❌ [LEAD_ID_LOCK] CONFLICT! CallLog {self.call_sid} has lead_id={call_log.lead_id}, attempted {lead_id}")
+                                                print(f"🔒 [LEAD_ID_LOCK] Keeping original lead_id={call_log.lead_id} (first-lock-wins)")
+                                                # Update local context to match DB
+                                                self.crm_context.lead_id = call_log.lead_id
                                             else:
                                                 print(f"✅ [LEAD_ID_LOCK] CallLog {self.call_sid} already linked to lead {lead_id}")
                                         else:

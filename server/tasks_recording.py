@@ -14,6 +14,9 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy.exc import OperationalError, DisconnectionError
 
+# 🔒 Import Lead model at top level for efficient access
+from server.models_sql import CallLog, Business, Lead
+
 log = logging.getLogger("tasks.recording")
 
 # 🔥 BUILD 342: Transcript source constants
@@ -691,8 +694,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             # 🔒 CRITICAL: Use lead_id FROM CallLog (locked at call start), NOT phone lookup
             lead = None
             if call_log.lead_id:
-                # ✅ Use the locked lead_id from CallLog
-                from server.models_sql import Lead
+                # ✅ Use the locked lead_id from CallLog (imported at top level)
                 lead = Lead.query.filter_by(id=call_log.lead_id).first()
                 if lead:
                     print(f"✅ [LEAD_ID_LOCK] Using locked lead_id={lead.id} from CallLog for updates")
