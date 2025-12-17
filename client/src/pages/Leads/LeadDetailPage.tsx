@@ -789,16 +789,13 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   }, []); // Only run on mount/unmount
 
   // 🔥 FIX: Load recording when call is expanded
-  const handleToggleExpand = (callId: string) => {
+  const handleToggleExpand = (callId: string, hasRecording: boolean) => {
     const isExpanding = expandedCallId !== callId;
     setExpandedCallId(isExpanding ? callId : null);
     
     // Load recording blob when expanding
-    if (isExpanding) {
-      const call = calls.find(c => c.id === callId);
-      if (call?.recording_url) {
-        loadRecordingBlob(getCallId(call));
-      }
+    if (isExpanding && hasRecording) {
+      loadRecordingBlob(callId);
     }
   };
 
@@ -812,9 +809,6 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
       // Use the download endpoint with proper auth
       const response = await fetch(`/api/calls/${callId}/download`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         credentials: 'include'
       });
       
@@ -894,7 +888,8 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
       ) : (
         <div className="space-y-3">
           {filteredCalls.map((call) => {
-            const isExpanded = expandedCallId === call.id;
+            const callId = getCallId(call);
+            const isExpanded = expandedCallId === callId;
             const hasRecording = Boolean(call.recording_url);
             const hasTranscript = Boolean(call.notes?.trim());
             const hasSummary = Boolean(call.summary?.trim());
@@ -947,7 +942,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         )}
                       </button>
                       <button
-                        onClick={() => handleToggleExpand(call.id)}
+                        onClick={() => handleToggleExpand(callId, hasRecording)}
                         className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                       >
                         <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
