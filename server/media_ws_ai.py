@@ -6804,7 +6804,8 @@ Greet briefly. Then WAIT for customer to speak."""
             
             # STEP 8: Final state verification
             _orig_print(f"   [8/8] Final state verification...", flush=True)
-            _orig_print(f"   is_ai_speaking={getattr(self, 'is_ai_speaking_event', 'N/A').is_set() if hasattr(self, 'is_ai_speaking_event') else 'N/A'}", flush=True)
+            is_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
+            _orig_print(f"   is_ai_speaking={is_speaking}", flush=True)
             _orig_print(f"   active_response_id={getattr(self, 'active_response_id', None)}", flush=True)
             _orig_print(f"   user_speaking={getattr(self, 'user_speaking', False)}", flush=True)
             _orig_print(f"   barge_in_active={getattr(self, 'barge_in_active', False)}", flush=True)
@@ -11571,20 +11572,22 @@ Greet briefly. Then WAIT for customer to speak."""
         
         try:
             # Flush OpenAI → TX queue (realtime_audio_out_queue)
-            while True:
-                try:
-                    self.realtime_audio_out_queue.get_nowait()
-                    realtime_flushed += 1
-                except queue.Empty:
-                    break
+            if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
+                while True:
+                    try:
+                        self.realtime_audio_out_queue.get_nowait()
+                        realtime_flushed += 1
+                    except queue.Empty:
+                        break
             
             # Flush TX → Twilio queue (tx_q)
-            while True:
-                try:
-                    self.tx_q.get_nowait()
-                    tx_flushed += 1
-                except queue.Empty:
-                    break
+            if hasattr(self, 'tx_q') and self.tx_q:
+                while True:
+                    try:
+                        self.tx_q.get_nowait()
+                        tx_flushed += 1
+                    except queue.Empty:
+                        break
             
             total_flushed = realtime_flushed + tx_flushed
             if total_flushed > 0:
