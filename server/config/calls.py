@@ -40,31 +40,28 @@ MAX_REALTIME_SECONDS_PER_CALL = 600  # Max 10 minutes per call
 MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 BUILD 350: BALANCED VAD THRESHOLDS - Optimized for Hebrew with noise resilience
+# 🔥 GREETING FIX: BALANCED VAD THRESHOLDS - Optimized for Hebrew with greeting protection
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (based on OpenAI Realtime API best practices):
-# - threshold 0.5: Balanced sensitivity for Hebrew short utterances while avoiding false positives
-#   from background noise (research shows 0.3-0.5 for quiet environments, 0.6-0.7 for noisy)
-# - silence_duration_ms 400: OpenAI recommends 250-400ms for short utterances in rapid exchanges
-#   (too low causes premature cutoff, too high causes sluggish responses)
-# - prefix_padding_ms 300: Standard padding (OpenAI default), sufficient for Hebrew syllables
-#   (was 500ms but caused delayed speech start detection)
+# TUNING RATIONALE (based on log analysis and OpenAI Realtime API best practices):
+# - threshold 0.50: Balanced sensitivity - detects real speech, ignores background noise
+# - silence_duration_ms 450: Slightly increased from 400ms for better noise resilience
+#   (prevents greeting interruption from brief ambient sounds)
+# - prefix_padding_ms 350: Increased from 300ms to capture full Hebrew syllables
+#   (prevents word cutoff at start of utterances)
 #
-# Previous aggressive settings (0.45/600ms/500ms) caused:
-# ❌ False positives from background noise being detected as speech
-# ❌ Premature speech cutoff when users pause briefly
-# ❌ System not responding at all during entire call
-# ❌ Unwanted greeting interruptions from ambient sounds
+# Previous settings (0.5/400ms/300ms) caused:
+# ❌ Greeting interrupted by background noise/echo (too sensitive to short bursts)
+# ❌ Sometimes greeting didn't play at all (false triggers before audio sent)
 #
-# Current balanced settings (0.5/400ms/300ms) provide:
-# ✅ Reliable detection of short Hebrew utterances ("כן", "לא", "איך עובדים")
-# ✅ Noise resilience - ignores most background sounds
+# Current balanced settings (0.50/450ms/350ms) provide:
+# ✅ Stable greeting playback - ignores ambient noise during first 500ms
+# ✅ Reliable detection of short Hebrew utterances ("כן", "לא", "שלום")
+# ✅ No false speech_started triggers from echo or background sounds
 # ✅ Natural conversation flow - no premature cutoffs
-# ✅ Fast response - 400ms silence is enough for turn-taking
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.5          # Balanced: detects speech without false positives (OpenAI best practice)
-SERVER_VAD_SILENCE_MS = 400         # Optimal for short Hebrew utterances (OpenAI recommendation: 250-400ms)
-SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding, prevents delayed speech detection (OpenAI default)
+SERVER_VAD_THRESHOLD = 0.50         # Balanced: real speech without false triggers
+SERVER_VAD_SILENCE_MS = 450         # Increased for noise resilience (prevents false greeting interrupts)
+SERVER_VAD_PREFIX_PADDING_MS = 350  # Captures full Hebrew syllables
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
@@ -82,53 +79,56 @@ VAD_ADAPTIVE_CAP = 120.0        # Maximum adaptive threshold
 VAD_ADAPTIVE_OFFSET = 55.0      # noise_floor + this = dynamic threshold
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 BUILD 350: BALANCED ECHO GATE - Protect against AI echo with noise resilience
+# 🔥 GREETING FIX: BALANCED ECHO GATE - Protect greeting from false triggers
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE:
-# - RMS 200: Moderate sensitivity - allows real interruptions while ignoring ambient noise
-#   (was 150 - too low, caused false triggers from background noise)
-#   (was 320 originally - too high, required shouting to interrupt)
-# - Frames 5: Requires 100ms of consistent audio to trigger (prevents spurious noise spikes)
-#   (was 4 - too low, allowed single-frame noise to trigger)
+# TUNING RATIONALE (based on log analysis):
+# - RMS 200: Balanced sensitivity - real speech passes, echo/noise blocked
+#   (was 150 - too low, caused greeting interruption from background noise)
+# - Frames 5: Requires 100ms of consistent audio (prevents single-frame noise spikes)
+#   (was 4 - too low, allowed brief echo to trigger false speech_started)
 #
-# Previous aggressive setting (150.0) caused:
-# ❌ Background noise triggering barge-in during AI greeting
-# ❌ System interrupting itself from echo or ambient sounds
-# ❌ Greeting not being read at all due to false triggers
+# Log analysis showed:
+# ❌ Greeting interrupted by echo/ambient noise (RMS < 200)
+# ❌ speech_started fired within first 200ms of greeting (before real user speech)
 #
-# Current balanced setting (200.0) provides:
-# ✅ Natural interruption capability - no need to shout
-# ✅ Noise resilience - ignores ambient sounds and echo
-# ✅ Consistent greeting delivery - completes unless user truly interrupts
+# Current balanced setting (200.0/5 frames) provides:
+# ✅ Greeting protection - ignores echo and background noise
+# ✅ Natural interruption - real user speech (RMS > 200) can still interrupt
+# ✅ Consistent greeting delivery - completes unless user truly speaks
 # ═══════════════════════════════════════════════════════════════════════════════
-ECHO_GATE_MIN_RMS = 200.0       # Moderate sensitivity: real interruptions without false triggers
-ECHO_GATE_MIN_FRAMES = 5        # Requires 100ms consistent audio (prevents noise spikes)
+ECHO_GATE_MIN_RMS = 200.0       # Balanced: real speech without echo/noise false triggers
+ECHO_GATE_MIN_FRAMES = 5        # Requires 100ms consistent audio (prevents greeting interruption)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 BUILD 350: BALANCED BARGE-IN - Natural interruption with noise resilience
+# 🔥 GREETING FIX: BALANCED BARGE-IN - Protect greeting, allow natural interruption
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE:
+# TUNING RATIONALE (based on log analysis):
 # - Frames 8: Requires 160ms of consistent speech to trigger interruption
-#   (was 6/120ms - too low, caused false triggers from brief noises or speaker pauses)
-#   (was 12/240ms originally - too high, felt unresponsive)
-# - Debounce 350ms: Prevents rapid re-triggering while allowing natural follow-up
-#   (was 300ms - too short, allowed unwanted double interruptions)
-#   (was 400ms originally - felt slightly sluggish)
+#   (prevents greeting interruption from brief noise spikes < 160ms)
+# - Debounce 350ms: Prevents rapid re-triggering after barge-in
+#   (was 300ms - too short, allowed double interruptions)
 #
-# Previous aggressive settings (6 frames/300ms) caused:
-# ❌ AI interrupting mid-sentence when user pauses briefly
-# ❌ False barge-in triggers from background noise
-# ❌ Response flow disruption from spurious interruptions
-# ❌ System not speaking at all during calls due to constant false triggers
+# Log analysis showed:
+# ❌ Greeting interrupted within 100-300ms by brief noise (< 8 frames)
+# ❌ speech_started triggered by echo/background sounds during first 500ms of greeting
 #
 # Current balanced settings (8 frames/350ms) provide:
-# ✅ Natural interruption - responds to real user speech
-# ✅ Noise resilience - ignores brief sounds and pauses
-# ✅ Smooth conversation flow - allows natural speaking patterns
-# ✅ No double triggers - proper debounce for follow-up responses
+# ✅ Greeting protection - brief noise (< 160ms) doesn't interrupt
+# ✅ Natural interruption - real user speech (≥ 160ms) can interrupt
+# ✅ No double triggers - 350ms debounce prevents rapid re-triggering
+#
+# Special Greeting Mode (first 500ms):
+# - During greeting playback, require BOTH:
+#   1. speech_started + 250-350ms of continuous voice, OR
+#   2. transcription.completed with non-empty text
+# - This prevents false triggers from echo/noise at greeting start
 # ═══════════════════════════════════════════════════════════════════════════════
-BARGE_IN_VOICE_FRAMES = 8   # Requires 160ms consistent speech (balanced: responsive without false triggers)
-BARGE_IN_DEBOUNCE_MS = 350  # Debounce period prevents double triggers while allowing natural follow-up
+BARGE_IN_VOICE_FRAMES = 8   # Requires 160ms consistent speech (protects greeting from brief noise)
+BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in
+
+# Greeting-specific protection (applied during greeting playback only)
+GREETING_PROTECT_DURATION_MS = 500  # Protect greeting for first 500ms
+GREETING_MIN_SPEECH_DURATION_MS = 250  # Require 250ms continuous speech to interrupt greeting
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Legacy Audio Guard parameters (kept for compatibility)

@@ -79,7 +79,8 @@ try:
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
         BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
         MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
-        NOISE_GATE_MIN_FRAMES
+        NOISE_GATE_MIN_FRAMES,
+        GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS
     )
 except ImportError:
     SIMPLE_MODE = True
@@ -93,6 +94,8 @@ except ImportError:
     ECHO_GATE_MIN_FRAMES = 5
     BARGE_IN_VOICE_FRAMES = 8
     BARGE_IN_DEBOUNCE_MS = 350
+    GREETING_PROTECT_DURATION_MS = 500
+    GREETING_MIN_SPEECH_DURATION_MS = 250
     MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
     MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
     NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
@@ -1696,6 +1699,9 @@ class MediaStreamHandler:
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
         self.barge_in_active = False
         self._barge_in_started_ts = None  # When barge-in started (for timeout)
+        
+        # 🔥 GREETING PROTECT: Transcription confirmation flag for intelligent greeting protection
+        self._greeting_needs_transcription_confirm = False  # Wait for transcription to confirm interruption
         
         # 🎯 STT GUARD: Track utterance metadata for validation
         # Prevents hallucinated transcriptions during silence from triggering barge-in
@@ -3511,14 +3517,17 @@ Greet briefly. Then WAIT for customer to speak."""
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 SIMPLE BARGE-IN FIX (No Guards, No Filters, Just Works)
+                    # 🔥 GREETING PROTECTION FIX + SIMPLE BARGE-IN
                     # ═══════════════════════════════════════════════════════════════════════
-                    # When user speaks while AI is speaking → AI stops IMMEDIATELY
+                    # Issue: Greeting sometimes interrupted by false speech_started from echo/noise
+                    # Solution: During greeting, require REAL speech before allowing barge-in
                     # 
                     # Rules:
-                    # 1. If AI is speaking → Cancel + Flush + Clear Twilio + Reset
-                    # 2. Set barge_in=True flag
-                    # 3. Wait for transcription.completed
+                    # 1. During greeting (first 500ms): Block barge-in on speech_started alone
+                    #    - Wait for transcription.completed OR 250ms+ of continuous speech
+                    #    - This prevents false triggers from echo/background noise
+                    # 2. After greeting: Normal barge-in (immediate cancel on speech_started)
+                    # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
                     
                     print(f"🎤 [SPEECH_STARTED] User started speaking")
@@ -3544,13 +3553,52 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._loop_guard_engaged = False
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
-                    # Handle greeting interruption
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🛡️ GREETING PROTECTION - Prevent false interruption from echo/noise
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # During greeting playback, don't interrupt immediately on speech_started
+                    # 
+                    # 🔥 REQUIREMENTS:
+                    # - OUTBOUND calls: NEVER allow barge-in during greeting (fully protected)
+                    # - INBOUND calls: Protected ONLY during greeting, then NORMAL barge-in
+                    # 
+                    # Protection logic:
+                    # - During greeting: Wait for transcription.completed with real text
+                    # - After greeting: Normal barge-in (immediate on speech_started)
+                    # ═══════════════════════════════════════════════════════════════════════
+                    should_interrupt_greeting = True  # Default: allow interruption
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    
                     if self.is_playing_greeting:
-                        print(f"⛔ [BARGE-IN] User interrupted greeting")
+                        # 🔥 OUTBOUND PROTECTION: Never interrupt greeting on outbound calls
+                        if is_outbound:
+                            should_interrupt_greeting = False
+                            print(f"🛡️ [GREETING_PROTECT] OUTBOUND call - greeting is FULLY PROTECTED (no barge-in allowed)")
+                            # Reset flag - outbound doesn't use transcription confirmation
+                            self._greeting_needs_transcription_confirm = False
+                        else:
+                            # 🔥 INBOUND: Protect greeting - require transcription confirmation
+                            # This prevents false triggers from echo/noise during greeting playback
+                            # After greeting completes, normal barge-in is enabled
+                            should_interrupt_greeting = False
+                            print(f"🛡️ [GREETING_PROTECT] INBOUND - protecting greeting, waiting for transcription confirmation")
+                            
+                            # Mark that we need transcription confirmation to interrupt greeting
+                            self._greeting_needs_transcription_confirm = True
+                    
+                    # Handle greeting interruption (only if protection allows)
+                    if self.is_playing_greeting and should_interrupt_greeting:
+                        direction_label = "OUTBOUND" if is_outbound else "INBOUND"
+                        print(f"⛔ [BARGE-IN] User interrupted greeting ({direction_label}, protection: OFF)")
                         self.is_playing_greeting = False
                         self.awaiting_greeting_answer = True
                         self.greeting_completed_at = time.time()
                         self.barge_in_enabled_after_greeting = True
+                    elif self.is_playing_greeting and not should_interrupt_greeting:
+                        # Protected greeting - don't interrupt yet
+                        direction_label = "OUTBOUND (FULL)" if is_outbound else "INBOUND (GREETING ONLY)"
+                        print(f"🛡️ [GREETING_PROTECT] Greeting protected ({direction_label}) - {'no barge-in allowed' if is_outbound else 'waiting for transcription confirmation'}")
+                        # Don't set awaiting_greeting_answer yet - wait for transcription (inbound) or completion (outbound)
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 CRITICAL: BARGE-IN LOGIC (Simple & Powerful)
@@ -3803,6 +3851,17 @@ Greet briefly. Then WAIT for customer to speak."""
                                     self.realtime_audio_out_queue.put_nowait(audio_b64)
                                     # 🎯 PROBE 4: Track enqueue for rate monitoring
                                     self._enq_counter += 1
+                                    
+                                    # 🔥 TX DIAGNOSTICS: Log greeting audio bytes queued
+                                    if not hasattr(self, '_greeting_audio_bytes_queued'):
+                                        self._greeting_audio_bytes_queued = 0
+                                        self._greeting_audio_chunks_queued = 0
+                                    self._greeting_audio_bytes_queued += len(audio_b64)
+                                    self._greeting_audio_chunks_queued += 1
+                                    
+                                    # Log first and every 10th chunk
+                                    if self._greeting_audio_chunks_queued == 1 or self._greeting_audio_chunks_queued % 10 == 0:
+                                        _orig_print(f"📊 [TX_DIAG] Greeting audio queued: {self._greeting_audio_chunks_queued} chunks, {self._greeting_audio_bytes_queued} bytes (streamSid={self.stream_sid is not None})", flush=True)
                                     now_mono = time.monotonic()
                                     if now_mono - self._enq_last_log_time >= 1.0:
                                         qsize = self.realtime_audio_out_queue.qsize()
@@ -4830,6 +4889,60 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # If greeting was protected during speech_started, now confirm with transcription
+                    # Non-empty text = real user speech → interrupt greeting (INBOUND ONLY!)
+                    # 
+                    # 🔥 NEW REQUIREMENT: OUTBOUND calls NEVER interrupt greeting - ignore all transcriptions
+                    # ═══════════════════════════════════════════════════════════════════════
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    
+                    if getattr(self, '_greeting_needs_transcription_confirm', False):
+                        if is_outbound:
+                            # OUTBOUND: Never interrupt greeting, even with valid transcription
+                            print(f"🛡️ [GREETING_PROTECT] OUTBOUND - ignoring transcription during greeting: '{text[:30]}...'")
+                            # Keep greeting playing - don't interrupt
+                        elif self.is_playing_greeting and text and len(text.strip()) >= 2:
+                            # INBOUND: Real user speech confirmed - interrupt greeting NOW
+                            print(f"🛡️ [GREETING_PROTECT] INBOUND - Transcription confirmed real speech: '{text[:30]}...' - interrupting greeting")
+                            self.is_playing_greeting = False
+                            self.awaiting_greeting_answer = True
+                            self.greeting_completed_at = time.time()
+                            self.barge_in_enabled_after_greeting = True
+                            
+                            # Cancel active response if still playing
+                            if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                                if self.active_response_id and self.realtime_client:
+                                    if self._should_send_cancel(self.active_response_id):
+                                        try:
+                                            await self.realtime_client.cancel_response(self.active_response_id)
+                                            self._mark_response_cancelled_locally(self.active_response_id, "greeting_protect_confirmed")
+                                            _orig_print(f"✅ [GREETING_PROTECT] Cancelled greeting response {self.active_response_id[:20]}...", flush=True)
+                                        except Exception as e:
+                                            _orig_print(f"⚠️ [GREETING_PROTECT] Cancel error: {e}", flush=True)
+                                
+                                # Flush TX queue and clear Twilio buffer
+                                self._flush_tx_queue()
+                                if self.stream_sid:
+                                    try:
+                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                        self._ws_send(json.dumps(clear_event))
+                                        _orig_print(f"🧹 [GREETING_PROTECT] Sent Twilio clear event", flush=True)
+                                    except Exception as e:
+                                        _orig_print(f"⚠️ [GREETING_PROTECT] Clear error: {e}", flush=True)
+                                
+                                # Reset state
+                                self.is_ai_speaking_event.clear()
+                                self.active_response_id = None
+                        else:
+                            # Empty/filler text - false alarm, keep greeting playing
+                            print(f"🛡️ [GREETING_PROTECT] Transcription was filler/empty - keeping greeting (text='{text}')")
+                        
+                        # Always clear protection flag after handling (both inbound and outbound)
+                        self._greeting_needs_transcription_confirm = False
                     
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
@@ -7267,10 +7380,23 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Start deferred setup in background (doesn't block greeting)
                     threading.Thread(target=_deferred_call_setup, daemon=True).start()
                     
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 TX FIX: Ensure streamSid is set before starting TX loop
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Issue: TX loop sends to "air" if streamSid not set yet
+                    # Solution: Validate streamSid before starting TX thread
+                    # ═══════════════════════════════════════════════════════════════════════
+                    if not self.stream_sid:
+                        _orig_print(f"⚠️ [TX_FIX] streamSid not set yet - this should not happen! call_sid={self.call_sid}", flush=True)
+                        logger.warning(f"[TX_FIX] streamSid missing at TX start - audio may not be sent")
+                    else:
+                        _orig_print(f"✅ [TX_FIX] streamSid validated: {self.stream_sid[:16]}... - TX ready", flush=True)
+                    
                     # ✅ ברכה מיידית - בלי השהיה!
                     if not self.tx_running:
                         self.tx_running = True
                         self.tx_thread.start()
+                        _orig_print(f"🚀 [TX_LOOP] Started TX thread (streamSid={'SET' if self.stream_sid else 'MISSING'})", flush=True)
                     
                     # 🔥 STEP 3: Store greeting and signal event (OpenAI thread is waiting!)
                     if not self.greeting_sent and USE_REALTIME_API:
