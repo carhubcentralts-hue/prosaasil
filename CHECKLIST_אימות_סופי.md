@@ -39,17 +39,19 @@ grep "response.created" call_log.txt
 ❌ שני response.created באותו זמן
 ```
 
-### איפה מוגן בקוד:
+### איך זה עובד:
 ```python
 # קובץ: server/media_ws_ai.py
 
-# שורה 1638-1640: User speaking flag blocks response.create
-self.user_speaking = False  # True from speech_started until speech_stopped+transcription.completed
+# ✅ turn_detection=server_vad מוגדר (server/services/openai_realtime_client.py:365-366)
+# OpenAI יוצר response.create אוטומטית כש-VAD מזהה סוף דיבור
 
-# שורה 3135: CRITICAL GUARD before response.create
-if self.user_speaking:
-    print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
-    return  # ← מונע response.create כפול!
+# שורה 5479-5487: אין manual response.create לטורנים רגילים!
+# 🔥 FIX: DO NOT manually trigger response.create here
+# OpenAI's server_vad already automatically creates responses when speech ends
+if transcript and len(transcript.strip()) > 0:
+    print(f"✅ [TRANSCRIPTION] Received user input: '{transcript[:40]}...' (response auto-created by server_vad)")
+    # ← שימו לב: אין trigger_response() כאן!
 
 # שורה 5467-5477: SILENCE commands don't trigger response.create
 if is_silence_command:
@@ -59,6 +61,9 @@ if is_silence_command:
     # CRITICAL: Do NOT trigger response.create
     continue  # ← מדלג על כל לוגיקת response!
 ```
+
+**הערה חשובה:** עם `server_vad`, ה-`user_speaking` flag לא מונע כפילויות כי OpenAI יוצר תגובות אוטומטית.
+הגנה אמיתית: **פשוט לא לקרוא ל-`trigger_response()` בתוך `transcription.completed`!**
 
 ### לוג לדוגמה (תקין):
 ```
@@ -140,28 +145,33 @@ grep "BARGE" call_log.txt
 ```python
 # קובץ: server/media_ws_ai.py
 
-# שורה 5745-5750: Cancel active response
+# שורה ~3445-3455: Cancel active response
 if cancelled_id:
-    await client.send_event({
-        "type": "response.cancel",
-        "response_id": cancelled_id
-    })
+    cancel_event = {"type": "response.cancel", "response_id": cancelled_id}
+    await self.realtime_client.send_event(cancel_event)
 
-# שורה 5756-5768: Clear Twilio buffer + TX queue
-await client.send_event({
-    "type": "conversation.item.create",
-    "item": {
-        "type": "message",
-        "role": "user",
-        "content": [{"type": "input_text", "text": "[CLEAR]"}]
+# שורה ~3460-3470: Send Twilio clear event (אמיתי!)
+if self.stream_sid:
+    clear_event = {
+        "event": "clear",
+        "streamSid": self.stream_sid
     }
-})
+    self._ws_send(json.dumps(clear_event))
+    print(f"🧹 [BARGE-IN] Sent Twilio clear event")
 
-# TX Queue flush
-with self.tx_queue_lock:
-    cleared = self.tx_queue.qsize()
-    self.tx_queue = queue.Queue()
+# שורה ~5760-5774: TX Queue flush
+q = getattr(self, "tx_q", None)
+if q:
+    while True:
+        try:
+            q.get_nowait()
+            cleared += 1
+        except queue.Empty:
+            break
+print(f"[BARGE_IN] tx_q_flushed frames={cleared}")
 ```
+
+**הערה:** Twilio clear הוא אירוע אמיתי ל-Twilio WebSocket (`event: "clear"`), **לא** טקסט "[CLEAR]" למודל!
 
 ### תוצאה צפויה:
 - ✅ AI עוצרת תוך <200ms
@@ -282,6 +292,36 @@ def __init__(self, ws):
 ---
 
 ## 📊 סיכום: איך לאשר שהכל עובד
+
+### ✅ אישור קוד (בוצע):
+
+#### 1. server_vad מוגדר:
+```bash
+# server/services/openai_realtime_client.py:365-366
+"turn_detection": {
+    "type": "server_vad",
+```
+✅ אושר - server_vad פעיל
+
+#### 2. אין manual response.create בתוך transcription.completed:
+```bash
+# בדיקה:
+grep -A 30 "transcription.completed" server/media_ws_ai.py | grep "trigger_response\|response\.create"
+```
+✅ אושר - אין קריאה ל-trigger_response או response.create בטורנים רגילים
+
+#### 3. Twilio clear אמיתי (לא טקסט למודל):
+```bash
+# server/media_ws_ai.py (~line 3450)
+clear_event = {
+    "event": "clear",
+    "streamSid": self.stream_sid
+}
+self._ws_send(json.dumps(clear_event))
+```
+✅ אושר - Twilio clear event אמיתי נשלח
+
+---
 
 ### אם אתה רואה את 5 הדברים האלה - הכל סגור! ✅
 
