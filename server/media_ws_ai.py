@@ -3220,12 +3220,21 @@ Greet briefly. Then WAIT for customer to speak."""
                 
                 if response_id and response_id in self._cancelled_response_ids:
                     if event_type in ("response.done", "response.cancelled"):
+                        # ✅ CRITICAL FIX: Reset state on response.cancelled just like response.done
+                        # This ensures clean state after cancel: active_response_id=None, is_ai_speaking=False
+                        if self.active_response_id == response_id:
+                            self.active_response_id = None
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
+                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, is_ai_speaking=False (response_id={response_id[:20]}...)")
+                        
                         self._cancelled_response_ids.discard(response_id)
                         # ✅ NEW REQ 4: Also remove from timestamps dict
                         self._cancelled_response_timestamps.pop(response_id, None)
                         # ✅ P0 FIX: Also remove from cancel guard set
                         self._cancel_sent_for_response_ids.discard(response_id)
-                        print(f"🪓 [BARGE-IN] Ignoring final event for cancelled response {response_id[:20]}... (type={event_type})")
+                        print(f"🪓 [BARGE-IN] Final event for cancelled response {response_id[:20]}... (type={event_type})")
+                        # Don't continue - let it process through normal response.done/cancelled handler below
                     else:
                         # ✅ P0-3: Log when dropping audio delta for cancelled response
                         if event_type == "response.audio.delta":
@@ -3356,16 +3365,20 @@ Greet briefly. Then WAIT for customer to speak."""
                                     except Exception as fail_err:
                                         _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
-                        # 🔥 BUILD 200: Clear active_response_id when response is done (completed or cancelled)
-                        # This is the ONLY place where active_response_id should be cleared!
+                        # ✅ CRITICAL FIX: Full state reset on response.done
+                        # Ensure both active_response_id AND is_ai_speaking are cleared
                         resp_id = response.get("id", "")
                         if resp_id and self.active_response_id == resp_id:
                             self.active_response_id = None
-                            _orig_print(f"✅ [BUILD 200] Response lifecycle complete: {resp_id[:20]}... -> None (status={status})", flush=True)
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
+                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
-                            _orig_print(f"⚠️ [BUILD 200] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
+                            _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
                             self.active_response_id = None
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
                         
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
@@ -3420,12 +3433,27 @@ Greet briefly. Then WAIT for customer to speak."""
                     else:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
-                # 🔥 DEBUG: Log errors and cancellations
+                # ✅ CRITICAL FIX: Handle response.cancelled event explicitly
+                # Ensure state cleanup even if response.done doesn't arrive
+                if event_type == "response.cancelled":
+                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
+                    
+                    # Extract response_id from event
+                    cancelled_resp_id = event.get("response_id")
+                    if not cancelled_resp_id and "response" in event:
+                        cancelled_resp_id = event.get("response", {}).get("id")
+                    
+                    # Clear state for this response
+                    if cancelled_resp_id and self.active_response_id == cancelled_resp_id:
+                        self.active_response_id = None
+                        self.is_ai_speaking_event.clear()
+                        self.speaking = False
+                        print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, is_ai_speaking=False ({cancelled_resp_id[:20]}...)")
+                
+                # 🔥 DEBUG: Log errors
                 if event_type == "error":
                     error = event.get("error", {})
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
-                if event_type == "response.cancelled":
-                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
