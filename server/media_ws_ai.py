@@ -3530,15 +3530,21 @@ Greet briefly. Then WAIT for customer to speak."""
                     if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
                         # AI is speaking - user is interrupting
                         
-                        # Step 1: Cancel active response
+                        # Step 1: Cancel active response (with duplicate guard)
                         if self.active_response_id and self.realtime_client:
-                            try:
-                                await self.realtime_client.cancel_response(self.active_response_id)
-                                _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
-                            except Exception as e:
-                                error_str = str(e).lower()
-                                if 'not_active' not in error_str:
-                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
+                            # 🔥 CRITICAL: Use _should_send_cancel to prevent duplicate cancellations
+                            if self._should_send_cancel(self.active_response_id):
+                                try:
+                                    await self.realtime_client.cancel_response(self.active_response_id)
+                                    # Mark as cancelled locally to track state
+                                    self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
+                                    _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
+                                except Exception as e:
+                                    error_str = str(e).lower()
+                                    if 'not_active' not in error_str:
+                                        _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
+                            else:
+                                _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
                         
                         # Step 2: Flush TX queue (clear all pending audio frames)
                         self._flush_tx_queue()
@@ -11550,29 +11556,43 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _flush_tx_queue(self):
         """
-        🔥 BARGE-IN: Immediately flush all pending frames from TX queue
+        🔥 BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing
         
         Called when user interrupts AI - clears all queued audio to prevent
         AI voice from continuing after barge-in.
         
         CRITICAL: This is the key to instant barge-in response.
+        Flushes:
+        1. realtime_audio_out_queue - Audio from OpenAI not yet in TX queue
+        2. tx_q - Audio waiting to be sent to Twilio
         """
-        flushed_count = 0
+        realtime_flushed = 0
+        tx_flushed = 0
+        
         try:
-            # Use timeout-based approach to avoid race condition
-            # Keep flushing until queue is empty or timeout
+            # Flush OpenAI → TX queue (realtime_audio_out_queue)
+            while True:
+                try:
+                    self.realtime_audio_out_queue.get_nowait()
+                    realtime_flushed += 1
+                except queue.Empty:
+                    break
+            
+            # Flush TX → Twilio queue (tx_q)
             while True:
                 try:
                     self.tx_q.get_nowait()
-                    flushed_count += 1
+                    tx_flushed += 1
                 except queue.Empty:
-                    # Queue is empty - done flushing
                     break
             
-            if flushed_count > 0:
-                _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {flushed_count} frames from TX queue", flush=True)
+            total_flushed = realtime_flushed + tx_flushed
+            if total_flushed > 0:
+                _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {total_flushed} frames total (realtime_queue={realtime_flushed}, tx_queue={tx_flushed})", flush=True)
+            else:
+                _orig_print(f"🧹 [BARGE-IN FLUSH] Both queues already empty", flush=True)
         except Exception as e:
-            _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queue: {e}", flush=True)
+            _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queues: {e}", flush=True)
     
     def _tx_loop(self):
         """
