@@ -1206,49 +1206,23 @@ GOODBYE_PHRASE_MIN_PERCENTAGE = 0.5  # Minimum 50% of utterance must be the good
 
 def is_valid_transcript(text: str) -> bool:
     """
-    🎯 MASTER DIRECTIVE 3.2: STT Acceptance Rules - Filter at STT level, not flow level
+    ✅ NO FILTERS: Always accept transcripts (except completely empty)
     
-    Check if transcript is valid (contains meaningful content).
-    
-    DROP silently if:
-    - Empty/whitespace only
-    - Filler only: "אמ", "אה", "הממ", "אהה" (no real words)
-    
-    ACCEPT if:
-    - Filler + real text ("אממ כן", "אהה טוב")
-    - Any meaningful speech
-    
-    ❌ Do NOT block AI with flow guards
-    ❌ Do NOT mark as user turn if dropped
+    If transcript arrives → it's real input. Process it.
+    No filler filtering, no length filtering.
     
     Args:
         text: Transcribed text from STT
         
     Returns:
-        True if transcript is valid, False if filler-only
+        True if any text, False only if completely empty
     """
+    # Only reject completely empty
     if not text or not text.strip():
         return False
     
-    normalized = text.strip().lower()
-    
-    # Only drop completely empty - do NOT filter by length
-    # Hebrew has valid 2-char words: כן, לא, מי, מה
-    if len(normalized) == 0:
-        return False
-    
-    # Split into tokens
-    tokens = normalized.split()
-    
-    # Check if ALL tokens are fillers
-    non_filler_tokens = [t for t in tokens if t not in HEBREW_FILLER_WORDS]
-    
-    if not non_filler_tokens:
-        # All filler - drop silently (log only)
-        logger.info(f"[STT_FILTER] dropped filler/short utterance text='{text}'")
-        return False
-    
-    # Has at least one meaningful word - accept
+    # Everything else is accepted - NO FILTERS
+    # No filler check, no length check
     return True
 
 def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
@@ -1257,90 +1231,29 @@ def should_accept_realtime_utterance(stt_text: str, utterance_ms: float,
                                      last_ai_audio_start_ms: float = 0,
                                      last_hallucination: str = "") -> bool:
     """
-    🎯 STT GUARD: Validate if a Realtime API utterance should be accepted
+    ✅ NO FILTERS: Always accept transcripts from OpenAI
     
-    This prevents the system from accepting hallucinated transcriptions that occur
-    during silence or very short noise bursts. OpenAI's Realtime API sometimes
-    transcribes during quiet periods, which can trigger false barge-ins.
+    If transcript arrives from speech_started or transcription.completed → it's real input.
+    Process it and generate response. No filtering.
     
     Args:
         stt_text: The transcribed text from OpenAI
-        utterance_ms: Duration of the utterance in milliseconds
-        rms_snapshot: Current audio RMS level
-        noise_floor: Baseline noise floor
-        ai_speaking: Whether AI is currently speaking
-        last_ai_audio_start_ms: Time since AI audio started (ms)
-        last_hallucination: Last rejected hallucination text (to prevent repeats)
+        utterance_ms: Duration (unused - kept for signature compatibility)
+        rms_snapshot: RMS level (unused - kept for signature compatibility)
+        noise_floor: Baseline (unused - kept for signature compatibility)
+        ai_speaking: Whether AI speaking (unused - kept for signature compatibility)
+        last_ai_audio_start_ms: Time since AI audio (unused - kept for signature compatibility)
+        last_hallucination: Last rejection (unused - kept for signature compatibility)
         
     Returns:
-        True if utterance should be accepted, False if it should be rejected
+        True if there's any text, False only if empty
     """
-    # 1) No text = reject
+    # Only reject completely empty text
     if not stt_text or not stt_text.strip():
-        logger.info("[STT_FILTER] drop reason=empty_text")
         return False
     
-    # 2) Too short = likely hallucination
-    if utterance_ms < MIN_UTTERANCE_MS:
-        logger.info(
-            f"[STT_FILTER] drop reason=duration_ms value={utterance_ms:.0f} threshold={MIN_UTTERANCE_MS} "
-            f"rms={rms_snapshot:.1f} noise_floor={noise_floor:.1f} text='{stt_text[:30]}...'"
-        )
-        return False
-    
-    # 3) RMS too low = not real speech
-    if rms_snapshot < noise_floor + MIN_RMS_DELTA:
-        logger.info(
-            f"[STT_FILTER] drop reason=low_rms value={rms_snapshot:.1f} "
-            f"noise_floor={noise_floor:.1f} delta={rms_snapshot - noise_floor:.1f} threshold={MIN_RMS_DELTA} "
-            f"text='{stt_text[:30]}...'"
-        )
-        return False
-    
-    # 4) NEW: Echo suppression window - reject if AI is speaking AND <200ms since audio started
-    if ai_speaking and last_ai_audio_start_ms < ECHO_SUPPRESSION_WINDOW_MS:
-        logger.info(
-            f"[STT_FILTER] drop reason=echo_window value={last_ai_audio_start_ms:.0f} "
-            f"threshold={ECHO_SUPPRESSION_WINDOW_MS} text='{stt_text[:20]}...'"
-        )
-        return False
-    
-    # 5) NEW: Minimum word count - reject single words (prevents "היי", "מה", "למה" hallucinations)
-    # BUT: Allow valid short Hebrew phrases with normal RMS (not requiring high RMS)
-    word_count = len(stt_text.strip().split())
-    if word_count < MIN_WORD_COUNT:
-        # Check if this is a valid short Hebrew phrase
-        normalized_text = stt_text.strip().lower()
-        is_valid_short_phrase = normalized_text in VALID_SHORT_HEBREW_PHRASES
-        
-        # Allow short phrases when they pass basic RMS check (no need for extra-high RMS)
-        # This prevents dropping valid short responses from normal or quiet speakers
-        if is_valid_short_phrase:
-            logger.info(
-                f"[STT_GUARD] Accepted short phrase: '{stt_text}' (valid Hebrew phrase in whitelist)"
-            )
-            # Continue to final acceptance check
-        else:
-            logger.info(
-                f"[STT_FILTER] drop reason=word_count value={word_count} threshold={MIN_WORD_COUNT} "
-                f"not_in_whitelist=true text='{stt_text[:20]}...'"
-            )
-            return False
-    
-    # 6) NEW: Prevent repeat hallucinations - reject if identical to last rejected utterance
-    if last_hallucination and stt_text.strip() == last_hallucination.strip():
-        logger.info(
-            f"[STT_FILTER] drop reason=duplicate_hallucination text='{stt_text[:20]}...'"
-        )
-        return False
-    
-    # ✅ Passed all checks
-    logger.info(
-        f"[STT_GUARD] Accepted utterance: {utterance_ms:.0f}ms, "
-        f"rms={rms_snapshot:.1f}, noise_floor={noise_floor:.1f}, "
-        f"delta={rms_snapshot - noise_floor:.1f}, "
-        f"words={word_count}, text='{stt_text[:40]}...'"
-    )
+    # Everything else is accepted - NO FILTERS
+    # No duration check, no RMS check, no hallucination check, no word count check
     return True
 
 # מכונת מצבים
@@ -3023,44 +2936,9 @@ Greet briefly. Then WAIT for customer to speak."""
         print(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # 🔥 BUILD 302 + BARGE-IN FIX: FLUSH ALL AUDIO QUEUES - Stop old audio on barge-in
+    # ✅ NO QUEUE FLUSH: Removed per requirements - no flush on barge-in
+    # Audio drains naturally, no manual queue manipulation
     # ═══════════════════════════════════════════════════════════════════════════════
-    def _flush_twilio_tx_queue(self, reason: str = ""):
-        """
-        ✅ P0 FIX: Controlled flush - limit to prevent TX loop stall
-        Flush pending audio but keep it fast and non-blocking
-        
-        OLD: Flushed entire queue (248 frames = ~5s) - caused TX stall
-        NEW: Flush up to 50 frames max, let rest drain naturally
-        """
-        # Flush OpenAI → TX queue (audio from OpenAI not yet in TX queue)
-        openai_queue_before = self.realtime_audio_out_queue.qsize()
-        openai_flushed = 0
-        OPENAI_FLUSH_MAX = 100  # Safety cap (prevents infinite loop if queue broken)
-        try:
-            # Flush all OpenAI queue items (should be fast, rarely > 20 frames)
-            while not self.realtime_audio_out_queue.empty():
-                _ = self.realtime_audio_out_queue.get_nowait()
-                openai_flushed += 1
-                if openai_flushed > OPENAI_FLUSH_MAX:  # Safety cap
-                    break
-        except Exception:
-            pass
-        
-        # ✅ P0 FIX: LIMITED TX queue flush - prevent stalling TX loop
-        # Only flush up to 50 frames (1 second), let TX loop continue for rest
-        tx_queue_before = self.tx_q.qsize()
-        tx_flushed = 0
-        FLUSH_MAX = 50  # Max 50 frames = 1 second (prevents TX loop stall)
-        try:
-            while not self.tx_q.empty() and tx_flushed < FLUSH_MAX:
-                _ = self.tx_q.get_nowait()
-                tx_flushed += 1
-        except Exception:
-            pass
-        
-        print(f"🧹 [BARGE-IN FLUSH] OpenAI queue: {openai_flushed}/{openai_queue_before} frames | TX queue: {tx_flushed}/{tx_queue_before} frames (max={FLUSH_MAX}) | reason={reason or 'UNKNOWN'}")
-        return tx_flushed + openai_flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
@@ -3333,67 +3211,8 @@ Greet briefly. Then WAIT for customer to speak."""
         """Receive audio and events from Realtime API"""
         print(f"📥 [REALTIME] Audio receiver started")
         
-        # ✅ P0-3: Audio stall watchdog - track last check time
-        last_watchdog_check = time.time()
-        WATCHDOG_CHECK_INTERVAL = 0.5  # Check every 500ms
-        AUDIO_STALL_THRESHOLD = 1.5  # Recover if no delta for 1.5s while AI speaking
-        stall_recovery_attempted = False  # Only retry once per stall
-        
         try:
             async for event in client.recv_events():
-                # ✅ P0-3: Audio stall watchdog - periodic check with recovery
-                now = time.time()
-                if now - last_watchdog_check >= WATCHDOG_CHECK_INTERVAL:
-                    # Check if AI is speaking but no audio delta for >1.5s
-                    if self.is_ai_speaking_event.is_set():
-                        if hasattr(self, '_last_audio_delta_ts'):
-                            time_since_delta = now - self._last_audio_delta_ts
-                            if time_since_delta > AUDIO_STALL_THRESHOLD:
-                                print(f"[AUDIO_STALL] ai_speaking=True no_delta_for={time_since_delta:.1f}s "
-                                      f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
-                                
-                                # 🔥 FIX 3: AUDIO_STALL recovery - cancel old response, then retry
-                                if not stall_recovery_attempted:
-                                    stalled_response_id = self.active_response_id
-                                    print(f"[AUDIO_STALL] Recovery: canceling stalled response {stalled_response_id[:20] if stalled_response_id else 'None'}")
-                                    
-                                    # Step 1: Cancel the stalled response (with timeout)
-                                    if stalled_response_id and self.realtime_client:
-                                        try:
-                                            cancel_event = {"type": "response.cancel", "response_id": stalled_response_id}
-                                            await asyncio.wait_for(
-                                                self.realtime_client.send_event(cancel_event),
-                                                timeout=0.3
-                                            )
-                                            print(f"[AUDIO_STALL] Cancelled stalled response")
-                                        except asyncio.TimeoutError:
-                                            print(f"[AUDIO_STALL] Cancel timeout (continuing anyway)")
-                                        except Exception as e:
-                                            print(f"[AUDIO_STALL] Cancel failed: {e}")
-                                    
-                                    # Step 2: Clear state
-                                    self.is_ai_speaking_event.clear()
-                                    self.active_response_id = None
-                                    stall_recovery_attempted = True
-                                    
-                                    # Step 3: Retry once if there's pending user text
-                                    if hasattr(self, '_pending_user_text') and self._pending_user_text:
-                                        print(f"[AUDIO_STALL] Retrying with pending text: {self._pending_user_text[:50]}...")
-                                        # Queue retry in background to avoid blocking receiver
-                                        def retry_response():
-                                            try:
-                                                self._trigger_ai_response(self._pending_user_text)
-                                            except Exception as e:
-                                                print(f"⚠️ [AUDIO_STALL] Retry failed: {e}")
-                                        
-                                        import threading
-                                        threading.Thread(target=retry_response, daemon=True).start()
-                    else:
-                        # Reset recovery flag when AI stops speaking
-                        stall_recovery_attempted = False
-                    
-                    last_watchdog_check = now
-                
                 event_type = event.get("type", "")
                 response_id = event.get("response_id")
                 if not response_id and "response" in event:
@@ -3738,103 +3557,42 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._loop_guard_engaged = False
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BUILD 302 + FIX BUG 1: HARD BARGE-IN - If AI is speaking, KILL the response NOW!
+                    # ✅ SIMPLIFIED BARGE-IN: TWO RULES ONLY
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Goal: Any time user starts speaking while AI is speaking, we do a hard barge-in:
-                    #   1. Cancel the current OpenAI response
-                    #   2. Stop sending its audio to Twilio
-                    #   3. Clear guards/flags
-                    #   4. Let the new user utterance lead the next response
-                    if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                        # 🔥 FIX ISSUE 4: Protect greeting from early cancel (first 500ms)
-                        # Allow audio to flow but prevent cancel during initial greeting
-                        GREETING_PROTECT_MS = 500  # Don't cancel greeting for first 500ms
-                        skip_barge_in = False
-                        if self.is_playing_greeting and hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
-                            greeting_age_ms = (time.time() - self._greeting_start_ts) * 1000
-                            if greeting_age_ms < GREETING_PROTECT_MS:
-                                print(f"🛡️ [GREETING PROTECT] Blocking barge-in cancel - greeting too new ({greeting_age_ms:.0f}ms < {GREETING_PROTECT_MS}ms)")
-                                # Don't cancel yet, but still allow audio to flow to OpenAI
-                                # The transcription will be processed after greeting completes
-                                skip_barge_in = True
-                            else:
-                                # Greeting is old enough, allow normal barge-in
-                                print(f"✅ [GREETING PROTECT] Greeting old enough ({greeting_age_ms:.0f}ms) - allowing barge-in")
+                    # Rule A: Cancel only if AI is ACTUALLY speaking (is_ai_speaking==True AND has active_response_id)
+                    # Rule B: Cancel once per response (track last_cancelled_response_id)
+                    #
+                    # NOT ALLOWED:
+                    # - No TX flush
+                    # - No queue cleanup
+                    # - No manual state changes beyond cancel
+                    # - No cooldown
+                    # - No echo suppression windows
+                    # ═══════════════════════════════════════════════════════════════════════
+                    
+                    # Rule A: Check if AI is ACTUALLY speaking
+                    if self.is_ai_speaking_event.is_set() and self.active_response_id is not None:
+                        cancelled_id = self.active_response_id
                         
-                        if not skip_barge_in:
-                            # Track barge-in latency and timing metrics for comprehensive logging
-                            barge_in_latency_start = time.time()
-                            ai_speaking_start_ts = getattr(self, '_last_ai_audio_start_ts', None)
-                            time_since_ai_start_ms = 0
-                            if ai_speaking_start_ts:
-                                time_since_ai_start_ms = (barge_in_latency_start - ai_speaking_start_ts) * 1000
-                            
-                            print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
-                            print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
-                            print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
-                            
-                            # Set barge-in flag - ALL audio gates will be bypassed!
-                            self.barge_in_active = True
-                            self._barge_in_started_ts = time.time()  # Track for failsafe timeout
-                            
-                            # 1) Cancel response on OpenAI side (with timeout protection and duplicate guard)
-                            # 🔥 FIX ISSUE 1: Save cancelled_id BEFORE clearing active_response_id
-                            cancelled_id = self.active_response_id
-                            if cancelled_id and self.realtime_client and self._should_send_cancel(cancelled_id):
-                                try:
-                                    # Use asyncio.wait_for with 0.5s timeout to avoid blocking
-                                    await asyncio.wait_for(
-                                        self.realtime_client.cancel_response(cancelled_id),
-                                        timeout=0.5
-                                    )
-                                    self._mark_response_cancelled_locally(cancelled_id, "speech_started")
-                                    print(f"[BARGE_IN] Cancelled AI response: response_id={cancelled_id[:20]}...")
-                                except asyncio.TimeoutError:
-                                    print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
-                                except Exception as e:
-                                    # 🔥 FIX ISSUE 1: Ignore "response_cancel_not_active" errors (already cancelled)
-                                    error_str = str(e).lower()
-                                    if 'response_cancel_not_active' in error_str or 'not_active' in error_str:
-                                        print(f"   ℹ️ Response already cancelled/inactive: {cancelled_id[:20]}... (ignoring)")
-                                    else:
-                                        print(f"   ⚠️ Error cancelling response: {e}")
-                            elif not cancelled_id:
-                                print(f"[BARGE-IN] ⚠️ No active_response_id to cancel (may have been cleared)")
-                            elif not self.realtime_client:
-                                print(f"[BARGE-IN] ⚠️ No realtime_client available for cancellation")
-                            
-                            # 2) Clear local guards (ALWAYS, even if cancel failed)
-                            # 🔥 FIX ISSUE 1: Clear active_response_id AFTER cancel is sent (not before)
-                            # This ensures cancel guard is set before clearing the ID
-                            # 🔥 FIX BUG 1: Set ai_speaking to False when user interrupts
-                            self.active_response_id = None
-                            self.response_pending_event.clear()
-                            self.is_ai_speaking_event.clear()
-                            self.speaking = False
-                            self.has_pending_ai_response = False
-                            print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
-                            
-                            # ═══════════════════════════════════════════════════════════════════
-                            # 🔥 BARGE-IN RULE: Only cancel response, let audio drain naturally
-                            # - OpenAI will stop sending audio.delta on its own
-                            # - TX queue will drain naturally (no flush/drop)
-                            # - No state manipulation, just cancel
-                            # ═══════════════════════════════════════════════════════════════════
-                            
-                            # Calculate barge-in latency for metrics
-                            barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
-                            
-                            # 🔥 SIMPLE BARGE-IN LOG (no queue manipulation)
-                            logger.info(
-                                f"[BARGE-IN] User interrupt – "
-                                f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
-                                f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
-                                f"latency={barge_in_latency_ms:.1f}ms"
-                            )
-                            print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, audio will drain naturally")
-                            
-                            # 🔥 METRICS: Increment barge-in counter
-                            self._barge_in_event_count += 1
+                        # Rule B: Cancel once per response (check if we already cancelled this one)
+                        last_cancelled = getattr(self, '_last_cancelled_response_id', None)
+                        if cancelled_id == last_cancelled:
+                            # Already cancelled this response, don't send again
+                            pass
+                        elif self.realtime_client:
+                            # Send cancel once
+                            try:
+                                await self.realtime_client.cancel_response(cancelled_id)
+                                self._last_cancelled_response_id = cancelled_id  # Remember we cancelled this one
+                                print(f"✅ [BARGE-IN] Cancelled response_id={cancelled_id[:20]}... (once)")
+                            except Exception as e:
+                                # Ignore response_cancel_not_active errors (response already inactive)
+                                error_str = str(e).lower()
+                                if 'response_cancel_not_active' in error_str or 'not_active' in error_str:
+                                    # IGNORE - log silently, no heavy logging
+                                    pass
+                                else:
+                                    print(f"⚠️ [BARGE-IN] Cancel error: {e}")
                     
                     # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
                     self._realtime_speech_active = True
@@ -11747,170 +11505,62 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _tx_loop(self):
         """
-        ✅ P0 FIX: Real-time TX loop with strict 20ms pacing
-        - ONE frame per 20ms tick (no catch-up bursts)
-        - Drop-oldest handled by enqueue (not here)
-        - Maintains consistent timing to prevent chipmunk effect
+        ✅ ONE TRUTH: Simple TX loop - take frame, send to Twilio, sleep 20ms
+        
+        NO WATCHDOGS, NO STALL RECOVERY, NO FLUSH
+        Only: get frame → send → sleep
         """
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
         _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
-        # 🎯 TASK B.1: Use AUDIO_CONFIG for frame pacing (Master QA)
-        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # Convert ms to seconds
+        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms
         next_deadline = time.monotonic()
-        tx_count = 0
         frames_sent_total = 0
-        
-        # 🔥 PART C: Track first frame for tx=0 diagnostics
         _first_frame_sent = False
         
-        # ═══════════════════════════════════════════════════════════════════════════
-        # 🎯 TASK D.1: TX timing metrics to detect stutters (Master QA)
-        # ═══════════════════════════════════════════════════════════════════════════
-        frames_sent_last_sec = 0
-        last_telemetry_time = time.monotonic()
+        # Simple gap tracking for optional logging (no action)
         last_frame_time = time.monotonic()
-        max_gap_ms = 0.0  # Track maximum frame-to-frame interval
         
-        # 🎯 PROBE 1: TX Liveness Probe - Heartbeat every 1 second
-        last_heartbeat_time = time.monotonic()
-        _stacktrace_logged_once = False  # PROBE 3: Only log full stacktrace once per severe stall
-        
-        # 🔥 CRITICAL: Rate-limit stack dumps to avoid making stalls worse
-        last_stack_dump_time = 0  # Track when we last dumped stack traces
-        STACK_DUMP_INTERVAL = 10.0  # Only dump stacks once every 10 seconds
-        
-        # 🔥 FIX 4: TX STALL WATCHDOG - Detect queue backup without progress
-        last_frames_sent_check = 0
-        last_frames_sent_check_time = time.monotonic()
-        TX_STALL_WATCHDOG_INTERVAL = 0.8  # Check every 800ms
-        ws_reconnect_attempted = False  # Only reconnect once
-        
-        # 🎯 PROBE 2: TX Crash Probe - Wrap entire loop in try/except
         try:
-            # 🔥 FIX #2: Continue until BOTH tx_running is False AND queue is empty
-            # This ensures we drain all audio before exiting
             while self.tx_running or not self.tx_q.empty():
-                # 🎯 TX_STALL FIX: Reduce heartbeat frequency - only log in DEBUG mode
-                # Changed from every 1s to every 5s, and only if DEBUG_TX=1
-                now_mono = time.monotonic()
-                if DEBUG_TX and now_mono - last_heartbeat_time >= 5.0:
-                    audio_state = getattr(self, 'audio_state', None)
-                    is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
-                    active_response_id = audio_state.active_response_id if audio_state else None
-                    qsize = self.tx_q.qsize()
-                    # 🔥 FIX #2: Log drain state when tx_running is False
-                    drain_mode = not self.tx_running and qsize > 0
-                    if drain_mode:
-                        _orig_print(f"🛡️ [TX_DRAIN_MODE] Waiting for audio (tx_running=False, tx_q={qsize}, ai_speaking={is_ai_speaking})", flush=True)
-                    else:
-                        _orig_print(f"[TX_HEARTBEAT] alive=True, qsize={qsize}, is_ai_speaking={is_ai_speaking}, active_response_id={active_response_id}, frames_sent={frames_sent_total}", flush=True)
-                    last_heartbeat_time = now_mono
-                
-                # 🔥 TX_STALL: Lightweight monitoring only - no flush, no close, no action
-                # Only log if there's an actual problem for debugging purposes
-                if now_mono - last_frames_sent_check_time >= TX_STALL_WATCHDOG_INTERVAL:
-                    qsize = self.tx_q.qsize()
-                    frames_sent_delta = frames_sent_total - last_frames_sent_check
-                    
-                    # Log stall conditions without taking action
-                    if qsize > 0 and frames_sent_delta == 0:
-                        _orig_print(f"[TX_STALL] Queue backup: qsize={qsize}, no frames sent in {TX_STALL_WATCHDOG_INTERVAL}s", flush=True)
-                    
-                    last_frames_sent_check = frames_sent_total
-                    last_frames_sent_check_time = now_mono
-                
-                # ✅ P0 FIX: Strict 20ms pacing - ONE frame per tick, no catch-up
-                # This prevents chipmunk effect from burst transmission
-                
+                # Get frame
                 try:
                     item = self.tx_q.get(timeout=0.5)
                 except queue.Empty:
-                    # 🔥 FIX #2: If tx_running is False and queue is empty, drain is complete
                     if not self.tx_running:
-                        _orig_print(f"✅ [TX_DRAIN] Complete - tx_running=False, queue empty", flush=True)
                         break
                     continue
                 
                 if item.get("type") == "end":
-                    print("🔚 TX_LOOP_END: End signal received")
                     break
                 
-                # Handle "clear" event
+                # Handle "clear" event - send to Twilio
                 if item.get("type") == "clear" and self.stream_sid:
-                    # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
-                    send_start = time.monotonic()
-                    success = self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
-                    send_ms = (time.monotonic() - send_start) * 1000.0
-                    # 🔥 TX LOOP REAL-TIME: Minimal logging only
-                    if send_ms > 50.0:
-                        qsize = self.tx_q.qsize()
-                        _orig_print(f"[TX_SEND_SLOW] type=clear, send_ms={send_ms:.1f}, qsize={qsize}", flush=True)
-                    print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
+                    self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
                     continue
                 
-                # Handle "media" event (both old format and new Realtime format)
+                # Handle "media" event - send audio to Twilio
                 if item.get("type") == "media" or item.get("event") == "media":
-                    queue_size = self.tx_q.qsize()
-                    
-                    # ✅ P0 FIX: No backlog dropping in TX loop - handled by enqueue with drop-oldest
-                    # TX loop ONLY sends frames at strict 20ms pace
-                    
-                    # 🔍 DEBUG: Log what format we received
-                    # 🚫 Production mode: Only log in DEBUG
-                    if DEBUG and tx_count < 3:
-                        print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
-                    
-                    # If already has correct format (from Realtime), send as-is
+                    # Send frame to Twilio WS
                     if item.get("event") == "media" and "media" in item:
-                        # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
-                        send_start = time.monotonic()
+                        # Already in correct format
                         success = self._ws_send(json.dumps(item))
-                        send_ms = (time.monotonic() - send_start) * 1000.0
-                        # 🔥 TX LOOP REAL-TIME: Minimal logging only
-                        if send_ms > 50.0:
-                            _orig_print(f"[TX_SEND_SLOW] type=media, send_ms={send_ms:.1f}, qsize={queue_size}", flush=True)
-                        if tx_count < 3:
-                            print(f"[TX_LOOP] Sent Realtime format: success={success}")
-                        if success:
-                            self.tx += 1  # ✅ Increment tx counter!
-                            frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                            # 🔥 FIRST_AUDIO_SENT: Set flag (recording will start from background thread)
-                            if not _first_frame_sent:
-                                _first_frame_sent = True
-                                _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
-                                # 🔥 Set flag - recording will be triggered from _realtime_audio_out_loop
-                                self._first_audio_sent = True
                     else:
                         # Old format - convert
-                        # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
-                        send_start = time.monotonic()
                         success = self._ws_send(json.dumps({
-                            "event": "media", 
+                            "event": "media",
                             "streamSid": self.stream_sid,
                             "media": {"payload": item["payload"]}
                         }))
-                        send_ms = (time.monotonic() - send_start) * 1000.0
-                        # 🔥 TX LOOP REAL-TIME: Minimal logging only
-                        if send_ms > 50.0:
-                            _orig_print(f"[TX_SEND_SLOW] type=media_old, send_ms={send_ms:.1f}, qsize={queue_size}", flush=True)
-                        if tx_count < 3:
-                            print(f"[TX_LOOP] Sent old format (converted): success={success}")
-                        if success:
-                            self.tx += 1  # ✅ Increment tx counter!
-                            frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                            # 🔥 FIRST_AUDIO_SENT: Set flag (recording will start from background thread)
-                            if not _first_frame_sent:
-                                _first_frame_sent = True
-                                _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
-                                # 🔥 Set flag - recording will be triggered from _realtime_audio_out_loop
-                                self._first_audio_sent = True
-                
-                    tx_count += 1
-                    frames_sent_last_sec += 1
                     
-                    # ✅ P0 FIX: Strict 20ms timing - advance deadline and sleep
-                    # No catch-up: if we're late, resync to now (drop frames via enqueue policy)
+                    if success:
+                        self.tx += 1
+                        frames_sent_total += 1
+                        if not _first_frame_sent:
+                            _first_frame_sent = True
+                            self._first_audio_sent = True
+                    
+                    # ✅ Strict 20ms timing - advance deadline and sleep
                     next_deadline += FRAME_INTERVAL
                     delay = next_deadline - time.monotonic()
                     if delay > 0:
@@ -11919,62 +11569,28 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Missed deadline - resync to prevent catch-up bursts
                         next_deadline = time.monotonic()
                     
-                    # 🎯 TASK D.1: Track frame-to-frame interval for gap detection
+                    # ✅ Optional gap logging (NO ACTION, just visibility)
                     now = time.monotonic()
                     frame_gap_ms = (now - last_frame_time) * 1000.0
-                    
-                    # 🔥 TX_STALL: Log gaps > 300ms (lightweight logging only, no action)
                     if frame_gap_ms > 300.0:
-                        # Single log entry - no stack dumps, no diagnostics
-                        _orig_print(f"[TX_STALL] gap={frame_gap_ms:.0f}ms", flush=True)
-                    
-                    if frame_gap_ms > max_gap_ms:
-                        max_gap_ms = frame_gap_ms
+                        _orig_print(f"[TX_GAP] {frame_gap_ms:.0f}ms", flush=True)
                     last_frame_time = now
-                    
-                    # ⚡ TX_STALL FIX: Sample telemetry every 5 seconds (not every second)
-                    if now - last_telemetry_time >= 5.0:
-                        queue_size = self.tx_q.qsize()
-                        queue_maxsize = self.tx_q.maxsize
-                        actual_fps = frames_sent_last_sec / 5.0  # Average FPS over 5 seconds
-                        
-                        # 🔥 TX_STALL FIX: Only log if there's an actual problem
-                        # Check if FPS is low (< 45) or queue backup (> 70%) or gap > 120ms
-                        queue_threshold = int(queue_maxsize * 0.7)
-                        
-                        # Log if ANY issue detected
-                        if actual_fps < 45 or queue_size > queue_threshold or max_gap_ms > 120.0:
-                            _orig_print(f"[TX_METRICS] last_5s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
-                        
-                        # 🚨 P0: Always warn if max_gap_ms exceeded threshold (this is critical)
-                        if max_gap_ms > 120.0:
-                            force_print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last 5 seconds (target: <40ms, acceptable: <120ms)")
-                        
-                        frames_sent_last_sec = 0
-                        max_gap_ms = 0.0  # Reset for next window
-                        last_telemetry_time = now
-                    
                     continue
                 
                 # Handle "mark" event
-                if item.get("type") == "mark":
-                    success = self._ws_send(json.dumps({
-                        "event": "mark", 
+                if item.get("type") == "mark" and self.stream_sid:
+                    self._ws_send(json.dumps({
+                        "event": "mark",
                         "streamSid": self.stream_sid,
                         "mark": {"name": item.get("name", "mark")}
                     }))
-                    print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
         
-        # 🎯 PROBE 2: TX Crash Probe - Catch and log any exceptions
         except Exception as tx_loop_error:
-            _orig_print(f"[TX_CRASH] TX loop crashed with exception:", flush=True)
+            _orig_print(f"[TX_CRASH] TX loop crashed: {tx_loop_error}", flush=True)
             import traceback
             traceback.print_exc()
-            _orig_print(f"[TX_CRASH] Exception type: {type(tx_loop_error).__name__}", flush=True)
-            _orig_print(f"[TX_CRASH] Exception message: {tx_loop_error}", flush=True)
-            raise  # Re-raise to preserve original behavior
+            raise
         finally:
-            # 🎯 TASK 0.4: Log TX loop exit with totals
             _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
     
     def _speak_with_breath(self, text: str):
