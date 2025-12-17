@@ -82,9 +82,11 @@ class CallLog(db.Model):
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
     outbound_template_id = db.Column(db.Integer, db.ForeignKey("outbound_call_templates.id"), nullable=True)  # BUILD 174: Template used for outbound call
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
+    parent_call_sid = db.Column(db.String(64), nullable=True, index=True)  # 🔥 Parent call SID for child legs
     from_number = db.Column(db.String(64), index=True)
     to_number = db.Column(db.String(64))  # ✅ BUILD 88: Added to_number field
-    direction = db.Column(db.String(16), default="inbound")  # ✅ BUILD 106: inbound/outbound
+    direction = db.Column(db.String(16), default="inbound")  # ✅ BUILD 106: inbound/outbound (normalized)
+    twilio_direction = db.Column(db.String(32), nullable=True)  # 🔥 Original Twilio direction (outbound-api, outbound-dial, etc.)
     duration = db.Column(db.Integer, default=0)  # ✅ BUILD 106: Call duration in seconds
     call_status = db.Column(db.String(32), default="in-progress")  # ✅ BUILD 90: Legacy field for production DB compatibility
     recording_url = db.Column(db.String(512))
