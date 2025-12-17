@@ -5842,33 +5842,11 @@ Greet briefly. Then WAIT for customer to speak."""
         - But no transcription.completed was received
         
         The AI should always reply, even if transcription failed.
+        
+        NOTE: This is async wrapper for _finalize_user_turn_on_timeout
         """
-        print(f"[TURN_END] Timeout finalization triggered")
-        
-        # Clear candidate flag
-        self._candidate_user_speaking = False
-        self._utterance_start_ts = None
-        
-        # Check if we're truly stuck (no response in progress)
-        if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
-            # No AI response in progress - this means we're stuck
-            # The transcription probably failed or was rejected
-            print(f"[TURN_END] No AI response in progress - system was stuck in silence")
-            
-            # CORRECTIVE ACTION: Clear any stale state that might block response
-            if self.active_response_id:
-                print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
-                self.active_response_id = None
-            
-            if self.has_pending_ai_response:
-                print(f"[TURN_END] Clearing stale has_pending_ai_response flag")
-                self.has_pending_ai_response = False
-            
-            # The silence monitor will detect this and trigger a prompt for user to speak
-            # We don't force a response here to avoid AI hallucinations
-            print(f"[TURN_END] State cleared - silence monitor will handle next action")
-        else:
-            print(f"[TURN_END] AI response already in progress - no action needed")
+        print(f"[TURN_END] Async silence warning triggered")
+        self._finalize_user_turn_on_timeout()
     
     def _finalize_user_turn_on_timeout(self):
         """
