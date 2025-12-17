@@ -1419,12 +1419,29 @@ class MediaStreamHandler:
         self.ws_connection_failed = False
         self.failed_send_count = 0
         
+        # 🎯 TX PERFORMANCE: Track slow sends for diagnostics
+        self._slow_send_count = 0
+        self._last_slow_send_warning = 0.0
+        
         def _safe_ws_send(data):
             if self.ws_connection_failed:
                 return False  # Don't spam when connection is dead
                 
             try:
+                # 🎯 VERIFY TX: Measure send time to detect blocking (requirement from issue)
+                send_start = time.perf_counter()
                 self._ws_send_method(data)
+                send_duration_ms = (time.perf_counter() - send_start) * 1000
+                
+                # ⚠️ Warn if send takes >5ms (indicates blocking/backpressure)
+                if send_duration_ms > 5.0:
+                    self._slow_send_count += 1
+                    now = time.time()
+                    # Log warning every 5 seconds (throttled to avoid spam)
+                    if now - self._last_slow_send_warning > 5.0:
+                        _orig_print(f"⚠️ [TX_SLOW] WebSocket send took {send_duration_ms:.1f}ms (>5ms threshold) - potential backpressure (count={self._slow_send_count})", flush=True)
+                        self._last_slow_send_warning = now
+                
                 self.failed_send_count = 0  # Reset on success
                 return True
             except Exception as e:

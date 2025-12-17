@@ -283,16 +283,30 @@ def download_recording(call_sid):
             rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
             rv.headers.add('Accept-Ranges', 'bytes')
             rv.headers.add('Content-Length', str(length))
+            # 🎯 FIX: Content-Disposition inline for browser playback (required for iOS/Chrome)
+            rv.headers.add('Content-Disposition', 'inline')
+            # 🎯 FIX: CORS headers for cross-origin requests (if frontend on different domain)
+            rv.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
+            rv.headers.add('Access-Control-Allow-Credentials', 'true')
             return rv
         else:
             # No Range header - serve entire file with Accept-Ranges header
-            return send_file(
+            from flask import Response, make_response
+            response = make_response(send_file(
                 audio_path,
                 mimetype="audio/mpeg",
                 as_attachment=False,
                 conditional=True,  # Enable conditional requests
                 max_age=3600  # Cache for 1 hour
-            )
+            ))
+            # 🎯 FIX: Add required headers for audio streaming (iOS/Android compatibility)
+            response.headers['Accept-Ranges'] = 'bytes'
+            response.headers['Content-Disposition'] = 'inline'
+            response.headers['Content-Length'] = str(file_size)
+            # 🎯 FIX: CORS headers for cross-origin requests
+            response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            return response
         
     except Exception as e:
         log.error(f"Error downloading recording: {e}")

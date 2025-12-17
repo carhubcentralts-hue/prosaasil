@@ -634,17 +634,32 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 if recording_url and not call_log.recording_url:
                     call_log.recording_url = recording_url
                     log.info(f"✅ Updated recording_url for existing call: {call_sid}")
-                call_log.transcription = transcription
-                call_log.summary = summary  # ✨ סיכום חכם
-                # 🆕 POST-CALL EXTRACTION fields
-                call_log.final_transcript = final_transcript
-                call_log.extracted_service = extracted_service
-                call_log.extracted_city = extracted_city
-                call_log.extraction_confidence = extraction_confidence
-                # 🔥 BUILD 342: Recording quality metadata
-                call_log.audio_bytes_len = audio_bytes_len
-                call_log.audio_duration_sec = audio_duration_sec
-                call_log.transcript_source = transcript_source
+                
+                # 🎯 FIX: UPSERT protection - only update if new value is not NULL/empty
+                # Don't overwrite existing good data with empty values
+                if transcription and len(transcription.strip()) > 0:
+                    call_log.transcription = transcription
+                if summary and len(summary.strip()) > 0:
+                    call_log.summary = summary
+                
+                # 🆕 POST-CALL EXTRACTION fields - only update if non-empty
+                if final_transcript and len(final_transcript.strip()) > 0:
+                    call_log.final_transcript = final_transcript
+                if extracted_service and len(extracted_service.strip()) > 0:
+                    call_log.extracted_service = extracted_service
+                if extracted_city and len(extracted_city.strip()) > 0:
+                    call_log.extracted_city = extracted_city
+                if extraction_confidence is not None:
+                    call_log.extraction_confidence = extraction_confidence
+                
+                # 🔥 BUILD 342: Recording quality metadata - only update if valid
+                if audio_bytes_len and audio_bytes_len > 0:
+                    call_log.audio_bytes_len = audio_bytes_len
+                if audio_duration_sec and audio_duration_sec > 0:
+                    call_log.audio_duration_sec = audio_duration_sec
+                if transcript_source and len(transcript_source.strip()) > 0:
+                    call_log.transcript_source = transcript_source
+                
                 call_log.status = "processed"
                 call_log.updated_at = datetime.utcnow()
             
