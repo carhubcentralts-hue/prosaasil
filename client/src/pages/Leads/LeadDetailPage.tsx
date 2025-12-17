@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
@@ -737,12 +737,67 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [directionFilter, setDirectionFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');  // 🔥 NEW: Direction filter
+  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
+  const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
+  const recordingUrlsRef = useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
+
+  // Helper to get consistent call identifier
+  const getCallId = (call: LeadCall) => call.call_sid || call.id;
 
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${seconds} שניות`;
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')} דקות`;
+  };
+
+  // 🔥 FIX: Load recording as blob with authentication when call is expanded
+  const loadRecordingBlob = async (callId: string) => {
+    // Skip if already loaded or currently loading (check ref for source of truth)
+    if (recordingUrlsRef.current[callId] || loadingRecording === callId) return;
+    
+    setLoadingRecording(callId);
+    try {
+      const response = await fetch(`/api/calls/${callId}/download`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load recording');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      recordingUrlsRef.current[callId] = url;  // Track in ref for cleanup
+      setRecordingUrls(prev => ({ ...prev, [callId]: url }));
+    } catch (error) {
+      console.error('Error loading recording:', error);
+      // Don't set URL in ref on error - allow retry
+    } finally {
+      setLoadingRecording(null);
+    }
+  };
+
+  // 🔥 FIX: Cleanup blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      // Revoke all blob URLs to prevent memory leaks
+      Object.values(recordingUrlsRef.current).forEach(url => {
+        window.URL.revokeObjectURL(url);
+      });
+    };
+  }, []); // Only run on mount/unmount
+
+  // 🔥 FIX: Load recording when call is expanded
+  const handleToggleExpand = (callId: string, hasRecording: boolean) => {
+    const isExpanding = expandedCallId !== callId;
+    setExpandedCallId(isExpanding ? callId : null);
+    
+    // Load recording blob when expanding
+    if (isExpanding && hasRecording) {
+      loadRecordingBlob(callId);
+    }
   };
 
   // 🔥 NEW: Filter calls by direction
@@ -755,9 +810,6 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
       // Use the download endpoint with proper auth
       const response = await fetch(`/api/calls/${callId}/download`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         credentials: 'include'
       });
       
@@ -837,7 +889,8 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
       ) : (
         <div className="space-y-3">
           {filteredCalls.map((call) => {
-            const isExpanded = expandedCallId === call.id;
+            const callId = getCallId(call);
+            const isExpanded = expandedCallId === callId;
             const hasRecording = Boolean(call.recording_url);
             const hasTranscript = Boolean(call.notes?.trim());
             const hasSummary = Boolean(call.summary?.trim());
@@ -876,21 +929,21 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteCall(call.call_sid || call.id);
+                          handleDeleteCall(getCallId(call));
                         }}
-                        disabled={deleting === (call.call_sid || call.id)}
+                        disabled={deleting === getCallId(call)}
                         className="p-2 hover:bg-red-100 rounded-full transition-colors"
                         data-testid={`button-delete-call-${call.id}`}
                         title="מחק שיחה"
                       >
-                        {deleting === (call.call_sid || call.id) ? (
+                        {deleting === getCallId(call) ? (
                           <Loader2 className="w-4 h-4 animate-spin text-red-500" />
                         ) : (
                           <Trash2 className="w-4 h-4 text-red-500" />
                         )}
                       </button>
                       <button
-                        onClick={() => setExpandedCallId(isExpanded ? null : call.id)}
+                        onClick={() => handleToggleExpand(callId, hasRecording)}
                         className="p-2 hover:bg-gray-200 rounded-full transition-colors"
                       >
                         <ChevronDown className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
@@ -908,7 +961,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
                           <button
-                            onClick={() => handleDownload(call.call_sid || call.id)}
+                            onClick={() => handleDownload(getCallId(call))}
                             className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -917,15 +970,27 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                             הורד
                           </button>
                         </div>
-                        <audio 
-                          controls 
-                          playsInline
-                          preload="none"
-                          className="w-full" 
-                          src={`/api/calls/${call.call_sid || call.id}/download`}
-                        >
-                          הדפדפן שלך לא תומך בנגן אודיו
-                        </audio>
+                        {/* 🔥 FIX: Use blob URL with authentication for audio playback */}
+                        {loadingRecording === getCallId(call) ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                            <span className="text-sm text-gray-500 mr-2">טוען הקלטה...</span>
+                          </div>
+                        ) : recordingUrls[getCallId(call)] ? (
+                          <audio 
+                            controls 
+                            playsInline
+                            preload="none"
+                            className="w-full" 
+                            src={recordingUrls[getCallId(call)]}
+                          >
+                            הדפדפן שלך לא תומך בנגן אודיו
+                          </audio>
+                        ) : (
+                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
