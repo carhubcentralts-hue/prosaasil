@@ -3368,13 +3368,19 @@ Greet briefly. Then WAIT for customer to speak."""
                             self.active_response_id = None
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
-                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False ({resp_id[:20]}... status={status})", flush=True)
+                            # 🔥 BARGE-IN: Also clear barge_in flag
+                            if hasattr(self, 'barge_in_active'):
+                                self.barge_in_active = False
+                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
                             self.active_response_id = None
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
+                            # 🔥 BARGE-IN: Also clear barge_in flag
+                            if hasattr(self, 'barge_in_active'):
+                                self.barge_in_active = False
                         
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
@@ -3475,146 +3481,94 @@ Greet briefly. Then WAIT for customer to speak."""
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 ECHO_GUARD: Smart echo detection - differentiate real speech from echo
+                    # 🔥 SIMPLE BARGE-IN FIX (No Guards, No Filters, Just Works)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # This runs BEFORE any other processing to prevent echo from triggering barge-in
-                    now_ms = time.time() * 1000
-                    if self.is_ai_speaking_event.is_set() and hasattr(self, '_last_ai_audio_ts'):
-                        # 🔥 BUG FIX: Handle None case - if no AI audio yet, skip echo guard
-                        if self._last_ai_audio_ts is None:
-                            # No AI audio yet - treat as very old, disable echo guard for this event
-                            time_since_ai_audio_ms = 9999.0
-                        else:
-                            time_since_ai_audio_ms = now_ms - (self._last_ai_audio_ts * 1000)
-                        
-                        if time_since_ai_audio_ms <= ECHO_WINDOW_MS:
-                            # 🔥 SMART ECHO DETECTION: Check RMS to differentiate echo from real speech
-                            # - Low RMS within echo window = likely echo (reject)
-                            # - High RMS within echo window = likely real loud user speech (allow)
-                            current_rms = getattr(self, '_recent_audio_rms', 0)
-                            current_noise_floor = getattr(self, 'noise_floor', 50.0)
-                            
-                            # If RMS is very high (loud user), allow it through as real speech
-                            if current_rms >= current_noise_floor + ECHO_HIGH_RMS_THRESHOLD:
-                                logger.info(
-                                    f"[ECHO_GUARD] Allowing speech - looks like real user, not echo "
-                                    f"(Δ{time_since_ai_audio_ms:.1f}ms since AI audio, rms={current_rms:.1f}, "
-                                    f"noise_floor={current_noise_floor:.1f}, delta={current_rms - current_noise_floor:.1f})"
-                                )
-                                # Allow through - real loud user speech
-                            else:
-                                # Low RMS - likely echo, reject
-                                logger.info(
-                                    f"[ECHO_GUARD] Dropping probable echo "
-                                    f"(Δ{time_since_ai_audio_ms:.1f}ms since AI audio, rms={current_rms:.1f}, "
-                                    f"noise_floor={current_noise_floor:.1f})"
-                                )
-                                # Do NOT mark candidate_user_speaking, do NOT start utterance, do NOT trigger barge-in
-                                continue
+                    # When user speaks while AI is speaking → AI stops IMMEDIATELY
+                    # 
+                    # Rules:
+                    # 1. If AI is speaking → Cancel + Flush + Clear Twilio + Reset
+                    # 2. Set barge_in=True flag
+                    # 3. Wait for transcription.completed
+                    # ═══════════════════════════════════════════════════════════════════════
                     
-                    # 🔥 SIMPLIFIED BARGE-IN: User can interrupt at ANY time
-                    # Remove all greeting protections and grace periods
-                    # If user speaks, AI stops immediately - no exceptions
+                    print(f"🎤 [SPEECH_STARTED] User started speaking")
                     
-                    # Handle greeting barge-in
+                    # Track utterance start for validation
+                    self._candidate_user_speaking = True
+                    self._utterance_start_ts = time.time()
+                    
+                    # Set user_speaking to block new AI responses until transcription completes
+                    self.user_speaking = True
+                    print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
+                    
+                    # Set user_has_spoken flag (user has interacted)
+                    if not self.user_has_spoken:
+                        self.user_has_spoken = True
+                        print(f"✅ [FIRST_SPEECH] user_has_spoken=True")
+                    
+                    # Reset loop guard when user speaks
+                    if self._consecutive_ai_responses > 0:
+                        self._consecutive_ai_responses = 0
+                        print(f"✅ [LOOP_GUARD] Reset counter on user speech")
+                    if self._loop_guard_engaged:
+                        self._loop_guard_engaged = False
+                        print(f"✅ [LOOP_GUARD] Disengaged on user speech")
+                    
+                    # Handle greeting interruption
                     if self.is_playing_greeting:
-                        print(f"⛔ [BARGE-IN] User interrupted greeting - stopping immediately")
+                        print(f"⛔ [BARGE-IN] User interrupted greeting")
                         self.is_playing_greeting = False
                         self.awaiting_greeting_answer = True
                         self.greeting_completed_at = time.time()
-                        self._post_greeting_window_active = False
-                        self._post_greeting_window_finished = True
                         self.barge_in_enabled_after_greeting = True
                     
-                    # 🎯 STT GUARD: Track utterance metadata for validation in transcription.completed
-                    # 🔥 FIX ISSUE 5: Set user_has_spoken=True when OpenAI speech_started fires AND echo guard passes
-                    # This prevents over-filtering where user speaks but transcripts are all rejected
-                    # If OpenAI's VAD detected speech, trust it even if transcript ends up being filtered
-                    print(f"🎤 [REALTIME] Speech started - marking as candidate (will validate on transcription)")
-                    self._candidate_user_speaking = True
-                    self._utterance_start_ts = time.time()
-                    self._utterance_start_rms = getattr(self, '_recent_audio_rms', 0)
-                    self._utterance_start_noise_floor = getattr(self, 'noise_floor', 50.0)
-                    
-                    # 🔥 FIX ISSUE 5: If OpenAI fires speech_started, mark user as having spoken
-                    # This prevents the bot from behaving like "no user speech" when transcripts are filtered
-                    # Check echo guard: Only set if this is likely real user speech (not AI echo)
-                    # Echo guard logic: If AI not speaking OR AI finished speaking >800ms ago
-                    # 🔥 CRITICAL FIX: Echo suppression does NOT block barge-in
-                    # Echo guard only affects user_has_spoken flag for state progression
-                    # If OpenAI sends speech_started while AI is speaking, ALWAYS cancel
-                    # This ensures "רגע רגע" in 0-200ms always stops TTS
-                    # ✅ NO FILTERS: Set user_has_spoken immediately on speech_started
-                    # No echo suppression window - if OpenAI detected speech, it's real
-                    if not self.user_has_spoken:
-                        self.user_has_spoken = True
-                        print(f"✅ [NO FILTERS] user_has_spoken=True on speech_started (no echo guard)")
-                    
-                    # 🔥 CRITICAL: Set user_speaking=True to block response.create until user finishes
-                    # This is THE KEY to proper turn-taking: AI won't interrupt user mid-speech
-                    self.user_speaking = True
-                    print(f"🛑 [TURN_TAKING] user_speaking=True - response.create blocked until speech complete")
-                    
-                    # 🔄 ADAPTIVE: Set confirmation flag for barge-in second signal
-                    # This confirms OpenAI's VAD detected real speech (not just RMS threshold)
-                    if self.is_ai_speaking_event.is_set():
-                        self._openai_speech_started_confirmed = True
-                        print(f"✅ [BARGE-IN CONFIRM] OpenAI speech_started confirmed while AI speaking")
-                    
-                    # Note: user_has_spoken will be set ONLY in transcription.completed after full validation
-                    if self._post_greeting_window_active:
-                        self._post_greeting_heard_user = True
-                    # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
-                    # This prevents loop guard from triggering when user IS speaking
-                    if self._consecutive_ai_responses > 0:
-                        print(f"✅ [LOOP GUARD] User started speaking - resetting consecutive counter ({self._consecutive_ai_responses} -> 0)")
-                        self._consecutive_ai_responses = 0
-                    if self._loop_guard_engaged:
-                        print(f"✅ [LOOP GUARD] User started speaking - disengaging loop guard EARLY")
-                        self._loop_guard_engaged = False
-                    
                     # ═══════════════════════════════════════════════════════════════════════
-                    # ✅ SIMPLIFIED BARGE-IN: TWO RULES ONLY
+                    # 🔥 CRITICAL: BARGE-IN LOGIC (Simple & Powerful)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Rule A: Cancel only if AI is ACTUALLY speaking (is_ai_speaking==True AND has active_response_id)
-                    # Rule B: Cancel once per response (track last_cancelled_response_id)
-                    #
-                    # NOT ALLOWED:
-                    # - No TX flush
-                    # - No queue cleanup
-                    # - No manual state changes beyond cancel
-                    # - No cooldown
-                    # - No echo suppression windows
+                    # If AI is currently speaking → STOP IT IMMEDIATELY
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # Rule A: Check if AI is ACTUALLY speaking
-                    if self.is_ai_speaking_event.is_set() and self.active_response_id is not None:
-                        cancelled_id = self.active_response_id
+                    if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                        # AI is speaking - user is interrupting
                         
-                        # Rule B: Cancel once per response (check if we already cancelled this one)
-                        last_cancelled = getattr(self, '_last_cancelled_response_id', None)
-                        if cancelled_id == last_cancelled:
-                            # Already cancelled this response, don't send again
-                            pass
-                        elif self.realtime_client:
-                            # Send cancel once
+                        # Step 1: Cancel active response
+                        if self.active_response_id and self.realtime_client:
                             try:
-                                await self.realtime_client.cancel_response(cancelled_id)
-                                self._last_cancelled_response_id = cancelled_id  # Remember we cancelled this one
-                                print(f"✅ [BARGE-IN] Cancelled response_id={cancelled_id[:20]}... (once)")
+                                await self.realtime_client.cancel_response(self.active_response_id)
+                                _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
                             except Exception as e:
-                                # Ignore response_cancel_not_active errors (response already inactive)
                                 error_str = str(e).lower()
-                                if 'response_cancel_not_active' in error_str or 'not_active' in error_str:
-                                    # IGNORE - log silently, no heavy logging
-                                    pass
-                                else:
-                                    print(f"⚠️ [BARGE-IN] Cancel error: {e}")
+                                if 'not_active' not in error_str:
+                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
+                        
+                        # Step 2: Flush TX queue (clear all pending audio frames)
+                        self._flush_tx_queue()
+                        
+                        # Step 3: Send Twilio "clear" event to stop audio already buffered on Twilio side
+                        # This is CRITICAL - prevents audio "tail" from playing after barge-in
+                        if self.stream_sid:
+                            try:
+                                clear_event = {
+                                    "event": "clear",
+                                    "streamSid": self.stream_sid
+                                }
+                                self._ws_send(json.dumps(clear_event))
+                                _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
+                            except Exception as e:
+                                _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
+                        
+                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
+                        self.is_ai_speaking_event.clear()
+                        self.active_response_id = None
+                        
+                        # Step 5: Set barge-in flag
+                        self.barge_in_active = True
+                        _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, TX flushed, Twilio cleared, barge_in=True", flush=True)
                     
-                    # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
+                    # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
                     self._realtime_speech_started_ts = time.time()
-                    print(f"🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI")
+                    print(f"🎤 [SPEECH_ACTIVE] Bypassing noise gate - sending all audio to OpenAI")
                 
                 # 🔥 BUILD 166: Clear speech active flag when speech ends
                 if event_type == "input_audio_buffer.speech_stopped":
@@ -5440,6 +5394,37 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 BARGE-IN: Clear barge_in flag now that transcription is complete
+                        # ═══════════════════════════════════════════════════════════════════════
+                        if hasattr(self, 'barge_in_active') and self.barge_in_active:
+                            self.barge_in_active = False
+                            print(f"✅ [BARGE-IN] Cleared barge_in flag after transcription")
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 SILENCE COMMANDS: Handle "שקט/די/רגע/תפסיק" → HARD STOP
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # This is a COMMAND, not a question that wasn't understood
+                        # NEVER respond with "לא שמעתי" or any other response
+                        # Just return to listening in complete silence
+                        # ═══════════════════════════════════════════════════════════════════════
+                        silence_commands = ["שקט", "שקטי", "די", "רגע", "תפסיק", "תפסיקי", "סתום", "סתמי", "שש", "שששש"]
+                        transcript_normalized = transcript.strip().lower().replace(".", "").replace("!", "").replace(",", "").replace("?", "")
+                        
+                        is_silence_command = transcript_normalized in silence_commands
+                        
+                        if is_silence_command:
+                            print(f"🤫 [SILENCE_CMD] User said '{transcript}' - HARD STOP, no response, returning to listening")
+                            # Clear user_speaking flag immediately - ready for next input
+                            self.user_speaking = False
+                            # Mark that we received input but won't respond
+                            self.has_pending_ai_response = False
+                            # CRITICAL: Do NOT trigger response.create
+                            # Do NOT send "לא שמעתי" or any acknowledgment
+                            # Just go back to listening mode
+                            print(f"✅ [SILENCE_CMD] Back to listening mode - awaiting next user input")
+                            continue  # Skip all response logic
                         
                         # 🔥 NEW REQUIREMENT: Trigger response ONLY on transcription.completed with non-empty text
                         # This is the ONLY place where response.create should be triggered for user input
@@ -11525,6 +11510,29 @@ Greet briefly. Then WAIT for customer to speak."""
         
         logger.error("❌ Google TTS should not be used - DISABLE_GOOGLE flag should be set")
         return None
+    
+    def _flush_tx_queue(self):
+        """
+        🔥 BARGE-IN: Immediately flush all pending frames from TX queue
+        
+        Called when user interrupts AI - clears all queued audio to prevent
+        AI voice from continuing after barge-in.
+        
+        CRITICAL: This is the key to instant barge-in response.
+        """
+        flushed_count = 0
+        try:
+            while not self.tx_q.empty():
+                try:
+                    self.tx_q.get_nowait()
+                    flushed_count += 1
+                except queue.Empty:
+                    break
+            
+            if flushed_count > 0:
+                _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {flushed_count} frames from TX queue", flush=True)
+        except Exception as e:
+            _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queue: {e}", flush=True)
     
     def _tx_loop(self):
         """
