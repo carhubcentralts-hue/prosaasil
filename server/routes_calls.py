@@ -147,6 +147,7 @@ def list_calls():
                 "recording_url": call.recording_url,
                 "transcription": best_transcript,
                 "transcript": best_transcript,  # Alias for compatibility
+                "final_transcript": getattr(call, 'final_transcript', None),  # 🔥 FIX: Add explicit final_transcript field
                 "summary": call.summary if hasattr(call, 'summary') else None,
                 "hasRecording": bool(call.recording_url),
                 "hasTranscript": bool(best_transcript),
