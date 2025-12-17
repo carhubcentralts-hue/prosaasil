@@ -5441,6 +5441,15 @@ Greet briefly. Then WAIT for customer to speak."""
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
                         
+                        # 🔥 NEW REQUIREMENT: Trigger response ONLY on transcription.completed with non-empty text
+                        # This is the ONLY place where response.create should be triggered for user input
+                        # Ensures proper sequence: speech_stopped → transcription.completed → response.created
+                        if transcript and len(transcript.strip()) > 0:
+                            print(f"✅ [RESPONSE_TRIGGER] Triggering response after transcription.completed: '{transcript[:40]}...'")
+                            await self.trigger_response("TRANSCRIPTION_COMPLETED", client)
+                        else:
+                            print(f"⚠️ [RESPONSE_TRIGGER] Skipping response - empty transcript")
+                        
                         # 🛡️ CHECK: Don't run NLP twice for same appointment
                         already_confirmed = getattr(self, 'appointment_confirmed_in_session', False)
                         if already_confirmed:
