@@ -1202,7 +1202,7 @@ GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר ט�
 CLEAR_GOODBYE_WORDS = [
     "להתראות", "ביי", "bye", "bye bye", "goodbye",
     "יאללה ביי", "יאללה להתראות",
-    "ביי יום טוב"  # "bye have a good day"
+    "ביי יום טוב"  # "bye, good day"
 ]
 
 # 🔧 GOODBYE DETECTION: Thresholds for polite ending detection
