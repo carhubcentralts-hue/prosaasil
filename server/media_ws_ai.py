@@ -3697,11 +3697,16 @@ Greet briefly. Then WAIT for customer to speak."""
                     # This prevents the bot from behaving like "no user speech" when transcripts are filtered
                     # Check echo guard: Only set if this is likely real user speech (not AI echo)
                     # Echo guard logic: If AI not speaking OR AI finished speaking >800ms ago
+                    # 🔥 CRITICAL FIX: Echo suppression does NOT block barge-in
+                    # Echo guard only affects user_has_spoken flag for state progression
+                    # If OpenAI sends speech_started while AI is speaking, ALWAYS cancel
+                    # This ensures "רגע רגע" in 0-200ms always stops TTS
                     ai_speaking = self.is_ai_speaking_event.is_set()
                     last_ai_audio_ts = getattr(self, '_last_ai_audio_ts', 0)
                     time_since_ai_audio_ms = (time.time() - last_ai_audio_ts) * 1000 if last_ai_audio_ts else 9999
                     # Use global ECHO_SUPPRESSION_WINDOW_MS constant for consistency
                     
+                    # Echo guard for user_has_spoken flag (state progression only)
                     echo_guard_pass = not ai_speaking or time_since_ai_audio_ms > ECHO_SUPPRESSION_WINDOW_MS
                     if echo_guard_pass and not self.user_has_spoken:
                         self.user_has_spoken = True
@@ -11804,8 +11809,25 @@ Greet briefly. Then WAIT for customer to speak."""
                     qsize = self.tx_q.qsize()
                     frames_sent_delta = frames_sent_total - last_frames_sent_check
                     
+                    # 🔥 NEW: Check if queue is stuck with old frames when AI not speaking
+                    audio_state = getattr(self, 'audio_state', None)
+                    is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
+                    active_response_id = audio_state.active_response_id if audio_state else None
+                    
+                    # If queue has items, AI not speaking, and no active response -> flush stale frames
+                    if qsize > 100 and not is_ai_speaking and not active_response_id:
+                        _orig_print(f"🧹 [TX_QUEUE_FLUSH] Flushing {qsize} stale frames (AI not speaking, no active_response_id)", flush=True)
+                        flushed_count = 0
+                        while not self.tx_q.empty() and flushed_count < qsize:
+                            try:
+                                self.tx_q.get_nowait()
+                                flushed_count += 1
+                            except queue.Empty:
+                                break
+                        _orig_print(f"✅ [TX_QUEUE_FLUSH] Flushed {flushed_count} frames", flush=True)
+                    
                     # If queue has items but no frames sent in last 800ms -> STALLED
-                    if qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
+                    elif qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
                         _orig_print(f"🚨 [TX_STALL_WATCHDOG] Queue backup detected! qsize={qsize}, frames_sent_delta=0 in {TX_STALL_WATCHDOG_INTERVAL}s", flush=True)
                         
                         # 🔥 FIX 4: Fail-fast on TX stall - close session cleanly
@@ -11985,56 +12007,54 @@ Greet briefly. Then WAIT for customer to speak."""
                     # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
                     # This watchdog will catch what's blocking the TX thread
                     if frame_gap_ms > 120.0:
-                        # 🚨 Single-line log for production (no stack traces unless DEBUG_TX=1)
-                        _orig_print(f"🚨 [TX_STALL] gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
+                        # 🚨 Always log TX stall with stack trace to identify blocker
+                        _orig_print(f"🚨 [TX_STALL] gap={frame_gap_ms:.0f}ms (threshold=120ms) - DUMPING STACK TRACE", flush=True)
                         
-                        # Only dump stack traces in debug mode
-                        if DEBUG_TX and frame_gap_ms > 500.0:
-                            import sys
-                            import traceback
-                            import threading
-                            
-                            # ✅ FIX: Define queue_maxsize before use to prevent UnboundLocalError crash
-                            try:
-                                queue_maxsize = getattr(self.tx_q, "maxsize", -1)
-                                _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}", flush=True)
-                            except Exception as e:
-                                _orig_print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
-                            
-                            # Log stack traces of all threads to find the culprit
-                            _orig_print(f"🔍 [TX_STALL] Stack traces of all threads (DEBUG_TX=1):", flush=True)
-                            for thread_id, frame in sys._current_frames().items():
-                                thread_name = None
-                                for t in threading.enumerate():
-                                    if t.ident == thread_id:
-                                        thread_name = t.name
-                                        break
-                                _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
-                                traceback.print_stack(frame)
-                                _orig_print(flush=True)
+                        # 🔥 NEW REQUIREMENT: Always dump stack traces on ANY gap >120ms
+                        # This helps identify exactly what's blocking the TX thread
+                        import sys
+                        import traceback
+                        import threading
+                        
+                        try:
+                            queue_maxsize = getattr(self.tx_q, "maxsize", -1)
+                            _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}, gap={frame_gap_ms:.0f}ms", flush=True)
+                        except Exception as e:
+                            _orig_print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
+                        
+                        # Log stack traces of ALL threads to find the culprit
+                        _orig_print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
+                        for thread_id, frame in sys._current_frames().items():
+                            thread_name = None
+                            for t in threading.enumerate():
+                                if t.ident == thread_id:
+                                    thread_name = t.name
+                                    break
+                            _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
+                            traceback.print_stack(frame)
+                            _orig_print(flush=True)
                     
                     if frame_gap_ms > max_gap_ms:
                         max_gap_ms = frame_gap_ms
                     last_frame_time = now
                     
-                    # ⚡ TX_STALL FIX: Reduce telemetry frequency - only log critical issues
-                    if now - last_telemetry_time >= 1.0:
+                    # ⚡ TX_STALL FIX: Sample telemetry every 5 seconds (not every second)
+                    if now - last_telemetry_time >= 5.0:
                         queue_size = self.tx_q.qsize()
                         queue_maxsize = self.tx_q.maxsize
-                        actual_fps = frames_sent_last_sec  # Frames sent in last second
+                        actual_fps = frames_sent_last_sec / 5.0  # Average FPS over 5 seconds
                         
-                        # 🔥 TX_STALL FIX: Only log if there's an actual problem (queue backup or stall)
-                        # Reduced from every second to only when critical
-                        queue_threshold = int(queue_maxsize * 0.7)  # Only log if > 70% full (was 50%)
+                        # 🔥 TX_STALL FIX: Only log if there's an actual problem
+                        # Check if FPS is low (< 45) or queue backup (> 70%) or gap > 120ms
+                        queue_threshold = int(queue_maxsize * 0.7)
                         
-                        # Log only if severe issues detected
-                        if queue_size > queue_threshold or max_gap_ms > 120.0:
-                            if DEBUG_TX:
-                                _orig_print(f"[TX_METRICS] last_1s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
+                        # Log if ANY issue detected
+                        if actual_fps < 45 or queue_size > queue_threshold or max_gap_ms > 120.0:
+                            _orig_print(f"[TX_METRICS] last_5s: frames={frames_sent_last_sec}, fps={actual_fps:.1f}, max_gap_ms={max_gap_ms:.1f}, q={queue_size}/{queue_maxsize}", flush=True)
                         
                         # 🚨 P0: Always warn if max_gap_ms exceeded threshold (this is critical)
                         if max_gap_ms > 120.0:
-                            force_print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last second (target: <40ms, acceptable: <120ms)")
+                            force_print(f"⚠️ [TX_QUALITY] DEGRADED! max_gap={max_gap_ms:.0f}ms in last 5 seconds (target: <40ms, acceptable: <120ms)")
                         
                         frames_sent_last_sec = 0
                         max_gap_ms = 0.0  # Reset for next window
