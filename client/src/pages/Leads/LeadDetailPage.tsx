@@ -885,7 +885,13 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                             הורד
                           </button>
                         </div>
-                        <audio controls className="w-full" src={`/api/calls/${call.id}/download`}>
+                        <audio 
+                          controls 
+                          playsInline
+                          preload="none"
+                          className="w-full" 
+                          src={`/api/calls/${call.id}/download`}
+                        >
                           הדפדפן שלך לא תומך בנגן אודיו
                         </audio>
                       </div>
