@@ -158,7 +158,7 @@ class BusinessSettings(db.Model):
     
     # 🔥 BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected
-    auto_end_on_goodbye = db.Column(db.Boolean, default=False)  # Hang up when customer says goodbye
+    auto_end_on_goodbye = db.Column(db.Boolean, default=True)  # Hang up when customer says goodbye - NOW ENABLED BY DEFAULT
     
     # 🔥 BUILD 163: Bot speaks first setting (🔥 DEPRECATED: Always True in runtime, kept for DB compatibility)
     bot_speaks_first = db.Column(db.Boolean, default=False)  # Bot plays greeting before listening (DEPRECATED: Ignored in runtime)

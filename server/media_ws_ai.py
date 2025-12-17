@@ -175,7 +175,7 @@ class CallConfig:
     
     # Call control settings
     auto_end_after_lead_capture: bool = False
-    auto_end_on_goodbye: bool = False
+    auto_end_on_goodbye: bool = True  # Changed default to True - auto-hangup on goodbye
     smart_hangup_enabled: bool = True
     enable_calendar_scheduling: bool = True  # 🔥 BUILD 186: AI can schedule appointments
     verification_enabled: bool = False  # 🔥 FIX: Disable legacy verification/lead confirmed early hangup
@@ -262,7 +262,7 @@ def load_call_config(business_id: int) -> CallConfig:
             bot_speaks_first=getattr(settings, 'bot_speaks_first', False) if settings else False,  # 🔥 DEPRECATED: Loaded but ignored in runtime
             greeting_text=business.greeting_message or "",
             auto_end_after_lead_capture=getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
-            auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
+            auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', True) if settings else True,  # Changed default to True
             smart_hangup_enabled=getattr(settings, 'smart_hangup_enabled', True) if settings else True,
             enable_calendar_scheduling=getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
             verification_enabled=getattr(settings, 'verification_enabled', False) if settings else False,
@@ -1198,6 +1198,13 @@ HEBREW_FILLER_WORDS = {
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
 GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
 
+# 🔧 GOODBYE DETECTION: Clear goodbye words shared across functions
+CLEAR_GOODBYE_WORDS = [
+    "להתראות", "ביי", "bye", "bye bye", "goodbye",
+    "יאללה ביי", "יאללה להתראות",
+    "ביי יום טוב"  # "bye, good day"
+]
+
 # 🔧 GOODBYE DETECTION: Thresholds for polite ending detection
 # Short utterances (≤3 words) with polite phrases are likely goodbyes (e.g., "תודה רבה")
 # Longer utterances require phrase to be ≥50% of content to avoid false positives
@@ -1791,7 +1798,7 @@ class MediaStreamHandler:
         # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - flag deprecated
         self.bot_speaks_first = True  # HARDCODED: Always speak first (was: overwritten by CallConfig)
         self.auto_end_after_lead_capture = False  # Default: don't auto-end - overwritten by CallConfig
-        self.auto_end_on_goodbye = False  # Default: don't auto-end - overwritten by CallConfig
+        self.auto_end_on_goodbye = True  # Default: auto-end on goodbye - NOW ENABLED BY DEFAULT - overwritten by CallConfig
         self.lead_captured = False  # Runtime state: tracks if all required lead info is collected
         self.goodbye_detected = False  # Runtime state: tracks if goodbye phrase detected
         self.pending_hangup = False  # Runtime state: signals that call should end after current TTS
@@ -2048,8 +2055,9 @@ class MediaStreamHandler:
             self.bot_speaks_first = True
         if not hasattr(self, 'auto_end_after_lead_capture'):
             self.auto_end_after_lead_capture = False
+        # 🔥 FIX: Ensure auto_end_on_goodbye is set to True by default if not present
         if not hasattr(self, 'auto_end_on_goodbye'):
-            self.auto_end_on_goodbye = False
+            self.auto_end_on_goodbye = True  # Default: auto-end on goodbye - NOW ENABLED BY DEFAULT
         if not hasattr(self, 'greeting_text'):
             self.greeting_text = None
         
@@ -10062,13 +10070,8 @@ Greet briefly. Then WAIT for customer to speak."""
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
                 return False
         
-        # ✅ CLEAR goodbye words
-        clear_goodbye_words = [
-            "להתראות", "ביי", "bye", "bye bye", "goodbye",
-            "יאללה ביי", "יאללה להתראות"
-        ]
-        
-        for word in clear_goodbye_words:
+        # ✅ CLEAR goodbye words - use shared constant
+        for word in CLEAR_GOODBYE_WORDS:
             if word in text_lower:
                 print(f"[USER GOODBYE] Clear goodbye: '{word}' in '{text_lower[:30]}...'")
                 return True
@@ -10128,14 +10131,8 @@ Greet briefly. Then WAIT for customer to speak."""
                 print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
         
-        # ✅ CLEAR goodbye words - ONLY these trigger hangup!
-        # Must contain "ביי" or "להתראות" or English equivalents
-        clear_goodbye_words = [
-            "להתראות", "ביי", "bye", "bye bye", "goodbye",
-            "יאללה ביי", "יאללה להתראות"
-        ]
-        
-        has_clear_goodbye = any(word in text_lower for word in clear_goodbye_words)
+        # ✅ CLEAR goodbye words - ONLY these trigger hangup! Use shared constant
+        has_clear_goodbye = any(word in text_lower for word in CLEAR_GOODBYE_WORDS)
         
         if has_clear_goodbye:
             print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
@@ -10178,9 +10175,10 @@ Greet briefly. Then WAIT for customer to speak."""
             "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
             "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
             "נשמח לעזור", "נשמח לעמוד לשירותך",
-            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר",
+            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר", "יחזרו אליך",
             "שמח שיכולתי לעזור", "שמחתי לעזור",
-            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות"
+            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות",
+            "תודה יחזרו אליך"  # Added: Common closing phrase
         ]
         
         for phrase in polite_closing_phrases:

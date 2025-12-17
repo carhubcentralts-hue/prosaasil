@@ -20,6 +20,7 @@ def normalize_il_phone(raw: Optional[str]) -> Optional[str]:
         "0501234567" -> "+972501234567"
         "050-123-4567" -> "+972501234567"
         "+972501234567" -> "+972501234567"
+        "972501234567" -> "+972501234567" (without + prefix)
         "501234567" -> "+972501234567" (mobile without leading 0)
         "" -> None
         "UNKNOWN" -> None
@@ -33,6 +34,13 @@ def normalize_il_phone(raw: Optional[str]) -> Optional[str]:
     # Already in E.164 format
     if s.startswith("+972"):
         return s if len(s) >= 12 else None  # +972 + at least 9 digits
+    
+    # 🔥 FIX: Handle 972 without + prefix (e.g., "972501234567")
+    if s.startswith("972") and not s.startswith("+"):
+        # 972 + at least 9 digits
+        if len(s) >= 12:
+            return "+" + s
+        return None
     
     # Israeli format starting with 0
     if s.startswith("0"):
