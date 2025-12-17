@@ -23,13 +23,19 @@ calls_bp = Blueprint("calls", __name__)
 @calls_bp.route("/api/calls", methods=["GET"])
 @require_api_auth()
 def list_calls():
-    """רשימת שיחות עם מסננים וחיפוש"""
+    """
+    רשימת שיחות עם מסננים וחיפוש
+    
+    NEW: Filters out parent calls by default to prevent duplicates
+    Shows only child legs or standalone calls
+    """
     try:
         # Get filters from query params
         search = request.args.get('search', '').strip()
         status = request.args.get('status', 'all')
         direction = request.args.get('direction', 'all')
         lead_id = request.args.get('lead_id', '').strip()
+        show_all = request.args.get('show_all', 'false').lower() == 'true'  # 🔥 NEW: Show parent calls
         limit = min(int(request.args.get('limit', 50)), 100)  # Max 100
         offset = int(request.args.get('offset', 0))
         
@@ -42,6 +48,45 @@ def list_calls():
         
         # Build query
         query = Call.query.filter(Call.business_id == business_id)
+        
+        # 🔥 NEW: Filter out parent calls by default (prevent duplicates)
+        # Parent calls are typically short (1 second) and get replaced by child leg
+        # Only show calls that either:
+        # 1. Don't have a parent_call_sid (standalone/child calls)
+        # 2. Have duration > 1 and status = completed (actual calls)
+        # 3. show_all=true (admin debugging)
+        if not show_all:
+            # Smart filter: prefer child legs over parent calls
+            # Hide parent calls that have corresponding child legs
+            # Also hide very short cancelled/failed calls (< 2 seconds)
+            from sqlalchemy import and_, not_, exists
+            
+            # Subquery to find call_sids that are parent_call_sid in other records
+            parent_exists = exists().where(
+                and_(
+                    Call.parent_call_sid == Call.call_sid,
+                    Call.business_id == business_id
+                )
+            )
+            
+            # Filter logic:
+            # Include calls where:
+            # 1. No parent_call_sid exists (standalone calls) OR
+            # 2. Has parent_call_sid (is a child leg) OR
+            # 3. Duration > 1 (actual conversation happened)
+            # Exclude parent calls with duration <= 1 that have child legs
+            query = query.filter(
+                or_(
+                    Call.parent_call_sid.isnot(None),  # Is a child leg
+                    and_(
+                        Call.parent_call_sid.is_(None),  # Has no parent
+                        or_(
+                            not_(parent_exists),  # And is not itself a parent of another call
+                            Call.duration > 1  # Or has significant duration
+                        )
+                    )
+                )
+            )
         
         # Apply filters
         if lead_id:
@@ -87,6 +132,7 @@ def list_calls():
             
             calls_data.append({
                 "sid": call.call_sid,
+                "call_sid": call.call_sid,  # 🔥 NEW: Add explicit call_sid field
                 "lead_id": getattr(call, 'lead_id', None),
                 "lead_name": getattr(call, 'lead_name', None),
                 "from_e164": call.from_number,
@@ -94,10 +140,13 @@ def list_calls():
                 "duration": getattr(call, 'duration', 0),
                 "status": call.status,
                 "direction": getattr(call, 'direction', 'inbound'),
+                "twilio_direction": getattr(call, 'twilio_direction', None),  # 🔥 NEW: Original Twilio direction
+                "parent_call_sid": getattr(call, 'parent_call_sid', None),  # 🔥 NEW: Parent call SID
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "created_at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
                 "transcription": best_transcript,
+                "transcript": best_transcript,  # Alias for compatibility
                 "summary": call.summary if hasattr(call, 'summary') else None,
                 "hasRecording": bool(call.recording_url),
                 "hasTranscript": bool(best_transcript),

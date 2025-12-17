@@ -24,6 +24,34 @@ TRANSCRIPT_SOURCE_FAILED = "failed"        # Transcription attempt failed
 # ✅ Global queue for recording jobs - single shared instance
 RECORDING_QUEUE = queue.Queue()
 
+def normalize_call_direction(twilio_direction):
+    """
+    Normalize Twilio's direction values to simple inbound/outbound/unknown.
+    
+    Twilio Direction values:
+    - 'inbound' -> 'inbound'
+    - 'outbound-api' -> 'outbound' (parent call)
+    - 'outbound-dial' -> 'outbound' (actual outbound call to customer)
+    - anything else -> 'unknown'
+    
+    Args:
+        twilio_direction: Original direction from Twilio webhook
+    
+    Returns:
+        Normalized direction: 'inbound', 'outbound', or 'unknown'
+    """
+    if not twilio_direction:
+        return "unknown"
+    
+    twilio_dir_lower = str(twilio_direction).lower()
+    
+    if twilio_dir_lower.startswith("outbound"):
+        return "outbound"
+    elif twilio_dir_lower.startswith("inbound"):
+        return "inbound"
+    else:
+        return "unknown"
+
 def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
     """Enqueue recording job for background processing
     
@@ -830,15 +858,40 @@ def _identify_business_for_call(to_number, from_number):
     print("❌ לא נמצא עסק פעיל במערכת - recording יישמר ללא שיוך עסק")
     return None
 
-def save_call_status(call_sid, status, duration=0, direction="inbound"):
-    """שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout - BUILD 106"""
-    thread = Thread(target=save_call_status_async, args=(call_sid, status, duration, direction))
+def save_call_status(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
+    """
+    שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout - BUILD 106
+    
+    Args:
+        call_sid: Twilio Call SID
+        status: Call status
+        duration: Call duration in seconds
+        direction: Normalized direction (inbound/outbound) - for backward compatibility
+        twilio_direction: Original Twilio direction value
+        parent_call_sid: Parent call SID if this is a child leg
+    """
+    thread = Thread(target=save_call_status_async, 
+                   args=(call_sid, status, duration, direction, twilio_direction, parent_call_sid))
     thread.daemon = True
     thread.start()
-    log.info("Call status queued for update: %s -> %s (duration=%s)", call_sid, status, duration)
+    log.info("Call status queued for update: %s -> %s (duration=%s, twilio_direction=%s)", 
+            call_sid, status, duration, twilio_direction)
 
-def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
-    """עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן - BUILD 106"""
+def save_call_status_async(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
+    """
+    עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן - BUILD 106
+    
+    UPSERT logic: Updates if call_sid exists, creates if not.
+    Prevents duplicate call logs from multiple webhook calls.
+    
+    Args:
+        call_sid: Twilio Call SID
+        status: Call status
+        duration: Call duration in seconds
+        direction: Normalized direction (inbound/outbound)
+        twilio_direction: Original Twilio direction value
+        parent_call_sid: Parent call SID if this is a child leg
+    """
     try:
         # שימוש ב-PostgreSQL דרך SQLAlchemy במקום SQLite
         from server.app_factory import get_process_app
@@ -847,46 +900,69 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
         
         app = get_process_app()
         with app.app_context():
-            # עדכון מהיר ישירות ב-PostgreSQL 
+            # 🔥 UPSERT: Query for existing call_log
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            
             if call_log:
+                # UPDATE: Call log already exists
                 call_log.call_status = status
-                # ✅ BUILD 106: Only update duration/direction if provided (avoid overwriting with 0)
-                if duration > 0:
+                
+                # ✅ Only update duration if provided and greater than current
+                if duration > 0 and duration > (call_log.duration or 0):
                     call_log.duration = duration
-                if direction:
+                
+                # 🔥 CRITICAL: Smart direction update logic
+                # Allow upgrading from "unknown" to real value, but never overwrite real value with None
+                if twilio_direction:
+                    # We have a real Twilio direction value
+                    if not call_log.twilio_direction or call_log.direction == "unknown":
+                        # Update if: (1) never set, OR (2) currently "unknown"
+                        call_log.twilio_direction = twilio_direction
+                        call_log.direction = normalize_call_direction(twilio_direction)
+                elif direction and (not call_log.direction or call_log.direction == "unknown"):
+                    # Fallback: use normalized direction if twilio_direction not available
+                    # Only update if not set or currently "unknown"
                     call_log.direction = direction
+                
+                # 🔥 Store parent_call_sid ONLY if provided and not already set
+                if parent_call_sid and not call_log.parent_call_sid:
+                    call_log.parent_call_sid = parent_call_sid
+                
                 call_log.updated_at = db.func.now()
                 db.session.commit()
-                log.info("PostgreSQL call status updated: %s -> %s (duration=%s)", call_sid, status, duration)
-                
-                # ✅ Update OutboundCallJob if this is part of a bulk run
-                # 🔥 GUARD: Protect against missing outbound_call_jobs table
-                if status in ["completed", "busy", "no-answer", "failed", "canceled"]:
-                    try:
-                        job = OutboundCallJob.query.filter_by(call_sid=call_sid).first()
-                        if job:
-                            job.status = "completed" if status == "completed" else "failed"
-                            job.completed_at = datetime.utcnow()
-                            
-                            # Update run counts
-                            run = OutboundCallRun.query.get(job.run_id)
-                            if run:
-                                run.in_progress_count = max(0, run.in_progress_count - 1)
-                                if job.status == "completed":
-                                    run.completed_count += 1
-                                else:
-                                    run.failed_count += 1
-                                    if job.error_message:
-                                        run.last_error = job.error_message[:500]
-                            
-                            db.session.commit()
-                            log.info(f"[BulkCall] Updated job {job.id} status: {job.status}")
-                    except Exception as outbound_err:
-                        # 🔥 GUARD: If outbound_call_jobs table doesn't exist, log and continue
-                        log.warning(f"[BulkCall] Could not update OutboundCallJob (table may not exist): {outbound_err}")
+                log.info("PostgreSQL call status UPDATED: %s -> %s (duration=%s, direction=%s)", 
+                        call_sid, status, duration, call_log.direction)
             else:
-                log.warning("Call SID not found for status update: %s", call_sid)
+                # Call log doesn't exist, but this is just a status update webhook
+                # Log warning - call log should have been created in incoming_call or outbound_call
+                log.warning("Call SID not found for status update: %s (status=%s). Call log should exist.", 
+                           call_sid, status)
+                
+            # ✅ Update OutboundCallJob if this is part of a bulk run
+            # 🔥 GUARD: Protect against missing outbound_call_jobs table
+            if status in ["completed", "busy", "no-answer", "failed", "canceled"]:
+                try:
+                    job = OutboundCallJob.query.filter_by(call_sid=call_sid).first()
+                    if job:
+                        job.status = "completed" if status == "completed" else "failed"
+                        job.completed_at = datetime.utcnow()
+                        
+                        # Update run counts
+                        run = OutboundCallRun.query.get(job.run_id)
+                        if run:
+                            run.in_progress_count = max(0, run.in_progress_count - 1)
+                            if job.status == "completed":
+                                run.completed_count += 1
+                            else:
+                                run.failed_count += 1
+                                if job.error_message:
+                                    run.last_error = job.error_message[:500]
+                        
+                        db.session.commit()
+                        log.info(f"[BulkCall] Updated job {job.id} status: {job.status}")
+                except Exception as outbound_err:
+                    # 🔥 GUARD: If outbound_call_jobs table doesn't exist, log and continue
+                    log.warning(f"[BulkCall] Could not update OutboundCallJob (table may not exist): {outbound_err}")
         
     except Exception as e:
         log.error("Failed to update call status (PostgreSQL): %s", e)

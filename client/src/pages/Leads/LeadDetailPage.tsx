@@ -96,7 +96,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?lead_id=${leadId}`);
       if (response.success && response.calls) {
         const leadCalls: LeadCall[] = response.calls.map((call: any) => ({
-          id: call.sid || call.call_sid || call.id,
+          id: call.call_sid || call.sid || call.id,  // Use call_sid as primary id
+          call_sid: call.call_sid || call.sid,  // Store explicit call_sid
           lead_id: parseInt(leadId),
           call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
           duration: call.duration || 0,
@@ -735,6 +736,7 @@ function ConversationTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsApp:
 function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; loading?: boolean; leadId: number; onRefresh: () => void }) {
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [directionFilter, setDirectionFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');  // 🔥 NEW: Direction filter
 
   const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${seconds} שניות`;
@@ -742,6 +744,11 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')} דקות`;
   };
+
+  // 🔥 NEW: Filter calls by direction
+  const filteredCalls = directionFilter === 'all' 
+    ? calls 
+    : calls.filter(call => call.call_type === directionFilter);
 
   const handleDownload = async (callId: string) => {
     try {
@@ -791,20 +798,45 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
 
   return (
     <Card className="p-4 sm:p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">היסטוריית שיחות טלפון</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900">היסטוריית שיחות טלפון</h3>
+        
+        {/* 🔥 NEW: Direction Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">סנן לפי:</label>
+          <select
+            value={directionFilter}
+            onChange={(e) => setDirectionFilter(e.target.value as 'all' | 'incoming' | 'outgoing')}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            data-testid="filter-call-direction"
+          >
+            <option value="all">כל השיחות</option>
+            <option value="incoming">שיחות נכנסות</option>
+            <option value="outgoing">שיחות יוצאות</option>
+          </select>
+        </div>
+      </div>
+      
       {loading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
           <span className="text-sm text-gray-500 mr-2">טוען שיחות...</span>
         </div>
-      ) : calls.length === 0 ? (
+      ) : filteredCalls.length === 0 ? (
         <div className="text-center py-8">
           <Phone className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-sm text-gray-500">אין שיחות טלפון עדיין</p>
+          <p className="text-sm text-gray-500">
+            {directionFilter === 'all' 
+              ? 'אין שיחות טלפון עדיין'
+              : directionFilter === 'incoming'
+              ? 'אין שיחות נכנסות'
+              : 'אין שיחות יוצאות'
+            }
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {calls.map((call) => {
+          {filteredCalls.map((call) => {
             const isExpanded = expandedCallId === call.id;
             const hasRecording = Boolean(call.recording_url);
             const hasTranscript = Boolean(call.notes?.trim());
@@ -844,14 +876,14 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteCall(call.id);
+                          handleDeleteCall(call.call_sid || call.id);
                         }}
-                        disabled={deleting === call.id}
+                        disabled={deleting === (call.call_sid || call.id)}
                         className="p-2 hover:bg-red-100 rounded-full transition-colors"
                         data-testid={`button-delete-call-${call.id}`}
                         title="מחק שיחה"
                       >
-                        {deleting === call.id ? (
+                        {deleting === (call.call_sid || call.id) ? (
                           <Loader2 className="w-4 h-4 animate-spin text-red-500" />
                         ) : (
                           <Trash2 className="w-4 h-4 text-red-500" />
@@ -876,7 +908,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
                           <button
-                            onClick={() => handleDownload(call.id)}
+                            onClick={() => handleDownload(call.call_sid || call.id)}
                             className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -890,7 +922,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                           playsInline
                           preload="none"
                           className="w-full" 
-                          src={`/api/calls/${call.id}/download`}
+                          src={`/api/calls/${call.call_sid || call.id}/download`}
                         >
                           הדפדפן שלך לא תומך בנגן אודיו
                         </audio>
