@@ -63,9 +63,9 @@ def list_calls():
         if status != 'all':
             query = query.filter(Call.status == status)
             
-        # Direction filter commented out as field doesn't exist in current CallLog model
-        # if direction != 'all':
-        #     query = query.filter(Call.direction == direction)
+        # ✅ Direction filter - CallLog model has direction field
+        if direction != 'all':
+            query = query.filter(Call.direction == direction)
         
         # Order by creation time desc
         query = query.order_by(Call.created_at.desc())
