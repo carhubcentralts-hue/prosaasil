@@ -239,6 +239,12 @@ def process_recording_async(form_data):
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 
                 if call_log:
+                    # 🔥 CRITICAL: Skip if already processed (prevent duplicate transcription)
+                    if call_log.final_transcript and len(call_log.final_transcript.strip()) > 50:
+                        print(f"✅ [OFFLINE_STT] Call {call_sid} already has final_transcript ({len(call_log.final_transcript)} chars) - skipping reprocessing")
+                        log.info(f"[OFFLINE_STT] Skipping {call_sid} - already processed with final_transcript")
+                        return True  # Already processed successfully
+                    
                     # ✅ Use the EXACT same recording that UI plays
                     audio_file = get_recording_file_for_call(call_log)
                 else:
