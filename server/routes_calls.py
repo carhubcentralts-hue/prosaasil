@@ -2,7 +2,7 @@
 Calls API Routes - מסלולי API לשיחות
 Includes call listing, details, transcript, and secure recording download
 """
-from flask import Blueprint, request, jsonify, send_file, current_app, session, g
+from flask import Blueprint, request, jsonify, send_file, current_app, session, g, Response, make_response
 from server.auth_api import require_api_auth
 from server.routes_crm import get_business_id
 from server.extensions import csrf
@@ -261,7 +261,6 @@ def download_recording(call_sid):
             
             # Ensure valid range
             if start >= file_size:
-                from flask import Response
                 return Response(status=416)  # Range Not Satisfiable
             
             end = min(end, file_size - 1)
@@ -273,7 +272,6 @@ def download_recording(call_sid):
                 data = f.read(length)
             
             # Return 206 Partial Content with proper headers
-            from flask import Response
             rv = Response(
                 data,
                 206,
@@ -286,12 +284,14 @@ def download_recording(call_sid):
             # 🎯 FIX: Content-Disposition inline for browser playback (required for iOS/Chrome)
             rv.headers.add('Content-Disposition', 'inline')
             # 🎯 FIX: CORS headers for cross-origin requests (if frontend on different domain)
-            rv.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
-            rv.headers.add('Access-Control-Allow-Credentials', 'true')
+            # Security: Use specific origin from request header, NOT wildcard with credentials
+            origin = request.headers.get('Origin')
+            if origin:
+                rv.headers.add('Access-Control-Allow-Origin', origin)
+                rv.headers.add('Access-Control-Allow-Credentials', 'true')
             return rv
         else:
             # No Range header - serve entire file with Accept-Ranges header
-            from flask import Response, make_response
             response = make_response(send_file(
                 audio_path,
                 mimetype="audio/mpeg",
@@ -304,8 +304,11 @@ def download_recording(call_sid):
             response.headers['Content-Disposition'] = 'inline'
             response.headers['Content-Length'] = str(file_size)
             # 🎯 FIX: CORS headers for cross-origin requests
-            response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
-            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            # Security: Use specific origin from request header, NOT wildcard with credentials
+            origin = request.headers.get('Origin')
+            if origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
             return response
         
     except Exception as e:
