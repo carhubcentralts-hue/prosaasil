@@ -911,13 +911,17 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
                 if duration > 0 and duration > (call_log.duration or 0):
                     call_log.duration = duration
                 
-                # 🔥 CRITICAL: Only update direction fields if we have actual values
-                # Never overwrite with None
-                if twilio_direction and not call_log.twilio_direction:
-                    call_log.twilio_direction = twilio_direction
-                    call_log.direction = normalize_call_direction(twilio_direction)
-                elif direction and not call_log.direction:
+                # 🔥 CRITICAL: Smart direction update logic
+                # Allow upgrading from "unknown" to real value, but never overwrite real value with None
+                if twilio_direction:
+                    # We have a real Twilio direction value
+                    if not call_log.twilio_direction or call_log.direction == "unknown":
+                        # Update if: (1) never set, OR (2) currently "unknown"
+                        call_log.twilio_direction = twilio_direction
+                        call_log.direction = normalize_call_direction(twilio_direction)
+                elif direction and (not call_log.direction or call_log.direction == "unknown"):
                     # Fallback: use normalized direction if twilio_direction not available
+                    # Only update if not set or currently "unknown"
                     call_log.direction = direction
                 
                 # 🔥 Store parent_call_sid ONLY if provided and not already set

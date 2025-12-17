@@ -436,12 +436,14 @@ def incoming_call():
                 logger.info(f"✅ Created CallLog: {call_sid}, direction={normalized_direction}, twilio_direction={twilio_direction}, parent={parent_call_sid}")
             else:
                 # UPDATE: Call log exists (retry scenario) - update ONLY if we have values
-                # 🔥 CRITICAL: Never overwrite with None
+                # 🔥 CRITICAL: Smart update - allow upgrading from "unknown" to real value
                 if parent_call_sid and not existing.parent_call_sid:
                     existing.parent_call_sid = parent_call_sid
-                if twilio_direction and not existing.twilio_direction:
-                    existing.twilio_direction = twilio_direction
-                    existing.direction = normalize_call_direction(twilio_direction)
+                if twilio_direction:
+                    # Update if: (1) never set, OR (2) currently "unknown"
+                    if not existing.twilio_direction or existing.direction == "unknown":
+                        existing.twilio_direction = twilio_direction
+                        existing.direction = normalize_call_direction(twilio_direction)
                 db.session.commit()
                 logger.info(f"✅ Updated existing CallLog: {call_sid}")
         except Exception as e:
@@ -788,10 +790,12 @@ def handle_recording():
             else:
                 call_log.status = "recorded"
                 
-                # 🔥 NEW: Update direction fields if not set and available in webhook
-                if twilio_direction and not call_log.twilio_direction:
-                    call_log.twilio_direction = twilio_direction
-                    call_log.direction = normalize_call_direction(twilio_direction)
+                # 🔥 CRITICAL: Smart direction update - allow upgrading from "unknown" to real value
+                if twilio_direction:
+                    # Update if: (1) never set, OR (2) currently "unknown"
+                    if not call_log.twilio_direction or call_log.direction == "unknown":
+                        call_log.twilio_direction = twilio_direction
+                        call_log.direction = normalize_call_direction(twilio_direction)
                 
                 # 🔥 NEW: Update parent_call_sid if not set and available
                 if parent_call_sid and not call_log.parent_call_sid:
@@ -916,10 +920,12 @@ def stream_status():
                     # עדכן סטטוס
                     call_log.status = event if event != 'N/A' else "streaming"
                     
-                    # 🔥 NEW: Update direction fields if not set and available in webhook
-                    if twilio_direction and not call_log.twilio_direction:
-                        call_log.twilio_direction = twilio_direction
-                        call_log.direction = normalize_call_direction(twilio_direction)
+                    # 🔥 CRITICAL: Smart direction update - allow upgrading from "unknown" to real value
+                    if twilio_direction:
+                        # Update if: (1) never set, OR (2) currently "unknown"
+                        if not call_log.twilio_direction or call_log.direction == "unknown":
+                            call_log.twilio_direction = twilio_direction
+                            call_log.direction = normalize_call_direction(twilio_direction)
                     
                     # 🔥 NEW: Update parent_call_sid if not set and available
                     if parent_call_sid and not call_log.parent_call_sid:
