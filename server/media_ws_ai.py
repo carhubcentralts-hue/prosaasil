@@ -2608,11 +2608,14 @@ Greet briefly. Then WAIT for customer to speak."""
                         app = _get_flask_app()
                         with app.app_context():
                             # 🔥 BUILD 174: Use existing lead_id for outbound calls
+                            # 🔒 CRITICAL FIX: Lock lead_id at call start - this is THE lead_id for the entire call
                             if call_direction == 'outbound' and outbound_lead_id:
                                 lead_id = int(outbound_lead_id)
                                 print(f"📤 [OUTBOUND CRM] Using existing lead_id={lead_id}")
+                                print(f"🔒 [LEAD_ID_LOCK] Lead ID locked to {lead_id} for call {self.call_sid}")
                             else:
                                 lead_id = ensure_lead(business_id_safe, customer_phone)
+                                print(f"🔒 [LEAD_ID_LOCK] Lead ID locked to {lead_id} for call {self.call_sid}")
                             
                             self.crm_context = CallCrmContext(
                                 business_id=business_id_safe,
@@ -2625,6 +2628,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                 self.pending_customer_name = None
                             
                             # 🔥 P0-1 FIX: Link CallLog to lead_id with proper session management
+                            # 🔒 CRITICAL: This ensures ALL updates (recording/transcript/summary) use call_sid -> lead_id mapping
                             if lead_id and hasattr(self, 'call_sid') and self.call_sid:
                                 try:
                                     from server.models_sql import CallLog
@@ -2637,12 +2641,23 @@ Greet briefly. Then WAIT for customer to speak."""
                                     
                                     try:
                                         call_log = session.query(CallLog).filter_by(call_sid=self.call_sid).first()
-                                        if call_log and not call_log.lead_id:
-                                            call_log.lead_id = lead_id
-                                            session.commit()
-                                            print(f"✅ [CRM] Linked CallLog {self.call_sid} to lead {lead_id}")
-                                        elif call_log and call_log.lead_id:
-                                            print(f"ℹ️ [CRM] CallLog {self.call_sid} already linked to lead {call_log.lead_id}")
+                                        if call_log:
+                                            if not call_log.lead_id:
+                                                call_log.lead_id = lead_id
+                                                session.commit()
+                                                print(f"✅ [LEAD_ID_LOCK] Linked CallLog {self.call_sid} to lead {lead_id}")
+                                            elif call_log.lead_id != lead_id:
+                                                # 🔒 CRITICAL: lead_id already set but differs
+                                                # This indicates a race condition or duplicate call handling
+                                                # Always use the FIRST locked lead_id to maintain consistency
+                                                print(f"❌ [LEAD_ID_LOCK] CONFLICT! CallLog {self.call_sid} has lead_id={call_log.lead_id}, attempted {lead_id}")
+                                                print(f"🔒 [LEAD_ID_LOCK] Keeping original lead_id={call_log.lead_id} (first-lock-wins)")
+                                                # Update local context to match DB
+                                                self.crm_context.lead_id = call_log.lead_id
+                                            else:
+                                                print(f"✅ [LEAD_ID_LOCK] CallLog {self.call_sid} already linked to lead {lead_id}")
+                                        else:
+                                            print(f"⚠️ [LEAD_ID_LOCK] CallLog not found for {self.call_sid} - will be created by webhook")
                                     except Exception as commit_error:
                                         session.rollback()
                                         print(f"⚠️ [CRM] DB error linking CallLog: {commit_error}")

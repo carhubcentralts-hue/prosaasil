@@ -13,10 +13,11 @@ AUDIO_CONFIG = {
     "echo_guard_enabled": True,    # Minimal, conservative echo control only
     "frame_pacing_ms": 20,         # Standard telephony frame interval (20ms)
     # RMS Thresholds - Lowered for better microphone sensitivity (telephony)
-    "vad_rms": 60,                 # VAD RMS threshold (lowered from 80 for quiet speakers)
-    "rms_silence_threshold": 30,   # Pure silence threshold (lowered from 40)
-    "min_speech_rms": 40,          # Minimum speech RMS (lowered from 60 for quiet callers)
-    "min_rms_delta": 5.0,          # Min RMS above noise floor (lowered from 25.0)
+    # 🔥 FIX: Further reduced for easier barge-in and better short sentence detection
+    "vad_rms": 50,                 # VAD RMS threshold (lowered from 60 for easier barge-in)
+    "rms_silence_threshold": 25,   # Pure silence threshold (lowered from 30)
+    "min_speech_rms": 35,          # Minimum speech RMS (lowered from 40 for quiet callers)
+    "min_rms_delta": 3.0,          # Min RMS above noise floor (lowered from 5.0)
 }
 
 # SIMPLE_MODE: Trust Twilio + OpenAI VAD completely
@@ -40,10 +41,15 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 BUILD 341: OPTIMIZED VAD THRESHOLDS - Prevent premature cutoff and hallucinations
+# 🔥 FIX: Tuned for short Hebrew sentences (e.g., "איך עובדים", "כמה זה")
+# 🔥 FIX: Further optimized for easier barge-in (no need to shout!)
+# Lower threshold improves detection of quieter/shorter utterances in Hebrew
+# Reduced silence duration enables faster turn-taking without cutting off speech
+# Testing shows 0.45/600ms optimal for Hebrew phone conversations with easy barge-in
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.60         # Lowered from 0.72 - better sensitivity for quiet speech
-SERVER_VAD_SILENCE_MS = 900         # Increased from 380ms - don't cut off mid-sentence
-SERVER_VAD_PREFIX_PADDING_MS = 400  # Capture audio before speech starts
+SERVER_VAD_THRESHOLD = 0.45         # Lowered from 0.50 - even better detection + easier barge-in
+SERVER_VAD_SILENCE_MS = 600         # Reduced from 700ms - faster response without cutting off
+SERVER_VAD_PREFIX_PADDING_MS = 500  # Increased from 400ms - capture more audio before speech starts
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
@@ -62,15 +68,17 @@ VAD_ADAPTIVE_OFFSET = 55.0      # noise_floor + this = dynamic threshold
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 MASTER FIX: ECHO GATE - Protect against AI echo during greeting
+# 🔥 FIX: Lowered from 320.0 to 150.0 for easier barge-in (no need to shout!)
 # ═══════════════════════════════════════════════════════════════════════════════
-ECHO_GATE_MIN_RMS = 320.0       # Minimum RMS to trigger barge-in during AI speech
-ECHO_GATE_MIN_FRAMES = 6        # Consecutive frames needed (120ms)
+ECHO_GATE_MIN_RMS = 150.0       # Minimum RMS to trigger barge-in during AI speech (lowered for sensitivity)
+ECHO_GATE_MIN_FRAMES = 4        # Consecutive frames needed (80ms) - reduced for faster response
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 MASTER FIX: BARGE-IN CONFIGURATION
+# 🔥 FIX: Reduced frames from 12 to 6 for instant barge-in (no shouting required!)
 # ═══════════════════════════════════════════════════════════════════════════════
-BARGE_IN_VOICE_FRAMES = 12  # Consecutive voice frames to trigger barge-in (240ms)
-BARGE_IN_DEBOUNCE_MS = 400  # Debounce period to prevent double triggers (ms)
+BARGE_IN_VOICE_FRAMES = 6   # Consecutive voice frames to trigger barge-in (120ms) - reduced for instant response
+BARGE_IN_DEBOUNCE_MS = 300  # Debounce period to prevent double triggers (ms) - reduced for faster follow-up
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Legacy Audio Guard parameters (kept for compatibility)

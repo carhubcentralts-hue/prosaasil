@@ -102,7 +102,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
           duration: call.duration || 0,
           recording_url: call.recording_url,
-          notes: call.transcript || call.transcription || '',  // Try both transcript and transcription fields
+          // 🔥 FIX: Use final_transcript (high-quality Whisper) first, fallback to transcription (realtime)
+          notes: call.final_transcript || call.transcript || call.transcription || '',
           summary: call.summary || '',
           created_at: call.created_at || call.at,
           status: call.status
