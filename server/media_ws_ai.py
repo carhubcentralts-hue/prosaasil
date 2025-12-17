@@ -3815,31 +3815,23 @@ Greet briefly. Then WAIT for customer to speak."""
                             print(f"[BARGE-IN] Cleared ai_speaking flag and response guards")
                             
                             # ═══════════════════════════════════════════════════════════════════
-                            # 🎯 TASK C.1: Flush TX queue ONLY on confirmed barge-in (Master QA)
-                            # This only runs when actual user speech is detected during AI speech
+                            # 🔥 BARGE-IN RULE: Only cancel response, let audio drain naturally
+                            # - OpenAI will stop sending audio.delta on its own
+                            # - TX queue will drain naturally (no flush/drop)
+                            # - No state manipulation, just cancel
                             # ═══════════════════════════════════════════════════════════════════
-                            # 3) Flush both audio queues so NO old audio reaches Twilio
-                            openai_q_before = self.realtime_audio_out_queue.qsize()
-                            tx_q_before = self.tx_q.qsize()
-                            try:
-                                flushed_count = self._flush_twilio_tx_queue(reason="BARGE_IN")
-                            except Exception as e:
-                                print(f"   ⚠️ Error flushing TX queue: {e}")
-                                flushed_count = 0
                             
-                            # Calculate and log comprehensive barge-in metrics
+                            # Calculate barge-in latency for metrics
                             barge_in_latency_ms = (time.time() - barge_in_latency_start) * 1000
                             
-                            # 🔥 COMPREHENSIVE BARGE-IN LOG (single line with all metrics)
-                            # Note: "rx" = realtime_audio_out_queue, "tx" = tx_q
+                            # 🔥 SIMPLE BARGE-IN LOG (no queue manipulation)
                             logger.info(
-                                f"[BARGE-IN] Real user interrupt detected – "
+                                f"[BARGE-IN] User interrupt – "
                                 f"cancelled response {cancelled_id[:20] if cancelled_id else 'None'}, "
-                                f"flushed all queues (openai_q={openai_q_before}, tx_q={tx_q_before}, total={flushed_count}), "
                                 f"Δms_since_ai_start={time_since_ai_start_ms:.0f}ms, "
                                 f"latency={barge_in_latency_ms:.1f}ms"
                             )
-                            print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, {flushed_count} frames flushed")
+                            print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, audio will drain naturally")
                             
                             # 🔥 METRICS: Increment barge-in counter
                             self._barge_in_event_count += 1
@@ -7402,7 +7394,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         self._init_streaming_stt()
                         print("✅ Google STT initialized (USE_REALTIME_API=False)")
                     
-                    # 🚀 DEFERRED: Call log + recording run in background thread (non-blocking)
+                    # 🚀 DEFERRED: Call log creation (recording deferred until FIRST_AUDIO_SENT)
                     def _deferred_call_setup():
                         try:
                             app = _get_flask_app()
@@ -7410,7 +7402,7 @@ Greet briefly. Then WAIT for customer to speak."""
                                 if self.call_sid and not getattr(self, '_call_log_created', False):
                                     self._create_call_log_on_start()
                                     self._call_log_created = True
-                                    self._start_call_recording()
+                                    # 🔥 RECORDING DEFERRED: Will start after FIRST_AUDIO_SENT (in TX loop)
                         except Exception as e:
                             print(f"⚠️ Deferred call setup failed: {e}")
                     
@@ -11808,76 +11800,15 @@ Greet briefly. Then WAIT for customer to speak."""
                         _orig_print(f"[TX_HEARTBEAT] alive=True, qsize={qsize}, is_ai_speaking={is_ai_speaking}, active_response_id={active_response_id}, frames_sent={frames_sent_total}", flush=True)
                     last_heartbeat_time = now_mono
                 
-                # 🔥 FIX 4: TX STALL WATCHDOG - Check for queue backup without progress
+                # 🔥 TX_STALL: Lightweight monitoring only - no flush, no close, no action
+                # Only log if there's an actual problem for debugging purposes
                 if now_mono - last_frames_sent_check_time >= TX_STALL_WATCHDOG_INTERVAL:
                     qsize = self.tx_q.qsize()
                     frames_sent_delta = frames_sent_total - last_frames_sent_check
                     
-                    # 🔥 NEW: Check if queue is stuck with old frames when AI not speaking
-                    audio_state = getattr(self, 'audio_state', None)
-                    is_ai_speaking = audio_state.is_ai_speaking if audio_state else False
-                    active_response_id = audio_state.active_response_id if audio_state else None
-                    
-                    # 🔥 CRITICAL: Time-based flush condition to avoid flushing legitimate audio during race
-                    # Only flush if:
-                    # 1. Queue >100 frames
-                    # 2. AI not speaking AND no active_response_id
-                    # 3. No audio deltas received recently (>500ms since last AI audio)
-                    last_ai_audio_ts = getattr(self, 'last_ai_audio_ts', 0)
-                    time_since_last_audio_ms = (now_mono - last_ai_audio_ts) * 1000.0 if last_ai_audio_ts else 9999
-                    
-                    if (qsize > 100 and 
-                        not is_ai_speaking and 
-                        not active_response_id and 
-                        time_since_last_audio_ms > 500.0):
-                        
-                        age_ms = time_since_last_audio_ms
-                        _orig_print(f"🧹 [TX_QUEUE_FLUSH] Flushing {qsize} stale frames (reason: AI not speaking, no active_response_id, age={age_ms:.0f}ms)", flush=True)
-                        flushed_count = 0
-                        while not self.tx_q.empty() and flushed_count < qsize:
-                            try:
-                                self.tx_q.get_nowait()
-                                flushed_count += 1
-                            except queue.Empty:
-                                break
-                        _orig_print(f"✅ [TX_QUEUE_FLUSH] Flushed {flushed_count} frames (age={age_ms:.0f}ms)", flush=True)
-                    
-                    # If queue has items but no frames sent in last 800ms -> STALLED
-                    elif qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
-                        _orig_print(f"🚨 [TX_STALL_WATCHDOG] Queue backup detected! qsize={qsize}, frames_sent_delta=0 in {TX_STALL_WATCHDOG_INTERVAL}s", flush=True)
-                        
-                        # 🔥 FIX 4: Fail-fast on TX stall - close session cleanly
-                        # Rationale: Better to close cleanly than leave user with choppy audio
-                        call_state = getattr(self, 'call_state', None)
-                        ws_reconnect_attempted = True  # Mark attempted to avoid spam
-                        
-                        if call_state and call_state != CallState.ENDED:
-                            # Call still active but TX stalled - fail-fast close
-                            _orig_print(f"[TX_STALL_WATCHDOG] SESSION_CLOSE (reason=tx_stall_failfast) - call active but TX stuck", flush=True)
-                            self.tx_running = False
-                            # Clear queue to exit drain loop
-                            while not self.tx_q.empty():
-                                try:
-                                    self.tx_q.get_nowait()
-                                except queue.Empty:
-                                    break
-                            # Trigger session close from main thread
-                            if hasattr(self, 'close_session'):
-                                import threading
-                                threading.Thread(
-                                    target=lambda: self.close_session("tx_stall_failfast"),
-                                    daemon=True
-                                ).start()
-                        else:
-                            # Call ended/WS already closed - just clean up queue
-                            _orig_print(f"[TX_STALL_WATCHDOG] Call ended/WS closed - triggering clean session close", flush=True)
-                            self.tx_running = False
-                            # Clear queue to exit drain loop
-                            while not self.tx_q.empty():
-                                try:
-                                    self.tx_q.get_nowait()
-                                except queue.Empty:
-                                    break
+                    # Log stall conditions without taking action
+                    if qsize > 0 and frames_sent_delta == 0:
+                        _orig_print(f"[TX_STALL] Queue backup: qsize={qsize}, no frames sent in {TX_STALL_WATCHDOG_INTERVAL}s", flush=True)
                     
                     last_frames_sent_check = frames_sent_total
                     last_frames_sent_check_time = now_mono
@@ -11904,22 +11835,10 @@ Greet briefly. Then WAIT for customer to speak."""
                     send_start = time.monotonic()
                     success = self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
                     send_ms = (time.monotonic() - send_start) * 1000.0
+                    # 🔥 TX LOOP REAL-TIME: Minimal logging only
                     if send_ms > 50.0:
                         qsize = self.tx_q.qsize()
                         _orig_print(f"[TX_SEND_SLOW] type=clear, send_ms={send_ms:.1f}, qsize={qsize}", flush=True)
-                        if send_ms > 500.0 and not _stacktrace_logged_once:
-                            _stacktrace_logged_once = True
-                            _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks:", flush=True)
-                            import sys, traceback, threading
-                            for thread_id, frame in sys._current_frames().items():
-                                thread_name = None
-                                for t in threading.enumerate():
-                                    if t.ident == thread_id:
-                                        thread_name = t.name
-                                        break
-                                _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
-                                traceback.print_stack(frame)
-                                _orig_print("", flush=True)
                     print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
                     continue
                 
@@ -11941,30 +11860,22 @@ Greet briefly. Then WAIT for customer to speak."""
                         send_start = time.monotonic()
                         success = self._ws_send(json.dumps(item))
                         send_ms = (time.monotonic() - send_start) * 1000.0
+                        # 🔥 TX LOOP REAL-TIME: Minimal logging only
                         if send_ms > 50.0:
                             _orig_print(f"[TX_SEND_SLOW] type=media, send_ms={send_ms:.1f}, qsize={queue_size}", flush=True)
-                            if send_ms > 500.0 and not _stacktrace_logged_once:
-                                _stacktrace_logged_once = True
-                                _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks:", flush=True)
-                                import sys, traceback, threading
-                                for thread_id, frame in sys._current_frames().items():
-                                    thread_name = None
-                                    for t in threading.enumerate():
-                                        if t.ident == thread_id:
-                                            thread_name = t.name
-                                            break
-                                    _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
-                                    traceback.print_stack(frame)
-                                    _orig_print("", flush=True)
                         if tx_count < 3:
                             print(f"[TX_LOOP] Sent Realtime format: success={success}")
                         if success:
                             self.tx += 1  # ✅ Increment tx counter!
                             frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                            # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                            # 🔥 FIRST_AUDIO_SENT: Start recording now (after first audio frame)
                             if not _first_frame_sent:
                                 _first_frame_sent = True
                                 _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
+                                # 🔥 Start recording AFTER first audio sent (not during greeting)
+                                if not getattr(self, '_recording_started', False):
+                                    self._recording_started = True
+                                    threading.Thread(target=self._start_call_recording, daemon=True).start()
                     else:
                         # Old format - convert
                         # 🎯 PROBE 3: Send Blocking Probe - Measure ws.send time
@@ -11975,32 +11886,22 @@ Greet briefly. Then WAIT for customer to speak."""
                             "media": {"payload": item["payload"]}
                         }))
                         send_ms = (time.monotonic() - send_start) * 1000.0
+                        # 🔥 TX LOOP REAL-TIME: Minimal logging only
                         if send_ms > 50.0:
                             _orig_print(f"[TX_SEND_SLOW] type=media_old, send_ms={send_ms:.1f}, qsize={queue_size}", flush=True)
-                            
-                            # Only dump stack traces in debug mode for severe stalls
-                            if DEBUG_TX and send_ms > 500.0 and not _stacktrace_logged_once:
-                                _stacktrace_logged_once = True
-                                _orig_print(f"[TX_SEND_SLOW] CRITICAL: send blocked for {send_ms:.0f}ms! Dumping all thread stacks (DEBUG_TX=1):", flush=True)
-                                import sys, traceback, threading
-                                for thread_id, frame in sys._current_frames().items():
-                                    thread_name = None
-                                    for t in threading.enumerate():
-                                        if t.ident == thread_id:
-                                            thread_name = t.name
-                                            break
-                                    _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
-                                    traceback.print_stack(frame)
-                                    _orig_print("", flush=True)
                         if tx_count < 3:
                             print(f"[TX_LOOP] Sent old format (converted): success={success}")
                         if success:
                             self.tx += 1  # ✅ Increment tx counter!
                             frames_sent_total += 1  # 🎯 TASK 0.4: Track for exit log
-                            # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                            # 🔥 FIRST_AUDIO_SENT: Start recording now (after first audio frame)
                             if not _first_frame_sent:
                                 _first_frame_sent = True
                                 _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
+                                # 🔥 Start recording AFTER first audio sent (not during greeting)
+                                if not getattr(self, '_recording_started', False):
+                                    self._recording_started = True
+                                    threading.Thread(target=self._start_call_recording, daemon=True).start()
                 
                     tx_count += 1
                     frames_sent_last_sec += 1
@@ -12019,45 +11920,10 @@ Greet briefly. Then WAIT for customer to speak."""
                     now = time.monotonic()
                     frame_gap_ms = (now - last_frame_time) * 1000.0
                     
-                    # 🔥 P0 WATCHDOG: Detect TX stalls > 120ms and log stack traces
-                    # The problem statement shows max_gap_ms=4255ms (4.2s stall!)
-                    # This watchdog will catch what's blocking the TX thread
-                    if frame_gap_ms > 120.0:
-                        # 🚨 Always log TX stall
-                        _orig_print(f"🚨 [TX_STALL] gap={frame_gap_ms:.0f}ms (threshold=120ms)", flush=True)
-                        
-                        # 🔥 CRITICAL: Rate-limit stack dumps to once every 10 seconds
-                        # Dumping all threads is heavy and can make the stall worse
-                        now = time.monotonic()
-                        time_since_last_dump = now - last_stack_dump_time
-                        
-                        if time_since_last_dump >= STACK_DUMP_INTERVAL:
-                            _orig_print(f"   Dumping stack trace (last dump was {time_since_last_dump:.1f}s ago)...", flush=True)
-                            last_stack_dump_time = now
-                            
-                            import sys
-                            import traceback
-                            import threading
-                            
-                            try:
-                                queue_maxsize = getattr(self.tx_q, "maxsize", -1)
-                                _orig_print(f"   Queue: {queue_size}/{queue_maxsize}, tx_count={tx_count}, gap={frame_gap_ms:.0f}ms", flush=True)
-                            except Exception as e:
-                                _orig_print(f"[TX_DEBUG_PRINT_FAILED] {type(e).__name__}: {e}", flush=True)
-                            
-                            # Log stack traces of ALL threads to find the culprit
-                            _orig_print(f"🔍 [TX_STALL] Stack traces of all threads:", flush=True)
-                            for thread_id, frame in sys._current_frames().items():
-                                thread_name = None
-                                for t in threading.enumerate():
-                                    if t.ident == thread_id:
-                                        thread_name = t.name
-                                        break
-                                _orig_print(f"  Thread: {thread_name or 'unknown'} (id={thread_id})", flush=True)
-                                traceback.print_stack(frame)
-                                _orig_print(flush=True)
-                        else:
-                            _orig_print(f"   (Skipping stack dump - last dump was {time_since_last_dump:.1f}s ago, interval={STACK_DUMP_INTERVAL}s)", flush=True)
+                    # 🔥 TX_STALL: Log gaps > 300ms (lightweight logging only, no action)
+                    if frame_gap_ms > 300.0:
+                        # Single log entry - no stack dumps, no diagnostics
+                        _orig_print(f"[TX_STALL] gap={frame_gap_ms:.0f}ms", flush=True)
                     
                     if frame_gap_ms > max_gap_ms:
                         max_gap_ms = frame_gap_ms
