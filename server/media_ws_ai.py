@@ -1617,6 +1617,7 @@ class MediaStreamHandler:
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
         self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
+        self.barge_in_active = False  # 🔥 BARGE-IN FIX: Track if user is currently interrupting AI
         # 🔄 ADAPTIVE: Second confirmation for barge-in - require OpenAI speech_started confirmation
         self._openai_speech_started_confirmed = False  # Set on speech_started event, cleared after barge-in
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
@@ -3369,8 +3370,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
                             # 🔥 BARGE-IN: Also clear barge_in flag
-                            if hasattr(self, 'barge_in_active'):
-                                self.barge_in_active = False
+                            self.barge_in_active = False
                             _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
@@ -3379,8 +3379,7 @@ Greet briefly. Then WAIT for customer to speak."""
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
                             # 🔥 BARGE-IN: Also clear barge_in flag
-                            if hasattr(self, 'barge_in_active'):
-                                self.barge_in_active = False
+                            self.barge_in_active = False
                         
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
@@ -5398,7 +5397,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🔥 BARGE-IN: Clear barge_in flag now that transcription is complete
                         # ═══════════════════════════════════════════════════════════════════════
-                        if hasattr(self, 'barge_in_active') and self.barge_in_active:
+                        if self.barge_in_active:
                             self.barge_in_active = False
                             print(f"✅ [BARGE-IN] Cleared barge_in flag after transcription")
                         
@@ -11522,11 +11521,14 @@ Greet briefly. Then WAIT for customer to speak."""
         """
         flushed_count = 0
         try:
-            while not self.tx_q.empty():
+            # Use timeout-based approach to avoid race condition
+            # Keep flushing until queue is empty or timeout
+            while True:
                 try:
                     self.tx_q.get_nowait()
                     flushed_count += 1
                 except queue.Empty:
+                    # Queue is empty - done flushing
                     break
             
             if flushed_count > 0:
