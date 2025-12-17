@@ -2757,29 +2757,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                     _greeting_resumed_logged = True
                 
-                # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
-                current_time = time.time()
-                elapsed = current_time - _fps_window_start
-                
-                if elapsed >= 1.0:
-                    # Reset window every second
-                    if _fps_frame_count > COST_MAX_FPS and not _fps_throttle_logged:
-                        print(f"⚠️ [BUILD 318] FPS exceeded: {_fps_frame_count}/sec (max={COST_MAX_FPS})")
-                    _fps_frame_count = 0
-                    _fps_window_start = current_time
-                    _fps_throttle_logged = False
-                
-                # 🔥 BUILD 341: FPS LIMITER FIX - Changed to >= to drop at exactly the limit
-                # Allow frames 1-70 (when _fps_frame_count is 0-69 before increment)
-                # Drop frame 71+ (when _fps_frame_count is 70+ before increment)
-                if COST_EFFICIENT_MODE and _fps_frame_count >= COST_MAX_FPS:
-                    # Skip this frame - we're at or over the limit
-                    if not _fps_throttle_logged:
-                        print(f"💰 [FPS LIMIT] Throttling audio - {_fps_frame_count} frames this second (max={COST_MAX_FPS})")
-                        _fps_throttle_logged = True
-                    # 🔥 BUILD 341: Count as dropped
-                    _frames_dropped += 1
-                    continue
+                # ✅ NO FPS LIMITING - All frames pass through
+                # TX loop maintains strict 20ms pacing, no artificial throttling here
                 
                 _fps_frame_count += 1
                 
@@ -11533,9 +11512,9 @@ Greet briefly. Then WAIT for customer to speak."""
     
     def _tx_loop(self):
         """
-        ✅ ONE TRUTH: Simple TX loop - take frame, send to Twilio, sleep 20ms
+        ✅ ZERO LOGS INSIDE: Clean TX loop - take frame, send to Twilio, sleep 20ms
         
-        NO WATCHDOGS, NO STALL RECOVERY, NO FLUSH
+        NO LOGS, NO WATCHDOGS, NO STALL RECOVERY, NO FLUSH
         Only: get frame → send → sleep
         """
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
@@ -11546,8 +11525,8 @@ Greet briefly. Then WAIT for customer to speak."""
         frames_sent_total = 0
         _first_frame_sent = False
         
-        # Simple gap tracking for optional logging (no action)
-        last_frame_time = time.monotonic()
+        # Pre-format event templates (outside loop to avoid json.dumps inside)
+        clear_event_template = {"event": "clear", "streamSid": self.stream_sid}
         
         try:
             while self.tx_running or not self.tx_q.empty():
@@ -11562,24 +11541,20 @@ Greet briefly. Then WAIT for customer to speak."""
                 if item.get("type") == "end":
                     break
                 
-                # Handle "clear" event - send to Twilio
+                # Handle "clear" event - send to Twilio (NO LOGS)
                 if item.get("type") == "clear" and self.stream_sid:
-                    self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
+                    self._ws_send(json.dumps(clear_event_template))
                     continue
                 
-                # Handle "media" event - send audio to Twilio
+                # Handle "media" event - send audio to Twilio (NO LOGS)
                 if item.get("type") == "media" or item.get("event") == "media":
-                    # Send frame to Twilio WS
+                    # Send frame to Twilio WS (item already has correct format from enqueue)
                     if item.get("event") == "media" and "media" in item:
-                        # Already in correct format
                         success = self._ws_send(json.dumps(item))
                     else:
-                        # Old format - convert
-                        success = self._ws_send(json.dumps({
-                            "event": "media",
-                            "streamSid": self.stream_sid,
-                            "media": {"payload": item["payload"]}
-                        }))
+                        # Old format - convert (pre-build dict to minimize work)
+                        payload = {"event": "media", "streamSid": self.stream_sid, "media": {"payload": item["payload"]}}
+                        success = self._ws_send(json.dumps(payload))
                     
                     if success:
                         self.tx += 1
@@ -11597,26 +11572,17 @@ Greet briefly. Then WAIT for customer to speak."""
                         # Missed deadline - resync to prevent catch-up bursts
                         next_deadline = time.monotonic()
                     
-                    # ✅ Optional gap logging (NO ACTION, just visibility)
-                    now = time.monotonic()
-                    frame_gap_ms = (now - last_frame_time) * 1000.0
-                    if frame_gap_ms > 300.0:
-                        _orig_print(f"[TX_GAP] {frame_gap_ms:.0f}ms", flush=True)
-                    last_frame_time = now
+                    # NO GAP LOGGING INSIDE LOOP - causes micro-blocks
                     continue
                 
-                # Handle "mark" event
+                # Handle "mark" event (NO LOGS)
                 if item.get("type") == "mark" and self.stream_sid:
-                    self._ws_send(json.dumps({
-                        "event": "mark",
-                        "streamSid": self.stream_sid,
-                        "mark": {"name": item.get("name", "mark")}
-                    }))
+                    mark_event = {"event": "mark", "streamSid": self.stream_sid, "mark": {"name": item.get("name", "mark")}}
+                    self._ws_send(json.dumps(mark_event))
         
         except Exception as tx_loop_error:
-            _orig_print(f"[TX_CRASH] TX loop crashed: {tx_loop_error}", flush=True)
-            import traceback
-            traceback.print_exc()
+            # NO TRACEBACK - just log and re-raise
+            _orig_print(f"[TX_CRASH] {tx_loop_error}", flush=True)
             raise
         finally:
             _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
