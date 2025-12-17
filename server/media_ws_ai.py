@@ -82,9 +82,9 @@ try:
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = True   # BUILD 341: RE-ENABLED with higher FPS limit
+    COST_EFFICIENT_MODE = False   # ✅ DISABLED - No FPS throttling (NO FILTERS requirement)
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 70  # BUILD 341: 70 FPS = headroom for jitter
+    COST_MAX_FPS = 70  # Not used when COST_EFFICIENT_MODE=False
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
@@ -135,7 +135,7 @@ if _env_model:
     OPENAI_REALTIME_MODEL = _env_model
 
 print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
-print(f"🔊 [BUILD 330] FPS throttling: {'ENABLED (max={})'.format(COST_MAX_FPS) if COST_EFFICIENT_MODE else 'DISABLED'} - all audio passes through for best transcription")
+print(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -3527,18 +3527,11 @@ Greet briefly. Then WAIT for customer to speak."""
                     # Echo guard only affects user_has_spoken flag for state progression
                     # If OpenAI sends speech_started while AI is speaking, ALWAYS cancel
                     # This ensures "רגע רגע" in 0-200ms always stops TTS
-                    ai_speaking = self.is_ai_speaking_event.is_set()
-                    last_ai_audio_ts = getattr(self, '_last_ai_audio_ts', 0)
-                    time_since_ai_audio_ms = (time.time() - last_ai_audio_ts) * 1000 if last_ai_audio_ts else 9999
-                    # Use global ECHO_SUPPRESSION_WINDOW_MS constant for consistency
-                    
-                    # Echo guard for user_has_spoken flag (state progression only)
-                    echo_guard_pass = not ai_speaking or time_since_ai_audio_ms > ECHO_SUPPRESSION_WINDOW_MS
-                    if echo_guard_pass and not self.user_has_spoken:
+                    # ✅ NO FILTERS: Set user_has_spoken immediately on speech_started
+                    # No echo suppression window - if OpenAI detected speech, it's real
+                    if not self.user_has_spoken:
                         self.user_has_spoken = True
-                        print(f"✅ [STT_GUARD] user_has_spoken=True on speech_started (echo_guard_pass, time_since_ai={time_since_ai_audio_ms:.0f}ms)")
-                    elif not echo_guard_pass:
-                        print(f"⚠️ [ECHO_GUARD] Likely AI echo - NOT setting user_has_spoken yet (time_since_ai={time_since_ai_audio_ms:.0f}ms)")
+                        print(f"✅ [NO FILTERS] user_has_spoken=True on speech_started (no echo guard)")
                     
                     # 🔥 CRITICAL: Set user_speaking=True to block response.create until user finishes
                     # This is THE KEY to proper turn-taking: AI won't interrupt user mid-speech
@@ -3832,10 +3825,8 @@ Greet briefly. Then WAIT for customer to speak."""
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
-                            # 🔥 FIX BUG 3: Track AI audio start time for echo suppression
+                            # 🔥 Track AI audio start time for metrics
                             self._last_ai_audio_start_ts = now
-                            if DEBUG:
-                                print(f"[BARGE_IN] AI audio started - echo suppression window active for {ECHO_SUPPRESSION_WINDOW_MS}ms")
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
                                 print(f"🔄 [P0-5] Audio started - cancelling recovery")
@@ -3980,9 +3971,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
                     
-                    # 🔥 BUILD 171: Track when AI finished speaking for cooldown check
+                    # 🔥 Track when AI finished speaking (for metrics only, no cooldown enforcement)
                     self._ai_finished_speaking_ts = time.time()
-                    print(f"🔥 [BUILD 171] AI finished speaking - cooldown started ({POST_AI_COOLDOWN_MS}ms)")
                     
                     # 🔥 BUILD 172: Update speech time for silence detection
                     self._update_speech_time()
