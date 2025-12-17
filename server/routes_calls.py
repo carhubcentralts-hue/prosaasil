@@ -2,7 +2,7 @@
 Calls API Routes - מסלולי API לשיחות
 Includes call listing, details, transcript, and secure recording download
 """
-from flask import Blueprint, request, jsonify, send_file, current_app, session, g
+from flask import Blueprint, request, jsonify, send_file, current_app, session, g, Response, make_response
 from server.auth_api import require_api_auth
 from server.routes_crm import get_business_id
 from server.extensions import csrf
@@ -261,7 +261,6 @@ def download_recording(call_sid):
             
             # Ensure valid range
             if start >= file_size:
-                from flask import Response
                 return Response(status=416)  # Range Not Satisfiable
             
             end = min(end, file_size - 1)
@@ -273,7 +272,6 @@ def download_recording(call_sid):
                 data = f.read(length)
             
             # Return 206 Partial Content with proper headers
-            from flask import Response
             rv = Response(
                 data,
                 206,
@@ -283,16 +281,43 @@ def download_recording(call_sid):
             rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
             rv.headers.add('Accept-Ranges', 'bytes')
             rv.headers.add('Content-Length', str(length))
+            # 🎯 FIX: Content-Disposition inline for browser playback (required for iOS/Chrome)
+            rv.headers.add('Content-Disposition', 'inline')
+            # 🎯 FIX: CORS headers for cross-origin requests (if frontend on different domain)
+            # Security: Use specific origin from request header, NOT wildcard with credentials
+            origin = request.headers.get('Origin')
+            if origin:
+                rv.headers.add('Access-Control-Allow-Origin', origin)
+                rv.headers.add('Access-Control-Allow-Credentials', 'true')
+                # 🎯 FIX: Vary header for proper caching with multiple origins
+                rv.headers.add('Vary', 'Origin')
+                # 🎯 FIX: Expose headers so UI can read them during Range requests
+                rv.headers.add('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
             return rv
         else:
             # No Range header - serve entire file with Accept-Ranges header
-            return send_file(
+            response = make_response(send_file(
                 audio_path,
                 mimetype="audio/mpeg",
                 as_attachment=False,
                 conditional=True,  # Enable conditional requests
                 max_age=3600  # Cache for 1 hour
-            )
+            ))
+            # 🎯 FIX: Add required headers for audio streaming (iOS/Android compatibility)
+            response.headers['Accept-Ranges'] = 'bytes'
+            response.headers['Content-Disposition'] = 'inline'
+            response.headers['Content-Length'] = str(file_size)
+            # 🎯 FIX: CORS headers for cross-origin requests
+            # Security: Use specific origin from request header, NOT wildcard with credentials
+            origin = request.headers.get('Origin')
+            if origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                # 🎯 FIX: Vary header for proper caching with multiple origins
+                response.headers['Vary'] = 'Origin'
+                # 🎯 FIX: Expose headers so UI can read them during Range requests
+                response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
+            return response
         
     except Exception as e:
         log.error(f"Error downloading recording: {e}")
