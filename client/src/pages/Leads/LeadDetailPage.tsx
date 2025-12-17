@@ -753,8 +753,8 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
 
   // 🔥 FIX: Load recording as blob with authentication when call is expanded
   const loadRecordingBlob = async (callId: string) => {
-    // Skip if already loaded
-    if (recordingUrls[callId]) return;
+    // Skip if already loaded (check ref for source of truth)
+    if (recordingUrlsRef.current[callId]) return;
     
     setLoadingRecording(callId);
     try {
@@ -979,7 +979,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                           <audio 
                             controls 
                             playsInline
-                            preload="metadata"
+                            preload="none"
                             className="w-full" 
                             src={recordingUrls[getCallId(call)]}
                           >
