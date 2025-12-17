@@ -1198,6 +1198,13 @@ HEBREW_FILLER_WORDS = {
 GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
 GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
 
+# 🔧 GOODBYE DETECTION: Clear goodbye words shared across functions
+CLEAR_GOODBYE_WORDS = [
+    "להתראות", "ביי", "bye", "bye bye", "goodbye",
+    "יאללה ביי", "יאללה להתראות",
+    "ביי יום טוב"  # "bye have a good day"
+]
+
 # 🔧 GOODBYE DETECTION: Thresholds for polite ending detection
 # Short utterances (≤3 words) with polite phrases are likely goodbyes (e.g., "תודה רבה")
 # Longer utterances require phrase to be ≥50% of content to avoid false positives
@@ -10063,14 +10070,8 @@ Greet briefly. Then WAIT for customer to speak."""
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
                 return False
         
-        # ✅ CLEAR goodbye words
-        clear_goodbye_words = [
-            "להתראות", "ביי", "bye", "bye bye", "goodbye",
-            "יאללה ביי", "יאללה להתראות",
-            "ביי יום טוב"  # Added: "bye have a good day"
-        ]
-        
-        for word in clear_goodbye_words:
+        # ✅ CLEAR goodbye words - use shared constant
+        for word in CLEAR_GOODBYE_WORDS:
             if word in text_lower:
                 print(f"[USER GOODBYE] Clear goodbye: '{word}' in '{text_lower[:30]}...'")
                 return True
@@ -10130,15 +10131,8 @@ Greet briefly. Then WAIT for customer to speak."""
                 print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
         
-        # ✅ CLEAR goodbye words - ONLY these trigger hangup!
-        # Must contain "ביי" or "להתראות" or English equivalents
-        clear_goodbye_words = [
-            "להתראות", "ביי", "bye", "bye bye", "goodbye",
-            "יאללה ביי", "יאללה להתראות",
-            "ביי יום טוב"  # Added: "bye have a good day"
-        ]
-        
-        has_clear_goodbye = any(word in text_lower for word in clear_goodbye_words)
+        # ✅ CLEAR goodbye words - ONLY these trigger hangup! Use shared constant
+        has_clear_goodbye = any(word in text_lower for word in CLEAR_GOODBYE_WORDS)
         
         if has_clear_goodbye:
             print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
