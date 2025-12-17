@@ -3352,14 +3352,31 @@ Greet briefly. Then WAIT for customer to speak."""
                                 print(f"[AUDIO_STALL] ai_speaking=True no_delta_for={time_since_delta:.1f}s "
                                       f"response_id={self.active_response_id[:20] if self.active_response_id else 'None'}")
                                 
-                                # 🔥 FIX 3: AUDIO_STALL recovery - clear state and allow retry
+                                # 🔥 FIX 3: AUDIO_STALL recovery - cancel old response, then retry
                                 if not stall_recovery_attempted:
-                                    print(f"[AUDIO_STALL] Recovery: clearing is_ai_speaking, active_response_id")
+                                    stalled_response_id = self.active_response_id
+                                    print(f"[AUDIO_STALL] Recovery: canceling stalled response {stalled_response_id[:20] if stalled_response_id else 'None'}")
+                                    
+                                    # Step 1: Cancel the stalled response (with timeout)
+                                    if stalled_response_id and self.realtime_client:
+                                        try:
+                                            cancel_event = {"type": "response.cancel", "response_id": stalled_response_id}
+                                            await asyncio.wait_for(
+                                                self.realtime_client.send_event(cancel_event),
+                                                timeout=0.3
+                                            )
+                                            print(f"[AUDIO_STALL] Cancelled stalled response")
+                                        except asyncio.TimeoutError:
+                                            print(f"[AUDIO_STALL] Cancel timeout (continuing anyway)")
+                                        except Exception as e:
+                                            print(f"[AUDIO_STALL] Cancel failed: {e}")
+                                    
+                                    # Step 2: Clear state
                                     self.is_ai_speaking_event.clear()
                                     self.active_response_id = None
                                     stall_recovery_attempted = True
                                     
-                                    # If there's pending user text, trigger retry once
+                                    # Step 3: Retry once if there's pending user text
                                     if hasattr(self, '_pending_user_text') and self._pending_user_text:
                                         print(f"[AUDIO_STALL] Retrying with pending text: {self._pending_user_text[:50]}...")
                                         # Queue retry in background to avoid blocking receiver
@@ -11703,16 +11720,31 @@ Greet briefly. Then WAIT for customer to speak."""
                     if qsize > 0 and frames_sent_delta == 0 and not ws_reconnect_attempted:
                         _orig_print(f"🚨 [TX_STALL_WATCHDOG] Queue backup detected! qsize={qsize}, frames_sent_delta=0 in {TX_STALL_WATCHDOG_INTERVAL}s", flush=True)
                         
-                        # Check if call is still active before reconnecting
+                        # 🔥 FIX 4: Fail-fast on TX stall - close session cleanly
+                        # Rationale: Better to close cleanly than leave user with choppy audio
                         call_state = getattr(self, 'call_state', None)
+                        ws_reconnect_attempted = True  # Mark attempted to avoid spam
+                        
                         if call_state and call_state != CallState.ENDED:
-                            _orig_print(f"[TX_STALL_WATCHDOG] Attempting WS reconnect (call still active)", flush=True)
-                            # TODO: Implement WS reconnect logic here if needed
-                            # For now, log and mark attempted to avoid spam
-                            ws_reconnect_attempted = True
+                            # Call still active but TX stalled - fail-fast close
+                            _orig_print(f"[TX_STALL_WATCHDOG] SESSION_CLOSE (reason=tx_stall_failfast) - call active but TX stuck", flush=True)
+                            self.tx_running = False
+                            # Clear queue to exit drain loop
+                            while not self.tx_q.empty():
+                                try:
+                                    self.tx_q.get_nowait()
+                                except queue.Empty:
+                                    break
+                            # Trigger session close from main thread
+                            if hasattr(self, 'close_session'):
+                                import threading
+                                threading.Thread(
+                                    target=lambda: self.close_session("tx_stall_failfast"),
+                                    daemon=True
+                                ).start()
                         else:
+                            # Call ended/WS already closed - just clean up queue
                             _orig_print(f"[TX_STALL_WATCHDOG] Call ended/WS closed - triggering clean session close", flush=True)
-                            # Trigger clean close
                             self.tx_running = False
                             # Clear queue to exit drain loop
                             while not self.tx_q.empty():
