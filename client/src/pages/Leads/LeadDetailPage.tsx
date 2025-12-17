@@ -96,7 +96,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?lead_id=${leadId}`);
       if (response.success && response.calls) {
         const leadCalls: LeadCall[] = response.calls.map((call: any) => ({
-          id: call.sid || call.call_sid || call.id,
+          id: call.call_sid || call.sid || call.id,  // Use call_sid as primary id
+          call_sid: call.call_sid || call.sid,  // Store explicit call_sid
           lead_id: parseInt(leadId),
           call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
           duration: call.duration || 0,
@@ -875,14 +876,14 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteCall(call.id);
+                          handleDeleteCall(call.call_sid || call.id);
                         }}
-                        disabled={deleting === call.id}
+                        disabled={deleting === (call.call_sid || call.id)}
                         className="p-2 hover:bg-red-100 rounded-full transition-colors"
                         data-testid={`button-delete-call-${call.id}`}
                         title="מחק שיחה"
                       >
-                        {deleting === call.id ? (
+                        {deleting === (call.call_sid || call.id) ? (
                           <Loader2 className="w-4 h-4 animate-spin text-red-500" />
                         ) : (
                           <Trash2 className="w-4 h-4 text-red-500" />
@@ -907,7 +908,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
                           <button
-                            onClick={() => handleDownload(call.id)}
+                            onClick={() => handleDownload(call.call_sid || call.id)}
                             className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -921,7 +922,7 @@ function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; lo
                           playsInline
                           preload="none"
                           className="w-full" 
-                          src={`/api/calls/${call.id}/download`}
+                          src={`/api/calls/${call.call_sid || call.id}/download`}
                         >
                           הדפדפן שלך לא תומך בנגן אודיו
                         </audio>

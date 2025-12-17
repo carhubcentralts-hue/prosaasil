@@ -51,7 +51,8 @@ export interface LeadActivity {
 }
 
 export interface LeadCall {
-  id: number;
+  id: string;  // call_sid from Twilio
+  call_sid?: string;  // Explicit call_sid field
   lead_id: number;
   call_type: 'incoming' | 'outgoing';
   duration: number;
@@ -59,7 +60,7 @@ export interface LeadCall {
   notes?: string;
   summary?: string;
   created_at: string;
-  status: 'completed' | 'missed' | 'busy';
+  status: 'completed' | 'missed' | 'busy' | string;
 }
 
 export interface LeadAppointment {

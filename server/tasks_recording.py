@@ -911,16 +911,17 @@ def save_call_status_async(call_sid, status, duration=0, direction="inbound", tw
                 if duration > 0 and duration > (call_log.duration or 0):
                     call_log.duration = duration
                 
-                # ✅ Update direction if provided (normalized)
-                if direction:
-                    call_log.direction = normalize_call_direction(twilio_direction or direction)
-                
-                # 🔥 Store original Twilio direction
-                if twilio_direction:
+                # 🔥 CRITICAL: Only update direction fields if we have actual values
+                # Never overwrite with None
+                if twilio_direction and not call_log.twilio_direction:
                     call_log.twilio_direction = twilio_direction
+                    call_log.direction = normalize_call_direction(twilio_direction)
+                elif direction and not call_log.direction:
+                    # Fallback: use normalized direction if twilio_direction not available
+                    call_log.direction = direction
                 
-                # 🔥 Store parent_call_sid if provided
-                if parent_call_sid:
+                # 🔥 Store parent_call_sid ONLY if provided and not already set
+                if parent_call_sid and not call_log.parent_call_sid:
                     call_log.parent_call_sid = parent_call_sid
                 
                 call_log.updated_at = db.func.now()

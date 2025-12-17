@@ -358,13 +358,13 @@ def incoming_call():
         call_sid = request.args.get("CallSid", "")
         from_number = request.args.get("From", "")
         to_number = request.args.get("To", "")
-        twilio_direction = request.args.get("Direction", "inbound")  # 🔥 NEW: Capture Twilio direction
+        twilio_direction = request.args.get("Direction")  # 🔥 FIX: No default - None if missing
         parent_call_sid = request.args.get("ParentCallSid")  # 🔥 NEW: Capture parent call SID
     else:
         call_sid = request.form.get("CallSid", "")
         from_number = request.form.get("From", "")
         to_number = request.form.get("To", "")
-        twilio_direction = request.form.get("Direction", "inbound")  # 🔥 NEW: Capture Twilio direction
+        twilio_direction = request.form.get("Direction")  # 🔥 FIX: No default - None if missing
         parent_call_sid = request.form.get("ParentCallSid")  # 🔥 NEW: Capture parent call SID
     
     # ✅ BUILD 100: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_e164 (העמודה האמיתית!)
@@ -413,16 +413,21 @@ def incoming_call():
                 # CREATE: New call log
                 # ✅ BUILD 152: Dynamic to_number fallback (no hardcoded phone!)
                 fallback_to = to_number or (business.phone_e164 if business else None) or "unknown"
-                normalized_direction = normalize_call_direction(twilio_direction)
+                
+                # 🔥 CRITICAL: Only normalize if we have a direction, otherwise use "unknown"
+                if twilio_direction:
+                    normalized_direction = normalize_call_direction(twilio_direction)
+                else:
+                    normalized_direction = "unknown"
                 
                 call_log = CallLog(
                     call_sid=call_sid,
-                    parent_call_sid=parent_call_sid,  # 🔥 NEW: Store parent call SID
+                    parent_call_sid=parent_call_sid if parent_call_sid else None,  # 🔥 FIX: Explicit None
                     from_number=from_number,
                     to_number=fallback_to,  # ✅ BUILD 152: Dynamic, not hardcoded
                     business_id=business_id,
-                    direction=normalized_direction,  # 🔥 NEW: Normalized direction
-                    twilio_direction=twilio_direction,  # 🔥 NEW: Original Twilio direction
+                    direction=normalized_direction,  # 🔥 NEW: Normalized direction or "unknown"
+                    twilio_direction=twilio_direction if twilio_direction else None,  # 🔥 FIX: Explicit None if missing
                     call_status="initiated",  # ✅ BUILD 90: Legacy field
                     status="initiated"
                 )
@@ -430,7 +435,8 @@ def incoming_call():
                 db.session.commit()
                 logger.info(f"✅ Created CallLog: {call_sid}, direction={normalized_direction}, twilio_direction={twilio_direction}, parent={parent_call_sid}")
             else:
-                # UPDATE: Call log exists (retry scenario) - update if needed
+                # UPDATE: Call log exists (retry scenario) - update ONLY if we have values
+                # 🔥 CRITICAL: Never overwrite with None
                 if parent_call_sid and not existing.parent_call_sid:
                     existing.parent_call_sid = parent_call_sid
                 if twilio_direction and not existing.twilio_direction:
@@ -956,13 +962,13 @@ def call_status():
         call_sid = request.args.get("CallSid")
         call_status_val = request.args.get("CallStatus")
         call_duration = request.args.get("CallDuration", "0")
-        twilio_direction = request.args.get("Direction", "inbound")
+        twilio_direction = request.args.get("Direction")  # 🔥 FIX: No default - None if missing
         parent_call_sid = request.args.get("ParentCallSid")  # 🔥 NEW: Extract parent call SID
     else:
         call_sid = request.form.get("CallSid")
         call_status_val = request.form.get("CallStatus")
         call_duration = request.form.get("CallDuration", "0")
-        twilio_direction = request.form.get("Direction", "inbound")
+        twilio_direction = request.form.get("Direction")  # 🔥 FIX: No default - None if missing
         parent_call_sid = request.form.get("ParentCallSid")  # 🔥 NEW: Extract parent call SID
     
     # החזרה מיידית ללא עיכובים
@@ -983,7 +989,8 @@ def call_status():
             # ✅ BUILD 106: Save with duration and direction
             # 🔥 NEW: Pass twilio_direction and parent_call_sid for proper tracking
             from server.tasks_recording import normalize_call_direction
-            normalized_direction = normalize_call_direction(twilio_direction)
+            # 🔥 CRITICAL: Only normalize if we have a direction, otherwise keep existing
+            normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else None
             save_call_status(call_sid, call_status_val, int(call_duration), 
                            normalized_direction, twilio_direction, parent_call_sid)
             
