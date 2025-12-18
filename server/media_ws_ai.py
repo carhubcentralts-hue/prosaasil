@@ -2157,10 +2157,26 @@ class MediaStreamHandler:
         4. Stream audio bidirectionally
         """
         from server.services.openai_realtime_client import OpenAIRealtimeClient
+        from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
         logger.info(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
+        
+        # Helper function for session configuration (used for initial config and retry)
+        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens):
+            """Send session.update event with specified configuration"""
+            await client.configure_session(
+                instructions=greeting_prompt,
+                voice=call_voice,
+                input_audio_format="g711_ulaw",
+                output_audio_format="g711_ulaw",
+                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
+                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
+                temperature=0.6,
+                max_tokens=greeting_max_tokens,
+                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
+            )
         
         client = None
         call_start_time = time.time()
@@ -2436,10 +2452,6 @@ Greet briefly. Then WAIT for customer to speak."""
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
-            # 🔥 BUILD 350: Import VAD config for consistent behavior
-            # CRITICAL: Use centralized config to prevent "AI not speaking" bugs
-            from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
-            
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 STEP 1: Start RX loop BEFORE session.update to prevent event loss
             # ═══════════════════════════════════════════════════════════════════════
@@ -2447,24 +2459,13 @@ Greet briefly. Then WAIT for customer to speak."""
             logger.info(f"[REALTIME] Starting receiver loop before session configuration")
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             # Give RX loop time to start (prevents race where session.updated arrives before loop is ready)
-            await asyncio.sleep(0.1)  # 100ms to ensure recv_events() is listening
+            RX_LOOP_STARTUP_DELAY = 0.1  # 100ms to ensure recv_events() is active and listening
+            await asyncio.sleep(RX_LOOP_STARTUP_DELAY)
             _orig_print(f"✅ [RX_LOOP] Receiver task started - ready to receive session.updated", flush=True)
             
-            # 🔥 BUILD 350: Configure with BALANCED settings for reliable greeting
-            # Previous hardcoded values (0.85/450) caused AI to never respond!
-            # Now using config values (0.5/400) for consistent, reliable behavior
+            # Send initial session configuration
             _orig_print(f"📤 [SESSION] Sending session.update with config...", flush=True)
-            await client.configure_session(
-                instructions=greeting_prompt,
-                voice=call_voice,
-                input_audio_format="g711_ulaw",
-                output_audio_format="g711_ulaw",
-                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
-                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
-                temperature=0.6,
-                max_tokens=greeting_max_tokens,
-                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
-            )
+            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens)
             _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
             
             # ═══════════════════════════════════════════════════════════════════════
@@ -2492,17 +2493,7 @@ Greet briefly. Then WAIT for customer to speak."""
                 if elapsed >= retry_at and not retried:
                     retried = True
                     _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
-                    await client.configure_session(
-                        instructions=greeting_prompt,
-                        voice=call_voice,
-                        input_audio_format="g711_ulaw",
-                        output_audio_format="g711_ulaw",
-                        vad_threshold=SERVER_VAD_THRESHOLD,
-                        silence_duration_ms=SERVER_VAD_SILENCE_MS,
-                        temperature=0.6,
-                        max_tokens=greeting_max_tokens,
-                        transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."
-                    )
+                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens)
                     _orig_print(f"📤 [SESSION] Retry session.update sent - continuing to wait", flush=True)
                 
                 if elapsed > max_wait:
@@ -3710,8 +3701,9 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # Check if config looks valid (has our customizations)
                         # If yes, accept it and proceed
+                        MIN_INSTRUCTION_LENGTH = 50  # Minimum length to consider instructions valid (not default/empty)
                         if (output_format == "g711_ulaw" and input_format == "g711_ulaw" and 
-                            instructions and len(instructions) > 50):
+                            instructions and len(instructions) > MIN_INSTRUCTION_LENGTH):
                             _orig_print(f"✅ [SESSION] session.created has valid config - accepting as fallback", flush=True)
                             self._session_config_confirmed = True
                         else:
