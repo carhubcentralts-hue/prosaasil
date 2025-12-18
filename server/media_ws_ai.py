@@ -2440,9 +2440,20 @@ Greet briefly. Then WAIT for customer to speak."""
             # CRITICAL: Use centralized config to prevent "AI not speaking" bugs
             from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
             
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 STEP 1: Start RX loop BEFORE session.update to prevent event loss
+            # ═══════════════════════════════════════════════════════════════════════
+            _orig_print(f"🚀 [RX_LOOP] Starting receiver task BEFORE session.update (prevents event loss)", flush=True)
+            logger.info(f"[REALTIME] Starting receiver loop before session configuration")
+            audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
+            # Give RX loop time to start (prevents race where session.updated arrives before loop is ready)
+            await asyncio.sleep(0.1)  # 100ms to ensure recv_events() is listening
+            _orig_print(f"✅ [RX_LOOP] Receiver task started - ready to receive session.updated", flush=True)
+            
             # 🔥 BUILD 350: Configure with BALANCED settings for reliable greeting
             # Previous hardcoded values (0.85/450) caused AI to never respond!
             # Now using config values (0.5/400) for consistent, reliable behavior
+            _orig_print(f"📤 [SESSION] Sending session.update with config...", flush=True)
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -2454,13 +2465,19 @@ Greet briefly. Then WAIT for customer to speak."""
                 max_tokens=greeting_max_tokens,
                 transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
             )
+            _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
             
-            # 🔥 CRITICAL: Wait for session.updated confirmation before proceeding
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 STEP 3: Extended timeout with retry logic
+            # ═══════════════════════════════════════════════════════════════════════
+            # CRITICAL: Wait for session.updated confirmation before proceeding
             # This prevents race condition where response.create is sent before session is configured
             # Without this wait: PCM16 audio (noise) + English responses + no instructions
-            _orig_print(f"⏳ [SESSION] Waiting for session.updated confirmation...", flush=True)
+            _orig_print(f"⏳ [SESSION] Waiting for session.updated confirmation (max 8s with retry)...", flush=True)
             wait_start = time.time()
-            max_wait = 3.0  # Maximum 3 seconds to wait for session.updated
+            max_wait = 8.0  # Maximum 8 seconds total
+            retry_at = 3.0  # Retry after 3 seconds if no response
+            retried = False
             
             while not getattr(self, '_session_config_confirmed', False):
                 # Check if session configuration failed
@@ -2470,15 +2487,33 @@ Greet briefly. Then WAIT for customer to speak."""
                 
                 # Check timeout
                 elapsed = time.time() - wait_start
+                
+                # Retry logic: Send session.update again if no response within 3s
+                if elapsed >= retry_at and not retried:
+                    retried = True
+                    _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
+                    await client.configure_session(
+                        instructions=greeting_prompt,
+                        voice=call_voice,
+                        input_audio_format="g711_ulaw",
+                        output_audio_format="g711_ulaw",
+                        vad_threshold=SERVER_VAD_THRESHOLD,
+                        silence_duration_ms=SERVER_VAD_SILENCE_MS,
+                        temperature=0.6,
+                        max_tokens=greeting_max_tokens,
+                        transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."
+                    )
+                    _orig_print(f"📤 [SESSION] Retry session.update sent - continuing to wait", flush=True)
+                
                 if elapsed > max_wait:
-                    _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s) - aborting", flush=True)
+                    _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s, retried={retried}) - aborting", flush=True)
                     raise RuntimeError(f"Session configuration timeout after {max_wait}s - cannot proceed")
                 
                 # Wait a bit and check again
                 await asyncio.sleep(0.05)  # 50ms polling
             
             session_wait_ms = (time.time() - wait_start) * 1000
-            _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms - safe to proceed", flush=True)
+            _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
             
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
@@ -2492,10 +2527,9 @@ Greet briefly. Then WAIT for customer to speak."""
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
-            # 🚀 Start audio/text bridges FIRST (before CRM)
-            logger.info(f"[REALTIME] Starting audio/text bridge tasks...")
+            # 🚀 Start audio/text bridges (RX already started above)
+            logger.info(f"[REALTIME] Starting audio/text sender tasks...")
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-            audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             logger.info(f"[REALTIME] Audio/text tasks created successfully")
             
@@ -2800,11 +2834,28 @@ Greet briefly. Then WAIT for customer to speak."""
         _limit_exceeded = False
         _limit_logged = False
         
+        # ═══════════════════════════════════════════════════════════════════════
+        # 🔥 STEP 5: Queue audio until session is confirmed
+        # ═══════════════════════════════════════════════════════════════════════
+        _session_wait_logged = False
+        
         while not self.realtime_stop_flag and not self.closed:
             try:
                 if not hasattr(self, 'realtime_audio_in_queue'):
                     await asyncio.sleep(0.01)
                     continue
+                
+                # 🔥 STEP 5: Wait for session confirmation before sending audio
+                # This prevents audio from being sent with wrong config (PCM16 instead of g711_ulaw)
+                if not getattr(self, '_session_config_confirmed', False):
+                    if not _session_wait_logged:
+                        _orig_print(f"⏸️ [AUDIO_GATE] Queuing audio - waiting for session.updated confirmation", flush=True)
+                        _session_wait_logged = True
+                    await asyncio.sleep(0.05)  # Wait 50ms and check again
+                    continue
+                elif _session_wait_logged:
+                    _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
+                    _session_wait_logged = False  # Reset for next check
                 
                 try:
                     audio_chunk = self.realtime_audio_in_queue.get_nowait()
@@ -3299,6 +3350,24 @@ Greet briefly. Then WAIT for customer to speak."""
         try:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
+                
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 STEP 2: RAW EVENT TRACE - Log ALL events to diagnose missing events
+                # ═══════════════════════════════════════════════════════════════════════
+                # Log every event with type and error details (if any)
+                error_info = event.get("error")
+                if error_info:
+                    error_type = error_info.get("type", "unknown")
+                    error_code = error_info.get("code", "unknown")
+                    error_msg = error_info.get("message", "")
+                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, error_type={error_type}, error_code={error_code}, error_msg={error_msg}", flush=True)
+                elif event_type in ("session.created", "session.updated", "error"):
+                    # Log important session events
+                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, event={event}", flush=True)
+                elif not event_type.endswith(".delta"):
+                    # Log all non-delta events (deltas are too verbose)
+                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}", flush=True)
+                
                 response_id = event.get("response_id")
                 if not response_id and "response" in event:
                     response_id = event.get("response", {}).get("id")
@@ -3621,6 +3690,32 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # Mark that session configuration failed
                         self._session_config_failed = True
+                
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 STEP 4: session.created FALLBACK - If session.created arrives but not session.updated
+                # ═══════════════════════════════════════════════════════════════════════
+                if event_type == "session.created":
+                    _orig_print(f"📋 [SESSION] session.created received", flush=True)
+                    session_data = event.get("session", {})
+                    
+                    # If we haven't received session.updated yet, validate session.created config
+                    # Some OpenAI versions may not send session.updated for default configs
+                    if not getattr(self, '_session_config_confirmed', False):
+                        output_format = session_data.get("output_audio_format", "unknown")
+                        input_format = session_data.get("input_audio_format", "unknown")
+                        voice = session_data.get("voice", "unknown")
+                        instructions = session_data.get("instructions", "")
+                        
+                        _orig_print(f"🔍 [SESSION] session.created config: input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
+                        
+                        # Check if config looks valid (has our customizations)
+                        # If yes, accept it and proceed
+                        if (output_format == "g711_ulaw" and input_format == "g711_ulaw" and 
+                            instructions and len(instructions) > 50):
+                            _orig_print(f"✅ [SESSION] session.created has valid config - accepting as fallback", flush=True)
+                            self._session_config_confirmed = True
+                        else:
+                            _orig_print(f"⚠️ [SESSION] session.created has default config - still waiting for session.updated", flush=True)
                 
                 # 🔥 VALIDATION: Confirm session.updated received after session.update
                 if event_type == "session.updated":
