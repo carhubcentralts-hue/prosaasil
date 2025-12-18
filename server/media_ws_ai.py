@@ -3303,6 +3303,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Log response completion metrics for audio quality analysis
+                        # Per הנחיה 5: Log frames_sent==0 cases with full snapshot
                         # ═══════════════════════════════════════════════════════════════════════
                         if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
                             tracking = self._response_tracking[resp_id]
@@ -3310,6 +3311,20 @@ Greet briefly. Then WAIT for customer to speak."""
                             duration_ms = int((end_time - tracking['start_time']) * 1000)
                             frames_sent = tracking['frames_sent']
                             avg_fps = frames_sent / ((end_time - tracking['start_time']) or 1)
+                            
+                            # 🔥 CRITICAL: Log frames_sent==0 cases with full diagnostic snapshot
+                            if frames_sent == 0:
+                                _orig_print(f"⚠️ [TX_DIAG] frames_sent=0 for response {resp_id[:20]}...", flush=True)
+                                _orig_print(f"   SNAPSHOT:", flush=True)
+                                _orig_print(f"   - streamSid: {self.stream_sid}", flush=True)
+                                _orig_print(f"   - tx_queue_size: {self.tx_q.qsize() if hasattr(self, 'tx_q') else 'N/A'}", flush=True)
+                                _orig_print(f"   - realtime_audio_out_queue_size: {self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 'N/A'}", flush=True)
+                                _orig_print(f"   - active_response_id: {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
+                                _orig_print(f"   - ai_response_active: {getattr(self, 'ai_response_active', False)}", flush=True)
+                                _orig_print(f"   - is_ai_speaking: {self.is_ai_speaking_event.is_set()}", flush=True)
+                                _orig_print(f"   - status: {status}", flush=True)
+                                _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
+                            
                             print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
                             # Cleanup
                             del self._response_tracking[resp_id]
@@ -3772,7 +3787,15 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
+                    response_id = event.get("response_id", "")
                     if audio_b64:
+                        # ═══════════════════════════════════════════════════════════════
+                        # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (per הנחיה)
+                        # ═══════════════════════════════════════════════════════════════
+                        import base64
+                        audio_bytes = base64.b64decode(audio_b64)
+                        _orig_print(f"📥 [AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}", flush=True)
+                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
