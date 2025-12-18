@@ -3526,12 +3526,24 @@ Greet briefly. Then WAIT for customer to speak."""
                     # - Missing instructions → AI doesn't follow business prompt
                     error_msg = error.get("message", "")
                     error_code = error.get("code", "")
+                    error_type = error.get("type", "")
                     
-                    if "session" in error_msg.lower() or "session" in error_code.lower():
+                    # More specific detection: Check error type, code, and message
+                    # Known session.update errors:
+                    # - type: "invalid_request_error"
+                    # - code: "invalid_value" or "invalid_type"
+                    # - message contains: "session", "input_audio_noise_reduction", etc.
+                    is_session_error = (
+                        error_type == "invalid_request_error" and 
+                        ("session" in error_msg.lower() or "session" in error_code.lower())
+                    )
+                    
+                    if is_session_error:
                         _orig_print(f"🚨 [SESSION ERROR] session.update FAILED! Error: {error_msg}", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] Error type: {error_type}, code: {error_code}", flush=True)
                         _orig_print(f"🚨 [SESSION ERROR] Session will use DEFAULT settings (PCM16, English, no instructions)", flush=True)
                         _orig_print(f"🚨 [SESSION ERROR] This will cause audio noise and wrong language!", flush=True)
-                        logger.error(f"[SESSION ERROR] session.update failed: {error_msg}")
+                        logger.error(f"[SESSION ERROR] session.update failed - type={error_type}, code={error_code}, msg={error_msg}")
                         
                         # Mark that session configuration failed
                         self._session_config_failed = True

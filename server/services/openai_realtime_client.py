@@ -250,8 +250,9 @@ class OpenAIRealtimeClient:
             raise RuntimeError("Not connected. Call connect() first.")
         
         import asyncio
+        import time as time_module
         
-        start_time = asyncio.get_event_loop().time()
+        start_time = time_module.time()
         
         try:
             async for raw in self.ws:
@@ -274,7 +275,7 @@ class OpenAIRealtimeClient:
                         return False
                     
                     # Check timeout
-                    elapsed = asyncio.get_event_loop().time() - start_time
+                    elapsed = time_module.time() - start_time
                     if elapsed > timeout:
                         logger.error(f"❌ [SESSION] Timeout waiting for session.updated after {timeout}s")
                         return False
