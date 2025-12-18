@@ -3255,12 +3255,14 @@ Greet briefly. Then WAIT for customer to speak."""
                 if response_id and response_id in self._cancelled_response_ids:
                     if event_type in ("response.done", "response.cancelled"):
                         # ✅ CRITICAL FIX: Reset state on response.cancelled just like response.done
-                        # This ensures clean state after cancel: active_response_id=None, is_ai_speaking=False
+                        # Per הנחיה: Clear all response state flags to prevent stale state
                         if self.active_response_id == response_id:
                             self.active_response_id = None
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
-                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, is_ai_speaking=False (response_id={response_id[:20]}...)")
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, is_ai_speaking=False, ai_response_active=False (response_id={response_id[:20]}...)")
                         
                         self._cancelled_response_ids.discard(response_id)
                         # ✅ NEW REQ 4: Also remove from timestamps dict
@@ -3301,6 +3303,7 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Log response completion metrics for audio quality analysis
+                        # Per הנחיה 5: Log frames_sent==0 cases with full snapshot
                         # ═══════════════════════════════════════════════════════════════════════
                         if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
                             tracking = self._response_tracking[resp_id]
@@ -3308,6 +3311,20 @@ Greet briefly. Then WAIT for customer to speak."""
                             duration_ms = int((end_time - tracking['start_time']) * 1000)
                             frames_sent = tracking['frames_sent']
                             avg_fps = frames_sent / ((end_time - tracking['start_time']) or 1)
+                            
+                            # 🔥 CRITICAL: Log frames_sent==0 cases with full diagnostic snapshot
+                            if frames_sent == 0:
+                                _orig_print(f"⚠️ [TX_DIAG] frames_sent=0 for response {resp_id[:20]}...", flush=True)
+                                _orig_print(f"   SNAPSHOT:", flush=True)
+                                _orig_print(f"   - streamSid: {self.stream_sid}", flush=True)
+                                _orig_print(f"   - tx_queue_size: {self.tx_q.qsize() if hasattr(self, 'tx_q') else 'N/A'}", flush=True)
+                                _orig_print(f"   - realtime_audio_out_queue_size: {self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 'N/A'}", flush=True)
+                                _orig_print(f"   - active_response_id: {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
+                                _orig_print(f"   - ai_response_active: {getattr(self, 'ai_response_active', False)}", flush=True)
+                                _orig_print(f"   - is_ai_speaking: {self.is_ai_speaking_event.is_set()}", flush=True)
+                                _orig_print(f"   - status: {status}", flush=True)
+                                _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
+                            
                             print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
                             # Cleanup
                             del self._response_tracking[resp_id]
@@ -3401,22 +3418,27 @@ Greet briefly. Then WAIT for customer to speak."""
                         
                         # ✅ CRITICAL FIX: Full state reset on response.done
                         # Ensure both active_response_id AND is_ai_speaking are cleared
+                        # Per הנחיה: Also clear ai_response_active flag
                         resp_id = response.get("id", "")
                         if resp_id and self.active_response_id == resp_id:
                             self.active_response_id = None
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
-                            # 🔥 BARGE-IN: Also clear barge_in flag
+                            # 🔥 BARGE-IN FIX: Clear all response flags
                             self.barge_in_active = False
-                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
                             _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
                             self.active_response_id = None
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
-                            # 🔥 BARGE-IN: Also clear barge_in flag
+                            # 🔥 BARGE-IN FIX: Clear all response flags
                             self.barge_in_active = False
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
                         
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
@@ -3554,118 +3576,68 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🛡️ GREETING PROTECTION - Prevent false interruption from echo/noise
+                    # 🔥 BARGE-IN LOGIC - Simple & Stable (per הנחיה)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # During greeting playback, don't interrupt immediately on speech_started
+                    # Per requirements: Cancel only when active_response_id exists AND
+                    # (ai_response_active OR is_ai_speaking)
                     # 
-                    # 🔥 REQUIREMENTS:
-                    # - OUTBOUND calls: NEVER allow barge-in during greeting (fully protected)
-                    # - INBOUND calls: Protected ONLY during greeting, then NORMAL barge-in
-                    # 
-                    # Protection logic:
-                    # - During greeting: Wait for transcription.completed with real text
-                    # - After greeting: Normal barge-in (immediate on speech_started)
-                    # ═══════════════════════════════════════════════════════════════════════
-                    should_interrupt_greeting = True  # Default: allow interruption
-                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                    
-                    if self.is_playing_greeting:
-                        # 🔥 OUTBOUND PROTECTION: Never interrupt greeting on outbound calls
-                        if is_outbound:
-                            should_interrupt_greeting = False
-                            print(f"🛡️ [GREETING_PROTECT] OUTBOUND call - greeting is FULLY PROTECTED (no barge-in allowed)")
-                            # Reset flag - outbound doesn't use transcription confirmation
-                            self._greeting_needs_transcription_confirm = False
-                        else:
-                            # 🔥 INBOUND: Protect greeting - require transcription confirmation
-                            # This prevents false triggers from echo/noise during greeting playback
-                            # After greeting completes, normal barge-in is enabled
-                            should_interrupt_greeting = False
-                            print(f"🛡️ [GREETING_PROTECT] INBOUND - protecting greeting, waiting for transcription confirmation")
-                            
-                            # Mark that we need transcription confirmation to interrupt greeting
-                            self._greeting_needs_transcription_confirm = True
-                    
-                    # Handle greeting interruption (only if protection allows)
-                    if self.is_playing_greeting and should_interrupt_greeting:
-                        direction_label = "OUTBOUND" if is_outbound else "INBOUND"
-                        print(f"⛔ [BARGE-IN] User interrupted greeting ({direction_label}, protection: OFF)")
-                        self.is_playing_greeting = False
-                        self.awaiting_greeting_answer = True
-                        self.greeting_completed_at = time.time()
-                        self.barge_in_enabled_after_greeting = True
-                    elif self.is_playing_greeting and not should_interrupt_greeting:
-                        # Protected greeting - don't interrupt yet
-                        direction_label = "OUTBOUND (FULL)" if is_outbound else "INBOUND (GREETING ONLY)"
-                        print(f"🛡️ [GREETING_PROTECT] Greeting protected ({direction_label}) - {'no barge-in allowed' if is_outbound else 'waiting for transcription confirmation'}")
-                        # Don't set awaiting_greeting_answer yet - wait for transcription (inbound) or completion (outbound)
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 CRITICAL: BARGE-IN LOGIC (Simple & Powerful)
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # ✅ RULE 1: Only barge-in if there's actual active response
-                    # ✅ RULE 2: Only cancel if active_response_id exists (not just is_ai_speaking)
-                    # ✅ RULE 3: Never flush/clear during greeting - let it complete
+                    # No special greeting protection - greeting is just first response
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # Check if we're during greeting playback
-                    is_greeting_playing = self.is_playing_greeting or (self.greeting_mode_active and not self.greeting_completed)
+                    # ✅ Only trigger barge-in if there's an actual active response
+                    # Per הנחיה: Check active_response_id AND (ai_response_active OR is_ai_speaking)
+                    has_active_response = bool(self.active_response_id)
+                    ai_can_be_cancelled = getattr(self, 'ai_response_active', False) or self.is_ai_speaking_event.is_set()
                     
-                    # ✅ RULE 2: Only trigger barge-in if there's an actual active response
-                    # Don't rely on is_ai_speaking_event alone - it might be stale
-                    if self.active_response_id and self.realtime_client:
-                        # AI has active response - user is interrupting
+                    if has_active_response and ai_can_be_cancelled and self.realtime_client:
+                        # AI has active response that can be cancelled - user is interrupting
                         
-                        # ✅ RULE 3: Skip flush/clear during greeting - let greeting complete
-                        if is_greeting_playing:
-                            _orig_print(f"🛡️ [GREETING STABLE] User speaking during greeting - NOT cancelling/flushing (let greeting complete)", flush=True)
-                            # Don't cancel, don't flush, don't clear - just let greeting finish
-                            # The speech will be processed after greeting completes
+                        # Normal barge-in: Cancel, flush, and clear (no greeting special case)
+                        # Step 1: Cancel active response (with duplicate guard)
+                        if self._should_send_cancel(self.active_response_id):
+                            try:
+                                await self.realtime_client.cancel_response(self.active_response_id)
+                                # Mark as cancelled locally to track state
+                                self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
+                                _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
+                            except Exception as e:
+                                error_str = str(e).lower()
+                                # Gracefully handle not_active errors (per הנחיה - should not happen now)
+                                if ('not_active' in error_str or 'no active' in error_str or 
+                                    'already_cancelled' in error_str or 'already_completed' in error_str):
+                                    _orig_print(f"⚠️ [BARGE-IN] response_cancel_not_active (should be rare now) - response already ended", flush=True)
+                                else:
+                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error (ignoring): {e}", flush=True)
                         else:
-                            # Normal barge-in: Cancel, flush, and clear
-                            # Step 1: Cancel active response (with duplicate guard)
-                            # 🔥 CRITICAL: Use _should_send_cancel to prevent duplicate cancellations
-                            if self._should_send_cancel(self.active_response_id):
-                                try:
-                                    await self.realtime_client.cancel_response(self.active_response_id)
-                                    # Mark as cancelled locally to track state
-                                    self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                    _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
-                                except Exception as e:
-                                    error_str = str(e).lower()
-                                    # ✅ RULE 2: Gracefully handle not_active errors (log only, don't crash)
-                                    # response_cancel_not_active, no_active_response, already_cancelled, already_completed
-                                    if ('not_active' in error_str or 'no active' in error_str or 
-                                        'already_cancelled' in error_str or 'already_completed' in error_str):
-                                        _orig_print(f"⏭️ [BARGE-IN] Response already ended (not_active) - continuing normally", flush=True)
-                                    else:
-                                        _orig_print(f"⚠️ [BARGE-IN] Cancel error (ignoring): {e}", flush=True)
-                            else:
-                                _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
-                            
-                            # Step 2: Flush TX queue (clear all pending audio frames)
-                            self._flush_tx_queue()
-                            
-                            # Step 3: Send Twilio "clear" event to stop audio already buffered on Twilio side
-                            if self.stream_sid:
-                                try:
-                                    clear_event = {
-                                        "event": "clear",
-                                        "streamSid": self.stream_sid
-                                    }
-                                    self._ws_send(json.dumps(clear_event))
-                                    _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
-                                except Exception as e:
-                                    _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
-                            
-                            # Step 4: Reset state (ONLY after successful cancel + cleanup)
-                            self.is_ai_speaking_event.clear()
-                            self.active_response_id = None
-                            
-                            # Step 5: Set barge-in flag with timestamp
-                            self.barge_in_active = True
-                            self._barge_in_started_ts = time.time()
-                            _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, TX flushed, Twilio cleared", flush=True)
+                            _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
+                        
+                        # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
+                        if self.stream_sid:
+                            try:
+                                clear_event = {
+                                    "event": "clear",
+                                    "streamSid": self.stream_sid
+                                }
+                                self._ws_send(json.dumps(clear_event))
+                                _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
+                            except Exception as e:
+                                _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
+                        
+                        # Step 3: Flush TX queue (clear all pending audio frames)
+                        self._flush_tx_queue()
+                        
+                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
+                        self.is_ai_speaking_event.clear()
+                        self.active_response_id = None
+                        if hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        
+                        # Step 5: Set barge-in flag with timestamp
+                        self.barge_in_active = True
+                        self._barge_in_started_ts = time.time()
+                        _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, Twilio cleared, TX flushed", flush=True)
+                    elif has_active_response and not ai_can_be_cancelled:
+                        _orig_print(f"⏭️ [BARGE-IN] Response exists but not yet cancellable (ai_response_active={getattr(self, 'ai_response_active', False)}, is_ai_speaking={self.is_ai_speaking_event.is_set()})", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -3771,13 +3743,20 @@ Greet briefly. Then WAIT for customer to speak."""
                     status = response.get("status", "?")
                     _orig_print(f"🎯 [RESPONSE.CREATED] id={response_id[:20] if response_id else '?'}... status={status} modalities={modalities} output_format={output_audio_format}", flush=True)
                     if response_id:
-                        # 🔥 FIX BUG 1: ALWAYS store response_id for barge-in cancellation
+                        # 🔥 BARGE-IN FIX: Set BOTH active_response_id AND ai_response_active immediately
+                        # Per הנחיה: Enable barge-in detection on response.created (not audio.delta)
+                        # This allows cancellation even if audio hasn't started yet
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
                         
-                        # 🔥 STATE FIX: DON'T set is_ai_speaking yet - wait for actual audio
-                        # Setting it here causes race condition where is_ai_speaking=True before transcription.completed
-                        # is_ai_speaking will be set on first response.audio.delta when actual audio arrives
+                        # 🔥 NEW: Set ai_response_active=True immediately (per requirements)
+                        # This is THE fix for barge-in timing issues
+                        # ai_response_active means "response exists and can be cancelled"
+                        # is_ai_speaking will still be set on first audio.delta when actual audio arrives
+                        if not hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        self.ai_response_active = True
+                        _orig_print(f"✅ [BARGE-IN] ai_response_active=True on response.created (id={response_id[:20]}...)", flush=True)
                         self.barge_in_active = False  # Reset barge-in flag for new response
                         print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
                         
@@ -3808,7 +3787,15 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
+                    response_id = event.get("response_id", "")
                     if audio_b64:
+                        # ═══════════════════════════════════════════════════════════════
+                        # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (per הנחיה)
+                        # ═══════════════════════════════════════════════════════════════
+                        import base64
+                        audio_bytes = base64.b64decode(audio_b64)
+                        _orig_print(f"📥 [AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}", flush=True)
+                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'

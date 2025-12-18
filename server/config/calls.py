@@ -40,28 +40,28 @@ MAX_REALTIME_SECONDS_PER_CALL = 600  # Max 10 minutes per call
 MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 GREETING FIX: BALANCED VAD THRESHOLDS - Optimized for Hebrew with greeting protection
+# 🔥 STABLE VAD CONFIGURATION - Production-ready values for Hebrew calls
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (based on log analysis and OpenAI Realtime API best practices):
-# - threshold 0.50: Balanced sensitivity - detects real speech, ignores background noise
-# - silence_duration_ms 450: Slightly increased from 400ms for better noise resilience
-#   (prevents greeting interruption from brief ambient sounds)
-# - prefix_padding_ms 350: Increased from 300ms to capture full Hebrew syllables
-#   (prevents word cutoff at start of utterances)
+# TUNING RATIONALE (per הנחיה ממוקדת לסוכן):
+# - threshold 0.50: Balanced sensitivity - not aggressive
+# - silence_duration_ms 500: Stable for light background noise (250-400 cuts too early)
+# - prefix_padding_ms 300: Standard padding for Hebrew syllables
+# - create_response: true (automatic response generation on turn end)
 #
-# Previous settings (0.5/400ms/300ms) caused:
-# ❌ Greeting interrupted by background noise/echo (too sensitive to short bursts)
-# ❌ Sometimes greeting didn't play at all (false triggers before audio sent)
+# These stable values prevent:
+# ❌ Transcription cutting mid-sentence (aggressive VAD)
+# ❌ Instability in light noise (too low silence threshold)
+# ❌ Greeting conflicts (no special greeting mode)
 #
-# Current balanced settings (0.50/450ms/350ms) provide:
-# ✅ Stable greeting playback - ignores ambient noise during first 500ms
+# Current stable settings (0.50/500ms/300ms) provide:
+# ✅ Stable transcription even in light background noise
 # ✅ Reliable detection of short Hebrew utterances ("כן", "לא", "שלום")
-# ✅ No false speech_started triggers from echo or background sounds
-# ✅ Natural conversation flow - no premature cutoffs
+# ✅ Greeting is just first response (no special protection)
+# ✅ Natural conversation flow with proper turn-taking
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.50         # Balanced: real speech without false triggers
-SERVER_VAD_SILENCE_MS = 450         # Increased for noise resilience (prevents false greeting interrupts)
-SERVER_VAD_PREFIX_PADDING_MS = 350  # Captures full Hebrew syllables
+SERVER_VAD_THRESHOLD = 0.50         # Stable: not aggressive
+SERVER_VAD_SILENCE_MS = 500         # Stable for light noise (450-500 range per requirements)
+SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
