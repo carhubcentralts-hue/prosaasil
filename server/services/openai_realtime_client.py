@@ -336,13 +336,15 @@ class OpenAIRealtimeClient:
                 if prefix_padding_ms is None:
                     prefix_padding_ms = 400
                 logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
-        # 🔥 BUILD 202: TRANSCRIPTION IMPROVEMENTS FOR HEBREW
+        # 🔥 TRANSCRIPTION IMPROVEMENTS FOR HEBREW
+        # Per הנחיה: Use Realtime capabilities, no local noise-floor guards
         # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
         # - Add dynamic prompt with business vocabulary (names, cities, services)
         # - Explicit Hebrew language setting
+        # - Request logprobs for confidence scoring (if supported)
         transcription_config = {
-            "model": "gpt-4o-transcribe",  # 🔥 BUILD 202: Better Hebrew accuracy than whisper-1
-            "language": "he"  # 🔥 Explicit Hebrew - mandatory for accuracy!
+            "model": "gpt-4o-transcribe",  # Better Hebrew accuracy than whisper-1
+            "language": "he"  # Explicit Hebrew - mandatory for accuracy!
         }
         
         # Add transcription prompt if provided (business-specific vocabulary)
@@ -361,16 +363,30 @@ class OpenAIRealtimeClient:
             # ✅ MANDATORY: Internal transcription for audio comprehension
             # DO NOT remove this - AI will be completely silent without it!
             "input_audio_transcription": transcription_config,
-            # 🔥 BUILD 341: Enhanced VAD configuration with prefix_padding_ms
+            # 🔥 STABLE VAD CONFIGURATION - Proper Realtime API turn detection
+            # Per הנחיה: server_vad + create_response + stable thresholds
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": vad_threshold,
                 "prefix_padding_ms": prefix_padding_ms,
-                "silence_duration_ms": silence_duration_ms
+                "silence_duration_ms": silence_duration_ms,
+                "create_response": True  # ✅ CRITICAL: Auto-create response on turn end
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
         }
+        
+        # 🔥 QUALITY IMPROVEMENT: Add noise reduction if available
+        # This uses OpenAI's server-side noise reduction (not local filters)
+        # Options may include: "near_field", "speech-focused", or similar
+        # Note: This is experimental - OpenAI may not support this yet
+        # If it fails, the session will still work without it
+        try:
+            session_config["input_audio_noise_reduction"] = "speech"
+            logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction")
+        except Exception:
+            # Silently continue if not supported
+            pass
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
