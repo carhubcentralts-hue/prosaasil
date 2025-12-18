@@ -1871,6 +1871,10 @@ class MediaStreamHandler:
         self._is_silence_handler_response = False  # Track if current response is from SILENCE_HANDLER (shouldn't count)
         self._user_responded_after_greeting = False  # Track if user has responded after greeting (end grace early)
         
+        # 🔥 SESSION CONFIGURATION VALIDATION: Track session.update success/failure
+        self._session_config_confirmed = False  # True when session.updated received
+        self._session_config_failed = False  # True when session.update error received
+        
         # 🔥 CALL METRICS: Performance tracking counters
         self._barge_in_event_count = 0  # Count of barge-in events during call
         self._silence_10s_count = 0  # Count of 10s+ silence gaps during call
@@ -3514,6 +3518,50 @@ Greet briefly. Then WAIT for customer to speak."""
                 if event_type == "error":
                     error = event.get("error", {})
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
+                    
+                    # 🔥 CRITICAL: Validate session.update errors
+                    # If session.update fails, the session uses default settings which causes:
+                    # - PCM16 instead of G.711 μ-law → "vacuum cleaner" noise on Twilio
+                    # - English instead of Hebrew → AI speaks wrong language
+                    # - Missing instructions → AI doesn't follow business prompt
+                    error_msg = error.get("message", "")
+                    error_code = error.get("code", "")
+                    
+                    if "session" in error_msg.lower() or "session" in error_code.lower():
+                        _orig_print(f"🚨 [SESSION ERROR] session.update FAILED! Error: {error_msg}", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] Session will use DEFAULT settings (PCM16, English, no instructions)", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] This will cause audio noise and wrong language!", flush=True)
+                        logger.error(f"[SESSION ERROR] session.update failed: {error_msg}")
+                        
+                        # Mark that session configuration failed
+                        self._session_config_failed = True
+                
+                # 🔥 VALIDATION: Confirm session.updated received after session.update
+                if event_type == "session.updated":
+                    _orig_print(f"✅ [SESSION] session.updated received - configuration applied successfully!", flush=True)
+                    logger.info("[SESSION] session.updated confirmed - audio format, voice, and instructions are active")
+                    
+                    # Mark that session configuration succeeded
+                    self._session_config_confirmed = True
+                    
+                    # Log the session configuration for verification
+                    session_data = event.get("session", {})
+                    output_format = session_data.get("output_audio_format", "unknown")
+                    input_format = session_data.get("input_audio_format", "unknown")
+                    voice = session_data.get("voice", "unknown")
+                    
+                    _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
+                    
+                    # 🚨 ASSERT: Validate critical settings
+                    if output_format != "g711_ulaw":
+                        _orig_print(f"🚨 [SESSION ERROR] Wrong output format! Expected g711_ulaw, got {output_format}", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] Twilio will receive {output_format} and produce noise!", flush=True)
+                        logger.error(f"[SESSION ERROR] Wrong output_audio_format: {output_format} (expected g711_ulaw)")
+                    
+                    if input_format != "g711_ulaw":
+                        _orig_print(f"🚨 [SESSION ERROR] Wrong input format! Expected g711_ulaw, got {input_format}", flush=True)
+                        logger.error(f"[SESSION ERROR] Wrong input_audio_format: {input_format} (expected g711_ulaw)")
+                
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
