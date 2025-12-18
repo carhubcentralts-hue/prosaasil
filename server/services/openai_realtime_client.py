@@ -362,7 +362,8 @@ class OpenAIRealtimeClient:
         prefix_padding_ms: int = None,  # 🔥 BUILD 341: Default from config
         temperature: float = 0.18,
         max_tokens: int = 300,
-        transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
+        transcription_prompt: str = "",  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
+        force: bool = False  # 🔥 FIX 3: Force resend even if hash matches (for retry)
     ):
         """
         Configure Realtime API session
@@ -380,6 +381,7 @@ class OpenAIRealtimeClient:
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
+            force: Force resend even if hash matches (set to True during retry)
         """
         # 🔥 BUILD 341: Use tuned defaults from config
         if vad_threshold is None or silence_duration_ms is None or prefix_padding_ms is None:
@@ -463,12 +465,16 @@ class OpenAIRealtimeClient:
         
         # 🔥 BUILD 318: INSTRUCTION CACHING - Skip if same instructions already sent
         # This prevents redundant session.update calls that cost $11+ in text input!
+        # 🔥 FIX 3: Bypass hash check when force=True (e.g., during retry)
         import hashlib
         instructions_hash = hashlib.md5(instructions.encode()).hexdigest()[:16]
         
-        if self._last_instructions_hash == instructions_hash and self._last_voice == voice:
+        if not force and self._last_instructions_hash == instructions_hash and self._last_voice == voice:
             logger.info(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
             return True  # Return True to indicate session is configured (from cache)
+        
+        if force:
+            logger.info(f"🔄 [FORCE RESEND] Bypassing hash check - force retry requested")
         
         self._last_instructions_hash = instructions_hash
         self._last_voice = voice
