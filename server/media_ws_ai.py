@@ -3561,53 +3561,6 @@ Greet briefly. Then WAIT for customer to speak."""
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🛡️ GREETING PROTECTION - Prevent false interruption from echo/noise
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # During greeting playback, don't interrupt immediately on speech_started
-                    # 
-                    # 🔥 REQUIREMENTS:
-                    # - OUTBOUND calls: NEVER allow barge-in during greeting (fully protected)
-                    # - INBOUND calls: Protected ONLY during greeting, then NORMAL barge-in
-                    # 
-                    # Protection logic:
-                    # - During greeting: Wait for transcription.completed with real text
-                    # - After greeting: Normal barge-in (immediate on speech_started)
-                    # ═══════════════════════════════════════════════════════════════════════
-                    should_interrupt_greeting = True  # Default: allow interruption
-                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                    
-                    if self.is_playing_greeting:
-                        # 🔥 OUTBOUND PROTECTION: Never interrupt greeting on outbound calls
-                        if is_outbound:
-                            should_interrupt_greeting = False
-                            print(f"🛡️ [GREETING_PROTECT] OUTBOUND call - greeting is FULLY PROTECTED (no barge-in allowed)")
-                            # Reset flag - outbound doesn't use transcription confirmation
-                            self._greeting_needs_transcription_confirm = False
-                        else:
-                            # 🔥 INBOUND: Protect greeting - require transcription confirmation
-                            # This prevents false triggers from echo/noise during greeting playback
-                            # After greeting completes, normal barge-in is enabled
-                            should_interrupt_greeting = False
-                            print(f"🛡️ [GREETING_PROTECT] INBOUND - protecting greeting, waiting for transcription confirmation")
-                            
-                            # Mark that we need transcription confirmation to interrupt greeting
-                            self._greeting_needs_transcription_confirm = True
-                    
-                    # Handle greeting interruption (only if protection allows)
-                    if self.is_playing_greeting and should_interrupt_greeting:
-                        direction_label = "OUTBOUND" if is_outbound else "INBOUND"
-                        print(f"⛔ [BARGE-IN] User interrupted greeting ({direction_label}, protection: OFF)")
-                        self.is_playing_greeting = False
-                        self.awaiting_greeting_answer = True
-                        self.greeting_completed_at = time.time()
-                        self.barge_in_enabled_after_greeting = True
-                    elif self.is_playing_greeting and not should_interrupt_greeting:
-                        # Protected greeting - don't interrupt yet
-                        direction_label = "OUTBOUND (FULL)" if is_outbound else "INBOUND (GREETING ONLY)"
-                        print(f"🛡️ [GREETING_PROTECT] Greeting protected ({direction_label}) - {'no barge-in allowed' if is_outbound else 'waiting for transcription confirmation'}")
-                        # Don't set awaiting_greeting_answer yet - wait for transcription (inbound) or completion (outbound)
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 BARGE-IN LOGIC - Simple & Stable (per הנחיה)
                     # ═══════════════════════════════════════════════════════════════════════
                     # Per requirements: Cancel only when active_response_id exists AND
