@@ -55,6 +55,10 @@ class OpenAIRealtimeClient:
         self._last_voice = None
         self._session_update_count = 0
         
+        # 🔥 SESSION VALIDATION: Track pending config for validation
+        self._pending_session_config = None
+        self._session_config_retry_without_noise_reduction = False
+        
         if websockets is None:
             raise ImportError("websockets library is required. Install with: pip install websockets")
     
@@ -441,8 +445,11 @@ class OpenAIRealtimeClient:
         # This uses OpenAI's server-side noise reduction (not local filters)
         # CRITICAL: Must be an object with "type" field, not a string!
         # Per OpenAI Realtime API spec: {"type": "near_field"} for phone calls
+        # NOTE: This is experimental and may not be supported by all models/versions
+        # We'll add it optimistically and fallback if it fails
+        use_noise_reduction = True  # Try with noise reduction first
         session_config["input_audio_noise_reduction"] = {"type": "near_field"}
-        logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field")
+        logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field (experimental)")
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
@@ -461,7 +468,7 @@ class OpenAIRealtimeClient:
         
         if self._last_instructions_hash == instructions_hash and self._last_voice == voice:
             logger.info(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
-            return
+            return True  # Return True to indicate session is configured (from cache)
         
         self._last_instructions_hash = instructions_hash
         self._last_voice = voice
@@ -473,14 +480,15 @@ class OpenAIRealtimeClient:
             print(f"⚠️ [BUILD 332] COST ALERT: session.update called {self._session_update_count} times (expected ≤2)")
         else:
             logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
+        
+        # Send session.update and store config for validation
+        self._pending_session_config = session_config.copy()  # Store for validation
         await self.send_event({
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
+        logger.info(f"✅ Session update sent: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
         
-        # 🔥 CRITICAL: After sending session.update, you MUST wait for session.updated event
-        # If session.updated is not received, the configuration was NOT applied and the session
-        # will use default settings (PCM16 instead of G.711, English instead of Hebrew).
-        # The event loop in media_ws_ai.py should validate this.
-        logger.warning("⚠️ [SESSION] session.update sent - event loop MUST validate session.updated before proceeding!")
+        # Return True to indicate session.update was sent successfully
+        # Caller should wait for session.updated event before proceeding
+        return True

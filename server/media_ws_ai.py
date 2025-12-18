@@ -2455,6 +2455,31 @@ Greet briefly. Then WAIT for customer to speak."""
                 transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
             )
             
+            # 🔥 CRITICAL: Wait for session.updated confirmation before proceeding
+            # This prevents race condition where response.create is sent before session is configured
+            # Without this wait: PCM16 audio (noise) + English responses + no instructions
+            _orig_print(f"⏳ [SESSION] Waiting for session.updated confirmation...", flush=True)
+            wait_start = time.time()
+            max_wait = 3.0  # Maximum 3 seconds to wait for session.updated
+            
+            while not getattr(self, '_session_config_confirmed', False):
+                # Check if session configuration failed
+                if getattr(self, '_session_config_failed', False):
+                    _orig_print(f"🚨 [SESSION] Configuration FAILED - aborting call", flush=True)
+                    raise RuntimeError("Session configuration failed - cannot proceed with call")
+                
+                # Check timeout
+                elapsed = time.time() - wait_start
+                if elapsed > max_wait:
+                    _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s) - aborting", flush=True)
+                    raise RuntimeError(f"Session configuration timeout after {max_wait}s - cannot proceed")
+                
+                # Wait a bit and check again
+                await asyncio.sleep(0.05)  # 50ms polling
+            
+            session_wait_ms = (time.time() - wait_start) * 1000
+            _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms - safe to proceed", flush=True)
+            
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
             prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
@@ -3117,6 +3142,7 @@ Greet briefly. Then WAIT for customer to speak."""
         2. Loop guard protection
         3. Consistent logging
         4. 🔥 FIX: NO blocking guards - cancel happens in barge-in handler only
+        5. 🔥 SESSION GATE: Blocks until session.updated is confirmed
         
         Cancel/replace pattern:
         - response.cancel is called ONLY in speech_started handler when real barge-in detected
@@ -3136,6 +3162,27 @@ Greet briefly. Then WAIT for customer to speak."""
         if not _client:
             print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
             return False
+        
+        # 🔥 CRITICAL SESSION GATE: Block response.create until session is confirmed
+        # This prevents race condition where response.create uses default settings (PCM16, English)
+        # Must wait for session.updated confirmation BEFORE any response.create
+        if not getattr(self, '_session_config_confirmed', False):
+            # Check if configuration failed
+            if getattr(self, '_session_config_failed', False):
+                _orig_print(f"🚨 [RESPONSE GUARD] Session config FAILED - blocking response.create ({reason})", flush=True)
+                return False
+            
+            # Configuration not yet confirmed - wait a bit for greeting case
+            if is_greeting:
+                # For greeting, we've already waited in connect_realtime, so this shouldn't happen
+                # But if it does, it's a critical error
+                _orig_print(f"🚨 [RESPONSE GUARD] CRITICAL: Greeting triggered before session confirmed! ({reason})", flush=True)
+                return False
+            else:
+                # For non-greeting, session should already be confirmed
+                # If not, block the response
+                _orig_print(f"🛑 [RESPONSE GUARD] Session not confirmed - blocking response.create ({reason})", flush=True)
+                return False
         
         # 🔥 FIX: Cancel/replace ONLY on real barge-in (user speaking while AI speaking)
         # Do NOT cancel just because active_response_id exists - let AI finish speaking
@@ -3538,6 +3585,33 @@ Greet briefly. Then WAIT for customer to speak."""
                         ("session" in error_msg.lower() or "session" in error_code.lower())
                     )
                     
+                    # 🔥 FALLBACK: If noise_reduction caused error, retry without it
+                    is_noise_reduction_error = (
+                        is_session_error and 
+                        "noise_reduction" in error_msg.lower()
+                    )
+                    
+                    if is_noise_reduction_error:
+                        _orig_print(f"⚠️ [SESSION ERROR] noise_reduction not supported - retrying without it", flush=True)
+                        logger.warning(f"[SESSION ERROR] noise_reduction not supported on this model/version - retrying")
+                        
+                        # Retry without noise_reduction if we have pending config
+                        client = getattr(self, 'realtime_client', None)
+                        if client and hasattr(client, '_pending_session_config'):
+                            pending_config = client._pending_session_config
+                            if pending_config and "input_audio_noise_reduction" in pending_config:
+                                # Remove noise_reduction and retry
+                                del pending_config["input_audio_noise_reduction"]
+                                client._session_config_retry_without_noise_reduction = True
+                                
+                                _orig_print(f"🔄 [SESSION RETRY] Sending session.update without noise_reduction", flush=True)
+                                await client.send_event({
+                                    "type": "session.update",
+                                    "session": pending_config
+                                })
+                                logger.info("[SESSION RETRY] Retried session.update without noise_reduction")
+                                continue  # Don't mark as failed yet - wait for retry result
+                    
                     if is_session_error:
                         _orig_print(f"🚨 [SESSION ERROR] session.update FAILED! Error: {error_msg}", flush=True)
                         _orig_print(f"🚨 [SESSION ERROR] Error type: {error_type}, code: {error_code}", flush=True)
@@ -3551,28 +3625,67 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 VALIDATION: Confirm session.updated received after session.update
                 if event_type == "session.updated":
                     _orig_print(f"✅ [SESSION] session.updated received - configuration applied successfully!", flush=True)
-                    logger.info("[SESSION] session.updated confirmed - audio format, voice, and instructions are active")
-                    
-                    # Mark that session configuration succeeded
-                    self._session_config_confirmed = True
                     
                     # Log the session configuration for verification
                     session_data = event.get("session", {})
                     output_format = session_data.get("output_audio_format", "unknown")
                     input_format = session_data.get("input_audio_format", "unknown")
                     voice = session_data.get("voice", "unknown")
+                    instructions = session_data.get("instructions", "")
+                    modalities = session_data.get("modalities", [])
+                    transcription = session_data.get("input_audio_transcription", {})
+                    turn_detection = session_data.get("turn_detection", {})
                     
                     _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
+                    _orig_print(f"✅ [SESSION] Modalities: {modalities}, transcription: model={transcription.get('model')}, lang={transcription.get('language')}", flush=True)
                     
-                    # 🚨 ASSERT: Validate critical settings
+                    # 🚨 CRITICAL VALIDATION: Verify all critical settings
+                    validation_failed = False
+                    
+                    # Validate output format (CRITICAL for Twilio)
                     if output_format != "g711_ulaw":
                         _orig_print(f"🚨 [SESSION ERROR] Wrong output format! Expected g711_ulaw, got {output_format}", flush=True)
                         _orig_print(f"🚨 [SESSION ERROR] Twilio will receive {output_format} and produce noise!", flush=True)
                         logger.error(f"[SESSION ERROR] Wrong output_audio_format: {output_format} (expected g711_ulaw)")
+                        validation_failed = True
                     
+                    # Validate input format (CRITICAL for Twilio)
                     if input_format != "g711_ulaw":
                         _orig_print(f"🚨 [SESSION ERROR] Wrong input format! Expected g711_ulaw, got {input_format}", flush=True)
                         logger.error(f"[SESSION ERROR] Wrong input_audio_format: {input_format} (expected g711_ulaw)")
+                        validation_failed = True
+                    
+                    # Validate instructions are not empty
+                    if not instructions or len(instructions.strip()) < 10:
+                        _orig_print(f"🚨 [SESSION ERROR] Instructions are empty or too short! AI will use default behavior", flush=True)
+                        logger.error(f"[SESSION ERROR] Instructions missing or invalid (length={len(instructions)})")
+                        validation_failed = True
+                    
+                    # Validate transcription is enabled
+                    if not transcription or transcription.get("model") != "gpt-4o-transcribe":
+                        _orig_print(f"🚨 [SESSION ERROR] Transcription not properly configured!", flush=True)
+                        logger.error(f"[SESSION ERROR] Transcription config invalid: {transcription}")
+                        validation_failed = True
+                    
+                    # Validate Hebrew language
+                    if transcription.get("language") != "he":
+                        _orig_print(f"⚠️ [SESSION WARNING] Transcription language is not Hebrew: {transcription.get('language')}", flush=True)
+                        logger.warning(f"[SESSION WARNING] Transcription language: {transcription.get('language')} (expected 'he')")
+                    
+                    # Validate turn_detection
+                    if not turn_detection or turn_detection.get("type") != "server_vad":
+                        _orig_print(f"🚨 [SESSION ERROR] Turn detection not properly configured!", flush=True)
+                        logger.error(f"[SESSION ERROR] Turn detection invalid: {turn_detection}")
+                        validation_failed = True
+                    
+                    # Set validation flags
+                    if validation_failed:
+                        self._session_config_failed = True
+                        _orig_print(f"🚨 [SESSION] Configuration INVALID - do NOT proceed with response.create!", flush=True)
+                    else:
+                        self._session_config_confirmed = True
+                        _orig_print(f"✅ [SESSION] All validations passed - safe to proceed with response.create", flush=True)
+                        logger.info("[SESSION] session.updated confirmed - audio format, voice, and instructions are active")
                 
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
