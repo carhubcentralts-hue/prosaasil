@@ -3634,8 +3634,9 @@ Greet briefly. Then WAIT for customer to speak."""
                                 except Exception as e:
                                     error_str = str(e).lower()
                                     # ✅ RULE 2: Gracefully handle not_active errors (log only, don't crash)
-                                    # response_cancel_not_active, no_active_response, already_cancelled
-                                    if 'not_active' in error_str or 'no active response' in error_str or 'already' in error_str:
+                                    # response_cancel_not_active, no_active_response, already_cancelled, already_completed
+                                    if ('not_active' in error_str or 'no active' in error_str or 
+                                        'already_cancelled' in error_str or 'already_completed' in error_str):
                                         _orig_print(f"⏭️ [BARGE-IN] Response already ended (not_active) - continuing normally", flush=True)
                                     else:
                                         _orig_print(f"⚠️ [BARGE-IN] Cancel error (ignoring): {e}", flush=True)
