@@ -3750,8 +3750,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         if not transcription or transcription.get("model") != "gpt-4o-transcribe":
                             _orig_print(f"❌ [SESSION.CREATED] Transcription not configured: {transcription}", flush=True)
                             validation_ok = False
-                        # Only check language if transcription is configured
-                        if transcription and transcription.get("language") != "he":
+                        # Only check language if transcription has a model configured
+                        elif "language" in transcription and transcription.get("language") != "he":
                             _orig_print(f"⚠️ [SESSION.CREATED] Transcription language not Hebrew: {transcription.get('language')}", flush=True)
                         
                         # Validate turn detection
@@ -3816,8 +3816,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.error(f"[SESSION ERROR] Transcription config invalid: {transcription}")
                         validation_failed = True
                     
-                    # Validate Hebrew language (only if transcription exists)
-                    if transcription and transcription.get("language") != "he":
+                    # Validate Hebrew language (only if transcription has language configured)
+                    if "language" in transcription and transcription.get("language") != "he":
                         _orig_print(f"⚠️ [SESSION WARNING] Transcription language is not Hebrew: {transcription.get('language')}", flush=True)
                         logger.warning(f"[SESSION WARNING] Transcription language: {transcription.get('language')} (expected 'he')")
                     

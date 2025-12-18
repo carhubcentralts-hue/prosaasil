@@ -47,13 +47,32 @@ class TestTranscriptionNoneHandling(unittest.TestCase):
         
         transcription = session_data.get("input_audio_transcription") or {}
         
-        # This pattern should be safe
-        if transcription and transcription.get("language") != "he":
+        # This pattern should be safe - check if language key exists before comparing
+        if "language" in transcription and transcription.get("language") != "he":
             # This block should not execute for empty dict
             self.fail("Should not reach here for empty transcription")
         
         # This should pass
         self.assertTrue(True)
+    
+    def test_empty_dict_transcription_language_check(self):
+        """Test that language check works correctly for empty dict"""
+        # Empty dict case (when transcription is None)
+        transcription = {}
+        
+        # This should NOT trigger the warning (no language key)
+        should_warn = "language" in transcription and transcription.get("language") != "he"
+        self.assertFalse(should_warn, "Empty dict should not trigger language warning")
+        
+        # Valid transcription with Hebrew
+        transcription = {"model": "gpt-4o-transcribe", "language": "he"}
+        should_warn = "language" in transcription and transcription.get("language") != "he"
+        self.assertFalse(should_warn, "Hebrew language should not trigger warning")
+        
+        # Valid transcription with wrong language
+        transcription = {"model": "gpt-4o-transcribe", "language": "en"}
+        should_warn = "language" in transcription and transcription.get("language") != "he"
+        self.assertTrue(should_warn, "Non-Hebrew language should trigger warning")
     
     def test_valid_transcription_works(self):
         """Test that valid transcription still works correctly"""
