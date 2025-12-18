@@ -2457,11 +2457,23 @@ Greet briefly. Then WAIT for customer to speak."""
             # ═══════════════════════════════════════════════════════════════════════
             _orig_print(f"🚀 [RX_LOOP] Starting receiver task BEFORE session.update (prevents event loss)", flush=True)
             logger.info(f"[REALTIME] Starting receiver loop before session configuration")
+            
+            # Initialize flag to track when RX loop is ready
+            self._recv_loop_started = False
+            
             audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
-            # Give RX loop time to start (prevents race where session.updated arrives before loop is ready)
-            RX_LOOP_STARTUP_DELAY = 0.1  # 100ms to ensure recv_events() is active and listening
-            await asyncio.sleep(RX_LOOP_STARTUP_DELAY)
-            _orig_print(f"✅ [RX_LOOP] Receiver task started - ready to receive session.updated", flush=True)
+            
+            # Wait for RX loop to signal it's listening (max 2 seconds)
+            rx_wait_start = time.time()
+            rx_max_wait = 2.0
+            while not self._recv_loop_started:
+                if time.time() - rx_wait_start > rx_max_wait:
+                    _orig_print(f"⚠️ [RX_LOOP] Timeout waiting for recv_loop_started flag - proceeding anyway", flush=True)
+                    break
+                await asyncio.sleep(0.01)  # Check every 10ms
+            
+            rx_ready_ms = (time.time() - rx_wait_start) * 1000
+            _orig_print(f"✅ [RX_LOOP] Receiver loop confirmed ready in {rx_ready_ms:.0f}ms - safe to send session.update", flush=True)
             
             # Send initial session configuration
             _orig_print(f"📤 [SESSION] Sending session.update with config...", flush=True)
@@ -2970,6 +2982,10 @@ Greet briefly. Then WAIT for customer to speak."""
                 # 🔥 BUILD 200: Track audio sent stats
                 self._stats_audio_sent += 1
                 
+                # 🔥 Log first frame sent after gate opens
+                if _frames_sent == 0:
+                    _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
+                
                 await client.send_audio_chunk(audio_chunk)
                 
                 # 🔥 BUILD 301: Enhanced pipeline status with stuck response detection
@@ -3338,6 +3354,11 @@ Greet briefly. Then WAIT for customer to speak."""
         """Receive audio and events from Realtime API"""
         print(f"📥 [REALTIME] Audio receiver started")
         
+        # 🔥 CRITICAL: Signal that RX loop is ready to receive events
+        # This ensures session.update is sent ONLY after recv_events() is listening
+        self._recv_loop_started = True
+        _orig_print(f"🎯 [RX_LOOP] recv_events() loop is now ACTIVE and listening", flush=True)
+        
         try:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
@@ -3696,18 +3717,46 @@ Greet briefly. Then WAIT for customer to speak."""
                         input_format = session_data.get("input_audio_format", "unknown")
                         voice = session_data.get("voice", "unknown")
                         instructions = session_data.get("instructions", "")
+                        transcription = session_data.get("input_audio_transcription", {})
+                        turn_detection = session_data.get("turn_detection", {})
                         
                         _orig_print(f"🔍 [SESSION] session.created config: input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
                         
-                        # Check if config looks valid (has our customizations)
-                        # If yes, accept it and proceed
+                        # 🔥 SAME VALIDATION AS session.updated - critical settings must match!
                         MIN_INSTRUCTION_LENGTH = 50  # Minimum length to consider instructions valid (not default/empty)
-                        if (output_format == "g711_ulaw" and input_format == "g711_ulaw" and 
-                            instructions and len(instructions) > MIN_INSTRUCTION_LENGTH):
-                            _orig_print(f"✅ [SESSION] session.created has valid config - accepting as fallback", flush=True)
+                        validation_ok = True
+                        
+                        # Validate audio formats
+                        if output_format != "g711_ulaw":
+                            _orig_print(f"❌ [SESSION.CREATED] Wrong output format: {output_format} (expected g711_ulaw)", flush=True)
+                            validation_ok = False
+                        if input_format != "g711_ulaw":
+                            _orig_print(f"❌ [SESSION.CREATED] Wrong input format: {input_format} (expected g711_ulaw)", flush=True)
+                            validation_ok = False
+                        
+                        # Validate instructions
+                        if not instructions or len(instructions) < MIN_INSTRUCTION_LENGTH:
+                            _orig_print(f"❌ [SESSION.CREATED] Instructions too short: {len(instructions)} chars (min {MIN_INSTRUCTION_LENGTH})", flush=True)
+                            validation_ok = False
+                        
+                        # Validate transcription
+                        if not transcription or transcription.get("model") != "gpt-4o-transcribe":
+                            _orig_print(f"❌ [SESSION.CREATED] Transcription not configured: {transcription}", flush=True)
+                            validation_ok = False
+                        if transcription.get("language") != "he":
+                            _orig_print(f"⚠️ [SESSION.CREATED] Transcription language not Hebrew: {transcription.get('language')}", flush=True)
+                        
+                        # Validate turn detection
+                        if not turn_detection or turn_detection.get("type") != "server_vad":
+                            _orig_print(f"❌ [SESSION.CREATED] Turn detection not configured: {turn_detection}", flush=True)
+                            validation_ok = False
+                        
+                        if validation_ok:
+                            _orig_print(f"✅ [SESSION.CREATED] Full validation passed - accepting as fallback", flush=True)
+                            _orig_print(f"✅ [SESSION.CREATED] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
                             self._session_config_confirmed = True
                         else:
-                            _orig_print(f"⚠️ [SESSION] session.created has default config - still waiting for session.updated", flush=True)
+                            _orig_print(f"⚠️ [SESSION.CREATED] Validation failed - still waiting for session.updated", flush=True)
                 
                 # 🔥 VALIDATION: Confirm session.updated received after session.update
                 if event_type == "session.updated":
@@ -3772,6 +3821,7 @@ Greet briefly. Then WAIT for customer to speak."""
                     else:
                         self._session_config_confirmed = True
                         _orig_print(f"✅ [SESSION] All validations passed - safe to proceed with response.create", flush=True)
+                        _orig_print(f"✅ [SESSION] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
                         logger.info("[SESSION] session.updated confirmed - audio format, voice, and instructions are active")
                 
                 
