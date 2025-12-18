@@ -55,6 +55,10 @@ class OpenAIRealtimeClient:
         self._last_voice = None
         self._session_update_count = 0
         
+        # 🔥 SESSION VALIDATION: Track pending config for validation
+        self._pending_session_config = None
+        self._session_config_retry_without_noise_reduction = False
+        
         if websockets is None:
             raise ImportError("websockets library is required. Install with: pip install websockets")
     
@@ -232,6 +236,67 @@ class OpenAIRealtimeClient:
             event["response_id"] = response_id
         await self.send_event(event)
     
+    async def wait_for_session_updated(self, timeout: float = 5.0) -> bool:
+        """
+        Wait for session.updated event after sending session.update
+        
+        CRITICAL: This validates that session configuration was applied successfully.
+        If session.update fails, the session uses default settings (PCM16 instead of G.711,
+        English instead of Hebrew, etc.) which causes audio noise and wrong language.
+        
+        Args:
+            timeout: Maximum time to wait for session.updated (default: 5 seconds)
+        
+        Returns:
+            True if session.updated received, False if timeout or error
+        """
+        if not self.ws:
+            raise RuntimeError("Not connected. Call connect() first.")
+        
+        import asyncio
+        import time as time_module
+        
+        start_time = time_module.time()
+        
+        try:
+            async for raw in self.ws:
+                try:
+                    event = json.loads(raw)
+                    event_type = event.get("type", "")
+                    
+                    # Check for session.updated (success)
+                    if event_type == "session.updated":
+                        logger.info("✅ [SESSION] session.updated received - configuration applied successfully")
+                        return True
+                    
+                    # Check for error (failure)
+                    if event_type == "error":
+                        error = event.get("error", {})
+                        error_code = error.get("code", "unknown")
+                        error_message = error.get("message", "Unknown error")
+                        logger.error(f"❌ [SESSION] Error from Realtime API: {error_code} - {error_message}")
+                        # Return False but don't raise - caller should handle
+                        return False
+                    
+                    # Check timeout
+                    elapsed = time_module.time() - start_time
+                    if elapsed > timeout:
+                        logger.error(f"❌ [SESSION] Timeout waiting for session.updated after {timeout}s")
+                        return False
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ Invalid JSON while waiting for session.updated: {e}")
+                    continue
+                    
+        except asyncio.TimeoutError:
+            logger.error(f"❌ [SESSION] Timeout waiting for session.updated")
+            return False
+        except Exception as e:
+            logger.error(f"❌ [SESSION] Error waiting for session.updated: {e}")
+            return False
+        
+        return False
+    
     async def send_user_message(self, text: str):
         """
         Send a user message (e.g., DTMF input) to the AI
@@ -378,15 +443,13 @@ class OpenAIRealtimeClient:
         
         # 🔥 QUALITY IMPROVEMENT: Add noise reduction if available
         # This uses OpenAI's server-side noise reduction (not local filters)
-        # Options may include: "near_field", "speech-focused", or similar
-        # Note: This is experimental - OpenAI may not support this yet
-        # If it fails, the session will still work without it
-        try:
-            session_config["input_audio_noise_reduction"] = "speech"
-            logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction")
-        except Exception:
-            # Silently continue if not supported
-            pass
+        # CRITICAL: Must be an object with "type" field, not a string!
+        # Per OpenAI Realtime API spec: {"type": "near_field"} for phone calls
+        # NOTE: This is experimental and may not be supported by all models/versions
+        # We'll add it optimistically and fallback if it fails
+        use_noise_reduction = True  # Try with noise reduction first
+        session_config["input_audio_noise_reduction"] = {"type": "near_field"}
+        logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field (experimental)")
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
@@ -405,7 +468,7 @@ class OpenAIRealtimeClient:
         
         if self._last_instructions_hash == instructions_hash and self._last_voice == voice:
             logger.info(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
-            return
+            return True  # Return True to indicate session is configured (from cache)
         
         self._last_instructions_hash = instructions_hash
         self._last_voice = voice
@@ -417,8 +480,15 @@ class OpenAIRealtimeClient:
             print(f"⚠️ [BUILD 332] COST ALERT: session.update called {self._session_update_count} times (expected ≤2)")
         else:
             logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
+        
+        # Send session.update and store config for validation
+        self._pending_session_config = session_config.copy()  # Store for validation
         await self.send_event({
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
+        logger.info(f"✅ Session update sent: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
+        
+        # Return True to indicate session.update was sent successfully
+        # Caller should wait for session.updated event before proceeding
+        return True
