@@ -2164,8 +2164,12 @@ class MediaStreamHandler:
         logger.info(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         # Helper function for session configuration (used for initial config and retry)
-        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens):
-            """Send session.update event with specified configuration"""
+        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=False):
+            """Send session.update event with specified configuration
+            
+            Args:
+                force: Set to True to bypass hash check (for retry)
+            """
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -2175,7 +2179,8 @@ class MediaStreamHandler:
                 silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש."  # ✅ QA: Simple Hebrew transcription guidance
+                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש.",  # ✅ QA: Simple Hebrew transcription guidance
+                force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
             )
         
         client = None
@@ -2505,8 +2510,9 @@ Greet briefly. Then WAIT for customer to speak."""
                 if elapsed >= retry_at and not retried:
                     retried = True
                     _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
-                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens)
-                    _orig_print(f"📤 [SESSION] Retry session.update sent - continuing to wait", flush=True)
+                    # 🔥 FIX 3: Pass force=True to bypass hash check on retry
+                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=True)
+                    _orig_print(f"📤 [SESSION] Retry session.update sent with force=True - continuing to wait", flush=True)
                 
                 if elapsed > max_wait:
                     _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s, retried={retried}) - aborting", flush=True)
@@ -3717,7 +3723,8 @@ Greet briefly. Then WAIT for customer to speak."""
                         input_format = session_data.get("input_audio_format", "unknown")
                         voice = session_data.get("voice", "unknown")
                         instructions = session_data.get("instructions", "")
-                        transcription = session_data.get("input_audio_transcription", {})
+                        # 🔥 FIX: Handle None transcription safely - use or {} to prevent crash
+                        transcription = session_data.get("input_audio_transcription") or {}
                         turn_detection = session_data.get("turn_detection", {})
                         
                         _orig_print(f"🔍 [SESSION] session.created config: input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
@@ -3739,11 +3746,12 @@ Greet briefly. Then WAIT for customer to speak."""
                             _orig_print(f"❌ [SESSION.CREATED] Instructions too short: {len(instructions)} chars (min {MIN_INSTRUCTION_LENGTH})", flush=True)
                             validation_ok = False
                         
-                        # Validate transcription
+                        # Validate transcription (safely handle None case)
                         if not transcription or transcription.get("model") != "gpt-4o-transcribe":
                             _orig_print(f"❌ [SESSION.CREATED] Transcription not configured: {transcription}", flush=True)
                             validation_ok = False
-                        if transcription.get("language") != "he":
+                        # Only check language if transcription is configured
+                        if transcription and transcription.get("language") != "he":
                             _orig_print(f"⚠️ [SESSION.CREATED] Transcription language not Hebrew: {transcription.get('language')}", flush=True)
                         
                         # Validate turn detection
@@ -3751,12 +3759,16 @@ Greet briefly. Then WAIT for customer to speak."""
                             _orig_print(f"❌ [SESSION.CREATED] Turn detection not configured: {turn_detection}", flush=True)
                             validation_ok = False
                         
+                        # 🔥 FIX 4: Treat session.created as baseline, not fatal
+                        # session.created shows the INITIAL state (before session.update is applied)
+                        # Don't fatal on it - just log and continue waiting for session.updated
                         if validation_ok:
                             _orig_print(f"✅ [SESSION.CREATED] Full validation passed - accepting as fallback", flush=True)
                             _orig_print(f"✅ [SESSION.CREATED] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
                             self._session_config_confirmed = True
                         else:
-                            _orig_print(f"⚠️ [SESSION.CREATED] Validation failed - still waiting for session.updated", flush=True)
+                            _orig_print(f"⚠️ [SESSION.CREATED] Validation failed (baseline state) - waiting for session.updated", flush=True)
+                            _orig_print(f"⚠️ [SESSION.CREATED] This is normal - session.created shows defaults before session.update applies", flush=True)
                 
                 # 🔥 VALIDATION: Confirm session.updated received after session.update
                 if event_type == "session.updated":
@@ -3769,7 +3781,8 @@ Greet briefly. Then WAIT for customer to speak."""
                     voice = session_data.get("voice", "unknown")
                     instructions = session_data.get("instructions", "")
                     modalities = session_data.get("modalities", [])
-                    transcription = session_data.get("input_audio_transcription", {})
+                    # 🔥 FIX: Handle None transcription safely - use or {} to prevent crash
+                    transcription = session_data.get("input_audio_transcription") or {}
                     turn_detection = session_data.get("turn_detection", {})
                     
                     _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
@@ -3797,14 +3810,14 @@ Greet briefly. Then WAIT for customer to speak."""
                         logger.error(f"[SESSION ERROR] Instructions missing or invalid (length={len(instructions)})")
                         validation_failed = True
                     
-                    # Validate transcription is enabled
+                    # Validate transcription is enabled (safely handle None case)
                     if not transcription or transcription.get("model") != "gpt-4o-transcribe":
                         _orig_print(f"🚨 [SESSION ERROR] Transcription not properly configured!", flush=True)
                         logger.error(f"[SESSION ERROR] Transcription config invalid: {transcription}")
                         validation_failed = True
                     
-                    # Validate Hebrew language
-                    if transcription.get("language") != "he":
+                    # Validate Hebrew language (only if transcription exists)
+                    if transcription and transcription.get("language") != "he":
                         _orig_print(f"⚠️ [SESSION WARNING] Transcription language is not Hebrew: {transcription.get('language')}", flush=True)
                         logger.warning(f"[SESSION WARNING] Transcription language: {transcription.get('language')} (expected 'he')")
                     
