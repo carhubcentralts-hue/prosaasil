@@ -3603,14 +3603,27 @@ Greet briefly. Then WAIT for customer to speak."""
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 CRITICAL: BARGE-IN LOGIC (Simple & Powerful)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # If AI is currently speaking → STOP IT IMMEDIATELY
+                    # ✅ RULE 1: Only barge-in if there's actual active response
+                    # ✅ RULE 2: Only cancel if active_response_id exists (not just is_ai_speaking)
+                    # ✅ RULE 3: Never flush/clear during greeting - let it complete
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                        # AI is speaking - user is interrupting
+                    # Check if we're during greeting playback
+                    is_greeting_playing = self.is_playing_greeting or (self.greeting_mode_active and not self.greeting_completed)
+                    
+                    # ✅ RULE 2: Only trigger barge-in if there's an actual active response
+                    # Don't rely on is_ai_speaking_event alone - it might be stale
+                    if self.active_response_id and self.realtime_client:
+                        # AI has active response - user is interrupting
                         
-                        # Step 1: Cancel active response (with duplicate guard)
-                        if self.active_response_id and self.realtime_client:
+                        # ✅ RULE 3: Skip flush/clear during greeting - let greeting complete
+                        if is_greeting_playing:
+                            _orig_print(f"🛡️ [GREETING STABLE] User speaking during greeting - NOT cancelling/flushing (let greeting complete)", flush=True)
+                            # Don't cancel, don't flush, don't clear - just let greeting finish
+                            # The speech will be processed after greeting completes
+                        else:
+                            # Normal barge-in: Cancel, flush, and clear
+                            # Step 1: Cancel active response (with duplicate guard)
                             # 🔥 CRITICAL: Use _should_send_cancel to prevent duplicate cancellations
                             if self._should_send_cancel(self.active_response_id):
                                 try:
@@ -3620,38 +3633,39 @@ Greet briefly. Then WAIT for customer to speak."""
                                     _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
                                 except Exception as e:
                                     error_str = str(e).lower()
-                                    # 🔥 FIX: Gracefully handle not_active errors (response already ended)
-                                    if 'not_active' in error_str or 'no active response' in error_str:
-                                        _orig_print(f"⏭️ [BARGE-IN] Response already ended - no cancel needed", flush=True)
+                                    # ✅ RULE 2: Gracefully handle not_active errors (log only, don't crash)
+                                    # response_cancel_not_active, no_active_response, already_cancelled, already_completed
+                                    if ('not_active' in error_str or 'no active' in error_str or 
+                                        'already_cancelled' in error_str or 'already_completed' in error_str):
+                                        _orig_print(f"⏭️ [BARGE-IN] Response already ended (not_active) - continuing normally", flush=True)
                                     else:
-                                        _orig_print(f"⚠️ [BARGE-IN] Cancel error: {e}", flush=True)
+                                        _orig_print(f"⚠️ [BARGE-IN] Cancel error (ignoring): {e}", flush=True)
                             else:
                                 _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
-                        
-                        # Step 2: Flush TX queue (clear all pending audio frames)
-                        self._flush_tx_queue()
-                        
-                        # Step 3: Send Twilio "clear" event to stop audio already buffered on Twilio side
-                        # This is CRITICAL - prevents audio "tail" from playing after barge-in
-                        if self.stream_sid:
-                            try:
-                                clear_event = {
-                                    "event": "clear",
-                                    "streamSid": self.stream_sid
-                                }
-                                self._ws_send(json.dumps(clear_event))
-                                _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
-                            except Exception as e:
-                                _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
-                        
-                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
-                        self.is_ai_speaking_event.clear()
-                        self.active_response_id = None
-                        
-                        # Step 5: Set barge-in flag with timestamp
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()  # 🔥 FIX: Set timestamp to prevent None crash
-                        _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, TX flushed, Twilio cleared, barge_in=True", flush=True)
+                            
+                            # Step 2: Flush TX queue (clear all pending audio frames)
+                            self._flush_tx_queue()
+                            
+                            # Step 3: Send Twilio "clear" event to stop audio already buffered on Twilio side
+                            if self.stream_sid:
+                                try:
+                                    clear_event = {
+                                        "event": "clear",
+                                        "streamSid": self.stream_sid
+                                    }
+                                    self._ws_send(json.dumps(clear_event))
+                                    _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
+                                except Exception as e:
+                                    _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
+                            
+                            # Step 4: Reset state (ONLY after successful cancel + cleanup)
+                            self.is_ai_speaking_event.clear()
+                            self.active_response_id = None
+                            
+                            # Step 5: Set barge-in flag with timestamp
+                            self.barge_in_active = True
+                            self._barge_in_started_ts = time.time()
+                            _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, TX flushed, Twilio cleared", flush=True)
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -3873,10 +3887,11 @@ Greet briefly. Then WAIT for customer to speak."""
                             continue
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
-                        # 🔥 FIX: Disabled in SIMPLE_MODE to prevent blocking legitimate responses
+                        # ✅ RULE 3: Allow greeting audio even before user speaks
                         # In SIMPLE_MODE, we trust speech_started event + RMS to detect real user speech
-                        if not SIMPLE_MODE and not self.user_has_spoken:
-                            # User never spoke, and greeting not sent yet – block it
+                        is_greeting_response = self.greeting_mode_active and not self.greeting_completed
+                        if not SIMPLE_MODE and not self.user_has_spoken and not is_greeting_response:
+                            # User never spoke, and this is not the greeting – block it
                             print(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
                             # If there is a response_id in the event, send response.cancel once (with duplicate guard)
                             response_id = event.get("response_id")
