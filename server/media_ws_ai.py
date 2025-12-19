@@ -2382,7 +2382,7 @@ class MediaStreamHandler:
             # Step 1: Load COMPACT prompt from registry (built in webhook - ZERO latency!)
             compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
             
-            # Step 2: Load FULL prompt from registry (for post-greeting upgrade)
+            # Step 2: Load FULL BUSINESS prompt from registry (for post-greeting injection)
             full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
             
             # Step 3: Fallback - build if not in registry (should rarely happen)
@@ -2391,14 +2391,17 @@ class MediaStreamHandler:
                 # 🔥 LOG: Direction being used for prompt building
                 print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
                 try:
-                    from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
+                    from server.services.realtime_prompt_builder import (
+                        build_compact_greeting_prompt,
+                        build_full_business_prompt,
+                    )
                     app = _get_flask_app()
                     with app.app_context():
                         if not compact_prompt:
                             compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
                             print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
                         if not full_prompt:
-                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                            full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
                             print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
                 except Exception as prompt_err:
                     print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
@@ -2406,7 +2409,12 @@ class MediaStreamHandler:
                     traceback.print_exc()
                     # Last resort fallback
                     if not compact_prompt:
-                        compact_prompt = f"You are a professional service rep. SPEAK HEBREW to customer. Be helpful and brief."
+                        # Business-only fallback for COMPACT (no global/system rules).
+                        # Prefer DB greeting text if available, else short business greeting.
+                        if greeting_text and str(greeting_text).strip():
+                            compact_prompt = str(greeting_text).strip()
+                        else:
+                            compact_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
                     if not full_prompt:
                         full_prompt = compact_prompt
             else:
@@ -2433,15 +2441,15 @@ class MediaStreamHandler:
             print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
             logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
             
-            # Store full prompt for session.update after greeting
+            # Store full BUSINESS prompt for post-greeting injection (NOT session.update.instructions)
             self._full_prompt_for_upgrade = full_prompt
             self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
             
             # 🔥 CRITICAL LOGGING: Verify business isolation
             if full_prompt and f"Business ID: {business_id_safe}" in full_prompt:
-                print(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in FULL prompt")
+                print(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in FULL BUSINESS prompt")
             elif full_prompt:
-                logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in FULL prompt! Check for contamination.")
+                logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in FULL BUSINESS prompt")
             
             print(f"📊 [PROMPT STATS] compact={len(compact_prompt)} chars, full={len(full_prompt)} chars")
             
@@ -2549,6 +2557,39 @@ class MediaStreamHandler:
             
             session_wait_ms = (time.time() - wait_start) * 1000
             _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
+
+            # ─────────────────────────────────────────────────────────────────────
+            # ✅ PROMPT SEPARATION ENFORCEMENT:
+            # Inject GLOBAL SYSTEM prompt separately, never inside session.update.instructions.
+            # This must happen before the first response.create so behavior rules apply to greeting,
+            # while session.updated.instructions remains business-only COMPACT.
+            # ─────────────────────────────────────────────────────────────────────
+            if not getattr(self, "_global_system_prompt_injected", False):
+                try:
+                    from server.services.realtime_prompt_builder import build_global_system_prompt
+                    system_prompt = build_global_system_prompt(call_direction=call_direction)
+                    if system_prompt and system_prompt.strip():
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": system_prompt,
+                                        }
+                                    ],
+                                },
+                            }
+                        )
+                        self._global_system_prompt_injected = True
+                        logger.info("[PROMPT_SEPARATION] Injected global SYSTEM prompt as conversation message")
+                        _orig_print("[PROMPT_SEPARATION] global_system_prompt=injected", flush=True)
+                except Exception as e:
+                    # Do not fail call if this injection fails; COMPACT still provides business script.
+                    logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
             
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
@@ -3550,18 +3591,18 @@ class MediaStreamHandler:
                                         # Keep chunks reasonably sized; don't enforce 1000 here (this is NOT instructions).
                                         cleaned = sanitize_realtime_instructions(chunk, max_chars=FULL_PROMPT_MAX_CHARS)
 
-                                    # IMPORTANT: FULL must NOT be sent as system/instructions at any stage.
-                                    # We inject it as a regular conversation message for internal context.
+                                    # IMPORTANT: FULL BUSINESS prompt must NOT be sent as session.instructions at any stage.
+                                    # Inject it as a conversation system message AFTER greeting so it does not delay T0 audio.
                                     await client.send_event(
                                         {
                                             "type": "conversation.item.create",
                                             "item": {
                                                 "type": "message",
-                                                "role": "assistant",
+                                                "role": "system",
                                                 "content": [
                                                     {
                                                         "type": "text",
-                                                        "text": f"[INTERNAL CONTEXT {idx}] {cleaned}",
+                                                        "text": f"[BUSINESS PROMPT {idx}] {cleaned}",
                                                     }
                                                 ],
                                             },
@@ -7746,12 +7787,12 @@ class MediaStreamHandler:
                             logger.info(f"[BUSINESS_ISOLATION] call_accepted business_id={business_id_safe} to={self.to_number} call_sid={self.call_sid}")
                             _orig_print(f"✅ [BUSINESS_ISOLATION] Business validated: {business_id_safe}", flush=True)
                             
-                            # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
-                            # This eliminates redundant DB query in async loop
+                            # 🔥 PART D: PRE-BUILD FULL BUSINESS prompt here (while we have app context!)
+                            # This eliminates redundant DB query later and enforces prompt separation.
                             try:
-                                from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                                self._prebuilt_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                                print(f"✅ [PART D] Pre-built prompt: {len(self._prebuilt_prompt)} chars (saved DB round-trip for async loop)")
+                                from server.services.realtime_prompt_builder import build_full_business_prompt
+                                self._prebuilt_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
+                                print(f"✅ [PART D] Pre-built FULL BUSINESS prompt: {len(self._prebuilt_prompt)} chars")
                             except Exception as prompt_err:
                                 print(f"⚠️ [PART D] Failed to pre-build prompt: {prompt_err}")
                                 self._prebuilt_prompt = None  # Async loop will build it as fallback

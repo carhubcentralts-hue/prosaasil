@@ -490,7 +490,10 @@ def incoming_call():
     def _prebuild_prompts_async(call_sid, business_id):
         """Background thread to pre-build prompts - doesn't block webhook response"""
         try:
-            from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
+            from server.services.realtime_prompt_builder import (
+                build_compact_greeting_prompt,
+                build_full_business_prompt,
+            )
             from server.stream_state import stream_registry
             from server.app_factory import get_process_app
             
@@ -501,8 +504,9 @@ def incoming_call():
                 compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
                 
-                # Build FULL prompt (3000+ chars) - for post-greeting upgrade
-                full_prompt = build_realtime_system_prompt(business_id, call_direction="inbound")
+                # Build FULL BUSINESS prompt (business-only) - for post-greeting injection
+                # IMPORTANT: Never store/send global system rules inside this "full" prompt.
+                full_prompt = build_full_business_prompt(business_id, call_direction="inbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
                 
                 print(f"✅ [PROMPT] Pre-built prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
@@ -636,7 +640,10 @@ def outbound_call():
     def _prebuild_prompts_async_outbound(call_sid, business_id):
         """Background thread to pre-build outbound prompts - doesn't block webhook response"""
         try:
-            from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
+            from server.services.realtime_prompt_builder import (
+                build_compact_greeting_prompt,
+                build_full_business_prompt,
+            )
             from server.stream_state import stream_registry
             from server.app_factory import get_process_app
             
@@ -647,8 +654,9 @@ def outbound_call():
                 compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
                 
-                # Build FULL prompt (3000+ chars) - for post-greeting upgrade
-                full_prompt = build_realtime_system_prompt(int(business_id), call_direction="outbound")
+                # Build FULL BUSINESS prompt (business-only) - for post-greeting injection
+                # IMPORTANT: Never store/send global system rules inside this "full" prompt.
+                full_prompt = build_full_business_prompt(int(business_id), call_direction="outbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
                 
                 print(f"✅ [PROMPT] Pre-built outbound prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
