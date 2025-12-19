@@ -222,12 +222,12 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
             ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
             
-            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut 300–400 chars
+            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut 600–800 chars
             ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=5000)
 
-            # Take first 300–400 chars (assume business opening is at start of business prompt)
-            excerpt_max = 390
-            excerpt_window = 440  # small lookahead for clean cut
+            # Take first 600–800 chars (give AI more context for how to greet properly)
+            excerpt_max = 750
+            excerpt_window = 850  # larger lookahead for clean cut
             if len(ai_prompt_text) > excerpt_max:
                 window = ai_prompt_text[: min(len(ai_prompt_text), excerpt_window)]
 
@@ -235,14 +235,14 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
                 cut_point = -1
                 for delimiter in (". ", "? ", "! "):
                     pos = window.rfind(delimiter)
-                    if pos != -1 and pos >= 220:
+                    if pos != -1 and pos >= 500:
                         cut_point = pos + len(delimiter)
                         break
 
                 if cut_point == -1:
                     # Last space within max region
                     cut_point = ai_prompt_text[:excerpt_max].rfind(" ")
-                    if cut_point < 220:
+                    if cut_point < 500:
                         cut_point = excerpt_max
 
                 compact_context = ai_prompt_text[:cut_point].strip()
@@ -269,8 +269,8 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             f"Call type: {direction}. "
             f"Business opening (use this to start the call): {compact_context}"
         )
-        # Hard cap for Realtime instructions
-        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=1000)
+        # Hard cap for Realtime instructions - increased to 1800 to give more context
+        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=1800)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         

@@ -2203,11 +2203,11 @@ class MediaStreamHandler:
             try:
                 from server.services.realtime_prompt_builder import sanitize_realtime_instructions
                 original_len = len(greeting_prompt or "")
-                greeting_prompt = sanitize_realtime_instructions(greeting_prompt or "", max_chars=1000)
+                greeting_prompt = sanitize_realtime_instructions(greeting_prompt or "", max_chars=1800)
                 sanitized_len = len(greeting_prompt)
                 if sanitized_len != original_len:
                     _orig_print(
-                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap=1000)",
+                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap=1800)",
                         flush=True,
                     )
             except Exception as _sanitize_err:
