@@ -2627,6 +2627,9 @@ class MediaStreamHandler:
             self.greeting_lock_active = True
             self._greeting_lock_response_id = None
             self._greeting_start_ts = greeting_start_ts  # Store for duration logging
+            # Log once (not hot path) so production verification can see lock state.
+            logger.info("[GREETING_LOCK] activated (awaiting greeting response_id)")
+            _orig_print("🔒 [GREETING_LOCK] activated", flush=True)
             # ✅ CRITICAL: Wait until Twilio streamSid exists before greeting trigger (inbound + outbound)
             # This ensures the first audio frames can be delivered immediately to the caller.
             sid_wait_start = time.time()
@@ -2636,78 +2639,83 @@ class MediaStreamHandler:
             # 🔥 BUILD 200: Use trigger_response for greeting (forced, no user_speaking/user_has_spoken dependency)
             triggered = await self.trigger_response("GREETING", client, is_greeting=True, force=True)
             if triggered:
-                    t_speak = time.time()
-                    total_openai_ms = (t_speak - t_start) * 1000
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 PART D: Detailed timing breakdown for latency analysis
-                    # ═══════════════════════════════════════════════════════════════════════
-                    t0 = getattr(self, 't0_connected', t_start)  # WS open time
-                    connect_delta = int((t_connected - t_start) * 1000)
-                    try:
-                        wait_delta = int((t_ready - t_connected) * 1000)
-                    except NameError:
-                        wait_delta = 0  # t_ready not defined (timeout case)
-                    config_delta = int((t_after_config - t_before_config) * 1000)
-                    total_from_t0 = int((t_speak - t0) * 1000)
-                    
-                    _orig_print(f"⏱️ [LATENCY BREAKDOWN] connect={connect_delta}ms, wait_biz={wait_delta}ms, config={config_delta}ms, total={total_openai_ms:.0f}ms (T0→greeting={total_from_t0}ms)", flush=True)
-                    print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+                t_speak = time.time()
+                total_openai_ms = (t_speak - t_start) * 1000
 
-            # 🚀 Start audio/text bridges ONLY after greeting was triggered (per requirements)
-            logger.info(f"[REALTIME] Starting audio/text sender tasks (post-greeting trigger)...")
-            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
-            logger.info(f"[REALTIME] Audio/text tasks created successfully")
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog
-                    # ═══════════════════════════════════════════════════════════════════════
-                    async def _greeting_audio_timeout_watchdog():
-                        """Monitor for greeting audio timeout - cancel if no audio within 3s"""
-                        watchdog_start = time.time()
-                        timeout_sec = self._greeting_audio_timeout_sec
-                        
-                        # Wait for greeting audio or timeout
-                        while (time.time() - watchdog_start) < timeout_sec:
-                            # Check if we received greeting audio
-                            if self._greeting_audio_received:
-                                # Greeting audio arrived - success!
-                                return
-                            
-                            # Check if greeting is no longer playing (user barged in, etc.)
-                            if not self.is_playing_greeting:
-                                return
-                            
-                            # Check if realtime already failed
-                            if self.realtime_failed:
-                                return
-                            
-                            await asyncio.sleep(0.1)  # Check every 100ms
-                        
-                        # Timeout reached - check if audio ever arrived
-                        if not self._greeting_audio_received and self.is_playing_greeting:
-                            elapsed_ms = int((time.time() - watchdog_start) * 1000)
-                            _orig_print(f"⚠️ [GREETING] NO_AUDIO_FROM_OPENAI ({elapsed_ms}ms) - canceling greeting", flush=True)
-                            logger.warning(f"[GREETING] No audio from OpenAI after {elapsed_ms}ms - canceling greeting")
-                            
-                            # Cancel the greeting - let call continue without it
-                            self.is_playing_greeting = False
-                            self.greeting_sent = True  # Mark as done so we don't retry
-                            self.barge_in_enabled_after_greeting = True  # Allow barge-in
-                            
-                            # Don't set realtime_failed - the call can still proceed
-                            # Just skip the greeting and let user audio through
-                            _orig_print(f"⚠️ [GREETING] GREETING_SKIPPED - continuing call without greeting", flush=True)
-                    
-                    # Start the watchdog
-                    asyncio.create_task(_greeting_audio_timeout_watchdog())
-                    
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 PART D: Detailed timing breakdown for latency analysis
+                # ═══════════════════════════════════════════════════════════════════════
+                t0 = getattr(self, "t0_connected", t_start)  # WS open time
+                connect_delta = int((t_connected - t_start) * 1000)
+                try:
+                    wait_delta = int((t_ready - t_connected) * 1000)
+                except NameError:
+                    wait_delta = 0  # t_ready not defined (timeout case)
+                config_delta = int((t_after_config - t_before_config) * 1000)
+                total_from_t0 = int((t_speak - t0) * 1000)
+
+                _orig_print(
+                    f"⏱️ [LATENCY BREAKDOWN] connect={connect_delta}ms, wait_biz={wait_delta}ms, config={config_delta}ms, total={total_openai_ms:.0f}ms (T0→greeting={total_from_t0}ms)",
+                    flush=True,
+                )
+                print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
             else:
                 print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
                 # Reset flags since greeting failed
                 self.greeting_sent = False
                 self.is_playing_greeting = False
+
+            # 🚀 Start audio/text bridges after greeting trigger attempt:
+            # - If greeting triggered: start immediately after trigger to enforce "bot speaks first"
+            # - If greeting failed: still start so the call can proceed
+            logger.info("[REALTIME] Starting audio/text sender tasks (post-greeting trigger attempt)...")
+            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+            logger.info("[REALTIME] Audio/text tasks created successfully")
+
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog (only when greeting triggered)
+            # ═══════════════════════════════════════════════════════════════════════
+            if triggered:
+                async def _greeting_audio_timeout_watchdog():
+                    """Monitor for greeting audio timeout - cancel if no audio within timeout window."""
+                    watchdog_start = time.time()
+                    timeout_sec = self._greeting_audio_timeout_sec
+
+                    # Wait for greeting audio or timeout
+                    while (time.time() - watchdog_start) < timeout_sec:
+                        # Check if we received greeting audio
+                        if self._greeting_audio_received:
+                            # Greeting audio arrived - success!
+                            return
+
+                        # Check if greeting is no longer playing (user barged in, etc.)
+                        if not self.is_playing_greeting:
+                            return
+
+                        # Check if realtime already failed
+                        if self.realtime_failed:
+                            return
+
+                        await asyncio.sleep(0.1)  # Check every 100ms
+
+                    # Timeout reached - check if audio ever arrived
+                    if not self._greeting_audio_received and self.is_playing_greeting:
+                        elapsed_ms = int((time.time() - watchdog_start) * 1000)
+                        _orig_print(f"⚠️ [GREETING] NO_AUDIO_FROM_OPENAI ({elapsed_ms}ms) - canceling greeting", flush=True)
+                        logger.warning(f"[GREETING] No audio from OpenAI after {elapsed_ms}ms - canceling greeting")
+
+                        # Cancel the greeting - let call continue without it
+                        self.is_playing_greeting = False
+                        self.greeting_sent = True  # Mark as done so we don't retry
+                        self.barge_in_enabled_after_greeting = True  # Allow barge-in
+
+                        # Don't set realtime_failed - the call can still proceed.
+                        # Just skip the greeting and let user audio through.
+                        _orig_print("⚠️ [GREETING] GREETING_SKIPPED - continuing call without greeting", flush=True)
+
+                # Start the watchdog
+                asyncio.create_task(_greeting_audio_timeout_watchdog())
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
