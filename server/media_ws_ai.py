@@ -2170,6 +2170,22 @@ class MediaStreamHandler:
             Args:
                 force: Set to True to bypass hash check (for retry)
             """
+            # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
+            # Sanitize + hard cap to prevent silent starts / long delays.
+            try:
+                from server.services.realtime_prompt_builder import sanitize_realtime_instructions
+                original_len = len(greeting_prompt or "")
+                greeting_prompt = sanitize_realtime_instructions(greeting_prompt or "", max_chars=1000)
+                sanitized_len = len(greeting_prompt)
+                if sanitized_len != original_len:
+                    _orig_print(
+                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap=1000)",
+                        flush=True,
+                    )
+            except Exception as _sanitize_err:
+                # Never block the call on sanitizer issues; proceed with original prompt.
+                _orig_print(f"⚠️ [PROMPT_SANITIZE] Failed: {_sanitize_err}", flush=True)
+
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -2266,21 +2282,22 @@ class MediaStreamHandler:
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
             logger.info("[REALTIME] Connected")
             
-            # 🚀 PARALLEL STEP 2: Wait for business info from main thread (max 2s)
+            # 🚀 PARALLEL STEP 2: Wait briefly for business info (do NOT block greeting)
             print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
             
             # Use asyncio to wait for the threading.Event
             loop = asyncio.get_event_loop()
             try:
+                # Keep this short: greeting must not depend on DB readiness.
                 await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: self.business_info_ready_event.wait(2.0)),
-                    timeout=3.0
+                    loop.run_in_executor(None, lambda: self.business_info_ready_event.wait(0.3)),
+                    timeout=0.6
                 )
                 t_ready = time.time()
                 wait_ms = (t_ready - t_connected) * 1000
                 print(f"✅ [PARALLEL] Business info ready! Wait time: {wait_ms:.0f}ms")
             except asyncio.TimeoutError:
-                print(f"⚠️ [PARALLEL] Timeout waiting for business info - using defaults")
+                print(f"⚠️ [PARALLEL] Timeout waiting for business info - proceeding with defaults (do not block greeting)")
                 # Use helper with force_greeting=True to ensure greeting fires
                 self._set_safe_business_defaults(force_greeting=True)
             
@@ -2384,35 +2401,9 @@ class MediaStreamHandler:
             
             print(f"📊 [PROMPT STATS] compact={len(compact_prompt)} chars, full={len(full_prompt)} chars")
             
-            # 🔥 BUILD 350: SIMPLIFIED GREETING - Fast path, no branching
-            # All greeting data pre-loaded in webhook, just use it directly!
-            greeting_instruction = ""
-            
-            if call_direction == 'outbound':
-                # OUTBOUND: Use pre-loaded greeting or default
-                outbound_greeting = getattr(self, 'outbound_greeting_text', None)
-                if outbound_greeting:
-                    greeting_instruction = f'FIRST: Say exactly: "{outbound_greeting}" then WAIT.'
-                    print(f"📤 [OUTBOUND] Using template greeting")
-                else:
-                    lead_name = getattr(self, 'outbound_lead_name', 'הלקוח')
-                    greeting_instruction = f'FIRST: Greet {lead_name} briefly, introduce from {biz_name}, WAIT.'
-                    print(f"📤 [OUTBOUND] Using default greeting for {lead_name}")
-            else:
-                # INBOUND: Use pre-loaded greeting or default
-                if greeting_text and greeting_text.strip():
-                    greeting_instruction = f'FIRST: Say exactly: "{greeting_text.strip()}" then WAIT.'
-                    print(f"📞 [INBOUND] Using DB greeting: '{greeting_text[:40]}...'")
-                else:
-                    greeting_instruction = f'FIRST: Introduce from {biz_name} in Hebrew, WAIT.'
-                    print(f"📞 [INBOUND] Using default greeting")
-            
-            # 🔥 BUILD 350: SINGLE GREETING PATH - Compact prompt + simple instruction
-            greeting_prompt = f"""{greeting_prompt_to_use}
-
----
-
-{greeting_instruction}"""
+            # 🔥 FINAL LOCK: No extra greeting logic.
+            # COMPACT already includes the business opening (from business prompt excerpt) and how to start.
+            greeting_prompt = greeting_prompt_to_use
             has_custom_greeting = True
             
             t_before_config = time.time()
@@ -3475,13 +3466,57 @@ class MediaStreamHandler:
                                 import hashlib
                                 full_prompt_hash = hashlib.md5(full_prompt.encode()).hexdigest()[:8]
                                 
-                                # Send session.update with full prompt (non-blocking, AI continues working)
-                                await client.send_event({
-                                    "type": "session.update",
-                                    "session": {
-                                        "instructions": full_prompt
-                                    }
-                                })
+                                # ✅ Per CRITICAL directive:
+                                # FULL prompt must NOT be sent as session.instructions (system).
+                                # Instead, inject it as internal context AFTER the call has started.
+                                # This avoids heavy system prompts that can delay or silence first audio.
+                                def _chunk_text(s: str, chunk_size: int = 2500):
+                                    s = s or ""
+                                    # Avoid literal escaped newlines leaking as "\\n"
+                                    s = s.replace("\\n", "\n")
+                                    if len(s) <= chunk_size:
+                                        return [s]
+                                    chunks = []
+                                    i = 0
+                                    while i < len(s):
+                                        j = min(i + chunk_size, len(s))
+                                        # Try to cut on paragraph boundary if possible
+                                        cut = s.rfind("\n\n", i, j)
+                                        if cut != -1 and cut > i + int(chunk_size * 0.5):
+                                            j = cut + 2
+                                        chunks.append(s[i:j].strip())
+                                        i = j
+                                    return [c for c in chunks if c]
+
+                                # Sanitize FULL chunks too (not for length, but to remove TTS-hostile symbols/newlines).
+                                try:
+                                    from server.services.realtime_prompt_builder import sanitize_realtime_instructions
+                                except Exception:
+                                    sanitize_realtime_instructions = None  # type: ignore
+
+                                for idx, chunk in enumerate(_chunk_text(full_prompt), start=1):
+                                    cleaned = chunk
+                                    if sanitize_realtime_instructions:
+                                        # Keep chunks reasonably sized; don't enforce 1000 here (this is NOT instructions).
+                                        cleaned = sanitize_realtime_instructions(chunk, max_chars=8000)
+
+                                    # IMPORTANT: FULL must NOT be sent as system/instructions at any stage.
+                                    # We inject it as a regular conversation message for internal context.
+                                    await client.send_event(
+                                        {
+                                            "type": "conversation.item.create",
+                                            "item": {
+                                                "type": "message",
+                                                "role": "assistant",
+                                                "content": [
+                                                    {
+                                                        "type": "text",
+                                                        "text": f"[INTERNAL CONTEXT {idx}] {cleaned}",
+                                                    }
+                                                ],
+                                            },
+                                        }
+                                    )
                                 
                                 self._prompt_upgraded_to_full = True
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
