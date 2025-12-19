@@ -89,10 +89,10 @@ def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     return text
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 🔥 PART 1: SYSTEM PROMPT - UNIVERSAL BEHAVIOR RULES ONLY
+# 🔥 PART 1: SYSTEM PROMPT - BEHAVIOR RULES (direction-aware, single source)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def _build_universal_system_prompt() -> str:
+def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     """
     🎯 UNIVERSAL SYSTEM PROMPT - Technical Behavior Rules ONLY
     
@@ -109,12 +109,16 @@ def _build_universal_system_prompt() -> str:
     - Service names, city names, business names
     - Domain-specific examples or scripts
     
-    This prompt is IDENTICAL for all businesses - only behavior, no content.
+    This prompt is direction-aware (INBOUND vs OUTBOUND) but remains:
+    - behavior-only (no business content)
+    - short and voice-friendly
+    - single source of truth for both directions (no duplicated rule blocks)
+
     Written in English for optimal AI understanding.
     """
     # Keep this SHORT and purely operational for Realtime.
     # Target: <= ~900 chars, no markdown, no separators, no icons.
-    return (
+    base = (
         "You are a professional male-voice phone agent for the currently active business only. "
         "Business isolation: every call is independent; ignore any info or style from other businesses/calls. "
         "Language: speak Hebrew by default; switch only if the caller explicitly asks. "
@@ -123,6 +127,22 @@ def _build_universal_system_prompt() -> str:
         "Style: be warm, calm, and concise (1-2 sentences). Ask one question at a time. "
         "Follow the Business Prompt for content and flow."
     )
+
+    d = (call_direction or "").strip().lower()
+    if d == "outbound":
+        # OUTBOUND: we initiated the call.
+        direction_rules = (
+            " Outbound rules: you initiated the call; be polite and brief, and proceed according to the outbound Business Prompt."
+        )
+    elif d == "inbound":
+        # INBOUND: caller called the business.
+        direction_rules = (
+            " Inbound rules: the caller contacted the business; respond naturally and proceed according to the inbound Business Prompt."
+        )
+    else:
+        direction_rules = ""
+
+    return f"{base}{direction_rules}"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -232,7 +252,7 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             # 2) Compute available budget for the business opening excerpt so the FINAL compact
             # prompt stays within COMPACT_GREETING_MAX_CHARS (800).
             direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
-            system_rules = _build_universal_system_prompt()
+            system_rules = _build_universal_system_prompt(call_direction=call_direction)
             # Keep prefix minimal to reserve space for business context (fast + relevant).
             prefix = f"{system_rules} Call={direction}. Start: "
             prefix_clean = sanitize_realtime_instructions(prefix, max_chars=COMPACT_GREETING_MAX_CHARS)
@@ -275,7 +295,7 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         
         # 🔥 COMPACT = short system + business opening excerpt (and nothing more)
         direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
-        system_rules = _build_universal_system_prompt()
+        system_rules = _build_universal_system_prompt(call_direction=call_direction)
         # Keep the prefix minimal to reserve most of the 800-char budget for business context.
         final_prompt = f"{system_rules} Call={direction}. Start: {compact_context}"
 
@@ -582,7 +602,7 @@ def build_inbound_system_prompt(
         logger.info(f"📋 [INBOUND] Building prompt: {business_name} (scheduling={enable_calendar_scheduling}, goal={call_goal})")
         
         # LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
-        system_rules = _build_universal_system_prompt()
+        system_rules = _build_universal_system_prompt(call_direction="inbound")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 LAYER 2: APPOINTMENT INSTRUCTIONS (dynamic, technical only)
@@ -697,7 +717,7 @@ def build_outbound_system_prompt(
         logger.info(f"📋 [OUTBOUND] Building prompt: {business_name} (id={business_id})")
         
         # LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
-        system_rules = _build_universal_system_prompt()
+        system_rules = _build_universal_system_prompt(call_direction="outbound")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 LAYER 2: OUTBOUND-SPECIFIC CONTEXT (now integrated in final prompt)
