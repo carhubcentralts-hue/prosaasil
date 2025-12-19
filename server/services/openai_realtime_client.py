@@ -45,8 +45,8 @@ def _sanitize_text_for_realtime(text: str, max_chars: int) -> str:
 def _sanitize_event_payload_for_realtime(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     Sanitize any text-bearing payload BEFORE it reaches the websocket:
-    - session.update.session.instructions (<=8000)
-    - response.create.response.instructions (<=8000) if ever used
+    - session.update.session.instructions (<=1000)
+    - response.create.response.instructions (<=1000) if ever used
     - conversation.item.create content text (voice-friendly, not capped to 1000)
     """
     try:
@@ -56,14 +56,14 @@ def _sanitize_event_payload_for_realtime(event: Dict[str, Any]) -> Dict[str, Any
             if isinstance(session, dict) and "instructions" in session:
                 session["instructions"] = _sanitize_text_for_realtime(
                     str(session.get("instructions") or ""),
-                    max_chars=8000
+                    max_chars=1000
                 )
         elif event_type == "response.create":
             resp = event.get("response")
             if isinstance(resp, dict) and "instructions" in resp:
                 resp["instructions"] = _sanitize_text_for_realtime(
                     str(resp.get("instructions") or ""),
-                    max_chars=8000
+                    max_chars=1000
                 )
         elif event_type == "conversation.item.create":
             item = event.get("item")
@@ -457,9 +457,8 @@ class OpenAIRealtimeClient:
         # Enforce hard cap here (in addition to caller-side sanitization).
         #
         # NOTE: Greeting instructions should still be kept small upstream (e.g. 800 chars),
-        # but FULL prompts may be larger. Keep a generous cap here to avoid truncating
-        # full-context sessions when explicitly requested.
-        instructions = _sanitize_text_for_realtime(instructions, max_chars=8000)
+        # and FULL prompts should NOT be sent as system instructions (inject as internal context instead).
+        instructions = _sanitize_text_for_realtime(instructions, max_chars=1000)
 
         # 🔥 BUILD 341: Use tuned defaults from config
         if vad_threshold is None or silence_duration_ms is None or prefix_padding_ms is None:
