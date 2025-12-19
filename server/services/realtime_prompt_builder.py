@@ -115,6 +115,8 @@ def _build_universal_system_prompt() -> str:
         "Barge-in: if the caller starts speaking, stop immediately and wait. "
         "Truth: use the transcript as the single source of truth; never invent details; if unclear, ask to repeat. "
         "Style: be warm, calm, and concise (1-2 sentences). Ask one question at a time. "
+        "CRITICAL: NEVER claim you did something (קבעתי, שלחתי, רשמתי) unless you actually called the tool and got success=true. "
+        "If you have tools available, you MUST use them. Do not fake actions. "
         "Follow the Business Prompt for content and flow."
     )
 
@@ -587,12 +589,22 @@ def build_inbound_system_prompt(
             weekday_name = weekday_names[today.weekday()]
             
             appointment_instructions = (
-                f"\n\nAPPOINTMENT SCHEDULING (technical): Today is {weekday_name} {today_date}. "
-                f"Slot size: {policy.slot_size_min}min. "
-                "Collect: (1) customer name, (2) preferred date+time. "
-                "Call schedule_appointment once after collecting both. "
-                "Do not ask for phone (already in metadata). "
-                "Only confirm booking if server returns success=true; otherwise offer alternatives."
+                f"\n\n🎯 CRITICAL INSTRUCTION — Goal = Book Appointment, not 'collect details'\n\n"
+                f"Today is {weekday_name} {today_date}. Slot size: {policy.slot_size_min}min.\n\n"
+                "MANDATORY BOOKING FLOW:\n"
+                "1. Identify service needed\n"
+                "2. Ask for customer name\n"
+                "3. Ask for preferred date+time\n"
+                "4. MUST call check_availability(date, time, service) to verify slots\n"
+                "5. Offer 2-3 real available times from tool result\n"
+                "6. After customer picks: MUST call schedule_appointment(name, date, time, service)\n"
+                "7. ONLY say 'נקבע ביומן' if tool returns success=true with appointment_id\n\n"
+                "CRITICAL RULES:\n"
+                "- NEVER say 'קבעתי' or 'נקבע' without calling schedule_appointment tool\n"
+                "- NEVER claim times are available/busy without calling check_availability tool\n"
+                "- If tool returns error → offer alternatives or take message for callback\n"
+                "- If no calendar access → say 'אין לי גישה ליומן כרגע' and take details for callback\n"
+                "- Goal: Real booking in calendar, not just information collection"
             )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -625,6 +637,11 @@ def build_inbound_system_prompt(
         
         full_prompt = (
             f"{system_rules}{appointment_instructions}\n\n"
+            f"🚨 ANTI-HALLUCINATION ENFORCEMENT:\n"
+            "- NEVER say you booked/scheduled ('קבעתי', 'נקבע') without calling schedule_appointment tool\n"
+            "- NEVER say you checked availability ('פנוי', 'תפוס') without calling check_availability tool\n"
+            "- If tool returns error or you lack calendar access → be honest, take details for callback\n"
+            "- Only confirm actions after receiving success=true from tool with event_id/appointment_id\n\n"
             f"BUSINESS PROMPT (Business ID: {business_id}):\n{business_prompt}\n\n"
             "CALL TYPE: INBOUND. The customer called the business. Follow the business prompt for greeting and flow."
         )
@@ -714,6 +731,10 @@ def build_outbound_system_prompt(
         
         full_prompt = (
             f"{system_rules}\n\n"
+            f"🚨 ANTI-HALLUCINATION ENFORCEMENT:\n"
+            "- NEVER claim actions without using tools when available\n"
+            "- Be honest about what you can and cannot do\n"
+            "- If you lack access or tools → tell customer honestly and offer alternatives\n\n"
             f"BUSINESS PROMPT (Business ID: {business_id}):\n{outbound_prompt}\n\n"
             f'CALL TYPE: OUTBOUND from "{business_name}". If confused, briefly identify the business and continue per the outbound prompt.'
         )

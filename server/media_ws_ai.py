@@ -1910,16 +1910,41 @@ class MediaStreamHandler:
                 from server.models_sql import BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
                 
-                # 🔥 CHECK BOTH: call_goal == "appointment" AND enable_calendar_scheduling
+                # 🔥 CHECK: call_goal == "appointment" - that's the only requirement!
+                # Business policy will handle hours, slot size, etc.
                 call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
-                enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
                 
-                if call_goal == 'appointment' and enable_scheduling:
-                    # Appointment tool schema
+                if call_goal == 'appointment':
+                    # 🔥 TOOL 1: Check Availability - MUST be called before booking
+                    availability_tool = {
+                        "type": "function",
+                        "name": "check_availability",
+                        "description": "Check available appointment slots for a specific date. MUST be called before offering times to customer.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "date": {
+                                    "type": "string",
+                                    "description": "Date to check in YYYY-MM-DD format (e.g., '2025-12-20')"
+                                },
+                                "preferred_time": {
+                                    "type": "string",
+                                    "description": "Customer's preferred time in HH:MM format (e.g., '14:00'). System will return slots near this time."
+                                },
+                                "service_type": {
+                                    "type": "string",
+                                    "description": "Type of service requested (used to determine duration)"
+                                }
+                            },
+                            "required": ["date"]
+                        }
+                    }
+                    
+                    # 🔥 TOOL 2: Schedule Appointment - MUST be called to create booking
                     appointment_tool = {
                         "type": "function",
                         "name": "schedule_appointment",
-                        "description": "Schedule an appointment when customer confirms time and provides required details",
+                        "description": "Schedule an appointment ONLY after checking availability with check_availability. MUST be called to confirm booking.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -1943,10 +1968,12 @@ class MediaStreamHandler:
                             "required": ["customer_name", "appointment_date", "appointment_time"]
                         }
                     }
+                    
+                    tools.append(availability_tool)
                     tools.append(appointment_tool)
-                    logger.info(f"[TOOLS][REALTIME] Appointment tool ENABLED (call_goal=appointment, scheduling=enabled) for business {business_id}")
+                    logger.info(f"[TOOLS][REALTIME] Appointment tools ENABLED (call_goal=appointment) for business {business_id}")
                 else:
-                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}, scheduling={enable_scheduling}) - no tools for business {business_id}")
+                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}) - no tools for business {business_id}")
                 
         except Exception as e:
             logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
@@ -6504,11 +6531,10 @@ class MediaStreamHandler:
                 print(f"⚠️ [NLP] OUTBOUND call - skipping availability check (outbound follows prompt only)")
                 return
             
-            # 🔥 BUILD 186: CHECK IF CALENDAR SCHEDULING IS ENABLED
-            call_config = getattr(self, 'call_config', None)
-            if call_config and not call_config.enable_calendar_scheduling:
-                print(f"⚠️ [NLP] Calendar scheduling is DISABLED - not checking availability")
-                await self._send_server_event_to_ai("⚠️ Calendar scheduling disabled")
+            # 🔥 CHECK IF APPOINTMENTS ARE ENABLED (call_goal)
+            call_goal = getattr(self, 'call_goal', 'lead_only')
+            if call_goal != 'appointment':
+                print(f"⚠️ [NLP] Appointments not enabled (call_goal={call_goal}) - not checking availability")
                 return
             
             # 🔥 BUILD 337: CHECK IF NAME IS REQUIRED BUT MISSING - BLOCK scheduling!
@@ -6636,13 +6662,10 @@ class MediaStreamHandler:
                 print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - OUTBOUND call (outbound follows prompt only)")
                 return
             
-            # 🔥 BUILD 186: CHECK IF CALENDAR SCHEDULING IS ENABLED
-            # If disabled, do NOT attempt to create appointments - only collect leads
-            call_config = getattr(self, 'call_config', None)
-            if call_config and not call_config.enable_calendar_scheduling:
-                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - Calendar scheduling is DISABLED for this business!")
-                print(f"⚠️ [APPOINTMENT FLOW] Informing AI to redirect customer to human representative")
-                await self._send_server_event_to_ai("⚠️ Calendar scheduling disabled")
+            # 🔥 CHECK IF APPOINTMENTS ARE ENABLED (call_goal)
+            call_goal = getattr(self, 'call_goal', 'lead_only')
+            if call_goal != 'appointment':
+                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - call_goal={call_goal} (expected 'appointment')")
                 return
             
             # 🛡️ CRITICAL GUARD: Check if appointment was already created in this session
@@ -10909,6 +10932,160 @@ class MediaStreamHandler:
                 })
                 await client.send_event({"type": "response.create"})
         
+        elif function_name == "check_availability":
+            # 🔥 CHECK AVAILABILITY: Must be called before offering times
+            try:
+                args = json.loads(arguments_str)
+                print(f"📅 [CHECK_AVAIL] Request from AI: {args}")
+                logger.info(f"[CHECK_AVAIL] Checking availability: {args}")
+                
+                business_id = getattr(self, 'business_id', None)
+                if not business_id:
+                    print(f"❌ [CHECK_AVAIL] No business_id available")
+                    logger.error("[CHECK_AVAIL] No business_id in session")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error": "אין גישה למערכת כרגע"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # 🔥 CRITICAL: Verify call_goal is appointment
+                call_goal = getattr(self, 'call_goal', 'lead_only')
+                if call_goal != 'appointment':
+                    print(f"❌ [CHECK_AVAIL] call_goal={call_goal} - appointments not enabled")
+                    logger.warning(f"[CHECK_AVAIL] Blocked: call_goal={call_goal} (expected 'appointment')")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error": "תיאום פגישות לא זמין כרגע"
+                            }, ensure_ascii=False)
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Extract parameters
+                date_str = args.get("date", "").strip()
+                preferred_time = args.get("preferred_time", "").strip()
+                service_type = args.get("service_type", "").strip()
+                
+                if not date_str:
+                    print(f"❌ [CHECK_AVAIL] Missing date")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error": "חסר תאריך"
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
+                # Call calendar_find_slots implementation
+                try:
+                    from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
+                    from server.policy.business_policy import get_business_policy
+                    
+                    # Get policy to determine duration
+                    policy = get_business_policy(business_id)
+                    duration_min = policy.slot_size_min  # Use business slot size
+                    
+                    print(f"📅 [CHECK_AVAIL] Checking {date_str} with preferred_time={preferred_time}, duration={duration_min}min")
+                    logger.info(f"[CHECK_AVAIL] business_id={business_id}, date={date_str}, preferred_time={preferred_time}")
+                    
+                    input_data = FindSlotsInput(
+                        business_id=business_id,
+                        date_iso=date_str,
+                        duration_min=duration_min,
+                        preferred_time=preferred_time if preferred_time else None
+                    )
+                    
+                    result = _calendar_find_slots_impl(input_data)
+                    
+                    # Format response
+                    if result.slots and len(result.slots) > 0:
+                        slots_display = [slot.start_display for slot in result.slots[:3]]  # Max 3 slots
+                        print(f"✅ [CHECK_AVAIL] CAL_AVAIL_OK - Found {len(result.slots)} slots: {slots_display}")
+                        logger.info(f"✅ CAL_AVAIL_OK business_id={business_id} date={date_str} slots_found={len(result.slots)} slots={slots_display}")
+                        
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": True,
+                                    "slots": slots_display,
+                                    "business_hours": result.business_hours,
+                                    "message": f"יש {len(result.slots)} זמנים פנויים ב-{date_str}"
+                                }, ensure_ascii=False)
+                            }
+                        })
+                    else:
+                        print(f"⚠️ [CHECK_AVAIL] No slots available for {date_str}")
+                        logger.warning(f"[CHECK_AVAIL] No slots found for business_id={business_id} date={date_str}")
+                        
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error": f"אין זמנים פנויים ב-{date_str}. הצע תאריכים אחרים."
+                                }, ensure_ascii=False)
+                            }
+                        })
+                    
+                    await client.send_event({"type": "response.create"})
+                    
+                except Exception as slots_error:
+                    print(f"❌ [CHECK_AVAIL] Failed to check slots: {slots_error}")
+                    logger.error(f"[CHECK_AVAIL] Exception: {slots_error}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error": "בעיה בבדיקת זמינות. בקש מהלקוח תאריך אחר."
+                            })
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    
+            except json.JSONDecodeError as e:
+                print(f"❌ [CHECK_AVAIL] Failed to parse arguments: {e}")
+                await client.send_event({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({"success": False, "error": str(e)})
+                    }
+                })
+                await client.send_event({"type": "response.create"})
+        
         elif function_name == "schedule_appointment":
             # 🔥 APPOINTMENT SCHEDULING: Goal-based with structured errors
             try:
@@ -10950,10 +11127,11 @@ class MediaStreamHandler:
                     await client.send_event({"type": "response.create"})
                     return
                 
-                # Check call_goal
+                # 🔥 CRITICAL: Check call_goal is appointment
                 call_goal = getattr(self, 'call_goal', 'lead_only')
                 if call_goal != 'appointment':
-                    print(f"❌ [APPOINTMENT] call_goal={call_goal} - appointments not allowed")
+                    print(f"❌ [APPOINTMENT] call_goal={call_goal} - appointments not enabled")
+                    logger.warning(f"[APPOINTMENT] Blocked: call_goal={call_goal} (expected 'appointment')")
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -10961,26 +11139,9 @@ class MediaStreamHandler:
                             "call_id": call_id,
                             "output": json.dumps({
                                 "success": False,
-                                "error_code": "scheduling_disabled"
-                            })
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
-                
-                # Check enable_calendar_scheduling
-                call_config = getattr(self, 'call_config', None)
-                if not call_config or not call_config.enable_calendar_scheduling:
-                    print(f"❌ [APPOINTMENT] Calendar scheduling disabled for business {business_id}")
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({
-                                "success": False,
-                                "error_code": "scheduling_disabled"
-                            })
+                                "error_code": "scheduling_disabled",
+                                "message": "תיאום פגישות לא זמין. אני יכול לרשום פרטים ובעל העסק יחזור אליך."
+                            }, ensure_ascii=False)
                         }
                     })
                     await client.send_event({"type": "response.create"})
@@ -11092,7 +11253,8 @@ class MediaStreamHandler:
                     if hasattr(result, 'appointment_id'):
                         # Success - CreateAppointmentOutput
                         appt_id = result.appointment_id
-                        print(f"✅ [APPOINTMENT] SUCCESS! ID={appt_id}, status={result.status}")
+                        print(f"✅ [APPOINTMENT] CAL_CREATE_OK event_id={appt_id}, status={result.status}")
+                        logger.info(f"✅ CAL_CREATE_OK business_id={business_id} event_id={appt_id} customer={customer_name} date={appointment_date} time={appointment_time} service={service_type}")
                         
                         # Mark as created to prevent duplicates
                         self._appointment_created_this_session = True
@@ -11140,7 +11302,9 @@ class MediaStreamHandler:
                         else:
                             # Error in dict
                             error_code = result.get("error", "unknown_error")
-                            print(f"❌ [APPOINTMENT] Error: {error_code}")
+                            error_msg = result.get("message", "שגיאה ביצירת פגישה")
+                            print(f"❌ [APPOINTMENT] CAL_CREATE_FAILED: {error_code} - {error_msg}")
+                            logger.error(f"❌ CAL_CREATE_FAILED business_id={business_id} error={error_code} message={error_msg} date={appointment_date} time={appointment_time}")
                             await client.send_event({
                                 "type": "conversation.item.create",
                                 "item": {
@@ -11148,8 +11312,9 @@ class MediaStreamHandler:
                                     "call_id": call_id,
                                     "output": json.dumps({
                                         "success": False,
-                                        "error_code": error_code
-                                    })
+                                        "error_code": error_code,
+                                        "message": error_msg
+                                    }, ensure_ascii=False)
                                 }
                             })
                             await client.send_event({"type": "response.create"})
