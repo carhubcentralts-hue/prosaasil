@@ -5234,6 +5234,8 @@ class MediaStreamHandler:
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                            # 🔥 FIX: Mark that AI already said goodbye naturally - prevents duplicate goodbye in _trigger_auto_hangup
+                            self.goodbye_message_sent = True
                             # 🔥 BUILD 172: Transition to CLOSING state
                             if self.call_state == CallState.ACTIVE:
                                 self.call_state = CallState.CLOSING
