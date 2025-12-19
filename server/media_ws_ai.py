@@ -4469,6 +4469,7 @@ class MediaStreamHandler:
                     # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
                     # This ensures AI finishes speaking before we disconnect
                     if self.pending_hangup and not self.hangup_triggered:
+                        print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
                         # Wait for audio to fully play before disconnecting
                         async def delayed_hangup():
                             print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
@@ -4525,13 +4526,15 @@ class MediaStreamHandler:
                             await asyncio.sleep(2.0)
                             
                             if not self.hangup_triggered:
-                                print(f"📞 [BUILD 163] Audio playback complete - triggering polite hangup now")
+                                print(f"📞 [HANGUP FLOW] ✅ Audio playback complete - CALLING _trigger_auto_hangup() NOW")
                                 import threading
                                 threading.Thread(
                                     target=self._trigger_auto_hangup,
                                     args=("AI finished speaking politely",),
                                     daemon=True
                                 ).start()
+                            else:
+                                print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
                         
                         asyncio.create_task(delayed_hangup())
                 
@@ -5034,6 +5037,20 @@ class MediaStreamHandler:
                         # 🔥 FIX: Also detect polite closing phrases (not just "ביי")
                         ai_polite_closing_detected = self._check_goodbye_phrases(transcript) or self._check_polite_closing(transcript)
                         
+                        # 🛡️ SAFETY: Don't allow hangup too early in the call (prevent premature disconnect)
+                        # Wait at least 5 seconds after greeting before allowing smart ending
+                        time_since_greeting = 0
+                        if self.greeting_completed_at:
+                            time_since_greeting = (time.time() - self.greeting_completed_at) * 1000
+                        
+                        # Minimum call duration before smart ending is allowed (milliseconds)
+                        MIN_CALL_DURATION_FOR_SMART_ENDING = 5000  # 5 seconds
+                        
+                        # If AI says goodbye too early, ignore it (likely part of greeting/introduction)
+                        if ai_polite_closing_detected and time_since_greeting < MIN_CALL_DURATION_FOR_SMART_ENDING:
+                            print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {time_since_greeting:.0f}ms since greeting (min={MIN_CALL_DURATION_FOR_SMART_ENDING}ms)")
+                            ai_polite_closing_detected = False
+                        
                         # 🎯 BUILD 170.5: FIXED HANGUP LOGIC
                         # Settings-based hangup respects business configuration
                         # Hangup requires EITHER:
@@ -5085,7 +5102,7 @@ class MediaStreamHandler:
                         # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
                         # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
                         # 🔥 FIX: In SIMPLE_MODE, respect call_goal and auto_end_on_goodbye toggle
-                        # 🔧 NEW FIX: In SIMPLE_MODE, require explicit user goodbye - AI polite closing alone is NOT enough
+                        # 🔥 SMART ENDING: Allow AI to end conversation intelligently when appropriate
                         elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
                             call_goal = getattr(self, 'call_goal', 'lead_only')
                             
@@ -5093,41 +5110,65 @@ class MediaStreamHandler:
                             if SIMPLE_MODE:
                                 print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured} user_said_goodbye={self.user_said_goodbye}")
                                 if call_goal in ('lead_only', 'collect_details_only'):
-                                    # 🔧 NEW LOGIC: REQUIRE user goodbye first
-                                    # DO NOT hang up based only on AI polite closing
-                                    if not self.user_said_goodbye:
-                                        print(f"🔒 [GOODBYE] will_hangup=False - SIMPLE_MODE requires USER goodbye first")
-                                        print(f"   AI polite closing detected, but user has not said goodbye")
-                                        pass  # Don't hangup
-                                    else:
-                                        # User said goodbye - allow hangup
-                                        hangup_reason = "ai_goodbye_simple_mode_lead_only"
+                                    # 🔥 SMART ENDING LOGIC: Allow AI to end conversation when appropriate
+                                    # Check if conversation has meaningful content (at least 2 user-AI exchanges)
+                                    user_messages = len([m for m in self.conversation_history if m.get("speaker") == "user"])
+                                    has_meaningful_conversation = user_messages >= 2
+                                    
+                                    # Allow hangup if:
+                                    # 1. User explicitly said goodbye, OR
+                                    # 2. AI politely closed after meaningful conversation (smart ending)
+                                    if self.user_said_goodbye or has_meaningful_conversation:
+                                        hangup_reason = "ai_smart_ending" if not self.user_said_goodbye else "ai_goodbye_simple_mode_lead_only"
                                         should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, user said goodbye")
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, reason={hangup_reason}")
+                                        if not self.user_said_goodbye:
+                                            print(f"   Smart ending: AI ended conversation after {user_messages} user messages")
+                                    else:
+                                        # Too early - need more conversation
+                                        print(f"🔒 [GOODBYE] will_hangup=False - conversation too short (user_messages={user_messages})")
+                                        print(f"   AI polite closing detected, but need more conversation first")
                                 elif call_goal == 'appointment':
-                                    # For appointments: require user goodbye AND lead completion
-                                    if not self.user_said_goodbye:
-                                        print(f"🔒 [GOODBYE] will_hangup=False - appointment mode requires USER goodbye")
-                                        pass  # Don't hangup
-                                    elif self.required_lead_fields and not self.lead_captured:
-                                        # Lead incomplete - block hangup, AI should ask for missing info
-                                        print(f"🔒 [GOODBYE] will_hangup=False - goal=appointment, lead incomplete")
-                                        print(f"   required_lead_fields={self.required_lead_fields}, lead_captured={self.lead_captured}")
-                                        pass  # Don't hangup
-                                    else:
-                                        # User said goodbye AND lead complete - allow hangup
-                                        hangup_reason = "ai_goodbye_simple_mode_appointment"
+                                    # For appointments: Check if conversation is complete
+                                    user_messages = len([m for m in self.conversation_history if m.get("speaker") == "user"])
+                                    has_meaningful_conversation = user_messages >= 2
+                                    
+                                    # Check if appointment was created
+                                    crm_ctx = getattr(self, 'crm_context', None)
+                                    appointment_created = crm_ctx and crm_ctx.has_appointment_created if crm_ctx else False
+                                    
+                                    # Allow hangup if:
+                                    # 1. User explicitly said goodbye, OR
+                                    # 2. AI closed after appointment was created/attempted, OR
+                                    # 3. AI closed after meaningful conversation (user declined or doesn't want appointment)
+                                    if self.user_said_goodbye:
+                                        hangup_reason = "ai_goodbye_simple_mode_appointment_user"
                                         should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, user goodbye + lead complete")
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, user said goodbye")
+                                    elif appointment_created or (has_meaningful_conversation and self.lead_captured):
+                                        hangup_reason = "ai_smart_ending_appointment"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, smart ending (appt={appointment_created}, lead={self.lead_captured})")
+                                    elif has_meaningful_conversation:
+                                        # User had conversation but may have declined - allow AI to end gracefully
+                                        hangup_reason = "ai_smart_ending_appointment_declined"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, conversation complete (user_messages={user_messages})")
+                                    else:
+                                        # Too early - need more conversation
+                                        print(f"🔒 [GOODBYE] will_hangup=False - appointment mode, conversation too short")
+                                        print(f"   user_messages={user_messages}, lead_captured={self.lead_captured}")
                                 else:
-                                    # Unknown goal - still require user goodbye
-                                    if not self.user_said_goodbye:
-                                        print(f"🔒 [GOODBYE] will_hangup=False - unknown goal, requires USER goodbye")
-                                        pass  # Don't hangup
-                                    else:
-                                        hangup_reason = "ai_goodbye_simple_mode_unknown"
+                                    # Unknown goal - use smart ending logic
+                                    user_messages = len([m for m in self.conversation_history if m.get("speaker") == "user"])
+                                    has_meaningful_conversation = user_messages >= 2
+                                    
+                                    if self.user_said_goodbye or has_meaningful_conversation:
+                                        hangup_reason = "ai_smart_ending_unknown_goal"
                                         should_hangup = True
-                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, user said goodbye")
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, smart ending")
+                                    else:
+                                        print(f"🔒 [GOODBYE] will_hangup=False - unknown goal, conversation too short")
                             # Prompt-only mode: If no required fields configured, allow hangup on goodbye alone
                             elif not self.required_lead_fields:
                                 hangup_reason = "ai_goodbye_prompt_only"
@@ -5170,7 +5211,9 @@ class MediaStreamHandler:
                             if self.call_state == CallState.ACTIVE:
                                 self.call_state = CallState.CLOSING
                                 print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (reason: {hangup_reason})")
-                            print(f"📞 [BUILD 163] Pending hangup set - will disconnect after audio finishes playing")
+                            print(f"📞 [HANGUP TRIGGER] ✅ pending_hangup=True - hangup WILL execute after audio completes")
+                            print(f"📞 [HANGUP TRIGGER]    reason={hangup_reason}, transcript='{transcript[:50]}...'")
+                            print(f"📞 [HANGUP TRIGGER]    Flow: response.audio.done → delayed_hangup() → _trigger_auto_hangup()")
                         
                         # 🔥 NOTE: Hangup is now triggered in response.audio.done to let audio finish!
                 
@@ -10095,9 +10138,12 @@ class MediaStreamHandler:
                 print(f"❌ [BUILD 163] Missing Twilio credentials - cannot hang up")
                 return
             
+            print(f"📞 [TWILIO API] Calling Twilio to disconnect call {self.call_sid[:8]}...")
             client = Client(account_sid, auth_token)
             
+            print(f"📞 [TWILIO API] Sending update: status='completed' to call {self.call_sid[:8]}...")
             client.calls(self.call_sid).update(status='completed')
+            print(f"📞 [TWILIO API] ✅ Twilio API call successful - call disconnected!")
             
             print(f"✅ [BUILD 163] Call {self.call_sid[:8]}... hung up successfully: {reason}")
             logger.info(f"[BUILD 163] Auto hang-up: call={self.call_sid[:8]}, reason={reason}")
@@ -10710,37 +10756,46 @@ class MediaStreamHandler:
 
     def _check_polite_closing(self, text: str) -> bool:
         """
-        🎯 Check if AI said polite closing phrases (for graceful call ending)
+        🎯 STRICT: Check if AI said EXPLICIT goodbye phrases (ביי/להתראות ONLY!)
         
-        These phrases indicate AI is ending the conversation politely:
-        - "תודה שהתקשרת" - Thank you for calling
-        - "יום נפלא/נעים" - Have a great day
-        - "נשמח לעזור שוב" - Happy to help again
-        - "נציג יחזור אליך" - A rep will call you back
+        🔥 CRITICAL RULE: Only disconnect if there's an EXPLICIT goodbye word!
+        - "תודה יחזרו אליך" alone = NO DISCONNECT (just callback promise)
+        - "תודה ביי" = DISCONNECT (explicit goodbye)
+        - "יחזרו אליך ביי" = DISCONNECT (explicit goodbye)
+        
+        This prevents premature disconnections from polite callback promises.
         
         Args:
             text: AI transcript to check
             
         Returns:
-            True if polite closing phrase detected
+            True ONLY if explicit goodbye word detected (ביי/להתראות/bye/goodbye)
         """
         text_lower = text.lower().strip()
         
-        polite_closing_phrases = [
-            "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
-            "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
-            "נשמח לעזור", "נשמח לעמוד לשירותך",
-            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר", "יחזרו אליך",
-            "שמח שיכולתי לעזור", "שמחתי לעזור",
-            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות",
-            "תודה יחזרו אליך"  # Added: Common closing phrase
-        ]
+        # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
+        for ignore in GOODBYE_IGNORE_PHRASES:
+            if ignore in text_lower:
+                print(f"[POLITE CLOSING] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
+                return False
         
-        for phrase in polite_closing_phrases:
-            if phrase in text_lower:
-                print(f"[POLITE CLOSING] Detected: '{phrase}'")
-                return True
+        # 🛡️ FILTER: Exclude greetings that sound like goodbye
+        for greeting in GOODBYE_GREETING_WORDS:
+            if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
+                print(f"[POLITE CLOSING] Skipping greeting: '{text_lower[:30]}...'")
+                return False
         
+        # ✅ EXPLICIT GOODBYE WORDS - The ONLY trigger for disconnection!
+        explicit_goodbye_words = ["ביי", "להתראות", "bye", "goodbye"]
+        
+        has_explicit_goodbye = any(word in text_lower for word in explicit_goodbye_words)
+        
+        if has_explicit_goodbye:
+            print(f"[POLITE CLOSING] ✅ EXPLICIT goodbye detected: '{text_lower[:80]}...'")
+            return True
+        
+        # 🚫 NO explicit goodbye = NO disconnect (even with "תודה", "יחזרו אליך", etc.)
+        print(f"[POLITE CLOSING] ❌ No explicit goodbye (no ביי/להתראות): '{text_lower[:80]}...'")
         return False
 
     # ═══════════════════════════════════════════════════════════════════════════
