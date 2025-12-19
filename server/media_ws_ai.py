@@ -10961,6 +10961,26 @@ class MediaStreamHandler:
                     await client.send_event({"type": "response.create"})
                     return
                 
+                # 🔥 CRITICAL: Verify appointment tools are enabled
+                call_goal = getattr(self, 'call_goal', 'lead_only')
+                call_config = getattr(self, 'call_config', None)
+                if call_goal != 'appointment' or not call_config or not call_config.enable_calendar_scheduling:
+                    print(f"❌ [CHECK_AVAIL] Appointments not enabled: call_goal={call_goal}, scheduling={call_config.enable_calendar_scheduling if call_config else False}")
+                    logger.warning(f"[CHECK_AVAIL] Blocked: call_goal={call_goal}, scheduling not enabled")
+                    await client.send_event({
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": json.dumps({
+                                "success": False,
+                                "error": "תיאום פגישות לא זמין כרגע"
+                            }, ensure_ascii=False)
+                        }
+                    })
+                    await client.send_event({"type": "response.create"})
+                    return
+                
                 # Extract parameters
                 date_str = args.get("date", "").strip()
                 preferred_time = args.get("preferred_time", "").strip()
