@@ -256,6 +256,21 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 import time
                 tool_start = time.time()
                 
+                # 🔥 CRITICAL: Verify call_goal before executing
+                from server.models_sql import BusinessSettings
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
+                
+                if call_goal != 'appointment':
+                    error_msg = f"תיאום פגישות לא זמין (call_goal={call_goal})"
+                    print(f"❌ [AGENTKIT] calendar_find_slots blocked: {error_msg}")
+                    logger.error(f"❌ [AGENTKIT] calendar_find_slots blocked for business {business_id}: {error_msg}")
+                    return {
+                        "slots": [],
+                        "business_hours": "לא זמין",
+                        "error": "תיאום פגישות לא מופעל לעסק זה"
+                    }
+                
                 print(f"\n🔧 🔧 🔧 TOOL CALLED: calendar_find_slots_wrapped 🔧 🔧 🔧")
                 print(f"   📅 date_iso (RAW from Agent)={date_iso}")
                 print(f"   ⏱️  duration_min={duration_min}")
@@ -613,30 +628,52 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             return _business_get_info_impl(business_id=business_id)
         
+        # 🔥 CRITICAL: Check if appointment tools should be enabled
+        # Only enable calendar tools if call_goal=appointment
+        # Business policy will handle hours, slot size, etc.
+        calendar_tools_enabled = False
+        if business_id:
+            try:
+                from server.models_sql import BusinessSettings
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
+                calendar_tools_enabled = (call_goal == 'appointment')
+                logger.info(f"📅 [AGENTKIT] Calendar tools check: call_goal={call_goal}, enabled={calendar_tools_enabled}")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not check calendar settings: {e}")
+                calendar_tools_enabled = False
+        
         # ✅ RESTORED: AgentKit tools for non-realtime flows (WhatsApp, backend tasks, post-call)
         # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
         # Realtime phone calls use media_ws_ai.py with separate tool policy
+        
+        # Base tools (always available)
         tools_to_use = [
-            calendar_find_slots_wrapped,
-            calendar_create_appointment_wrapped,
             leads_upsert_wrapped,
             leads_search,
             whatsapp_send,
             business_get_info
         ]
-        logger.info(f"✅ AgentKit tools RESTORED for business {business_id} (non-realtime flows)")
+        
+        # Add calendar tools ONLY if enabled
+        if calendar_tools_enabled:
+            tools_to_use.extend([
+                calendar_find_slots_wrapped,
+                calendar_create_appointment_wrapped
+            ])
+            logger.info(f"✅ [AGENTKIT] Calendar tools ENABLED for business {business_id}")
+        else:
+            logger.info(f"📵 [AGENTKIT] Calendar tools DISABLED for business {business_id} (call_goal != 'appointment')")
+        
+        logger.info(f"✅ AgentKit tools prepared: {len(tools_to_use)} tools for business {business_id}")
     else:
-        # ✅ RESTORED: AgentKit tools without business_id injection
-        # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
-        # Realtime phone calls use media_ws_ai.py with separate tool policy
+        # 🔥 CRITICAL: Without business_id, cannot determine settings - use minimal tools
         tools_to_use = [
-            calendar_find_slots,
-            calendar_create_appointment,
             leads_upsert,
             leads_search,
             whatsapp_send
         ]
-        logger.info(f"✅ AgentKit tools RESTORED (non-realtime flows)")
+        logger.info(f"✅ AgentKit tools (no business_id): {len(tools_to_use)} tools (no calendar)")
     
 
     # 🔥 BUILD 135: MERGE DB prompts WITH base instructions (not replace!)
