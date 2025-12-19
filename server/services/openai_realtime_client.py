@@ -20,6 +20,62 @@ logger = logging.getLogger(__name__)
 
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview"
 
+def _get_realtime_sanitizer():
+    """
+    Best-effort import to keep Realtime inputs voice-friendly and small.
+    Never hard-fail if sanitizer cannot be imported.
+    """
+    try:
+        from server.services.realtime_prompt_builder import sanitize_realtime_instructions
+        return sanitize_realtime_instructions
+    except Exception:
+        return None
+
+
+def _sanitize_text_for_realtime(text: str, max_chars: int) -> str:
+    sanitizer = _get_realtime_sanitizer()
+    if sanitizer:
+        return sanitizer(text or "", max_chars=max_chars)
+    # Minimal fallback: flatten newlines and cap length
+    t = (text or "").replace("\\n", " ").replace("\n", " ")
+    t = " ".join(t.split()).strip()
+    return t[:max_chars] if max_chars and len(t) > max_chars else t
+
+
+def _sanitize_event_payload_for_realtime(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize any text-bearing payload BEFORE it reaches the websocket:
+    - session.update.session.instructions (<=1000)
+    - response.create.response.instructions (<=1000) if ever used
+    - conversation.item.create content text (voice-friendly, not capped to 1000)
+    """
+    try:
+        event_type = event.get("type", "")
+        if event_type == "session.update":
+            session = event.get("session")
+            if isinstance(session, dict) and "instructions" in session:
+                session["instructions"] = _sanitize_text_for_realtime(str(session.get("instructions") or ""), max_chars=1000)
+        elif event_type == "response.create":
+            resp = event.get("response")
+            if isinstance(resp, dict) and "instructions" in resp:
+                resp["instructions"] = _sanitize_text_for_realtime(str(resp.get("instructions") or ""), max_chars=1000)
+        elif event_type == "conversation.item.create":
+            item = event.get("item")
+            if isinstance(item, dict):
+                content = item.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if not isinstance(part, dict):
+                            continue
+                        part_type = part.get("type")
+                        if part_type in ("text", "input_text") and "text" in part:
+                            # Not system instructions, so keep more room, but still sanitize.
+                            part["text"] = _sanitize_text_for_realtime(str(part.get("text") or ""), max_chars=8000)
+    except Exception:
+        # Never block sending on sanitization.
+        return event
+    return event
+
 
 class OpenAIRealtimeClient:
     """
@@ -137,6 +193,10 @@ class OpenAIRealtimeClient:
         if not self.ws:
             raise RuntimeError("Not connected. Call connect() first.")
         
+        # 🔥 CRITICAL: Always sanitize Realtime text payloads before sending.
+        # This prevents silent starts / TTS stalls caused by dirty instructions or formatting.
+        event = _sanitize_event_payload_for_realtime(event)
+
         event_type = event.get("type", "unknown")
         is_audio = event_type == "input_audio_buffer.append"
         retries = 1 if is_audio else max_retries  # Audio: no retry (real-time), other: retry
@@ -304,6 +364,8 @@ class OpenAIRealtimeClient:
         Args:
             text: User's text input (e.g., from DTMF)
         """
+        text = _sanitize_text_for_realtime(text, max_chars=8000)
+
         # Add user message to conversation
         await self.send_event({
             "type": "conversation.item.create",
@@ -331,6 +393,8 @@ class OpenAIRealtimeClient:
         Args:
             text: Text to be converted to speech and spoken
         """
+        text = _sanitize_text_for_realtime(text, max_chars=8000)
+
         # Add assistant message to conversation
         await self.send_event({
             "type": "conversation.item.create",
@@ -383,6 +447,10 @@ class OpenAIRealtimeClient:
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
             force: Force resend even if hash matches (set to True during retry)
         """
+        # 🔥 CRITICAL: Realtime instructions MUST be short and voice-friendly.
+        # Enforce hard cap here (in addition to caller-side sanitization).
+        instructions = _sanitize_text_for_realtime(instructions, max_chars=1000)
+
         # 🔥 BUILD 341: Use tuned defaults from config
         if vad_threshold is None or silence_duration_ms is None or prefix_padding_ms is None:
             try:
