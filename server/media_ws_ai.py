@@ -1728,6 +1728,7 @@ class MediaStreamHandler:
         self._openai_connect_attempts = 0  # Count OpenAI connection attempts
         self._greeting_audio_first_ts = None  # When first greeting audio delta was received
         self._greeting_audio_received = False  # True after at least one greeting audio delta
+        self._greeting_audio_timeout_sec = 5.0  # 🔥 BUILD 350: Increased to 5s for outbound reliability
         
         # 🎯 FIX A: GREETING STATE - Only first response is greeting, not all responses!
         self.greeting_mode_active = False  # True only during FIRST response (real greeting)
@@ -1737,7 +1738,6 @@ class MediaStreamHandler:
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
         self._twilio_start_timeout_sec = 2.5  # Max wait for Twilio START event
         # NOTE: OpenAI connection uses client.connect() internal retry with 5s total timeout
-        self._greeting_audio_timeout_sec = 3.5  # Max wait for first greeting audio from OpenAI (increased for stability)
         
         # Timing metrics for diagnostics
         self._metrics_openai_connect_ms = 0  # Time to connect to OpenAI
@@ -2384,39 +2384,30 @@ class MediaStreamHandler:
             
             print(f"📊 [PROMPT STATS] compact={len(compact_prompt)} chars, full={len(full_prompt)} chars")
             
-            # 🔥 OPTIMIZATION: Greeting instructions built WITHOUT DB queries
-            # All data should already be loaded in self.greeting_text, outbound_lead_name, etc.
-            if call_direction == 'outbound' and outbound_lead_name:
-                # OUTBOUND: Use pre-loaded greeting if exists
-                outbound_greeting = getattr(self, 'outbound_greeting_text', None)
-                
-                if outbound_greeting:
-                    greeting_instruction = f"""FIRST: Say this EXACT greeting (word-for-word, in Hebrew):
-"{outbound_greeting}"
-Then WAIT for customer response. This greeting IS your first question."""
-                else:
-                    greeting_instruction = f"""FIRST: Greet {outbound_lead_name} briefly in Hebrew.
-Introduce yourself as rep from {biz_name}, explain why you're calling.
-Then WAIT for response."""
-                print(f"📤 [OUTBOUND] Greeting for: {outbound_lead_name}")
-            else:
-                # 🔥 INBOUND: Use pre-loaded greeting from self.greeting_text
-                if greeting_text and greeting_text.strip():
-                    greeting_instruction = f"""CRITICAL - GREETING:
-1. Say this EXACT sentence in Hebrew (word-for-word, no changes):
-"{greeting_text.strip()}"
-
-2. This greeting IS your first question. Customer's response answers it.
-3. After greeting: WAIT. Let customer speak. Don't ask more questions yet.
-4. Don't jump to next question until you understand the answer."""
-                    print(f"📞 [INBOUND] Using pre-loaded Hebrew greeting: '{greeting_text[:50]}...'")
-                else:
-                    greeting_instruction = f"""FIRST: Introduce yourself as rep from {biz_name} in Hebrew.
-Greet briefly. Then WAIT for customer to speak."""
-                    print(f"📞 [INBOUND] No greeting in DB - using fallback for {biz_name}")
+            # 🔥 BUILD 350: SIMPLIFIED GREETING - Fast path, no branching
+            # All greeting data pre-loaded in webhook, just use it directly!
+            greeting_instruction = ""
             
-            # 🔥 BUILD 329: Combine prompt + greeting instruction
-            # Use compact prompt for fast greeting, will upgrade to full after
+            if call_direction == 'outbound':
+                # OUTBOUND: Use pre-loaded greeting or default
+                outbound_greeting = getattr(self, 'outbound_greeting_text', None)
+                if outbound_greeting:
+                    greeting_instruction = f'FIRST: Say exactly: "{outbound_greeting}" then WAIT.'
+                    print(f"📤 [OUTBOUND] Using template greeting")
+                else:
+                    lead_name = getattr(self, 'outbound_lead_name', 'הלקוח')
+                    greeting_instruction = f'FIRST: Greet {lead_name} briefly, introduce from {biz_name}, WAIT.'
+                    print(f"📤 [OUTBOUND] Using default greeting for {lead_name}")
+            else:
+                # INBOUND: Use pre-loaded greeting or default
+                if greeting_text and greeting_text.strip():
+                    greeting_instruction = f'FIRST: Say exactly: "{greeting_text.strip()}" then WAIT.'
+                    print(f"📞 [INBOUND] Using DB greeting: '{greeting_text[:40]}...'")
+                else:
+                    greeting_instruction = f'FIRST: Introduce from {biz_name} in Hebrew, WAIT.'
+                    print(f"📞 [INBOUND] Using default greeting")
+            
+            # 🔥 BUILD 350: SINGLE GREETING PATH - Compact prompt + simple instruction
             greeting_prompt = f"""{greeting_prompt_to_use}
 
 ---
