@@ -3509,17 +3509,30 @@ class MediaStreamHandler:
                                         i = j
                                     return [c for c in chunks if c]
 
+                                # Sanitize FULL chunks too (not for length, but to remove TTS-hostile symbols/newlines).
+                                try:
+                                    from server.services.realtime_prompt_builder import sanitize_realtime_instructions
+                                except Exception:
+                                    sanitize_realtime_instructions = None  # type: ignore
+
                                 for idx, chunk in enumerate(_chunk_text(full_prompt), start=1):
+                                    cleaned = chunk
+                                    if sanitize_realtime_instructions:
+                                        # Keep chunks reasonably sized; don't enforce 1000 here (this is NOT instructions).
+                                        cleaned = sanitize_realtime_instructions(chunk, max_chars=8000)
+
+                                    # IMPORTANT: FULL must NOT be sent as system/instructions at any stage.
+                                    # We inject it as a regular conversation message for internal context.
                                     await client.send_event(
                                         {
                                             "type": "conversation.item.create",
                                             "item": {
                                                 "type": "message",
-                                                "role": "system",
+                                                "role": "assistant",
                                                 "content": [
                                                     {
-                                                        "type": "input_text",
-                                                        "text": f"[CONTEXT {idx}] {chunk}",
+                                                        "type": "text",
+                                                        "text": f"[INTERNAL CONTEXT {idx}] {cleaned}",
                                                     }
                                                 ],
                                             },
