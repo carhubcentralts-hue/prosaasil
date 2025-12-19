@@ -2210,13 +2210,20 @@ class MediaStreamHandler:
             # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
             # Sanitize + hard cap to prevent silent starts / long delays.
             try:
-                from server.services.realtime_prompt_builder import sanitize_realtime_instructions
+                from server.services.realtime_prompt_builder import (
+                    sanitize_realtime_instructions,
+                    COMPACT_GREETING_MAX_CHARS,
+                )
                 original_len = len(greeting_prompt or "")
-                greeting_prompt = sanitize_realtime_instructions(greeting_prompt or "", max_chars=8000)
+                # Greeting must be compact for fast first audio.
+                greeting_prompt = sanitize_realtime_instructions(
+                    greeting_prompt or "",
+                    max_chars=COMPACT_GREETING_MAX_CHARS
+                )
                 sanitized_len = len(greeting_prompt)
                 if sanitized_len != original_len:
                     _orig_print(
-                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap=8000)",
+                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap={COMPACT_GREETING_MAX_CHARS})",
                         flush=True,
                     )
             except Exception as _sanitize_err:
@@ -3530,7 +3537,10 @@ class MediaStreamHandler:
 
                                 # Sanitize FULL chunks too (not for length, but to remove TTS-hostile symbols/newlines).
                                 try:
-                                    from server.services.realtime_prompt_builder import sanitize_realtime_instructions
+                                    from server.services.realtime_prompt_builder import (
+                                        sanitize_realtime_instructions,
+                                        FULL_PROMPT_MAX_CHARS,
+                                    )
                                 except Exception:
                                     sanitize_realtime_instructions = None  # type: ignore
 
@@ -3538,7 +3548,7 @@ class MediaStreamHandler:
                                     cleaned = chunk
                                     if sanitize_realtime_instructions:
                                         # Keep chunks reasonably sized; don't enforce 1000 here (this is NOT instructions).
-                                        cleaned = sanitize_realtime_instructions(chunk, max_chars=8000)
+                                        cleaned = sanitize_realtime_instructions(chunk, max_chars=FULL_PROMPT_MAX_CHARS)
 
                                     # IMPORTANT: FULL must NOT be sent as system/instructions at any stage.
                                     # We inject it as a regular conversation message for internal context.

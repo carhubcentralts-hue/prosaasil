@@ -35,6 +35,12 @@ _BOX_DRAWING_RE = re.compile(r"[\u2500-\u257F\u2580-\u259F]")
 _ARROWS_RE = re.compile(r"[\u2190-\u21FF]")
 _MARKDOWN_FENCE_RE = re.compile(r"```[\s\S]*?```", flags=re.MULTILINE)
 
+# Prompt size caps (Realtime is sensitive to long instructions)
+# - Compact greeting prompt: keep small for ultra-fast first audio
+# - Full prompt (if ever sent as instructions): allow large, but still cap for safety
+COMPACT_GREETING_MAX_CHARS = 800
+FULL_PROMPT_MAX_CHARS = 8000
+
 
 def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     """
@@ -220,27 +226,38 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
             ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
             
-            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut 300–400 chars
+            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators)
             ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=5000)
 
-            # Take first 300–400 chars (assume business opening is at start of business prompt)
-            excerpt_max = 390
-            excerpt_window = 440  # small lookahead for clean cut
+            # 2) Compute available budget for the business opening excerpt so the FINAL compact
+            # prompt stays within COMPACT_GREETING_MAX_CHARS (800).
+            direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
+            system_rules = _build_universal_system_prompt()
+            # Keep prefix minimal to reserve space for business context (fast + relevant).
+            prefix = f"{system_rules} Call={direction}. Start: "
+            prefix_clean = sanitize_realtime_instructions(prefix, max_chars=COMPACT_GREETING_MAX_CHARS)
+            budget = max(0, COMPACT_GREETING_MAX_CHARS - len(prefix_clean) - 1)
+
+            # Take the first ~budget chars (assume business opening is at start of business prompt)
+            excerpt_max = max(80, min(budget, 650))  # keep at least some context; avoid huge excerpts
+            excerpt_window = min(len(ai_prompt_text), excerpt_max + 120)  # lookahead for clean cut
+
             if len(ai_prompt_text) > excerpt_max:
-                window = ai_prompt_text[: min(len(ai_prompt_text), excerpt_window)]
+                window = ai_prompt_text[:excerpt_window]
 
                 # Prefer sentence boundary, else fallback to last space (never cut mid-word)
                 cut_point = -1
                 for delimiter in (". ", "? ", "! "):
                     pos = window.rfind(delimiter)
-                    if pos != -1 and pos >= 220:
+                    # Allow earlier boundaries when budget is small
+                    min_boundary = int(excerpt_max * 0.55)
+                    if pos != -1 and pos >= min_boundary:
                         cut_point = pos + len(delimiter)
                         break
 
                 if cut_point == -1:
-                    # Last space within max region
                     cut_point = ai_prompt_text[:excerpt_max].rfind(" ")
-                    if cut_point < 220:
+                    if cut_point < int(excerpt_max * 0.55):
                         cut_point = excerpt_max
 
                 compact_context = ai_prompt_text[:cut_point].strip()
@@ -256,19 +273,14 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
                 f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
             )
         
-        # 🔥 COMPACT = short system + tone + business opening excerpt (and nothing more)
+        # 🔥 COMPACT = short system + business opening excerpt (and nothing more)
         direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
         system_rules = _build_universal_system_prompt()
-        tone = "Tone: warm, calm, human, concise. Speak Hebrew."
+        # Keep the prefix minimal to reserve most of the 800-char budget for business context.
+        final_prompt = f"{system_rules} Call={direction}. Start: {compact_context}"
 
-        final_prompt = (
-            f"{system_rules} "
-            f"{tone} "
-            f"Call type: {direction}. "
-            f"Business opening (use this to start the call): {compact_context}"
-        )
-        # Hard cap for Realtime instructions
-        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=1000)
+        # Hard cap for Realtime instructions (COMPACT greeting only)
+        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=COMPACT_GREETING_MAX_CHARS)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
