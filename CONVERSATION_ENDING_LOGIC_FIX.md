@@ -72,22 +72,18 @@ else:
     print(f"🔒 [GOODBYE] will_hangup=False - conversation too short (user_messages={user_messages})")
 ```
 
-#### Change 2: Enhanced Polite Closing Detection (Lines ~10711-10760)
+#### Change 2: STRICT Goodbye Detection (Lines ~10711-10760)
 ```python
-# Enhanced list of polite closing phrases
-polite_closing_phrases = [
-    # ... existing phrases ...
-    "תודה יחזרו אליך", "תודה ביי", "תודה להתראות",
-    "נציג יחזור אליך", "בעל מקצוע יחזור אליך",
-    # ... more phrases ...
-]
+# ✅ ONLY explicit goodbye words trigger disconnection!
+explicit_goodbye_words = ["ביי", "להתראות", "bye", "goodbye"]
 
-# Smart detection: thank you + goodbye combo
-ends_with_goodbye = any(text_lower.endswith(word) for word in ["ביי", "להתראות", "bye", "goodbye"])
-has_thank_you = "תודה" in text_lower
+has_explicit_goodbye = any(word in text_lower for word in explicit_goodbye_words)
 
-if ends_with_goodbye and has_thank_you:
+if has_explicit_goodbye:
     return True
+
+# 🚫 NO explicit goodbye = NO disconnect (even with "תודה", "יחזרו אליך", etc.)
+return False
 ```
 
 #### Change 3: Safety Protection (Lines ~5035-5048)
@@ -106,9 +102,10 @@ if ai_polite_closing_detected and time_since_greeting < MIN_CALL_DURATION_FOR_SM
 Created comprehensive test suite in `test_conversation_ending.py`:
 
 ### Test Results
-- ✅ 14/14 polite closing detection tests passed
+- ✅ 21/21 STRICT goodbye detection tests passed
 - ✅ 5/5 smart ending scenario tests passed
-- ✅ All user-reported phrases detected correctly
+- ✅ Verified "תודה יחזרו אליך" alone does NOT trigger disconnect
+- ✅ Verified "תודה ביי" DOES trigger disconnect
 
 ### Test Scenarios Covered
 1. User said goodbye + AI polite closing → ✅ Hangup
@@ -145,10 +142,13 @@ Call flow:
 
 ## Edge Cases Handled
 
-1. **Greeting confusion:** "שלום" at call start ≠ goodbye → Not detected as ending
-2. **Too early goodbye:** AI says "תודה" within 5s of greeting → Ignored
-3. **One-word responses:** User says only "תודה" → Not enough for smart ending
-4. **User still speaking:** Voice activity detected → Hangup blocked
+1. **Callback promises without goodbye:** "יחזרו אליך" alone → NOT a disconnect
+2. **Questions about callback:** "תרצה שיחזרו אליך?" → NOT a disconnect
+3. **Thank you without goodbye:** "תודה" or "תודה רבה" alone → NOT a disconnect
+4. **Greeting confusion:** "שלום" at call start → Not detected as ending
+5. **Too early goodbye:** AI says "ביי" within 5s of greeting → Ignored (safety)
+6. **User still speaking:** Voice activity detected → Hangup blocked
+7. **Ignore patterns:** "היי ביי" (greeting) → Ignored (not real goodbye)
 
 ## Configuration
 
@@ -192,10 +192,14 @@ New log messages help track smart ending decisions:
 
 ## Notes
 
-This fix addresses the Hebrew instruction: "תדאג שפשוט שהיא אמורה לסיים שיחה, אומרת תודה יחזרו אלייך או תודה ביי, תנתק את השיחה, אבל חכם!! שהיא באמת צריכה לסיים!!!!"
+This fix addresses the Hebrew instructions:
+1. **First instruction:** "תדאג שפשוט שהיא אמורה לסיים שיחה, אומרת תודה יחזרו אלייך או תודה ביי, תנתק את השיחה"
+2. **Critical clarification:** "אבל תוודא עכשיו שהיא לא סתם תסיים שיחה מכל תודה יחזרו אליך שהיא תגיד, או שפתאום היא תגיד תרצה שיחזרו אליך תחשוב שזה ניתוק!! **רק שיש ביי !! אז סיום שיחה!!**"
 
-The solution is "smart" because it:
-- Waits for meaningful conversation (≥2 exchanges)
-- Respects minimum call duration (5 seconds)
-- Blocks if user is still speaking
-- Adapts to call goal (lead vs appointment)
+The solution is **STRICT and SMART** because it:
+- ✅ **STRICT:** ONLY disconnects with explicit ביי/להתראות words
+- ✅ **SMART:** Waits for meaningful conversation (≥2 exchanges)
+- ✅ **SAFE:** Respects minimum call duration (5 seconds)
+- ✅ **CAREFUL:** Blocks if user is still speaking
+- ✅ **ADAPTIVE:** Adapts to call goal (lead vs appointment)
+- ✅ **VERIFIED:** Full hangup chain tested and logged

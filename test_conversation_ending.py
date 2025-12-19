@@ -7,59 +7,56 @@ Tests different scenarios to ensure smart disconnection works correctly
 def test_polite_closing_detection():
     """Test that polite closing phrases are detected correctly"""
     
-    # Simulate the _check_polite_closing logic
+    # Simulate the STRICT _check_polite_closing logic (only ביי/להתראות!)
     def check_polite_closing(text):
         text_lower = text.lower().strip()
         
-        polite_closing_phrases = [
-            "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
-            "תודה רבה", "תודה", 
-            "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
-            "ביי", "להתראות", "bye", "goodbye",
-            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר", "יחזרו אליך",
-            "נציג ייצור קשר", "בעל מקצוע יחזור אליך",
-            "נשמח לעזור", "נשמח לעמוד לשירותך",
-            "שמח שיכולתי לעזור", "שמחתי לעזור",
-            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות",
-            "תודה יחזרו אליך", "תודה ביי", "תודה להתראות",
-            "תודה רבה ביי", "תודה רבה להתראות"
-        ]
+        # Ignore list
+        ignore_phrases = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
+        for ignore in ignore_phrases:
+            if ignore in text_lower:
+                return False
         
-        for phrase in polite_closing_phrases:
-            if phrase in text_lower:
-                return True
+        # Filter greetings
+        greeting_words = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
+        for greeting in greeting_words:
+            if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
+                return False
         
-        # Check for thank you + goodbye combo
-        ends_with_goodbye = any(text_lower.endswith(word) for word in ["ביי", "להתראות", "bye", "goodbye"])
-        has_thank_you = "תודה" in text_lower
+        # ✅ ONLY explicit goodbye words trigger disconnection!
+        explicit_goodbye_words = ["ביי", "להתראות", "bye", "goodbye"]
         
-        if ends_with_goodbye and has_thank_you:
-            return True
+        has_explicit_goodbye = any(word in text_lower for word in explicit_goodbye_words)
         
-        return False
+        return has_explicit_goodbye
     
     test_cases = [
-        # User-reported phrases that should trigger ending
-        ("תודה יחזרו אליך", True, "Callback promise with thank you"),
-        ("תודה ביי", True, "Thank you bye"),
-        ("תודה רבה ביי", True, "Thank you very much bye"),
-        ("תודה להתראות", True, "Thank you goodbye"),
-        ("בעל מקצוע יחזור אליך", True, "Professional will call back"),
-        ("נציג יחזור אליך", True, "Rep will call back"),
+        # ✅ SHOULD trigger - has explicit ביי/להתראות
+        ("תודה ביי", True, "Thank you bye - HAS explicit goodbye"),
+        ("תודה רבה ביי", True, "Thank you very much bye - HAS explicit goodbye"),
+        ("תודה להתראות", True, "Thank you goodbye - HAS explicit goodbye"),
+        ("להתראות", True, "Goodbye - explicit"),
+        ("ביי", True, "Bye - explicit"),
+        ("מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות.", True, "Full closing with להתראות"),
+        ("נציג יחזור אליך ביי", True, "Callback promise WITH bye"),
+        ("יום נפלא ביי", True, "Have a great day WITH bye"),
+        ("bye", True, "English bye"),
+        ("goodbye", True, "English goodbye"),
         
-        # Standard polite closings
-        ("תודה שהתקשרת", True, "Thank you for calling"),
-        ("יום נפלא", True, "Have a great day"),
-        ("להתראות", True, "Goodbye"),
-        ("ביי", True, "Bye"),
-        
-        # Should NOT trigger (too generic without context)
+        # ❌ Should NOT trigger - NO explicit ביי/להתראות
+        ("תודה יחזרו אליך", False, "Callback promise WITHOUT bye - should NOT disconnect"),
+        ("בעל מקצוע יחזור אליך", False, "Professional will call back WITHOUT bye - should NOT disconnect"),
+        ("נציג יחזור אליך", False, "Rep will call back WITHOUT bye - should NOT disconnect"),
+        ("תודה שהתקשרת", False, "Thank you for calling WITHOUT bye - should NOT disconnect"),
+        ("יום נפלא", False, "Have a great day WITHOUT bye - should NOT disconnect"),
+        ("תודה רבה על הזמן", False, "Thank you for your time WITHOUT bye - should NOT disconnect"),
+        ("תודה", False, "Just thank you - should NOT disconnect"),
         ("שלום", False, "Hello - greeting only"),
         ("היי", False, "Hi - greeting only"),
         
-        # Edge cases
-        ("מצוין, קיבלתי. בעל מקצוע יחזור אליך בהקדם. תודה ולהתראות.", True, "Full closing sentence"),
-        ("תודה רבה על הזמן", True, "Thank you for your time"),
+        # Edge cases - ignore patterns
+        ("היי ביי", False, "Ignore pattern - sounds like bye but isn't"),
+        ("היי כבי", False, "Ignore pattern - sounds like bye but isn't"),
     ]
     
     print("🧪 Testing polite closing detection...\n")

@@ -4469,6 +4469,7 @@ class MediaStreamHandler:
                     # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
                     # This ensures AI finishes speaking before we disconnect
                     if self.pending_hangup and not self.hangup_triggered:
+                        print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
                         # Wait for audio to fully play before disconnecting
                         async def delayed_hangup():
                             print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
@@ -4525,13 +4526,15 @@ class MediaStreamHandler:
                             await asyncio.sleep(2.0)
                             
                             if not self.hangup_triggered:
-                                print(f"📞 [BUILD 163] Audio playback complete - triggering polite hangup now")
+                                print(f"📞 [HANGUP FLOW] ✅ Audio playback complete - CALLING _trigger_auto_hangup() NOW")
                                 import threading
                                 threading.Thread(
                                     target=self._trigger_auto_hangup,
                                     args=("AI finished speaking politely",),
                                     daemon=True
                                 ).start()
+                            else:
+                                print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
                         
                         asyncio.create_task(delayed_hangup())
                 
@@ -5208,7 +5211,9 @@ class MediaStreamHandler:
                             if self.call_state == CallState.ACTIVE:
                                 self.call_state = CallState.CLOSING
                                 print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (reason: {hangup_reason})")
-                            print(f"📞 [BUILD 163] Pending hangup set - will disconnect after audio finishes playing")
+                            print(f"📞 [HANGUP TRIGGER] ✅ pending_hangup=True - hangup WILL execute after audio completes")
+                            print(f"📞 [HANGUP TRIGGER]    reason={hangup_reason}, transcript='{transcript[:50]}...'")
+                            print(f"📞 [HANGUP TRIGGER]    Flow: response.audio.done → delayed_hangup() → _trigger_auto_hangup()")
                         
                         # 🔥 NOTE: Hangup is now triggered in response.audio.done to let audio finish!
                 
@@ -10133,9 +10138,12 @@ class MediaStreamHandler:
                 print(f"❌ [BUILD 163] Missing Twilio credentials - cannot hang up")
                 return
             
+            print(f"📞 [TWILIO API] Calling Twilio to disconnect call {self.call_sid[:8]}...")
             client = Client(account_sid, auth_token)
             
+            print(f"📞 [TWILIO API] Sending update: status='completed' to call {self.call_sid[:8]}...")
             client.calls(self.call_sid).update(status='completed')
+            print(f"📞 [TWILIO API] ✅ Twilio API call successful - call disconnected!")
             
             print(f"✅ [BUILD 163] Call {self.call_sid[:8]}... hung up successfully: {reason}")
             logger.info(f"[BUILD 163] Auto hang-up: call={self.call_sid[:8]}, reason={reason}")
@@ -10748,59 +10756,46 @@ class MediaStreamHandler:
 
     def _check_polite_closing(self, text: str) -> bool:
         """
-        🎯 Check if AI said polite closing phrases (for graceful call ending)
+        🎯 STRICT: Check if AI said EXPLICIT goodbye phrases (ביי/להתראות ONLY!)
         
-        These phrases indicate AI is ending the conversation politely:
-        - "תודה שהתקשרת" - Thank you for calling
-        - "יום נפלא/נעים" - Have a great day
-        - "נשמח לעזור שוב" - Happy to help again
-        - "נציג יחזור אליך" - A rep will call you back
-        - "תודה ביי" - Thank you bye
-        - Combinations with "ביי" or "להתראות"
+        🔥 CRITICAL RULE: Only disconnect if there's an EXPLICIT goodbye word!
+        - "תודה יחזרו אליך" alone = NO DISCONNECT (just callback promise)
+        - "תודה ביי" = DISCONNECT (explicit goodbye)
+        - "יחזרו אליך ביי" = DISCONNECT (explicit goodbye)
+        
+        This prevents premature disconnections from polite callback promises.
         
         Args:
             text: AI transcript to check
             
         Returns:
-            True if polite closing phrase detected
+            True ONLY if explicit goodbye word detected (ביי/להתראות/bye/goodbye)
         """
         text_lower = text.lower().strip()
         
-        # 🔥 ENHANCED: Added more closing phrases based on user feedback
-        polite_closing_phrases = [
-            # Thank you phrases
-            "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
-            "תודה רבה", "תודה", 
-            # Goodbye phrases
-            "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
-            "ביי", "להתראות", "bye", "goodbye",
-            # Callback promises
-            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר", "יחזרו אליך",
-            "נציג ייצור קשר", "בעל מקצוע יחזור אליך",
-            # Help phrases
-            "נשמח לעזור", "נשמח לעמוד לשירותך",
-            "שמח שיכולתי לעזור", "שמחתי לעזור",
-            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות",
-            # Combined phrases (user reported these specifically)
-            "תודה יחזרו אליך", "תודה ביי", "תודה להתראות",
-            "תודה רבה ביי", "תודה רבה להתראות"
-        ]
+        # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
+        for ignore in GOODBYE_IGNORE_PHRASES:
+            if ignore in text_lower:
+                print(f"[POLITE CLOSING] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
+                return False
         
-        # Check for polite closing phrases
-        for phrase in polite_closing_phrases:
-            if phrase in text_lower:
-                print(f"[POLITE CLOSING] Detected: '{phrase}' in '{text_lower[:50]}...'")
-                return True
+        # 🛡️ FILTER: Exclude greetings that sound like goodbye
+        for greeting in GOODBYE_GREETING_WORDS:
+            if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
+                print(f"[POLITE CLOSING] Skipping greeting: '{text_lower[:30]}...'")
+                return False
         
-        # 🔥 SMART DETECTION: Check if text ends with greeting + goodbye combo
-        # e.g., "תודה ולהתראות", "שלום ביי", etc.
-        ends_with_goodbye = any(text_lower.endswith(word) for word in ["ביי", "להתראות", "bye", "goodbye"])
-        has_thank_you = "תודה" in text_lower
+        # ✅ EXPLICIT GOODBYE WORDS - The ONLY trigger for disconnection!
+        explicit_goodbye_words = ["ביי", "להתראות", "bye", "goodbye"]
         
-        if ends_with_goodbye and has_thank_you:
-            print(f"[POLITE CLOSING] Detected thank you + goodbye combo: '{text_lower[:50]}...'")
+        has_explicit_goodbye = any(word in text_lower for word in explicit_goodbye_words)
+        
+        if has_explicit_goodbye:
+            print(f"[POLITE CLOSING] ✅ EXPLICIT goodbye detected: '{text_lower[:80]}...'")
             return True
         
+        # 🚫 NO explicit goodbye = NO disconnect (even with "תודה", "יחזרו אליך", etc.)
+        print(f"[POLITE CLOSING] ❌ No explicit goodbye (no ביי/להתראות): '{text_lower[:80]}...'")
         return False
 
     # ═══════════════════════════════════════════════════════════════════════════
