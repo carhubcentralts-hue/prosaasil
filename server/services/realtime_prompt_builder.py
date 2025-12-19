@@ -35,6 +35,12 @@ _BOX_DRAWING_RE = re.compile(r"[\u2500-\u257F\u2580-\u259F]")
 _ARROWS_RE = re.compile(r"[\u2190-\u21FF]")
 _MARKDOWN_FENCE_RE = re.compile(r"```[\s\S]*?```", flags=re.MULTILINE)
 
+# Prompt size caps (Realtime is sensitive to long instructions)
+# - Compact greeting prompt: keep small for ultra-fast first audio
+# - Full prompt (if ever sent as instructions): allow large, but still cap for safety
+COMPACT_GREETING_MAX_CHARS = 800
+FULL_PROMPT_MAX_CHARS = 8000
+
 
 def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     """
@@ -83,10 +89,10 @@ def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
     return text
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 🔥 PART 1: SYSTEM PROMPT - UNIVERSAL BEHAVIOR RULES ONLY
+# 🔥 PART 1: SYSTEM PROMPT - BEHAVIOR RULES (direction-aware, single source)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def _build_universal_system_prompt() -> str:
+def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
     """
     🎯 UNIVERSAL SYSTEM PROMPT - Technical Behavior Rules ONLY
     
@@ -103,20 +109,45 @@ def _build_universal_system_prompt() -> str:
     - Service names, city names, business names
     - Domain-specific examples or scripts
     
-    This prompt is IDENTICAL for all businesses - only behavior, no content.
+    This prompt is direction-aware (INBOUND vs OUTBOUND) but remains:
+    - behavior-only (no business content)
+    - short and voice-friendly
+    - single source of truth for both directions (no duplicated rule blocks)
+
     Written in English for optimal AI understanding.
     """
     # Keep this SHORT and purely operational for Realtime.
     # Target: <= ~900 chars, no markdown, no separators, no icons.
-    return (
-        "You are a professional male-voice phone agent for the currently active business only. "
-        "Business isolation: every call is independent; ignore any info or style from other businesses/calls. "
-        "Language: speak Hebrew by default; switch only if the caller explicitly asks. "
-        "Barge-in: if the caller starts speaking, stop immediately and wait. "
-        "Truth: use the transcript as the single source of truth; never invent details; if unclear, ask to repeat. "
-        "Style: be warm, calm, and concise (1-2 sentences). Ask one question at a time. "
-        "Follow the Business Prompt for content and flow."
+    # Keep it clean for Hebrew voice calls:
+    # - short
+    # - no formatting
+    # - no business content
+    # - no “meta” explanations that could leak to caller
+    base = (
+        "You are a professional phone agent for the currently active business only. "
+        "Isolation: treat each call as independent; never use details/style from other businesses or prior calls. "
+        "Language: speak natural Hebrew (Israel) to the caller by default; switch only if the caller explicitly asks. "
+        "Turn-taking: if the caller starts speaking, stop immediately and listen. "
+        "Truth: the transcript is the single source of truth; never invent details; if unclear, ask to repeat. "
+        "Style: warm, calm, concise (1-2 sentences). Ask one question at a time. "
+        "Follow the Business Prompt for the business-specific script and flow."
     )
+
+    d = (call_direction or "").strip().lower()
+    if d == "outbound":
+        # OUTBOUND: we initiated the call.
+        direction_rules = (
+            " Outbound rules: you initiated the call; be polite and brief, and proceed according to the outbound Business Prompt."
+        )
+    elif d == "inbound":
+        # INBOUND: caller called the business.
+        direction_rules = (
+            " Inbound rules: the caller contacted the business; respond naturally and proceed according to the inbound Business Prompt."
+        )
+    else:
+        direction_rules = ""
+
+    return f"{base}{direction_rules}"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -220,27 +251,38 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
             ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
             
-            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut 300–400 chars
+            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators)
             ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=5000)
 
-            # Take first 300–400 chars (assume business opening is at start of business prompt)
-            excerpt_max = 390
-            excerpt_window = 440  # small lookahead for clean cut
+            # 2) Compute available budget for the business opening excerpt so the FINAL compact
+            # prompt stays within COMPACT_GREETING_MAX_CHARS (800).
+            direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
+            system_rules = _build_universal_system_prompt(call_direction=call_direction)
+            # Keep prefix minimal to reserve space for business context (fast + relevant).
+            prefix = f"{system_rules} Call={direction}. Start: "
+            prefix_clean = sanitize_realtime_instructions(prefix, max_chars=COMPACT_GREETING_MAX_CHARS)
+            budget = max(0, COMPACT_GREETING_MAX_CHARS - len(prefix_clean) - 1)
+
+            # Take the first ~budget chars (assume business opening is at start of business prompt)
+            excerpt_max = max(80, min(budget, 650))  # keep at least some context; avoid huge excerpts
+            excerpt_window = min(len(ai_prompt_text), excerpt_max + 120)  # lookahead for clean cut
+
             if len(ai_prompt_text) > excerpt_max:
-                window = ai_prompt_text[: min(len(ai_prompt_text), excerpt_window)]
+                window = ai_prompt_text[:excerpt_window]
 
                 # Prefer sentence boundary, else fallback to last space (never cut mid-word)
                 cut_point = -1
                 for delimiter in (". ", "? ", "! "):
                     pos = window.rfind(delimiter)
-                    if pos != -1 and pos >= 220:
+                    # Allow earlier boundaries when budget is small
+                    min_boundary = int(excerpt_max * 0.55)
+                    if pos != -1 and pos >= min_boundary:
                         cut_point = pos + len(delimiter)
                         break
 
                 if cut_point == -1:
-                    # Last space within max region
                     cut_point = ai_prompt_text[:excerpt_max].rfind(" ")
-                    if cut_point < 220:
+                    if cut_point < int(excerpt_max * 0.55):
                         cut_point = excerpt_max
 
                 compact_context = ai_prompt_text[:cut_point].strip()
@@ -256,19 +298,14 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
                 f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
             )
         
-        # 🔥 COMPACT = short system + tone + business opening excerpt (and nothing more)
+        # 🔥 COMPACT = short system + business opening excerpt (and nothing more)
         direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
-        system_rules = _build_universal_system_prompt()
-        tone = "Tone: warm, calm, human, concise. Speak Hebrew."
+        system_rules = _build_universal_system_prompt(call_direction=call_direction)
+        # Keep the prefix minimal to reserve most of the 800-char budget for business context.
+        final_prompt = f"{system_rules} Call={direction}. Start: {compact_context}"
 
-        final_prompt = (
-            f"{system_rules} "
-            f"{tone} "
-            f"Call type: {direction}. "
-            f"Business opening (use this to start the call): {compact_context}"
-        )
-        # Hard cap for Realtime instructions
-        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=1000)
+        # Hard cap for Realtime instructions (COMPACT greeting only)
+        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=COMPACT_GREETING_MAX_CHARS)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
@@ -570,7 +607,7 @@ def build_inbound_system_prompt(
         logger.info(f"📋 [INBOUND] Building prompt: {business_name} (scheduling={enable_calendar_scheduling}, goal={call_goal})")
         
         # LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
-        system_rules = _build_universal_system_prompt()
+        system_rules = _build_universal_system_prompt(call_direction="inbound")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 LAYER 2: APPOINTMENT INSTRUCTIONS (dynamic, technical only)
@@ -685,7 +722,7 @@ def build_outbound_system_prompt(
         logger.info(f"📋 [OUTBOUND] Building prompt: {business_name} (id={business_id})")
         
         # LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
-        system_rules = _build_universal_system_prompt()
+        system_rules = _build_universal_system_prompt(call_direction="outbound")
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 LAYER 2: OUTBOUND-SPECIFIC CONTEXT (now integrated in final prompt)

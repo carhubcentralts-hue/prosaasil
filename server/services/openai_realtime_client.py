@@ -54,11 +54,17 @@ def _sanitize_event_payload_for_realtime(event: Dict[str, Any]) -> Dict[str, Any
         if event_type == "session.update":
             session = event.get("session")
             if isinstance(session, dict) and "instructions" in session:
-                session["instructions"] = _sanitize_text_for_realtime(str(session.get("instructions") or ""), max_chars=1000)
+                session["instructions"] = _sanitize_text_for_realtime(
+                    str(session.get("instructions") or ""),
+                    max_chars=1000
+                )
         elif event_type == "response.create":
             resp = event.get("response")
             if isinstance(resp, dict) and "instructions" in resp:
-                resp["instructions"] = _sanitize_text_for_realtime(str(resp.get("instructions") or ""), max_chars=1000)
+                resp["instructions"] = _sanitize_text_for_realtime(
+                    str(resp.get("instructions") or ""),
+                    max_chars=1000
+                )
         elif event_type == "conversation.item.create":
             item = event.get("item")
             if isinstance(item, dict):
@@ -449,6 +455,9 @@ class OpenAIRealtimeClient:
         """
         # 🔥 CRITICAL: Realtime instructions MUST be short and voice-friendly.
         # Enforce hard cap here (in addition to caller-side sanitization).
+        #
+        # NOTE: Greeting instructions should still be kept small upstream (e.g. 800 chars),
+        # and FULL prompts should NOT be sent as system instructions (inject as internal context instead).
         instructions = _sanitize_text_for_realtime(instructions, max_chars=1000)
 
         # 🔥 BUILD 341: Use tuned defaults from config
