@@ -2518,12 +2518,6 @@ class MediaStreamHandler:
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
-            # 🚀 Start audio/text bridges (RX already started above)
-            logger.info(f"[REALTIME] Starting audio/text sender tasks...")
-            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
-            logger.info(f"[REALTIME] Audio/text tasks created successfully")
-            
             # 🔥 MASTER FIX: ALWAYS trigger greeting immediately - no flag checks!
             # Bot speaks first is now HARDCODED behavior for all calls
             logger.info(f"[REALTIME] ENFORCING bot_speaks_first=True (hardcoded)")
@@ -2609,6 +2603,13 @@ class MediaStreamHandler:
                 # Reset flags since greeting failed
                 self.greeting_sent = False
                 self.is_playing_greeting = False
+            
+            # 🚀 Start audio/text bridges ONLY AFTER greeting response.create was sent
+            # Order is critical (per logs): session.updated -> response.create(greeting) -> start sending input_audio
+            logger.info(f"[REALTIME] Starting audio/text sender tasks (post-greeting trigger)...")
+            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+            logger.info(f"[REALTIME] Audio/text tasks created successfully (post-greeting trigger)")
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
@@ -2861,14 +2862,11 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count incoming frames
                 _frames_in += 1
                 
-                # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
-                # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
-                # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
-                # Solution: Don't send audio to OpenAI until greeting finishes playing.
-                # 🔥 P0-4: Skip greeting protection in SIMPLE_MODE (passthrough only)
-                # OLD: if self.is_playing_greeting:
-                # NEW: Only block during actual greeting (first response)
-                if not SIMPLE_MODE and self.greeting_mode_active and not self.greeting_completed:
+                # 🔒 GREETING LOCK (INPUT AUDIO): Never send input_audio during greeting.
+                # This removes the race window where OpenAI emits speech_started immediately after
+                # response.created and our server cancels the greeting ("barge-in on greeting").
+                # Applies to ALL modes (including SIMPLE_MODE) for greeting only.
+                if self.greeting_mode_active and not self.greeting_completed:
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
@@ -3236,8 +3234,8 @@ class MediaStreamHandler:
         # This prevents cutting off AI mid-sentence when there's no actual interruption
         
         # 🔥 CRITICAL GUARD: Block response.create while user is speaking
-        # This is THE key to proper turn-taking: wait until user finishes before responding
-        if getattr(self, 'user_speaking', False):
+        # Greeting is the ONLY exception: Greeting must be sent even if the user already spoke/noised.
+        if getattr(self, 'user_speaking', False) and not is_greeting:
             print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
             return False
         
@@ -3900,6 +3898,15 @@ class MediaStreamHandler:
                     # 2. After greeting: Normal barge-in (immediate cancel on speech_started)
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
+                    
+                    # 🔒 GREETING LOCK: Greeting (COMPACT) must never be interrupted.
+                    # While greeting is active (first response), we do NOT:
+                    # - cancel any response
+                    # - engage TURN_TAKING (user_speaking guard)
+                    # - send response.cancel
+                    if self.greeting_mode_active and not self.greeting_completed:
+                        print(f"🔒 [GREETING_LOCK] Ignoring speech_started during greeting - no barge-in, no turn-taking")
+                        continue
                     
                     print(f"🎤 [SPEECH_STARTED] User started speaking")
                     
