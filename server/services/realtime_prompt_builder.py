@@ -36,9 +36,10 @@ _ARROWS_RE = re.compile(r"[\u2190-\u21FF]")
 _MARKDOWN_FENCE_RE = re.compile(r"```[\s\S]*?```", flags=re.MULTILINE)
 
 # Prompt size caps (Realtime is sensitive to long instructions)
-# - Compact greeting prompt: keep small for ultra-fast first audio
-# - Full prompt (if ever sent as instructions): allow large, but still cap for safety
-COMPACT_GREETING_MAX_CHARS = 800
+# - Compact greeting prompt (sent as session.update.instructions): MUST be business-only.
+#   Per CRITICAL prompt-separation requirement, keep it ~300–400 chars (sanitized excerpt).
+# - Full prompt (NEVER sent as session.update.instructions): can be larger (injected later as messages).
+COMPACT_GREETING_MAX_CHARS = 420
 FULL_PROMPT_MAX_CHARS = 8000
 
 
@@ -149,6 +150,94 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
 
     return f"{base}{direction_rules}"
 
+def build_global_system_prompt(call_direction: Optional[str] = None) -> str:
+    """
+    Global SYSTEM prompt (behavior rules only).
+
+    IMPORTANT:
+    - This must be injected separately (e.g., as a conversation system message),
+      NOT mixed into COMPACT and NOT sent inside session.update.instructions.
+    """
+    return sanitize_realtime_instructions(_build_universal_system_prompt(call_direction=call_direction), max_chars=1200)
+
+
+def _extract_business_prompt_text(
+    *,
+    business_name: str,
+    ai_prompt_raw: str,
+) -> str:
+    """Extract business prompt text from DB value (supports JSON format)."""
+    ai_prompt_text = ""
+    if ai_prompt_raw and ai_prompt_raw.strip():
+        raw_prompt = ai_prompt_raw.strip()
+
+        if raw_prompt.startswith("{"):
+            try:
+                prompt_obj = json.loads(raw_prompt)
+                ai_prompt_text = prompt_obj.get("calls") or prompt_obj.get("whatsapp") or raw_prompt
+            except json.JSONDecodeError:
+                ai_prompt_text = raw_prompt
+        else:
+            ai_prompt_text = raw_prompt
+
+    if ai_prompt_text:
+        ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
+        ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
+
+    return ai_prompt_text
+
+
+def build_compact_business_instructions(business_prompt_text: str) -> str:
+    """
+    Build COMPACT instructions for Realtime `session.update.instructions`.
+
+    Per required architecture:
+    - Business-only content (no global/system rules, no router metadata).
+    - Sanitized first ~300–400 chars (hard-capped).
+    """
+    business_prompt_text = business_prompt_text or ""
+    # Sanitize first, then cap hard (keep it voice-friendly and safe for Realtime instructions).
+    cleaned = sanitize_realtime_instructions(business_prompt_text, max_chars=5000)
+    return sanitize_realtime_instructions(cleaned, max_chars=COMPACT_GREETING_MAX_CHARS)
+
+
+def build_full_business_prompt(business_id: int, call_direction: str = "inbound") -> str:
+    """
+    FULL Business Prompt (business-only).
+
+    IMPORTANT:
+    - MUST NOT be sent as session.update.instructions.
+    - Intended to be injected later via conversation.item.create after greeting.
+    """
+    from server.models_sql import Business, BusinessSettings
+
+    business = Business.query.get(business_id)
+    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+
+    if not business:
+        logger.warning(f"⚠️ [FULL_BUSINESS] Business {business_id} not found")
+        return ""
+
+    business_name = business.name or "Business"
+
+    if call_direction == "outbound":
+        ai_prompt_raw = settings.outbound_ai_prompt if (settings and settings.outbound_ai_prompt) else ""
+        direction_label = "OUTBOUND"
+    else:
+        ai_prompt_raw = settings.ai_prompt if settings else ""
+        direction_label = "INBOUND"
+
+    business_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=ai_prompt_raw)
+    if not business_prompt_text.strip():
+        logger.warning(f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}")
+        return ""
+
+    # Keep the full text (do not sanitize for length here). Downstream callers may sanitize for TTS if needed.
+    return (
+        f"BUSINESS PROMPT (Business ID: {business_id}, Name: {business_name}, Call: {direction_label})\n"
+        f"{business_prompt_text}"
+    )
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 PART 2: LEGACY FUNCTIONS (for backward compatibility)
@@ -190,28 +279,20 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
     """
     🔥 REFACTORED: COMPACT version of full prompt for ultra-fast greeting
     
-    Uses the SAME builders as full prompt (build_inbound_system_prompt / build_outbound_system_prompt)
-    but with compact=True flag to extract only ~600-800 chars for sub-2s response.
-    
-    This ensures ZERO divergence between greeting and full prompt!
-    
-    Strategy:
-    1. Call the correct builder (inbound/outbound) based on call_direction
-    2. Extract first 600-800 chars from business prompt only (no system rules for greeting)
-    3. Add minimal context reminder (direction, STT truth)
-    
-    Target: Under 800 chars for < 2 second greeting response.
+    Per required architecture:
+    - COMPACT (session.update.instructions) must be BUSINESS-ONLY.
+    - Extract and sanitize only the first ~300–400 chars from the Business Prompt.
+    - NO global/system prompt text in COMPACT.
     """
     try:
         from server.models_sql import Business, BusinessSettings
-        import json
         
         business = Business.query.get(business_id)
         settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
         
         if not business:
             logger.warning(f"⚠️ [COMPACT] Business {business_id} not found")
-            return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
+            return ""
         
         business_name = business.name or "Business"
         
@@ -224,102 +305,34 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             # Use regular ai_prompt
             ai_prompt_raw = settings.ai_prompt if settings else ""
             logger.info(f"📦 [COMPACT] Using INBOUND prompt for {business_name}")
-        
-        # Parse business prompt (handle JSON format)
-        ai_prompt_text = ""
-        if ai_prompt_raw and ai_prompt_raw.strip():
-            raw_prompt = ai_prompt_raw.strip()
-            
-            # Handle JSON format (with 'calls' key)
-            if raw_prompt.startswith('{'):
-                try:
-                    prompt_obj = json.loads(raw_prompt)
-                    if 'calls' in prompt_obj:
-                        ai_prompt_text = prompt_obj['calls']
-                    elif 'whatsapp' in prompt_obj:
-                        ai_prompt_text = prompt_obj['whatsapp']
-                    else:
-                        ai_prompt_text = raw_prompt
-                except json.JSONDecodeError:
-                    ai_prompt_text = raw_prompt
-            else:
-                ai_prompt_text = raw_prompt
-        
-        # 🔥 COMPACT: Keep first contact fast + clean (Realtime is sensitive to heavy/dirty instructions)
-        if ai_prompt_text:
-            # Replace placeholders
-            ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
-            ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
-            
-            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators)
-            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=5000)
 
-            # 2) Compute available budget for the business opening excerpt so the FINAL compact
-            # prompt stays within COMPACT_GREETING_MAX_CHARS (800).
-            direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
-            system_rules = _build_universal_system_prompt(call_direction=call_direction)
-            # Keep prefix minimal to reserve space for business context (fast + relevant).
-            prefix = f"{system_rules} Call={direction}. Start: "
-            prefix_clean = sanitize_realtime_instructions(prefix, max_chars=COMPACT_GREETING_MAX_CHARS)
-            budget = max(0, COMPACT_GREETING_MAX_CHARS - len(prefix_clean) - 1)
+        ai_prompt_text = _extract_business_prompt_text(business_name=business_name, ai_prompt_raw=ai_prompt_raw)
 
-            # Take the first ~budget chars (assume business opening is at start of business prompt)
-            excerpt_max = max(80, min(budget, 650))  # keep at least some context; avoid huge excerpts
-            excerpt_window = min(len(ai_prompt_text), excerpt_max + 120)  # lookahead for clean cut
+        if not ai_prompt_text.strip():
+            logger.warning(f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}")
+            return ""
 
-            if len(ai_prompt_text) > excerpt_max:
-                window = ai_prompt_text[:excerpt_window]
-
-                # Prefer sentence boundary, else fallback to last space (never cut mid-word)
-                cut_point = -1
-                for delimiter in (". ", "? ", "! "):
-                    pos = window.rfind(delimiter)
-                    # Allow earlier boundaries when budget is small
-                    min_boundary = int(excerpt_max * 0.55)
-                    if pos != -1 and pos >= min_boundary:
-                        cut_point = pos + len(delimiter)
-                        break
-
-                if cut_point == -1:
-                    cut_point = ai_prompt_text[:excerpt_max].rfind(" ")
-                    if cut_point < int(excerpt_max * 0.55):
-                        cut_point = excerpt_max
-
-                compact_context = ai_prompt_text[:cut_point].strip()
-            else:
-                compact_context = ai_prompt_text.strip()
-            
-            logger.info(f"✅ [COMPACT] Extracted {len(compact_context)} chars from {call_direction} prompt")
-        else:
-            # 🎯 MASTER DIRECTIVE 1: PROMPT FALLBACK logging
-            # If missing → fallback ONCE and log
-            compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
-            logger.warning(
-                f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
-            )
-        
-        # 🔥 COMPACT = short system + business opening excerpt (and nothing more)
-        direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
-        system_rules = _build_universal_system_prompt(call_direction=call_direction)
-        # Keep the prefix minimal to reserve most of the 800-char budget for business context.
-        final_prompt = f"{system_rules} Call={direction}. Start: {compact_context}"
-
-        # Hard cap for Realtime instructions (COMPACT greeting only)
-        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=COMPACT_GREETING_MAX_CHARS)
+        # ✅ COMPACT = BUSINESS-ONLY excerpt (no global/system rules, no direction metadata)
+        final_prompt = build_compact_business_instructions(ai_prompt_text)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
         # 🔥 PROMPT_CONTEXT: Log that compact prompt is fully dynamic
-        has_prompt = bool(ai_prompt_text and ai_prompt_text.strip())
-        logger.info(
-            "[PROMPT_CONTEXT] business_id=%s, prompt_source=%s, has_hardcoded_templates=False, mode=compact",
-            business_id, "ui" if has_prompt else "fallback"
-        )
+        logger.info("[PROMPT_CONTEXT] business_id=%s, prompt_source=ui, has_hardcoded_templates=False, mode=compact", business_id)
         
-        # 🔥 PROMPT DEBUG: Log compact prompt
-        logger.info(
-            "[PROMPT_DEBUG] direction=%s business_id=%s compact_prompt(lead)=%s...",
-            call_direction, business_id, final_prompt[:400].replace("\n", " ")
+        # PRODUCTION: Never log prompt content (may contain business copy).
+        # Keep only length + hash for traceability.
+        try:
+            import hashlib
+            prompt_hash = hashlib.md5(final_prompt.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            prompt_hash = "hash_err"
+        logger.debug(
+            "[PROMPT_DEBUG] direction=%s business_id=%s compact_len=%s hash=%s",
+            call_direction,
+            business_id,
+            len(final_prompt),
+            prompt_hash,
         )
         
         return final_prompt
@@ -328,7 +341,7 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         logger.error(f"❌ [COMPACT] Compact prompt error: {e}")
         import traceback
         traceback.print_exc()
-        return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
+        return ""
 
 
 def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound", use_cache: bool = True) -> str:
@@ -677,9 +690,17 @@ def build_inbound_system_prompt(
         )
         
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
-        logger.info(
-            "[PROMPT_DEBUG] direction=inbound business_id=%s business_name=%s final_system_prompt(lead)=%s...",
-            business_id, business_name, full_prompt[:400].replace("\n", " ")
+        # PRODUCTION: Never log prompt content; only log length + hash.
+        try:
+            import hashlib
+            prompt_hash = hashlib.md5(full_prompt.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            prompt_hash = "hash_err"
+        logger.debug(
+            "[PROMPT_DEBUG] direction=inbound business_id=%s prompt_len=%s hash=%s",
+            business_id,
+            len(full_prompt),
+            prompt_hash,
         )
         
         return full_prompt
@@ -766,9 +787,17 @@ def build_outbound_system_prompt(
         )
         
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
-        logger.info(
-            "[PROMPT_DEBUG] direction=outbound business_id=%s business_name=%s final_system_prompt(lead)=%s...",
-            business_id, business_name, full_prompt[:400].replace("\n", " ")
+        # PRODUCTION: Never log prompt content; only log length + hash.
+        try:
+            import hashlib
+            prompt_hash = hashlib.md5(full_prompt.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            prompt_hash = "hash_err"
+        logger.debug(
+            "[PROMPT_DEBUG] direction=outbound business_id=%s prompt_len=%s hash=%s",
+            business_id,
+            len(full_prompt),
+            prompt_hash,
         )
         
         return full_prompt

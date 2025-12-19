@@ -2382,7 +2382,7 @@ class MediaStreamHandler:
             # Step 1: Load COMPACT prompt from registry (built in webhook - ZERO latency!)
             compact_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_compact_prompt') if self.call_sid else None
             
-            # Step 2: Load FULL prompt from registry (for post-greeting upgrade)
+            # Step 2: Load FULL BUSINESS prompt from registry (for post-greeting injection)
             full_prompt = stream_registry.get_metadata(self.call_sid, '_prebuilt_full_prompt') if self.call_sid else None
             
             # Step 3: Fallback - build if not in registry (should rarely happen)
@@ -2391,14 +2391,17 @@ class MediaStreamHandler:
                 # 🔥 LOG: Direction being used for prompt building
                 print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
                 try:
-                    from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
+                    from server.services.realtime_prompt_builder import (
+                        build_compact_greeting_prompt,
+                        build_full_business_prompt,
+                    )
                     app = _get_flask_app()
                     with app.app_context():
                         if not compact_prompt:
                             compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
                             print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
                         if not full_prompt:
-                            full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
+                            full_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
                             print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
                 except Exception as prompt_err:
                     print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
@@ -2406,7 +2409,12 @@ class MediaStreamHandler:
                     traceback.print_exc()
                     # Last resort fallback
                     if not compact_prompt:
-                        compact_prompt = f"You are a professional service rep. SPEAK HEBREW to customer. Be helpful and brief."
+                        # Business-only fallback for COMPACT (no global/system rules).
+                        # Prefer DB greeting text if available, else short business greeting.
+                        if greeting_text and str(greeting_text).strip():
+                            compact_prompt = str(greeting_text).strip()
+                        else:
+                            compact_prompt = f"שלום, הגעתם ל{biz_name}. איך אפשר לעזור?"
                     if not full_prompt:
                         full_prompt = compact_prompt
             else:
@@ -2433,15 +2441,15 @@ class MediaStreamHandler:
             print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
             logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
             
-            # Store full prompt for session.update after greeting
+            # Store full BUSINESS prompt for post-greeting injection (NOT session.update.instructions)
             self._full_prompt_for_upgrade = full_prompt
             self._using_compact_greeting = bool(compact_prompt and full_prompt)  # Only if we have both prompts
             
             # 🔥 CRITICAL LOGGING: Verify business isolation
             if full_prompt and f"Business ID: {business_id_safe}" in full_prompt:
-                print(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in FULL prompt")
+                print(f"✅ [BUSINESS ISOLATION] Verified business_id={business_id_safe} in FULL BUSINESS prompt")
             elif full_prompt:
-                logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in FULL prompt! Check for contamination.")
+                logger.warning(f"⚠️ [BUSINESS ISOLATION] Business ID marker not found in FULL BUSINESS prompt")
             
             print(f"📊 [PROMPT STATS] compact={len(compact_prompt)} chars, full={len(full_prompt)} chars")
             
@@ -2549,6 +2557,39 @@ class MediaStreamHandler:
             
             session_wait_ms = (time.time() - wait_start) * 1000
             _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
+
+            # ─────────────────────────────────────────────────────────────────────
+            # ✅ PROMPT SEPARATION ENFORCEMENT:
+            # Inject GLOBAL SYSTEM prompt separately, never inside session.update.instructions.
+            # This must happen before the first response.create so behavior rules apply to greeting,
+            # while session.updated.instructions remains business-only COMPACT.
+            # ─────────────────────────────────────────────────────────────────────
+            if not getattr(self, "_global_system_prompt_injected", False):
+                try:
+                    from server.services.realtime_prompt_builder import build_global_system_prompt
+                    system_prompt = build_global_system_prompt(call_direction=call_direction)
+                    if system_prompt and system_prompt.strip():
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": system_prompt,
+                                        }
+                                    ],
+                                },
+                            }
+                        )
+                        self._global_system_prompt_injected = True
+                        logger.info("[PROMPT_SEPARATION] Injected global SYSTEM prompt as conversation message")
+                        _orig_print("[PROMPT_SEPARATION] global_system_prompt=injected", flush=True)
+                except Exception as e:
+                    # Do not fail call if this injection fails; COMPACT still provides business script.
+                    logger.error(f"[PROMPT_SEPARATION] Failed to inject global system prompt: {e}")
             
             # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
             import hashlib
@@ -3401,19 +3442,26 @@ class MediaStreamHandler:
                 # ═══════════════════════════════════════════════════════════════════════
                 # 🔥 STEP 2: RAW EVENT TRACE - Log ALL events to diagnose missing events
                 # ═══════════════════════════════════════════════════════════════════════
-                # Log every event with type and error details (if any)
-                error_info = event.get("error")
-                if error_info:
-                    error_type = error_info.get("type", "unknown")
-                    error_code = error_info.get("code", "unknown")
-                    error_msg = error_info.get("message", "")
-                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, error_type={error_type}, error_code={error_code}, error_msg={error_msg}", flush=True)
-                elif event_type in ("session.created", "session.updated", "error"):
-                    # Log important session events
-                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, event={event}", flush=True)
-                elif not event_type.endswith(".delta"):
-                    # Log all non-delta events (deltas are too verbose)
-                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}", flush=True)
+                # PRODUCTION: Do NOT log raw events (high I/O, hot-path overhead).
+                # Keep these only for DEBUG investigations.
+                if DEBUG:
+                    error_info = event.get("error")
+                    if error_info:
+                        error_type = error_info.get("type", "unknown")
+                        error_code = error_info.get("code", "unknown")
+                        error_msg = error_info.get("message", "")
+                        logger.debug(
+                            "[RAW_EVENT] type=%s error_type=%s error_code=%s error_msg=%s",
+                            event_type,
+                            error_type,
+                            error_code,
+                            error_msg,
+                        )
+                    elif event_type in ("session.created", "session.updated", "error"):
+                        # Avoid dumping full event payloads (can be huge).
+                        logger.debug("[RAW_EVENT] type=%s", event_type)
+                    elif not event_type.endswith(".delta"):
+                        logger.debug("[RAW_EVENT] type=%s", event_type)
                 
                 response_id = event.get("response_id")
                 if not response_id and "response" in event:
@@ -3460,13 +3508,16 @@ class MediaStreamHandler:
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
-                        _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}", flush=True)
-                        # Log output items to see if audio was included
-                        for i, item in enumerate(output[:3]):  # First 3 items
-                            item_type = item.get("type", "?")
-                            content = item.get("content", [])
-                            content_types = [c.get("type", "?") for c in content] if content else []
-                            _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        if DEBUG:
+                            _orig_print(
+                                f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}",
+                                flush=True,
+                            )
+                            for i, item in enumerate(output[:3]):  # First 3 items
+                                item_type = item.get("type", "?")
+                                content = item.get("content", [])
+                                content_types = [c.get("type", "?") for c in content] if content else []
+                                _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
                         
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Log response completion metrics for audio quality analysis
@@ -3481,16 +3532,18 @@ class MediaStreamHandler:
                             
                             # 🔥 CRITICAL: Log frames_sent==0 cases with full diagnostic snapshot
                             if frames_sent == 0:
-                                _orig_print(f"⚠️ [TX_DIAG] frames_sent=0 for response {resp_id[:20]}...", flush=True)
-                                _orig_print(f"   SNAPSHOT:", flush=True)
-                                _orig_print(f"   - streamSid: {self.stream_sid}", flush=True)
-                                _orig_print(f"   - tx_queue_size: {self.tx_q.qsize() if hasattr(self, 'tx_q') else 'N/A'}", flush=True)
-                                _orig_print(f"   - realtime_audio_out_queue_size: {self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 'N/A'}", flush=True)
-                                _orig_print(f"   - active_response_id: {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
-                                _orig_print(f"   - ai_response_active: {getattr(self, 'ai_response_active', False)}", flush=True)
-                                _orig_print(f"   - is_ai_speaking: {self.is_ai_speaking_event.is_set()}", flush=True)
-                                _orig_print(f"   - status: {status}", flush=True)
-                                _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
+                                # Keep TX diagnostics only for debug investigations (hot path).
+                                if DEBUG_TX:
+                                    _orig_print(f"⚠️ [TX_DIAG] frames_sent=0 for response {resp_id[:20]}...", flush=True)
+                                    _orig_print(f"   SNAPSHOT:", flush=True)
+                                    _orig_print(f"   - streamSid: {self.stream_sid}", flush=True)
+                                    _orig_print(f"   - tx_queue_size: {self.tx_q.qsize() if hasattr(self, 'tx_q') else 'N/A'}", flush=True)
+                                    _orig_print(f"   - realtime_audio_out_queue_size: {self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 'N/A'}", flush=True)
+                                    _orig_print(f"   - active_response_id: {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
+                                    _orig_print(f"   - ai_response_active: {getattr(self, 'ai_response_active', False)}", flush=True)
+                                    _orig_print(f"   - is_ai_speaking: {self.is_ai_speaking_event.is_set()}", flush=True)
+                                    _orig_print(f"   - status: {status}", flush=True)
+                                    _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
                             
                             print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
                             # Cleanup
@@ -3550,18 +3603,18 @@ class MediaStreamHandler:
                                         # Keep chunks reasonably sized; don't enforce 1000 here (this is NOT instructions).
                                         cleaned = sanitize_realtime_instructions(chunk, max_chars=FULL_PROMPT_MAX_CHARS)
 
-                                    # IMPORTANT: FULL must NOT be sent as system/instructions at any stage.
-                                    # We inject it as a regular conversation message for internal context.
+                                    # IMPORTANT: FULL BUSINESS prompt must NOT be sent as session.instructions at any stage.
+                                    # Inject it as a conversation system message AFTER greeting so it does not delay T0 audio.
                                     await client.send_event(
                                         {
                                             "type": "conversation.item.create",
                                             "item": {
                                                 "type": "message",
-                                                "role": "assistant",
+                                                "role": "system",
                                                 "content": [
                                                     {
                                                         "type": "text",
-                                                        "text": f"[INTERNAL CONTEXT {idx}] {cleaned}",
+                                                        "text": f"[BUSINESS PROMPT {idx}] {cleaned}",
                                                     }
                                                 ],
                                             },
@@ -3987,8 +4040,18 @@ class MediaStreamHandler:
                     # Per הנחיה: Check active_response_id AND (ai_response_active OR is_ai_speaking)
                     has_active_response = bool(self.active_response_id)
                     ai_can_be_cancelled = getattr(self, 'ai_response_active', False) or self.is_ai_speaking_event.is_set()
+                    is_greeting_now = bool(getattr(self, "greeting_mode_active", False) or getattr(self, "is_playing_greeting", False))
+                    barge_in_allowed_now = bool(
+                        ENABLE_BARGE_IN
+                        and getattr(self, "barge_in_enabled", True)
+                        and getattr(self, "barge_in_enabled_after_greeting", False)
+                        and not is_greeting_now
+                    )
                     
-                    if has_active_response and ai_can_be_cancelled and self.realtime_client:
+                    # ✅ FINAL HARDENING: Barge-in ONLY after COMPACT greeting completes.
+                    # - If user speaks during greeting: do NOT cancel.
+                    # - If user speaks after greeting: cancel active response (normal behavior).
+                    if has_active_response and ai_can_be_cancelled and self.realtime_client and barge_in_allowed_now:
                         # AI has active response that can be cancelled - user is interrupting
                         
                         # Normal barge-in: Cancel, flush, and clear (no greeting special case)
@@ -3998,17 +4061,17 @@ class MediaStreamHandler:
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
+                                logger.info("[BARGE-IN] Cancelled active response due to user speech")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Gracefully handle not_active errors (per הנחיה - should not happen now)
                                 if ('not_active' in error_str or 'no active' in error_str or 
                                     'already_cancelled' in error_str or 'already_completed' in error_str):
-                                    _orig_print(f"⚠️ [BARGE-IN] response_cancel_not_active (should be rare now) - response already ended", flush=True)
+                                    logger.debug("[BARGE-IN] response_cancel_not_active (already ended)")
                                 else:
-                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error (ignoring): {e}", flush=True)
+                                    logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
                         else:
-                            _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
+                            logger.debug("[BARGE-IN] Skipped duplicate cancel")
                         
                         # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
                         if self.stream_sid:
@@ -4018,9 +4081,9 @@ class MediaStreamHandler:
                                     "streamSid": self.stream_sid
                                 }
                                 self._ws_send(json.dumps(clear_event))
-                                _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
+                                logger.debug("[BARGE-IN] Sent Twilio clear event")
                             except Exception as e:
-                                _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
+                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
                         
                         # Step 3: Flush TX queue (clear all pending audio frames)
                         self._flush_tx_queue()
@@ -4034,9 +4097,12 @@ class MediaStreamHandler:
                         # Step 5: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, Twilio cleared, TX flushed", flush=True)
-                    elif has_active_response and not ai_can_be_cancelled:
-                        _orig_print(f"⏭️ [BARGE-IN] Response exists but not yet cancellable (ai_response_active={getattr(self, 'ai_response_active', False)}, is_ai_speaking={self.is_ai_speaking_event.is_set()})", flush=True)
+                        logger.debug("[BARGE-IN] User interrupted AI - cancel+clear+flush complete")
+                    elif has_active_response and not ai_can_be_cancelled and DEBUG:
+                        _orig_print(
+                            f"⏭️ [BARGE-IN] Response exists but not yet cancellable (ai_response_active={getattr(self, 'ai_response_active', False)}, is_ai_speaking={self.is_ai_speaking_event.is_set()})",
+                            flush=True,
+                        )
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -4260,12 +4326,16 @@ class MediaStreamHandler:
                                     self._greeting_audio_chunks_queued += 1
                                     
                                     # Log first and every 10th chunk
-                                    if self._greeting_audio_chunks_queued == 1 or self._greeting_audio_chunks_queued % 10 == 0:
-                                        _orig_print(f"📊 [TX_DIAG] Greeting audio queued: {self._greeting_audio_chunks_queued} chunks, {self._greeting_audio_bytes_queued} bytes (streamSid={self.stream_sid is not None})", flush=True)
+                                    if DEBUG_TX and (self._greeting_audio_chunks_queued == 1 or self._greeting_audio_chunks_queued % 10 == 0):
+                                        _orig_print(
+                                            f"📊 [TX_DIAG] Greeting audio queued: {self._greeting_audio_chunks_queued} chunks, {self._greeting_audio_bytes_queued} bytes (streamSid={self.stream_sid is not None})",
+                                            flush=True,
+                                        )
                                     now_mono = time.monotonic()
                                     if now_mono - self._enq_last_log_time >= 1.0:
                                         qsize = self.realtime_audio_out_queue.qsize()
-                                        _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                        if DEBUG_TX:
+                                            _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
                                         self._enq_counter = 0
                                         self._enq_last_log_time = now_mono
                                 except queue.Full:
@@ -4383,7 +4453,8 @@ class MediaStreamHandler:
                                 now_mono = time.monotonic()
                                 if now_mono - self._enq_last_log_time >= 1.0:
                                     qsize = self.realtime_audio_out_queue.qsize()
-                                    _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                    if DEBUG_TX:
+                                        _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
                                     self._enq_counter = 0
                                     self._enq_last_log_time = now_mono
                                 # 🎯 TASK D.2: Track frames sent for this response
@@ -7100,7 +7171,8 @@ class MediaStreamHandler:
             now_mono = time.monotonic()
             if now_mono - _last_enqueue_rate_time >= 1.0:
                 rx_qsize = self.realtime_audio_out_queue.qsize()
-                _orig_print(f"[ENQ_RATE] frames_per_sec={_enqueue_rate_counter}, rx_qsize={rx_qsize}", flush=True)
+                if DEBUG_TX:
+                    _orig_print(f"[ENQ_RATE] frames_per_sec={_enqueue_rate_counter}, rx_qsize={rx_qsize}", flush=True)
                 _enqueue_rate_counter = 0
                 _last_enqueue_rate_time = now_mono
             
@@ -7746,12 +7818,12 @@ class MediaStreamHandler:
                             logger.info(f"[BUSINESS_ISOLATION] call_accepted business_id={business_id_safe} to={self.to_number} call_sid={self.call_sid}")
                             _orig_print(f"✅ [BUSINESS_ISOLATION] Business validated: {business_id_safe}", flush=True)
                             
-                            # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
-                            # This eliminates redundant DB query in async loop
+                            # 🔥 PART D: PRE-BUILD FULL BUSINESS prompt here (while we have app context!)
+                            # This eliminates redundant DB query later and enforces prompt separation.
                             try:
-                                from server.services.realtime_prompt_builder import build_realtime_system_prompt
-                                self._prebuilt_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                                print(f"✅ [PART D] Pre-built prompt: {len(self._prebuilt_prompt)} chars (saved DB round-trip for async loop)")
+                                from server.services.realtime_prompt_builder import build_full_business_prompt
+                                self._prebuilt_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
+                                print(f"✅ [PART D] Pre-built FULL BUSINESS prompt: {len(self._prebuilt_prompt)} chars")
                             except Exception as prompt_err:
                                 print(f"⚠️ [PART D] Failed to pre-build prompt: {prompt_err}")
                                 self._prebuilt_prompt = None  # Async loop will build it as fallback
