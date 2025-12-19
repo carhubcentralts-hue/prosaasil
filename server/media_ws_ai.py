@@ -130,7 +130,17 @@ OPENAI_REALTIME_MODEL = "gpt-4o-mini-realtime-preview"
 # ⭐⭐⭐ BUILD 350: REMOVE ALL MID-CALL LOGIC & TOOLS
 # Keep calls 100% pure conversation. Only allow appointment scheduling when enabled.
 # Everything else (service, city, details) must happen AFTER the call via summary.
-ENABLE_LEGACY_TOOLS = False  # DISABLED - no mid-call tools, no city/service extraction during calls
+# ⭐⭐⭐ CRITICAL: APPOINTMENT SYSTEM SELECTION ⭐⭐⭐
+# 
+# TWO SYSTEMS EXIST:
+# 1. LEGACY: appointment_nlp.py - NLP parsing (DISABLED)
+# 2. MODERN: Realtime Tools - check_availability + schedule_appointment (ENABLED)
+#
+# ⚠️ ONLY ONE SHOULD BE ACTIVE AT A TIME!
+# 
+# Set to False = Use MODERN Realtime Tools (RECOMMENDED)
+# Set to True = Use LEGACY NLP parsing (DEPRECATED)
+ENABLE_LEGACY_TOOLS = False  # ✅ MODERN SYSTEM ACTIVE - Realtime Tools only!
 
 # 🔍 OVERRIDE: Allow env var to switch model if needed
 _env_model = os.getenv("OPENAI_REALTIME_MODEL")
@@ -2203,11 +2213,11 @@ class MediaStreamHandler:
             try:
                 from server.services.realtime_prompt_builder import sanitize_realtime_instructions
                 original_len = len(greeting_prompt or "")
-                greeting_prompt = sanitize_realtime_instructions(greeting_prompt or "", max_chars=1000)
+                greeting_prompt = sanitize_realtime_instructions(greeting_prompt or "", max_chars=8000)
                 sanitized_len = len(greeting_prompt)
                 if sanitized_len != original_len:
                     _orig_print(
-                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap=1000)",
+                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap=8000)",
                         flush=True,
                     )
             except Exception as _sanitize_err:
@@ -2668,13 +2678,9 @@ class MediaStreamHandler:
                 realtime_tools = []  # Safe fallback - no tools
             
             if realtime_tools:
-                # Appointment tool is enabled - send session update
-                print(f"[TOOLS][REALTIME] Appointment tool enabled - tools={len(realtime_tools)}")
-                logger.info(f"[TOOLS][REALTIME] Session will use appointment tool (count={len(realtime_tools)})")
-            else:
-                # 🔥 CRITICAL: Log that we're continuing with NO tools (pure conversation)
-                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-                logger.info(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                # 🔥 FIX: Appointment tools are enabled - SEND THEM TO SESSION!
+                print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)}")
+                logger.info(f"[TOOLS][REALTIME] Sending {len(realtime_tools)} tools to session")
                 
                 # Wait for greeting to complete before adding tools (avoid interference)
                 async def _load_appointment_tool():
@@ -2685,6 +2691,7 @@ class MediaStreamHandler:
                         while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
                             await asyncio.sleep(0.1)
                         
+                        print(f"🔧 [TOOLS][REALTIME] Sending session.update with {len(realtime_tools)} tools...")
                         await client.send_event({
                             "type": "session.update",
                             "session": {
@@ -2692,14 +2699,20 @@ class MediaStreamHandler:
                                 "tool_choice": tool_choice
                             }
                         })
-                        print(f"✅ [TOOLS][REALTIME] Appointment tool registered in session")
-                        logger.info(f"[TOOLS][REALTIME] Appointment tool successfully added to session")
+                        print(f"✅ [TOOLS][REALTIME] Appointment tools registered in session successfully!")
+                        logger.info(f"[TOOLS][REALTIME] Tools successfully added to session")
                         
                     except Exception as e:
-                        print(f"⚠️ [TOOLS][REALTIME] Failed to register appointment tool: {e}")
+                        print(f"❌ [TOOLS][REALTIME] FAILED to register tools: {e}")
                         logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
                 asyncio.create_task(_load_appointment_tool())
+            else:
+                # No tools for this call - pure conversation mode
+                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                logger.info(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
@@ -5234,6 +5247,8 @@ class MediaStreamHandler:
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                            # 🔥 FIX: Mark that AI already said goodbye naturally - prevents duplicate goodbye in _trigger_auto_hangup
+                            self.goodbye_message_sent = True
                             # 🔥 BUILD 172: Transition to CLOSING state
                             if self.call_state == CallState.ACTIVE:
                                 self.call_state = CallState.CLOSING
