@@ -20,9 +20,67 @@ from typing import Optional, Tuple, Dict, Any
 from datetime import datetime
 import pytz
 import json
+import re
 
 logger = logging.getLogger(__name__)
 
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # emoji/pictographs/symbols
+    "\U00002700-\U000027BF"  # dingbats
+    "]+",
+    flags=re.UNICODE,
+)
+_BOX_DRAWING_RE = re.compile(r"[\u2500-\u257F\u2580-\u259F]")
+_ARROWS_RE = re.compile(r"[\u2190-\u21FF]")
+_MARKDOWN_FENCE_RE = re.compile(r"```[\s\S]*?```", flags=re.MULTILINE)
+
+
+def sanitize_realtime_instructions(text: str, max_chars: int = 1000) -> str:
+    """
+    Sanitize text before sending to OpenAI Realtime `session.update.instructions`.
+
+    Goals:
+    - Remove heavy formatting / non-speech symbols that can confuse TTS
+    - Flatten newlines (both actual and escaped) into spaces
+    - Hard-cap size (Realtime is sensitive to large instructions)
+    """
+    if not text:
+        return ""
+
+    # Remove fenced code blocks entirely (rare but can appear in prompts)
+    text = _MARKDOWN_FENCE_RE.sub(" ", text)
+
+    # Normalize escaped newlines first, then real newlines
+    text = text.replace("\\n", " ").replace("\n", " ")
+
+    # Remove common "layout" unicode blocks (box drawing, arrows, emoji)
+    text = _BOX_DRAWING_RE.sub(" ", text)
+    text = _ARROWS_RE.sub(" ", text)
+    text = _EMOJI_RE.sub(" ", text)
+
+    # Strip common markdown-ish separators and list bullets
+    text = re.sub(r"[`*_>#|]+", " ", text)
+    text = re.sub(r"[•●▪▫◆◇■□]+", " ", text)
+
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    if max_chars and len(text) > max_chars:
+        cut = text[:max_chars]
+        # Try to cut at a natural boundary, but don't over-trim.
+        boundary = max(
+            cut.rfind(". "),
+            cut.rfind("? "),
+            cut.rfind("! "),
+            cut.rfind(" "),
+        )
+        if boundary >= int(max_chars * 0.6):
+            text = cut[:boundary].strip()
+        else:
+            text = cut.strip()
+
+    return text
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🔥 PART 1: SYSTEM PROMPT - UNIVERSAL BEHAVIOR RULES ONLY
@@ -48,198 +106,17 @@ def _build_universal_system_prompt() -> str:
     This prompt is IDENTICAL for all businesses - only behavior, no content.
     Written in English for optimal AI understanding.
     """
-    return """
-═══════════════════════════════════════════════════════════════
-SYSTEM RULES (Universal Technical Behavior)
-═══════════════════════════════════════════════════════════════
-
-⚠️ CRITICAL: ABSOLUTE BUSINESS ISOLATION
-────────────────────────────────────────
-You MUST ignore, discard, and prohibit ANY memory, example, style, 
-or instruction from any business other than the one currently active.
-
-EVERY call is fully independent and isolated.
-NO cross-business influence is allowed under ANY circumstance.
-NO data from previous calls can be used.
-
-If you detect ANY information that seems to belong to a different 
-business or call → DISCARD IT IMMEDIATELY.
-
-═══════════════════════════════════════════════════════════════
-
-🔥 0. VOICE & AGENT IDENTITY (CRITICAL - NEVER CHANGE)
-───────────────────────────────────────────────────────
-YOU ARE ALWAYS A MALE AGENT. NEVER CHANGE THIS.
-
-VOICE RULES:
-- Your voice is LOCKED to male preset
-- NEVER change your voice, gender, or speaking style
-- NEVER adapt your voice to match the customer
-- NEVER sound feminine regardless of customer gender
-
-CUSTOMER GENDER DETECTION FOR LANGUAGE FORMULATION:
-Purpose: Detect customer gender to adjust LANGUAGE FORMULATION ONLY (not voice).
-
-Detection Method (lightest → heaviest):
-1. From explicit words in transcript:
-   - "אני צריכה / אני רוצה / הזמנתי" → Female
-   - "אני צריך / אני רוצה / הזמנתי" → Male
-   
-2. From direct address:
-   - "אני גרה ב..." → Female
-   - "אני גר ב..." → Male
-   
-3. If unclear → Unknown (use neutral formulation)
-
-Usage of Detection:
-- If detected FEMALE → Use feminine language formulation
-  Example: "את יכולה לספר לי", "היית צריכה"
-  
-- If detected MALE → Use masculine language formulation
-  Example: "אתה יכול לספר לי", "היית צריך"
-  
-- If UNKNOWN → Use neutral formulation
-  Example: "אפשר לספר לי", "היה צורך"
-
-Detection affects ONLY:
-✅ Spoken responses (language formulation)
-✅ Call summary text
-✅ CRM text fields
-
-Detection does NOT affect:
-❌ Voice (stays male always)
-❌ Tone
-❌ Speed
-❌ Any other behavior
-
-HARD RULE: You are a professional male agent. Your VOICE never changes.
-Only your LANGUAGE FORMULATION adapts to the customer.
-
-═══════════════════════════════════════════════════════════════
-
-1. PRIMARY LANGUAGE & TRANSCRIPTION
-────────────────────────────────────
-DEFAULT RESPONSE LANGUAGE: Hebrew
-TRANSCRIPTION: Accurate in all languages
-
-LANGUAGE SWITCHING RULES:
-- ALWAYS start the conversation in Hebrew
-- ONLY switch language if customer explicitly requests it
-  (e.g., "אני לא מבין עברית", "speak English", "Русский пожалуйста")
-- If customer speaks another language but doesn't request switch:
-  → Continue in Hebrew and gently confirm: "האם תרצה שנמשיך באנגלית?"
-- Once switched, maintain that language for the entire call
-- Do NOT switch language randomly or mid-sentence
-- Do NOT mix languages unless customer does
-
-═══════════════════════════════════════════════════════════════
-
-2. BARGE-IN (User Interruption)
-────────────────────────────────
-HARD RULE: Customer speaks = AI stops. Always.
-
-- If the customer starts speaking while you are talking → STOP IMMEDIATELY
-- Do NOT finish your current sentence
-- Do NOT talk over the customer under ANY circumstance
-- Wait for the customer to finish completely
-- Then respond ONLY to what they said
-
-NO greeting protections. NO grace periods. NO exceptions.
-
-═══════════════════════════════════════════════════════════════
-
-3. FOLLOW THE BUSINESS PROMPT (Critical Hierarchy)
-───────────────────────────────────────────────────
-PROMPT HIERARCHY:
-- System Prompt (this) = Behavior rules, technical constraints ONLY
-- Business Prompt (below) = Content, goals, flow, scripts
-
-The Business Prompt below defines:
-- The conversation flow
-- What questions to ask and in what order
-- When to capture information
-- When to transfer or end the call
-
-CONFLICTS:
-If there is a conflict between System Prompt and Business Prompt:
-→ Business Prompt WINS (as long as it doesn't violate speech/language rules)
-
-SYSTEM PROMPT MUST NOT:
-❌ Add content not in Business Prompt
-❌ Change business goals
-❌ "Take over" the conversation
-❌ Override business-specific instructions
-
-SYSTEM PROMPT ONLY ENFORCES:
-✅ Barge-in behavior (stop when customer speaks)
-✅ Language rules (Hebrew default, switch on request)
-✅ Voice rules (always male)
-✅ Truth & accuracy (no guessing)
-
-YOUR ROLE:
-- Follow the Business Prompt instructions EXACTLY
-- Ask ONE question at a time as specified
-- Wait for clear answer before advancing
-- If customer asks an off-topic question:
-  → Answer briefly
-  → Return to where you were in the flow
-- Do NOT invent information not in the Business Prompt
-- Do NOT skip steps or reorder the flow
-- Do NOT end call or transfer without explicit trigger from Business Prompt
-
-═══════════════════════════════════════════════════════════════
-
-4. AUDIO & TELEPHONY CONTEXT
-─────────────────────────────
-AUDIO FORMAT:
-- Phone call over telephony network: 8kHz narrow-band, G.711 μ-law
-- Expect: line noise, dropouts, compression artifacts, background sounds
-- Focus on understanding the customer's TRUE INTENT
-
-FILLER HANDLING:
-- Do NOT respond to filler-only utterances like "um", "uh", "hmm"
-- These are thinking sounds, not questions
-- Wait for the customer to complete their thought
-
-UNCLEAR AUDIO:
-- If you didn't hear clearly → ASK the customer to repeat
-- Do NOT guess or make assumptions
-
-═══════════════════════════════════════════════════════════════
-
-5. TRUTH & ACCURACY
-───────────────────
-TRANSCRIPTION IS YOUR SINGLE SOURCE OF TRUTH.
-
-- NEVER invent facts, services, cities, or details
-- NEVER substitute or "correct" what the customer said
-- NEVER assume or guess information
-- Use EXACTLY what the customer says, word-for-word
-- If unclear → ask for clarification, do NOT guess
-
-═══════════════════════════════════════════════════════════════
-
-6. CONVERSATION STYLE
-──────────────────────
-- Warm, calm, human, short, and clear
-- Keep responses concise (1-2 sentences when possible)
-- Do NOT rush the customer
-- Wait until the customer finishes speaking before responding
-- NEVER repeat the same question more than twice
-
-═══════════════════════════════════════════════════════════════
-
-7. HIERARCHY
-────────────
-Business Prompt > System Prompt > Model Defaults
-
-If there is ANY conflict between instructions:
-→ ALWAYS follow the Business Prompt below
-→ The Business Prompt is the source of truth for WHAT to say and do
-→ System Rules define HOW to behave, Business Prompt defines WHAT to do
-
-═══════════════════════════════════════════════════════════════
-""".strip()
+    # Keep this SHORT and purely operational for Realtime.
+    # Target: <= ~900 chars, no markdown, no separators, no icons.
+    return (
+        "You are a professional male-voice phone agent for the currently active business only. "
+        "Business isolation: every call is independent; ignore any info or style from other businesses/calls. "
+        "Language: speak Hebrew by default; switch only if the caller explicitly asks. "
+        "Barge-in: if the caller starts speaking, stop immediately and wait. "
+        "Truth: use the transcript as the single source of truth; never invent details; if unclear, ask to repeat. "
+        "Style: be warm, calm, and concise (1-2 sentences). Ask one question at a time. "
+        "Follow the Business Prompt for content and flow."
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -337,19 +214,21 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             else:
                 ai_prompt_text = raw_prompt
         
-        # 🔥 COMPACT: Take first 600 chars from business prompt
+        # 🔥 COMPACT: Keep first contact fast + clean (Realtime is sensitive to heavy formatting)
         if ai_prompt_text:
             # Replace placeholders
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
             ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
             
-            # Take first 600 chars, try to end at sentence boundary
-            if len(ai_prompt_text) > 600:
+            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=2000)
+
+            # Take first ~450 chars, try to end at sentence boundary
+            if len(ai_prompt_text) > 450:
                 # Find good cut point (end of sentence)
-                cut_point = 600
-                for delimiter in ['. ', '.\n', '\n\n', '\n']:
-                    last_pos = ai_prompt_text[:650].rfind(delimiter)
-                    if last_pos > 400:
+                cut_point = 450
+                for delimiter in ['. ', '? ', '! ', ' ']:
+                    last_pos = ai_prompt_text[:520].rfind(delimiter)
+                    if last_pos > 260:
                         cut_point = last_pos + len(delimiter)
                         break
                 compact_context = ai_prompt_text[:cut_point].strip()
@@ -365,14 +244,16 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
                 f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
             )
         
-        # 🔥 Add minimal context (direction, STT truth)
-        direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
-        
-        final_prompt = f"""{compact_context}
+        # 🔥 Add minimal realtime-safe system rules + direction (keep <=1000 chars total)
+        direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
+        system_rules = _build_universal_system_prompt()
 
----
-{direction} | CRITICAL: Use EXACT words customer says. NEVER invent or guess!
-If unclear - ask to repeat. SPEAK HEBREW."""
+        final_prompt = (
+            f"{system_rules} "
+            f"Call type: {direction}. "
+            f"Business context (excerpt): {compact_context}"
+        )
+        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=950)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
@@ -673,9 +554,7 @@ def build_inbound_system_prompt(
         
         logger.info(f"📋 [INBOUND] Building prompt: {business_name} (scheduling={enable_calendar_scheduling}, goal={call_goal})")
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 🔥 LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
         system_rules = _build_universal_system_prompt()
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -692,28 +571,14 @@ def build_inbound_system_prompt(
             weekday_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             weekday_name = weekday_names[today.weekday()]
             
-            appointment_instructions = f"""
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-APPOINTMENT SCHEDULING TECHNICAL INSTRUCTIONS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Context: Today is {weekday_name}, {today_date}
-Slot Size: {policy.slot_size_min} minutes
-
-Required Information:
-1. Customer name
-2. Preferred date and time (convert natural language → YYYY-MM-DD HH:MM)
-
-Tool Usage:
-- Call schedule_appointment ONLY ONCE after collecting all required info
-- Phone number is already available from call metadata (never ask for it)
-- If server returns success=false → politely offer alternative times
-- If server returns success=true → confirm appointment is scheduled
-- NEVER say "appointment is scheduled" unless server confirms success=true
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"""
+            appointment_instructions = (
+                f"\n\nAPPOINTMENT SCHEDULING (technical): Today is {weekday_name} {today_date}. "
+                f"Slot size: {policy.slot_size_min}min. "
+                "Collect: (1) customer name, (2) preferred date+time. "
+                "Call schedule_appointment once after collecting both. "
+                "Do not ask for phone (already in metadata). "
+                "Only confirm booking if server returns success=true; otherwise offer alternatives."
+            )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 🔥 LAYER 3: BUSINESS PROMPT (all content and flow)
@@ -743,26 +608,11 @@ Tool Usage:
         # 🔥 COMBINE ALL LAYERS
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        full_prompt = f"""{system_rules}{appointment_instructions}
-
-═══════════════════════════════════════════════════════════════
-BUSINESS RULES START (Business ID: {business_id})
-═══════════════════════════════════════════════════════════════
-
-{business_prompt}
-
-═══════════════════════════════════════════════════════════════
-BUSINESS RULES END
-═══════════════════════════════════════════════════════════════
-
-═══════════════════════════════════════════════════════════════
-CALL TYPE: INBOUND
-═══════════════════════════════════════════════════════════════
-
-This is an INBOUND call. The customer is calling the business.
-Follow the business rules above for how to greet and handle the call.
-
-═══════════════════════════════════════════════════════════════"""
+        full_prompt = (
+            f"{system_rules}{appointment_instructions}\n\n"
+            f"BUSINESS PROMPT (Business ID: {business_id}):\n{business_prompt}\n\n"
+            "CALL TYPE: INBOUND. The customer called the business. Follow the business prompt for greeting and flow."
+        )
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars (system + business)")
         logger.info(f"🔍 [PROMPT_VERIFICATION] business_id={business_id}, direction=INBOUND, call_type_in_prompt={'CALL TYPE: INBOUND' in full_prompt}")
@@ -819,9 +669,7 @@ def build_outbound_system_prompt(
         
         logger.info(f"📋 [OUTBOUND] Building prompt: {business_name} (id={business_id})")
         
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        # 🔥 LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
-        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # LAYER 1: UNIVERSAL SYSTEM PROMPT (behavior only)
         system_rules = _build_universal_system_prompt()
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -849,31 +697,11 @@ def build_outbound_system_prompt(
         # 🔥 COMBINE ALL LAYERS
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
-        full_prompt = f"""{system_rules}
-
-═══════════════════════════════════════════════════════════════
-BUSINESS RULES START (Business ID: {business_id})
-═══════════════════════════════════════════════════════════════
-
-{outbound_prompt}
-
-═══════════════════════════════════════════════════════════════
-BUSINESS RULES END
-═══════════════════════════════════════════════════════════════
-
-═══════════════════════════════════════════════════════════════
-CALL TYPE: OUTBOUND
-═══════════════════════════════════════════════════════════════
-
-This is an OUTBOUND call from "{business_name}".
-
-If the customer seems confused about who is calling:
-→ Politely remind them: "שלום, אני העוזרת הדיגיטלית של {business_name}."
-   (or in their language if they speak differently)
-
-Follow the outbound business rules above for all content and flow.
-
-═══════════════════════════════════════════════════════════════"""
+        full_prompt = (
+            f"{system_rules}\n\n"
+            f"BUSINESS PROMPT (Business ID: {business_id}):\n{outbound_prompt}\n\n"
+            f'CALL TYPE: OUTBOUND from "{business_name}". If confused, briefly identify the business and continue per the outbound prompt.'
+        )
         
         logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars (system + outbound)")
         logger.info(f"🔍 [PROMPT_VERIFICATION] business_id={business_id}, direction=OUTBOUND, call_type_in_prompt={'CALL TYPE: OUTBOUND' in full_prompt}")

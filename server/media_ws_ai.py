@@ -2170,6 +2170,22 @@ class MediaStreamHandler:
             Args:
                 force: Set to True to bypass hash check (for retry)
             """
+            # 🔥 CRITICAL: Realtime is sensitive to heavy/dirty instructions.
+            # Sanitize + hard cap to prevent silent starts / long delays.
+            try:
+                from server.services.realtime_prompt_builder import sanitize_realtime_instructions
+                original_len = len(greeting_prompt or "")
+                greeting_prompt = sanitize_realtime_instructions(greeting_prompt or "", max_chars=1000)
+                sanitized_len = len(greeting_prompt)
+                if sanitized_len != original_len:
+                    _orig_print(
+                        f"🧽 [PROMPT_SANITIZE] instructions_len {original_len}→{sanitized_len} (cap=1000)",
+                        flush=True,
+                    )
+            except Exception as _sanitize_err:
+                # Never block the call on sanitizer issues; proceed with original prompt.
+                _orig_print(f"⚠️ [PROMPT_SANITIZE] Failed: {_sanitize_err}", flush=True)
+
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
@@ -2408,11 +2424,7 @@ class MediaStreamHandler:
                     print(f"📞 [INBOUND] Using default greeting")
             
             # 🔥 BUILD 350: SINGLE GREETING PATH - Compact prompt + simple instruction
-            greeting_prompt = f"""{greeting_prompt_to_use}
-
----
-
-{greeting_instruction}"""
+            greeting_prompt = f"{greeting_prompt_to_use}\n{greeting_instruction}"
             has_custom_greeting = True
             
             t_before_config = time.time()
@@ -3475,13 +3487,44 @@ class MediaStreamHandler:
                                 import hashlib
                                 full_prompt_hash = hashlib.md5(full_prompt.encode()).hexdigest()[:8]
                                 
-                                # Send session.update with full prompt (non-blocking, AI continues working)
-                                await client.send_event({
-                                    "type": "session.update",
-                                    "session": {
-                                        "instructions": full_prompt
-                                    }
-                                })
+                                # ✅ Per CRITICAL directive:
+                                # FULL prompt must NOT be sent as session.instructions (system).
+                                # Instead, inject it as internal context AFTER the call has started.
+                                # This avoids heavy system prompts that can delay or silence first audio.
+                                def _chunk_text(s: str, chunk_size: int = 2500):
+                                    s = s or ""
+                                    # Avoid literal escaped newlines leaking as "\\n"
+                                    s = s.replace("\\n", "\n")
+                                    if len(s) <= chunk_size:
+                                        return [s]
+                                    chunks = []
+                                    i = 0
+                                    while i < len(s):
+                                        j = min(i + chunk_size, len(s))
+                                        # Try to cut on paragraph boundary if possible
+                                        cut = s.rfind("\n\n", i, j)
+                                        if cut != -1 and cut > i + int(chunk_size * 0.5):
+                                            j = cut + 2
+                                        chunks.append(s[i:j].strip())
+                                        i = j
+                                    return [c for c in chunks if c]
+
+                                for idx, chunk in enumerate(_chunk_text(full_prompt), start=1):
+                                    await client.send_event(
+                                        {
+                                            "type": "conversation.item.create",
+                                            "item": {
+                                                "type": "message",
+                                                "role": "system",
+                                                "content": [
+                                                    {
+                                                        "type": "input_text",
+                                                        "text": f"[CONTEXT {idx}] {chunk}",
+                                                    }
+                                                ],
+                                            },
+                                        }
+                                    )
                                 
                                 self._prompt_upgraded_to_full = True
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
