@@ -115,8 +115,6 @@ def _build_universal_system_prompt() -> str:
         "Barge-in: if the caller starts speaking, stop immediately and wait. "
         "Truth: use the transcript as the single source of truth; never invent details; if unclear, ask to repeat. "
         "Style: be warm, calm, and concise (1-2 sentences). Ask one question at a time. "
-        "CRITICAL: NEVER claim you did something (קבעתי, שלחתי, רשמתי) unless you actually called the tool and got success=true. "
-        "If you have tools available, you MUST use them. Do not fake actions. "
         "Follow the Business Prompt for content and flow."
     )
 
@@ -222,12 +220,12 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
             ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
             
-            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut to give maximum context
-            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=8000)
+            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut 300–400 chars
+            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=5000)
 
-            # Take first 1500 chars (give AI MAXIMUM context for how to greet properly)
-            excerpt_max = 1500
-            excerpt_window = 1600  # larger lookahead for clean cut
+            # Take first 300–400 chars (assume business opening is at start of business prompt)
+            excerpt_max = 390
+            excerpt_window = 440  # small lookahead for clean cut
             if len(ai_prompt_text) > excerpt_max:
                 window = ai_prompt_text[: min(len(ai_prompt_text), excerpt_window)]
 
@@ -235,14 +233,14 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
                 cut_point = -1
                 for delimiter in (". ", "? ", "! "):
                     pos = window.rfind(delimiter)
-                    if pos != -1 and pos >= 500:
+                    if pos != -1 and pos >= 220:
                         cut_point = pos + len(delimiter)
                         break
 
                 if cut_point == -1:
                     # Last space within max region
                     cut_point = ai_prompt_text[:excerpt_max].rfind(" ")
-                    if cut_point < 500:
+                    if cut_point < 220:
                         cut_point = excerpt_max
 
                 compact_context = ai_prompt_text[:cut_point].strip()
@@ -269,8 +267,8 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             f"Call type: {direction}. "
             f"Business opening (use this to start the call): {compact_context}"
         )
-        # Hard cap for Realtime instructions - increased to 8000 to give FULL context
-        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=8000)
+        # Hard cap for Realtime instructions
+        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=1000)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
@@ -589,29 +587,12 @@ def build_inbound_system_prompt(
             weekday_name = weekday_names[today.weekday()]
             
             appointment_instructions = (
-                f"\n\n🎯 🎯 🎯 CRITICAL INSTRUCTION — Goal = Book Appointment, not 'collect details' 🎯 🎯 🎯\n\n"
-                f"Today is {weekday_name} {today_date}. Slot size: {policy.slot_size_min}min.\n\n"
-                "⚠️⚠️⚠️ YOU HAVE APPOINTMENT TOOLS - YOU MUST USE THEM! ⚠️⚠️⚠️\n\n"
-                "MANDATORY BOOKING FLOW (FOLLOW EXACTLY):\n"
-                "1. Identify service needed (what type of service?)\n"
-                "2. Ask for customer name (\"מה השם שלך?\")\n"
-                "3. Ask for preferred date+time (\"לאיזה תאריך ושעה?\")\n"
-                "4. 🔧 MUST CALL check_availability(date, preferred_time, service) to verify slots\n"
-                "   - Wait for tool result before continuing!\n"
-                "   - The tool will return available time slots\n"
-                "5. Offer 2-3 real available times from tool result to customer\n"
-                "6. After customer picks a time: 🔧 MUST CALL schedule_appointment(customer_name, date, time, service)\n"
-                "   - Wait for tool result!\n"
-                "7. ONLY say 'נקבע ביומן' or 'קבעתי לך תור' if tool returns success=true with appointment_id\n\n"
-                "🚨 CRITICAL RULES - VIOLATING THESE IS FAILURE:\n"
-                "- NEVER NEVER NEVER say 'קבעתי' or 'נקבע' without calling schedule_appointment tool first!\n"
-                "- NEVER NEVER NEVER claim times are available/busy without calling check_availability tool first!\n"
-                "- You MUST use the tools! They are available and working!\n"
-                "- If tool returns error → offer alternatives or take message for callback\n"
-                "- If no calendar access → say 'אין לי גישה ליומן כרגע' and take details for callback\n"
-                "- Goal: Real booking in calendar with actual tool calls, not just information collection\n\n"
-                f"Business hours: {_build_hours_description(policy)}\n"
-                f"Appointment duration: {policy.slot_size_min} minutes per slot"
+                f"\n\nAPPOINTMENT SCHEDULING (technical): Today is {weekday_name} {today_date}. "
+                f"Slot size: {policy.slot_size_min}min. "
+                "Collect: (1) customer name, (2) preferred date+time. "
+                "Call schedule_appointment once after collecting both. "
+                "Do not ask for phone (already in metadata). "
+                "Only confirm booking if server returns success=true; otherwise offer alternatives."
             )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -644,11 +625,6 @@ def build_inbound_system_prompt(
         
         full_prompt = (
             f"{system_rules}{appointment_instructions}\n\n"
-            f"🚨 ANTI-HALLUCINATION ENFORCEMENT:\n"
-            "- NEVER say you booked/scheduled ('קבעתי', 'נקבע') without calling schedule_appointment tool\n"
-            "- NEVER say you checked availability ('פנוי', 'תפוס') without calling check_availability tool\n"
-            "- If tool returns error or you lack calendar access → be honest, take details for callback\n"
-            "- Only confirm actions after receiving success=true from tool with event_id/appointment_id\n\n"
             f"BUSINESS PROMPT (Business ID: {business_id}):\n{business_prompt}\n\n"
             "CALL TYPE: INBOUND. The customer called the business. Follow the business prompt for greeting and flow."
         )
@@ -738,10 +714,6 @@ def build_outbound_system_prompt(
         
         full_prompt = (
             f"{system_rules}\n\n"
-            f"🚨 ANTI-HALLUCINATION ENFORCEMENT:\n"
-            "- NEVER claim actions without using tools when available\n"
-            "- Be honest about what you can and cannot do\n"
-            "- If you lack access or tools → tell customer honestly and offer alternatives\n\n"
             f"BUSINESS PROMPT (Business ID: {business_id}):\n{outbound_prompt}\n\n"
             f'CALL TYPE: OUTBOUND from "{business_name}". If confused, briefly identify the business and continue per the outbound prompt.'
         )
