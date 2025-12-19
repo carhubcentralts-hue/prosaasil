@@ -130,7 +130,17 @@ OPENAI_REALTIME_MODEL = "gpt-4o-mini-realtime-preview"
 # ⭐⭐⭐ BUILD 350: REMOVE ALL MID-CALL LOGIC & TOOLS
 # Keep calls 100% pure conversation. Only allow appointment scheduling when enabled.
 # Everything else (service, city, details) must happen AFTER the call via summary.
-ENABLE_LEGACY_TOOLS = False  # DISABLED - no mid-call tools, no city/service extraction during calls
+# ⭐⭐⭐ CRITICAL: APPOINTMENT SYSTEM SELECTION ⭐⭐⭐
+# 
+# TWO SYSTEMS EXIST:
+# 1. LEGACY: appointment_nlp.py - NLP parsing (DISABLED)
+# 2. MODERN: Realtime Tools - check_availability + schedule_appointment (ENABLED)
+#
+# ⚠️ ONLY ONE SHOULD BE ACTIVE AT A TIME!
+# 
+# Set to False = Use MODERN Realtime Tools (RECOMMENDED)
+# Set to True = Use LEGACY NLP parsing (DEPRECATED)
+ENABLE_LEGACY_TOOLS = False  # ✅ MODERN SYSTEM ACTIVE - Realtime Tools only!
 
 # 🔍 OVERRIDE: Allow env var to switch model if needed
 _env_model = os.getenv("OPENAI_REALTIME_MODEL")
