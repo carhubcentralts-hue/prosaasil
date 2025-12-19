@@ -222,12 +222,12 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
             ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
             
-            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut 600–800 chars
-            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=5000)
+            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut to give maximum context
+            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=8000)
 
-            # Take first 600–800 chars (give AI more context for how to greet properly)
-            excerpt_max = 750
-            excerpt_window = 850  # larger lookahead for clean cut
+            # Take first 1500 chars (give AI MAXIMUM context for how to greet properly)
+            excerpt_max = 1500
+            excerpt_window = 1600  # larger lookahead for clean cut
             if len(ai_prompt_text) > excerpt_max:
                 window = ai_prompt_text[: min(len(ai_prompt_text), excerpt_window)]
 
@@ -269,8 +269,8 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             f"Call type: {direction}. "
             f"Business opening (use this to start the call): {compact_context}"
         )
-        # Hard cap for Realtime instructions - increased to 1800 to give more context
-        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=1800)
+        # Hard cap for Realtime instructions - increased to 8000 to give FULL context
+        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=8000)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
@@ -589,22 +589,29 @@ def build_inbound_system_prompt(
             weekday_name = weekday_names[today.weekday()]
             
             appointment_instructions = (
-                f"\n\n🎯 CRITICAL INSTRUCTION — Goal = Book Appointment, not 'collect details'\n\n"
+                f"\n\n🎯 🎯 🎯 CRITICAL INSTRUCTION — Goal = Book Appointment, not 'collect details' 🎯 🎯 🎯\n\n"
                 f"Today is {weekday_name} {today_date}. Slot size: {policy.slot_size_min}min.\n\n"
-                "MANDATORY BOOKING FLOW:\n"
-                "1. Identify service needed\n"
-                "2. Ask for customer name\n"
-                "3. Ask for preferred date+time\n"
-                "4. MUST call check_availability(date, time, service) to verify slots\n"
-                "5. Offer 2-3 real available times from tool result\n"
-                "6. After customer picks: MUST call schedule_appointment(name, date, time, service)\n"
-                "7. ONLY say 'נקבע ביומן' if tool returns success=true with appointment_id\n\n"
-                "CRITICAL RULES:\n"
-                "- NEVER say 'קבעתי' or 'נקבע' without calling schedule_appointment tool\n"
-                "- NEVER claim times are available/busy without calling check_availability tool\n"
+                "⚠️⚠️⚠️ YOU HAVE APPOINTMENT TOOLS - YOU MUST USE THEM! ⚠️⚠️⚠️\n\n"
+                "MANDATORY BOOKING FLOW (FOLLOW EXACTLY):\n"
+                "1. Identify service needed (what type of service?)\n"
+                "2. Ask for customer name (\"מה השם שלך?\")\n"
+                "3. Ask for preferred date+time (\"לאיזה תאריך ושעה?\")\n"
+                "4. 🔧 MUST CALL check_availability(date, preferred_time, service) to verify slots\n"
+                "   - Wait for tool result before continuing!\n"
+                "   - The tool will return available time slots\n"
+                "5. Offer 2-3 real available times from tool result to customer\n"
+                "6. After customer picks a time: 🔧 MUST CALL schedule_appointment(customer_name, date, time, service)\n"
+                "   - Wait for tool result!\n"
+                "7. ONLY say 'נקבע ביומן' or 'קבעתי לך תור' if tool returns success=true with appointment_id\n\n"
+                "🚨 CRITICAL RULES - VIOLATING THESE IS FAILURE:\n"
+                "- NEVER NEVER NEVER say 'קבעתי' or 'נקבע' without calling schedule_appointment tool first!\n"
+                "- NEVER NEVER NEVER claim times are available/busy without calling check_availability tool first!\n"
+                "- You MUST use the tools! They are available and working!\n"
                 "- If tool returns error → offer alternatives or take message for callback\n"
                 "- If no calendar access → say 'אין לי גישה ליומן כרגע' and take details for callback\n"
-                "- Goal: Real booking in calendar, not just information collection"
+                "- Goal: Real booking in calendar with actual tool calls, not just information collection\n\n"
+                f"Business hours: {_build_hours_description(policy)}\n"
+                f"Appointment duration: {policy.slot_size_min} minutes per slot"
             )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
