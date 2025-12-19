@@ -256,14 +256,13 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 import time
                 tool_start = time.time()
                 
-                # 🔥 CRITICAL: Verify appointment settings before executing
+                # 🔥 CRITICAL: Verify call_goal before executing
                 from server.models_sql import BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
                 call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
-                enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
                 
-                if call_goal != 'appointment' or not enable_scheduling:
-                    error_msg = f"תיאום פגישות לא זמין (call_goal={call_goal}, scheduling={enable_scheduling})"
+                if call_goal != 'appointment':
+                    error_msg = f"תיאום פגישות לא זמין (call_goal={call_goal})"
                     print(f"❌ [AGENTKIT] calendar_find_slots blocked: {error_msg}")
                     logger.error(f"❌ [AGENTKIT] calendar_find_slots blocked for business {business_id}: {error_msg}")
                     return {
@@ -630,16 +629,16 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             return _business_get_info_impl(business_id=business_id)
         
         # 🔥 CRITICAL: Check if appointment tools should be enabled
-        # Only enable calendar tools if call_goal=appointment AND enable_calendar_scheduling=True
+        # Only enable calendar tools if call_goal=appointment
+        # Business policy will handle hours, slot size, etc.
         calendar_tools_enabled = False
         if business_id:
             try:
                 from server.models_sql import BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
                 call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
-                enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
-                calendar_tools_enabled = (call_goal == 'appointment' and enable_scheduling)
-                logger.info(f"📅 [AGENTKIT] Calendar tools check: call_goal={call_goal}, scheduling={enable_scheduling}, enabled={calendar_tools_enabled}")
+                calendar_tools_enabled = (call_goal == 'appointment')
+                logger.info(f"📅 [AGENTKIT] Calendar tools check: call_goal={call_goal}, enabled={calendar_tools_enabled}")
             except Exception as e:
                 logger.warning(f"⚠️ Could not check calendar settings: {e}")
                 calendar_tools_enabled = False
@@ -664,7 +663,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             ])
             logger.info(f"✅ [AGENTKIT] Calendar tools ENABLED for business {business_id}")
         else:
-            logger.info(f"📵 [AGENTKIT] Calendar tools DISABLED for business {business_id} (call_goal or scheduling not enabled)")
+            logger.info(f"📵 [AGENTKIT] Calendar tools DISABLED for business {business_id} (call_goal != 'appointment')")
         
         logger.info(f"✅ AgentKit tools prepared: {len(tools_to_use)} tools for business {business_id}")
     else:

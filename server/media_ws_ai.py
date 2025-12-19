@@ -1910,11 +1910,11 @@ class MediaStreamHandler:
                 from server.models_sql import BusinessSettings
                 settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
                 
-                # 🔥 CHECK BOTH: call_goal == "appointment" AND enable_calendar_scheduling
+                # 🔥 CHECK: call_goal == "appointment" - that's the only requirement!
+                # Business policy will handle hours, slot size, etc.
                 call_goal = getattr(settings, 'call_goal', 'lead_only') if settings else 'lead_only'
-                enable_scheduling = getattr(settings, 'enable_calendar_scheduling', False) if settings else False
                 
-                if call_goal == 'appointment' and enable_scheduling:
+                if call_goal == 'appointment':
                     # 🔥 TOOL 1: Check Availability - MUST be called before booking
                     availability_tool = {
                         "type": "function",
@@ -1971,9 +1971,9 @@ class MediaStreamHandler:
                     
                     tools.append(availability_tool)
                     tools.append(appointment_tool)
-                    logger.info(f"[TOOLS][REALTIME] Appointment tools ENABLED (check_availability + schedule_appointment) for business {business_id}")
+                    logger.info(f"[TOOLS][REALTIME] Appointment tools ENABLED (call_goal=appointment) for business {business_id}")
                 else:
-                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}, scheduling={enable_scheduling}) - no tools for business {business_id}")
+                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}) - no tools for business {business_id}")
                 
         except Exception as e:
             logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
@@ -6531,11 +6531,10 @@ class MediaStreamHandler:
                 print(f"⚠️ [NLP] OUTBOUND call - skipping availability check (outbound follows prompt only)")
                 return
             
-            # 🔥 BUILD 186: CHECK IF CALENDAR SCHEDULING IS ENABLED
-            call_config = getattr(self, 'call_config', None)
-            if call_config and not call_config.enable_calendar_scheduling:
-                print(f"⚠️ [NLP] Calendar scheduling is DISABLED - not checking availability")
-                await self._send_server_event_to_ai("⚠️ Calendar scheduling disabled")
+            # 🔥 CHECK IF APPOINTMENTS ARE ENABLED (call_goal)
+            call_goal = getattr(self, 'call_goal', 'lead_only')
+            if call_goal != 'appointment':
+                print(f"⚠️ [NLP] Appointments not enabled (call_goal={call_goal}) - not checking availability")
                 return
             
             # 🔥 BUILD 337: CHECK IF NAME IS REQUIRED BUT MISSING - BLOCK scheduling!
@@ -6663,13 +6662,10 @@ class MediaStreamHandler:
                 print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - OUTBOUND call (outbound follows prompt only)")
                 return
             
-            # 🔥 BUILD 186: CHECK IF CALENDAR SCHEDULING IS ENABLED
-            # If disabled, do NOT attempt to create appointments - only collect leads
-            call_config = getattr(self, 'call_config', None)
-            if call_config and not call_config.enable_calendar_scheduling:
-                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - Calendar scheduling is DISABLED for this business!")
-                print(f"⚠️ [APPOINTMENT FLOW] Informing AI to redirect customer to human representative")
-                await self._send_server_event_to_ai("⚠️ Calendar scheduling disabled")
+            # 🔥 CHECK IF APPOINTMENTS ARE ENABLED (call_goal)
+            call_goal = getattr(self, 'call_goal', 'lead_only')
+            if call_goal != 'appointment':
+                print(f"⚠️ [APPOINTMENT FLOW] BLOCKED - call_goal={call_goal} (expected 'appointment')")
                 return
             
             # 🛡️ CRITICAL GUARD: Check if appointment was already created in this session
@@ -10961,12 +10957,11 @@ class MediaStreamHandler:
                     await client.send_event({"type": "response.create"})
                     return
                 
-                # 🔥 CRITICAL: Verify appointment tools are enabled
+                # 🔥 CRITICAL: Verify call_goal is appointment
                 call_goal = getattr(self, 'call_goal', 'lead_only')
-                call_config = getattr(self, 'call_config', None)
-                if call_goal != 'appointment' or not call_config or not call_config.enable_calendar_scheduling:
-                    print(f"❌ [CHECK_AVAIL] Appointments not enabled: call_goal={call_goal}, scheduling={call_config.enable_calendar_scheduling if call_config else False}")
-                    logger.warning(f"[CHECK_AVAIL] Blocked: call_goal={call_goal}, scheduling not enabled")
+                if call_goal != 'appointment':
+                    print(f"❌ [CHECK_AVAIL] call_goal={call_goal} - appointments not enabled")
+                    logger.warning(f"[CHECK_AVAIL] Blocked: call_goal={call_goal} (expected 'appointment')")
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -11132,10 +11127,11 @@ class MediaStreamHandler:
                     await client.send_event({"type": "response.create"})
                     return
                 
-                # Check call_goal
+                # 🔥 CRITICAL: Check call_goal is appointment
                 call_goal = getattr(self, 'call_goal', 'lead_only')
                 if call_goal != 'appointment':
-                    print(f"❌ [APPOINTMENT] call_goal={call_goal} - appointments not allowed")
+                    print(f"❌ [APPOINTMENT] call_goal={call_goal} - appointments not enabled")
+                    logger.warning(f"[APPOINTMENT] Blocked: call_goal={call_goal} (expected 'appointment')")
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -11143,27 +11139,8 @@ class MediaStreamHandler:
                             "call_id": call_id,
                             "output": json.dumps({
                                 "success": False,
-                                "error_code": "scheduling_disabled"
-                            })
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
-                
-                # Check enable_calendar_scheduling
-                call_config = getattr(self, 'call_config', None)
-                if not call_config or not call_config.enable_calendar_scheduling:
-                    print(f"❌ [APPOINTMENT] Calendar scheduling disabled for business {business_id}")
-                    logger.warning(f"[APPOINTMENT] CAL_ACCESS_DENIED business_id={business_id} reason=scheduling_disabled")
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({
-                                "success": False,
-                                "error_code": "no_calendar_access",
-                                "message": "אין לי גישה ליומן כרגע. אני רושם את הפרטים ובעל העסק יחזור אליך."
+                                "error_code": "scheduling_disabled",
+                                "message": "תיאום פגישות לא זמין. אני יכול לרשום פרטים ובעל העסק יחזור אליך."
                             }, ensure_ascii=False)
                         }
                     })
