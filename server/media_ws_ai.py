@@ -5,6 +5,7 @@ ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
 import builtins
+from collections import deque
 from dataclasses import dataclass
 from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
@@ -2590,6 +2591,11 @@ class MediaStreamHandler:
                             self.is_playing_greeting = False
                             self.greeting_sent = True  # Mark as done so we don't retry
                             self.barge_in_enabled_after_greeting = True  # Allow barge-in
+                            # 🔓 CRITICAL: Release greeting lock if greeting audio never arrived
+                            # Otherwise we'd block user audio + ignore speech_started forever.
+                            self.greeting_mode_active = False
+                            self.greeting_completed = True
+                            self.greeting_completed_at = time.time()
                             
                             # Don't set realtime_failed - the call can still proceed
                             # Just skip the greeting and let user audio through
@@ -2603,6 +2609,12 @@ class MediaStreamHandler:
                 # Reset flags since greeting failed
                 self.greeting_sent = False
                 self.is_playing_greeting = False
+                # 🔓 Release greeting lock on trigger failure (call must continue normally)
+                self.barge_in_enabled_after_greeting = True
+                self.greeting_mode_active = False
+                self.greeting_completed = True
+                if self.greeting_completed_at is None:
+                    self.greeting_completed_at = time.time()
             
             # 🚀 Start audio/text bridges ONLY AFTER greeting response.create was sent
             # Order is critical (per logs): session.updated -> response.create(greeting) -> start sending input_audio
@@ -2807,6 +2819,13 @@ class MediaStreamHandler:
         _greeting_block_logged = False
         _greeting_resumed_logged = False
         
+        # 🔒 GREETING LOCK INPUT BUFFER: Don't lose the user's first "hello" during greeting.
+        # We buffer a short window and replay it immediately after greeting completes.
+        # Keep this very small to avoid cost spikes or backpressure issues.
+        _greeting_input_buffer_max_frames = 40  # ~800ms @ 20ms/frame
+        _greeting_input_buffer = deque(maxlen=_greeting_input_buffer_max_frames)
+        _greeting_input_buffer_dropped = 0  # Dropped due to ring-buffer overflow only
+        
         # 🔥 BUILD 341: FRAME METRICS - Track all frames for quality monitoring
         _frames_in = 0        # Total frames received from queue
         _frames_sent = 0      # Total frames sent to OpenAI
@@ -2868,18 +2887,38 @@ class MediaStreamHandler:
                 # Applies to ALL modes (including SIMPLE_MODE) for greeting only.
                 if self.greeting_mode_active and not self.greeting_completed:
                     if not _greeting_block_logged:
-                        print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
+                        print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress (buffering short user audio window)")
                         _greeting_block_logged = True
                     # 🔥 BUILD 200: Track blocked audio stats
                     self._stats_audio_blocked += 1
-                    # 🔥 BUILD 341: Count as dropped
-                    _frames_dropped += 1
-                    # Drop the audio chunk - don't send to OpenAI during greeting
+                    # Buffer the audio chunk - don't send to OpenAI during greeting
+                    if len(_greeting_input_buffer) >= _greeting_input_buffer_max_frames:
+                        _greeting_input_buffer_dropped += 1
+                        _frames_dropped += 1
+                    _greeting_input_buffer.append(audio_chunk)
                     continue
                 elif _greeting_block_logged and not _greeting_resumed_logged:
                     # Greeting finished - resume sending audio
                     print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
                     _greeting_resumed_logged = True
+                    
+                    # Replay buffered user audio (if any) so first "hello" isn't lost.
+                    if _greeting_input_buffer:
+                        buffered_frames = len(_greeting_input_buffer)
+                        _orig_print(
+                            f"🎧 [GREETING PROTECT] Replaying {buffered_frames} buffered user audio frames after greeting "
+                            f"(dropped_overflow={_greeting_input_buffer_dropped})",
+                            flush=True
+                        )
+                        while _greeting_input_buffer:
+                            buffered_chunk = _greeting_input_buffer.popleft()
+                            # Mirror the minimal counters we use for normal sends
+                            if not hasattr(self, '_user_speech_start') or self._user_speech_start is None:
+                                self._user_speech_start = time.time()
+                            self.realtime_audio_in_chunks += 1
+                            self._stats_audio_sent += 1
+                            _frames_sent += 1
+                            await client.send_audio_chunk(buffered_chunk)
                 
                 # ✅ NO FPS LIMITING - All frames pass through
                 # TX loop maintains strict 20ms pacing, no artificial throttling here
