@@ -2678,13 +2678,9 @@ class MediaStreamHandler:
                 realtime_tools = []  # Safe fallback - no tools
             
             if realtime_tools:
-                # Appointment tool is enabled - send session update
-                print(f"[TOOLS][REALTIME] Appointment tool enabled - tools={len(realtime_tools)}")
-                logger.info(f"[TOOLS][REALTIME] Session will use appointment tool (count={len(realtime_tools)})")
-            else:
-                # 🔥 CRITICAL: Log that we're continuing with NO tools (pure conversation)
-                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-                logger.info(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                # 🔥 FIX: Appointment tools are enabled - SEND THEM TO SESSION!
+                print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)}")
+                logger.info(f"[TOOLS][REALTIME] Sending {len(realtime_tools)} tools to session")
                 
                 # Wait for greeting to complete before adding tools (avoid interference)
                 async def _load_appointment_tool():
@@ -2695,6 +2691,7 @@ class MediaStreamHandler:
                         while self.is_playing_greeting and (time.time() - wait_start) < max_wait_seconds:
                             await asyncio.sleep(0.1)
                         
+                        print(f"🔧 [TOOLS][REALTIME] Sending session.update with {len(realtime_tools)} tools...")
                         await client.send_event({
                             "type": "session.update",
                             "session": {
@@ -2702,14 +2699,20 @@ class MediaStreamHandler:
                                 "tool_choice": tool_choice
                             }
                         })
-                        print(f"✅ [TOOLS][REALTIME] Appointment tool registered in session")
-                        logger.info(f"[TOOLS][REALTIME] Appointment tool successfully added to session")
+                        print(f"✅ [TOOLS][REALTIME] Appointment tools registered in session successfully!")
+                        logger.info(f"[TOOLS][REALTIME] Tools successfully added to session")
                         
                     except Exception as e:
-                        print(f"⚠️ [TOOLS][REALTIME] Failed to register appointment tool: {e}")
+                        print(f"❌ [TOOLS][REALTIME] FAILED to register tools: {e}")
                         logger.error(f"[TOOLS][REALTIME] Tool registration error: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
                 asyncio.create_task(_load_appointment_tool())
+            else:
+                # No tools for this call - pure conversation mode
+                print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                logger.info(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
