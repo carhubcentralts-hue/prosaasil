@@ -73,8 +73,19 @@ def _sanitize_event_payload_for_realtime(event: Dict[str, Any]) -> Dict[str, Any
                     for part in content:
                         if not isinstance(part, dict):
                             continue
+                        # ✅ CRITICAL: Realtime API requires input text parts to use type="input_text"
+                        # Some older code paths used type="text" which triggers:
+                        # invalid_request_error ... Value must be 'input_text' ... item.content[0].type
                         part_type = part.get("type")
-                        if part_type in ("text", "input_text") and "text" in part:
+                        if part_type == "text":
+                            part["type"] = "input_text"
+                            part_type = "input_text"
+                        # Best-effort normalize if text field exists without a type.
+                        if part_type is None and "text" in part:
+                            part["type"] = "input_text"
+                            part_type = "input_text"
+
+                        if part_type == "input_text" and "text" in part:
                             # Not system instructions, so keep more room, but still sanitize.
                             part["text"] = _sanitize_text_for_realtime(str(part.get("text") or ""), max_chars=8000)
     except Exception:
@@ -408,7 +419,7 @@ class OpenAIRealtimeClient:
                 "type": "message",
                 "role": "assistant",
                 "content": [{
-                    "type": "text",
+                    "type": "input_text",
                     "text": text
                 }]
             }

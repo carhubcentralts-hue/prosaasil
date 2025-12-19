@@ -129,7 +129,7 @@ def _build_universal_system_prompt(call_direction: Optional[str] = None) -> str:
         "Isolation: treat each call as independent; never use details/style from other businesses or prior calls. "
         "Language: speak natural Hebrew (Israel) to the caller by default; switch only if the caller explicitly asks. "
         "Turn-taking: if the caller starts speaking, stop immediately and listen. "
-        "Truth: the transcript is the single source of truth; never invent details; if unclear, ask to repeat. "
+        "Truth: the transcript is the single source of truth; never invent details; if unclear, say exactly: \"לא שמעתי ברור, תוכל לחזור על זה?\" "
         "Style: warm, calm, concise (1-2 sentences). Ask one question at a time. "
         "Follow the Business Prompt for the business-specific script and flow."
     )

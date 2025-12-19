@@ -1712,6 +1712,11 @@ class MediaStreamHandler:
         
         # 🔥 GREETING PROTECT: Transcription confirmation flag for intelligent greeting protection
         self._greeting_needs_transcription_confirm = False  # Wait for transcription to confirm interruption
+
+        # 🔴 FINAL CRITICAL FIX: Greeting lock (NO cancel/clear/turn-taking during greeting)
+        # Active from greeting response.create(is_greeting=True) until response.done for THAT greeting response_id.
+        self.greeting_lock_active = False
+        self._greeting_lock_response_id = None
         
         # 🎯 STT GUARD: Track utterance metadata for validation
         # Prevents hallucinated transcriptions during silence from triggering barge-in
@@ -2577,7 +2582,7 @@ class MediaStreamHandler:
                                     "role": "system",
                                     "content": [
                                         {
-                                            "type": "text",
+                                            "type": "input_text",
                                             "text": system_prompt,
                                         }
                                     ],
@@ -2603,12 +2608,6 @@ class MediaStreamHandler:
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
-            # 🚀 Start audio/text bridges (RX already started above)
-            logger.info(f"[REALTIME] Starting audio/text sender tasks...")
-            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
-            logger.info(f"[REALTIME] Audio/text tasks created successfully")
-            
             # 🔥 MASTER FIX: ALWAYS trigger greeting immediately - no flag checks!
             # Bot speaks first is now HARDCODED behavior for all calls
             logger.info(f"[REALTIME] ENFORCING bot_speaks_first=True (hardcoded)")
@@ -2624,9 +2623,18 @@ class MediaStreamHandler:
             self.greeting_sent = True  # Mark greeting as sent to allow audio through
             self.is_playing_greeting = True
             self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
+            # 🔴 FINAL CRITICAL FIX #1: Greeting lock ON immediately at greeting response.create trigger
+            self.greeting_lock_active = True
+            self._greeting_lock_response_id = None
             self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-            # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
-            triggered = await self.trigger_response("GREETING", client, is_greeting=True)
+            # ✅ CRITICAL: Wait until Twilio streamSid exists before greeting trigger (inbound + outbound)
+            # This ensures the first audio frames can be delivered immediately to the caller.
+            sid_wait_start = time.time()
+            while not getattr(self, "stream_sid", None) and (time.time() - sid_wait_start) < 2.0:
+                await asyncio.sleep(0.01)
+
+            # 🔥 BUILD 200: Use trigger_response for greeting (forced, no user_speaking/user_has_spoken dependency)
+            triggered = await self.trigger_response("GREETING", client, is_greeting=True, force=True)
             if triggered:
                     t_speak = time.time()
                     total_openai_ms = (t_speak - t_start) * 1000
@@ -2645,6 +2653,12 @@ class MediaStreamHandler:
                     
                     _orig_print(f"⏱️ [LATENCY BREAKDOWN] connect={connect_delta}ms, wait_biz={wait_delta}ms, config={config_delta}ms, total={total_openai_ms:.0f}ms (T0→greeting={total_from_t0}ms)", flush=True)
                     print(f"🎯 [BUILD 200] GREETING response.create sent! OpenAI time: {total_openai_ms:.0f}ms")
+
+            # 🚀 Start audio/text bridges ONLY after greeting was triggered (per requirements)
+            logger.info(f"[REALTIME] Starting audio/text sender tasks (post-greeting trigger)...")
+            audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
+            text_in_task = asyncio.create_task(self._realtime_text_sender(client))
+            logger.info(f"[REALTIME] Audio/text tasks created successfully")
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog
@@ -2893,6 +2907,10 @@ class MediaStreamHandler:
         # 🛡️ BUILD 168.5: Track if we've logged the greeting block message
         _greeting_block_logged = False
         _greeting_resumed_logged = False
+        # 🔴 FINAL CRITICAL FIX #1: Local buffer for Twilio→OpenAI audio during greeting lock
+        # Requirement: Do NOT send input_audio to OpenAI at all during greeting.
+        if not hasattr(self, "_greeting_input_audio_buffer"):
+            self._greeting_input_audio_buffer = []
         
         # 🔥 BUILD 341: FRAME METRICS - Track all frames for quality monitoring
         _frames_in = 0        # Total frames received from queue
@@ -2949,26 +2967,30 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count incoming frames
                 _frames_in += 1
                 
-                # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
-                # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
-                # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
-                # Solution: Don't send audio to OpenAI until greeting finishes playing.
-                # 🔥 P0-4: Skip greeting protection in SIMPLE_MODE (passthrough only)
-                # OLD: if self.is_playing_greeting:
-                # NEW: Only block during actual greeting (first response)
-                if not SIMPLE_MODE and self.greeting_mode_active and not self.greeting_completed:
+                # 🔴 FINAL CRITICAL FIX #1:
+                # During greeting_lock_active, do NOT send any input_audio to OpenAI.
+                # Buffer locally and flush AFTER greeting is done.
+                if getattr(self, "greeting_lock_active", False):
                     if not _greeting_block_logged:
-                        print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
+                        print("🔒 [GREETING_LOCK] Buffering user audio locally (not sending to OpenAI) - greeting in progress")
                         _greeting_block_logged = True
-                    # 🔥 BUILD 200: Track blocked audio stats
+                    self._greeting_input_audio_buffer.append(audio_chunk)
                     self._stats_audio_blocked += 1
-                    # 🔥 BUILD 341: Count as dropped
-                    _frames_dropped += 1
-                    # Drop the audio chunk - don't send to OpenAI during greeting
+                    _frames_dropped += 1  # counted as "withheld" during lock
                     continue
-                elif _greeting_block_logged and not _greeting_resumed_logged:
-                    # Greeting finished - resume sending audio
-                    print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
+
+                # If greeting just ended, flush buffered audio first (in-order)
+                if _greeting_block_logged and not _greeting_resumed_logged:
+                    buffered = getattr(self, "_greeting_input_audio_buffer", [])
+                    if buffered:
+                        print(f"🔓 [GREETING_LOCK] Flushing buffered user audio to OpenAI: frames={len(buffered)}")
+                        for b in buffered:
+                            await client.send_audio_chunk(b)
+                            _frames_sent += 1
+                            self.realtime_audio_in_chunks += 1
+                            self._stats_audio_sent += 1
+                        buffered.clear()
+                    print("✅ [GREETING_LOCK] Greeting done - resuming live audio to OpenAI")
                     _greeting_resumed_logged = True
                 
                 # ✅ NO FPS LIMITING - All frames pass through
@@ -3266,7 +3288,7 @@ class MediaStreamHandler:
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 200: SINGLE RESPONSE TRIGGER - Central function for ALL response.create
     # ═══════════════════════════════════════════════════════════════════════════════
-    async def trigger_response(self, reason: str, client=None, is_greeting: bool = False) -> bool:
+    async def trigger_response(self, reason: str, client=None, is_greeting: bool = False, force: bool = False) -> bool:
         """
         🎯 BUILD 200: Central function for triggering response.create
         
@@ -3287,6 +3309,7 @@ class MediaStreamHandler:
             reason: Why we're creating a response (for logging)
             client: The realtime client (uses self.realtime_client if not provided)
             is_greeting: If True, this is the initial greeting - skip loop guard (first response)
+            force: If True, bypass lifecycle locks for the initial greeting trigger only
             
         Returns:
             True if response was triggered, False if blocked by lifecycle guards only
@@ -3325,7 +3348,7 @@ class MediaStreamHandler:
         
         # 🔥 CRITICAL GUARD: Block response.create while user is speaking
         # This is THE key to proper turn-taking: wait until user finishes before responding
-        if getattr(self, 'user_speaking', False):
+        if getattr(self, 'user_speaking', False) and not is_greeting:
             print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
             return False
         
@@ -3345,7 +3368,7 @@ class MediaStreamHandler:
             print(f"🔄 [BUILD 308] User rejected - city cleared, AI will ask dynamically")
         
         # 🛡️ GUARD 2: Check if response is pending (race condition prevention)
-        if self.response_pending_event.is_set():
+        if self.response_pending_event.is_set() and not (force and is_greeting):
             print(f"⏸️ [RESPONSE GUARD] Response pending - skipping ({reason})")
             return False
         
@@ -3362,6 +3385,9 @@ class MediaStreamHandler:
         
         # ✅ All guards passed - trigger response
         try:
+            # For forced greeting, make sure we don't inherit a stale pending lock.
+            if force and is_greeting and self.response_pending_event.is_set():
+                self.response_pending_event.clear()
             self.response_pending_event.set()  # 🔒 Lock BEFORE sending (thread-safe)
             await _client.send_event({"type": "response.create"})
             
@@ -3508,6 +3534,15 @@ class MediaStreamHandler:
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
+
+                        # 🔴 FINAL CRITICAL FIX #1: Release greeting lock ONLY on response.done of greeting response_id
+                        if (
+                            getattr(self, "greeting_lock_active", False)
+                            and resp_id
+                            and resp_id == getattr(self, "_greeting_lock_response_id", None)
+                        ):
+                            self.greeting_lock_active = False
+                            _orig_print(f"🔓 [GREETING_LOCK] released on response.done (response_id={resp_id[:20]}...)", flush=True)
                         if DEBUG:
                             _orig_print(
                                 f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}",
@@ -3613,7 +3648,7 @@ class MediaStreamHandler:
                                                 "role": "system",
                                                 "content": [
                                                     {
-                                                        "type": "text",
+                                                        "type": "input_text",
                                                         "text": f"[BUSINESS PROMPT {idx}] {cleaned}",
                                                     }
                                                 ],
@@ -4005,6 +4040,19 @@ class MediaStreamHandler:
                     # ═══════════════════════════════════════════════════════════════════════
                     
                     print(f"🎤 [SPEECH_STARTED] User started speaking")
+
+                    # 🔴 FINAL CRITICAL FIX #1:
+                    # While greeting_lock_active, ignore ALL local barge-in / turn-taking triggers.
+                    # Do NOT cancel, do NOT clear/flush, do NOT set user_speaking here.
+                    # Only enable passthrough so OpenAI receives the user's audio.
+                    if getattr(self, "greeting_lock_active", False):
+                        print("🔒 [GREETING_LOCK] speech_started ignored during greeting (no cancel/clear/turn-taking)")
+                        self._candidate_user_speaking = True
+                        self._utterance_start_ts = time.time()
+                        self._realtime_speech_active = True
+                        self._realtime_speech_started_ts = time.time()
+                        print("🎤 [SPEECH_ACTIVE] (greeting_lock) sending all audio to OpenAI")
+                        continue
                     
                     # Track utterance start for validation
                     self._candidate_user_speaking = True
@@ -4039,8 +4087,9 @@ class MediaStreamHandler:
                     # ✅ Only trigger barge-in if there's an actual active response
                     # Per הנחיה: Check active_response_id AND (ai_response_active OR is_ai_speaking)
                     has_active_response = bool(self.active_response_id)
-                    ai_can_be_cancelled = getattr(self, 'ai_response_active', False) or self.is_ai_speaking_event.is_set()
-                    is_greeting_now = bool(getattr(self, "greeting_mode_active", False) or getattr(self, "is_playing_greeting", False))
+                    # 🔴 FINAL CRITICAL FIX #3: cancel only if active_response_id exists AND ai_response_active==True AND greeting_lock_active==False
+                    ai_can_be_cancelled = bool(getattr(self, "ai_response_active", False))
+                    is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     barge_in_allowed_now = bool(
                         ENABLE_BARGE_IN
                         and getattr(self, "barge_in_enabled", True)
@@ -4213,6 +4262,12 @@ class MediaStreamHandler:
                         # This allows cancellation even if audio hasn't started yet
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+
+                        # 🔴 FINAL CRITICAL FIX #1:
+                        # Bind greeting_response_id the moment the greeting response is created.
+                        if getattr(self, "greeting_lock_active", False) and not getattr(self, "_greeting_lock_response_id", None):
+                            self._greeting_lock_response_id = response_id
+                            _orig_print(f"🔒 [GREETING_LOCK] bound greeting_response_id={response_id[:20]}...", flush=True)
                         
                         # 🔥 NEW: Set ai_response_active=True immediately (per requirements)
                         # This is THE fix for barge-in timing issues
@@ -5323,9 +5378,6 @@ class MediaStreamHandler:
                         # Fallback: estimate from speech_stopped event
                         utterance_duration_ms = 1000  # Assume 1s if we don't have timing
                     
-                    current_rms = getattr(self, '_recent_audio_rms', 0)
-                    current_noise_floor = getattr(self, 'noise_floor', 50.0)
-                    
                     # 🔥 FIX BUG 3: Calculate time since AI audio started (for echo suppression)
                     ai_speaking = self.is_ai_speaking_event.is_set()
                     time_since_ai_audio_start_ms = 0
@@ -5342,8 +5394,8 @@ class MediaStreamHandler:
                     accept_utterance = should_accept_realtime_utterance(
                         stt_text=text,
                         utterance_ms=utterance_duration_ms,
-                        rms_snapshot=current_rms,
-                        noise_floor=current_noise_floor,
+                        rms_snapshot=0.0,
+                        noise_floor=0.0,
                         ai_speaking=ai_speaking,
                         last_ai_audio_start_ms=time_since_ai_audio_start_ms,
                         last_hallucination=self._last_hallucination
@@ -5373,9 +5425,7 @@ class MediaStreamHandler:
                     
                     # ✅ Utterance passed validation
                     logger.info(
-                        f"[STT_GUARD] Accepted utterance: {utterance_duration_ms:.0f}ms, "
-                        f"rms={current_rms:.1f}, noise_floor={current_noise_floor:.1f}, "
-                        f"text_len={len(text)}"
+                        f"[STT_GUARD] Accepted utterance: {utterance_duration_ms:.0f}ms, text_len={len(text)}"
                     )
                     
                     # 🔥 BUILD 341: Set user_has_spoken ONLY after validated transcription with meaningful text
@@ -5417,49 +5467,13 @@ class MediaStreamHandler:
                     # ═══════════════════════════════════════════════════════════════════════
                     is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                     
+                    # 🔴 FINAL CRITICAL FIX #1:
+                    # Never interrupt greeting based on local triggers/transcription.
+                    # If legacy code set this flag, clear it and do nothing.
                     if getattr(self, '_greeting_needs_transcription_confirm', False):
-                        if is_outbound:
-                            # OUTBOUND: Never interrupt greeting, even with valid transcription
-                            print(f"🛡️ [GREETING_PROTECT] OUTBOUND - ignoring transcription during greeting: '{text[:30]}...'")
-                            # Keep greeting playing - don't interrupt
-                        elif self.is_playing_greeting and text and len(text.strip()) >= 2:
-                            # INBOUND: Real user speech confirmed - interrupt greeting NOW
-                            print(f"🛡️ [GREETING_PROTECT] INBOUND - Transcription confirmed real speech: '{text[:30]}...' - interrupting greeting")
-                            self.is_playing_greeting = False
-                            self.awaiting_greeting_answer = True
-                            self.greeting_completed_at = time.time()
-                            self.barge_in_enabled_after_greeting = True
-                            
-                            # Cancel active response if still playing
-                            if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                                if self.active_response_id and self.realtime_client:
-                                    if self._should_send_cancel(self.active_response_id):
-                                        try:
-                                            await self.realtime_client.cancel_response(self.active_response_id)
-                                            self._mark_response_cancelled_locally(self.active_response_id, "greeting_protect_confirmed")
-                                            _orig_print(f"✅ [GREETING_PROTECT] Cancelled greeting response {self.active_response_id[:20]}...", flush=True)
-                                        except Exception as e:
-                                            _orig_print(f"⚠️ [GREETING_PROTECT] Cancel error: {e}", flush=True)
-                                
-                                # Flush TX queue and clear Twilio buffer
-                                self._flush_tx_queue()
-                                if self.stream_sid:
-                                    try:
-                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
-                                        self._ws_send(json.dumps(clear_event))
-                                        _orig_print(f"🧹 [GREETING_PROTECT] Sent Twilio clear event", flush=True)
-                                    except Exception as e:
-                                        _orig_print(f"⚠️ [GREETING_PROTECT] Clear error: {e}", flush=True)
-                                
-                                # Reset state
-                                self.is_ai_speaking_event.clear()
-                                self.active_response_id = None
-                        else:
-                            # Empty/filler text - false alarm, keep greeting playing
-                            print(f"🛡️ [GREETING_PROTECT] Transcription was filler/empty - keeping greeting (text='{text}')")
-                        
-                        # Always clear protection flag after handling (both inbound and outbound)
                         self._greeting_needs_transcription_confirm = False
+                        if DEBUG:
+                            print("🔒 [GREETING_LOCK] Ignoring transcription-confirm greeting interruption")
                     
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
