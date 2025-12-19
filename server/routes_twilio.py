@@ -509,9 +509,10 @@ def incoming_call():
                 full_prompt = build_full_business_prompt(business_id, call_direction="inbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
                 
-                print(f"✅ [PROMPT] Pre-built prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
+                # Avoid noisy stdout in production (can spike I/O/CPU under load).
+                logger.debug("[PROMPT] Pre-built inbound prompts: compact_len=%s full_len=%s", len(compact_prompt), len(full_prompt))
         except Exception as e:
-            print(f"⚠️ [PROMPT] Background prompt build failed: {e} - will fallback to async build")
+            logger.debug(f"[PROMPT] Background inbound prompt build failed (fallback to async build): {e}")
     
     # Start prompt building in background (non-blocking)
     if business_id and call_sid:
@@ -659,9 +660,10 @@ def outbound_call():
                 full_prompt = build_full_business_prompt(int(business_id), call_direction="outbound")
                 stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
                 
-                print(f"✅ [PROMPT] Pre-built outbound prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
+                # Avoid noisy stdout in production (can spike I/O/CPU under load).
+                logger.debug("[PROMPT] Pre-built outbound prompts: compact_len=%s full_len=%s", len(compact_prompt), len(full_prompt))
         except Exception as e:
-            print(f"⚠️ [PROMPT] Background outbound prompt build failed: {e}")
+            logger.debug(f"[PROMPT] Background outbound prompt build failed: {e}")
     
     # Start prompt building in background (non-blocking)
     if business_id and call_sid:

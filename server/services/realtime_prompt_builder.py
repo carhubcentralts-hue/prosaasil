@@ -320,10 +320,19 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
         # 🔥 PROMPT_CONTEXT: Log that compact prompt is fully dynamic
         logger.info("[PROMPT_CONTEXT] business_id=%s, prompt_source=ui, has_hardcoded_templates=False, mode=compact", business_id)
         
-        # 🔥 PROMPT DEBUG: Log compact prompt
-        logger.info(
-            "[PROMPT_DEBUG] direction=%s business_id=%s compact_prompt(lead)=%s...",
-            call_direction, business_id, final_prompt[:400].replace("\n", " ")
+        # PRODUCTION: Never log prompt content (may contain business copy).
+        # Keep only length + hash for traceability.
+        try:
+            import hashlib
+            prompt_hash = hashlib.md5(final_prompt.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            prompt_hash = "hash_err"
+        logger.debug(
+            "[PROMPT_DEBUG] direction=%s business_id=%s compact_len=%s hash=%s",
+            call_direction,
+            business_id,
+            len(final_prompt),
+            prompt_hash,
         )
         
         return final_prompt
@@ -681,9 +690,17 @@ def build_inbound_system_prompt(
         )
         
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
-        logger.info(
-            "[PROMPT_DEBUG] direction=inbound business_id=%s business_name=%s final_system_prompt(lead)=%s...",
-            business_id, business_name, full_prompt[:400].replace("\n", " ")
+        # PRODUCTION: Never log prompt content; only log length + hash.
+        try:
+            import hashlib
+            prompt_hash = hashlib.md5(full_prompt.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            prompt_hash = "hash_err"
+        logger.debug(
+            "[PROMPT_DEBUG] direction=inbound business_id=%s prompt_len=%s hash=%s",
+            business_id,
+            len(full_prompt),
+            prompt_hash,
         )
         
         return full_prompt
@@ -770,9 +787,17 @@ def build_outbound_system_prompt(
         )
         
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
-        logger.info(
-            "[PROMPT_DEBUG] direction=outbound business_id=%s business_name=%s final_system_prompt(lead)=%s...",
-            business_id, business_name, full_prompt[:400].replace("\n", " ")
+        # PRODUCTION: Never log prompt content; only log length + hash.
+        try:
+            import hashlib
+            prompt_hash = hashlib.md5(full_prompt.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            prompt_hash = "hash_err"
+        logger.debug(
+            "[PROMPT_DEBUG] direction=outbound business_id=%s prompt_len=%s hash=%s",
+            business_id,
+            len(full_prompt),
+            prompt_hash,
         )
         
         return full_prompt

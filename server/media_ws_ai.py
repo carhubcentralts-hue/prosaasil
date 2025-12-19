@@ -3442,19 +3442,26 @@ class MediaStreamHandler:
                 # ═══════════════════════════════════════════════════════════════════════
                 # 🔥 STEP 2: RAW EVENT TRACE - Log ALL events to diagnose missing events
                 # ═══════════════════════════════════════════════════════════════════════
-                # Log every event with type and error details (if any)
-                error_info = event.get("error")
-                if error_info:
-                    error_type = error_info.get("type", "unknown")
-                    error_code = error_info.get("code", "unknown")
-                    error_msg = error_info.get("message", "")
-                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, error_type={error_type}, error_code={error_code}, error_msg={error_msg}", flush=True)
-                elif event_type in ("session.created", "session.updated", "error"):
-                    # Log important session events
-                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, event={event}", flush=True)
-                elif not event_type.endswith(".delta"):
-                    # Log all non-delta events (deltas are too verbose)
-                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}", flush=True)
+                # PRODUCTION: Do NOT log raw events (high I/O, hot-path overhead).
+                # Keep these only for DEBUG investigations.
+                if DEBUG:
+                    error_info = event.get("error")
+                    if error_info:
+                        error_type = error_info.get("type", "unknown")
+                        error_code = error_info.get("code", "unknown")
+                        error_msg = error_info.get("message", "")
+                        logger.debug(
+                            "[RAW_EVENT] type=%s error_type=%s error_code=%s error_msg=%s",
+                            event_type,
+                            error_type,
+                            error_code,
+                            error_msg,
+                        )
+                    elif event_type in ("session.created", "session.updated", "error"):
+                        # Avoid dumping full event payloads (can be huge).
+                        logger.debug("[RAW_EVENT] type=%s", event_type)
+                    elif not event_type.endswith(".delta"):
+                        logger.debug("[RAW_EVENT] type=%s", event_type)
                 
                 response_id = event.get("response_id")
                 if not response_id and "response" in event:
@@ -3501,13 +3508,16 @@ class MediaStreamHandler:
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
-                        _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}", flush=True)
-                        # Log output items to see if audio was included
-                        for i, item in enumerate(output[:3]):  # First 3 items
-                            item_type = item.get("type", "?")
-                            content = item.get("content", [])
-                            content_types = [c.get("type", "?") for c in content] if content else []
-                            _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        if DEBUG:
+                            _orig_print(
+                                f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}",
+                                flush=True,
+                            )
+                            for i, item in enumerate(output[:3]):  # First 3 items
+                                item_type = item.get("type", "?")
+                                content = item.get("content", [])
+                                content_types = [c.get("type", "?") for c in content] if content else []
+                                _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
                         
                         # ═══════════════════════════════════════════════════════════════════════
                         # 🎯 TASK D.2: Log response completion metrics for audio quality analysis
@@ -3522,16 +3532,18 @@ class MediaStreamHandler:
                             
                             # 🔥 CRITICAL: Log frames_sent==0 cases with full diagnostic snapshot
                             if frames_sent == 0:
-                                _orig_print(f"⚠️ [TX_DIAG] frames_sent=0 for response {resp_id[:20]}...", flush=True)
-                                _orig_print(f"   SNAPSHOT:", flush=True)
-                                _orig_print(f"   - streamSid: {self.stream_sid}", flush=True)
-                                _orig_print(f"   - tx_queue_size: {self.tx_q.qsize() if hasattr(self, 'tx_q') else 'N/A'}", flush=True)
-                                _orig_print(f"   - realtime_audio_out_queue_size: {self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 'N/A'}", flush=True)
-                                _orig_print(f"   - active_response_id: {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
-                                _orig_print(f"   - ai_response_active: {getattr(self, 'ai_response_active', False)}", flush=True)
-                                _orig_print(f"   - is_ai_speaking: {self.is_ai_speaking_event.is_set()}", flush=True)
-                                _orig_print(f"   - status: {status}", flush=True)
-                                _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
+                                # Keep TX diagnostics only for debug investigations (hot path).
+                                if DEBUG_TX:
+                                    _orig_print(f"⚠️ [TX_DIAG] frames_sent=0 for response {resp_id[:20]}...", flush=True)
+                                    _orig_print(f"   SNAPSHOT:", flush=True)
+                                    _orig_print(f"   - streamSid: {self.stream_sid}", flush=True)
+                                    _orig_print(f"   - tx_queue_size: {self.tx_q.qsize() if hasattr(self, 'tx_q') else 'N/A'}", flush=True)
+                                    _orig_print(f"   - realtime_audio_out_queue_size: {self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 'N/A'}", flush=True)
+                                    _orig_print(f"   - active_response_id: {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
+                                    _orig_print(f"   - ai_response_active: {getattr(self, 'ai_response_active', False)}", flush=True)
+                                    _orig_print(f"   - is_ai_speaking: {self.is_ai_speaking_event.is_set()}", flush=True)
+                                    _orig_print(f"   - status: {status}", flush=True)
+                                    _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
                             
                             print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
                             # Cleanup
@@ -4028,8 +4040,18 @@ class MediaStreamHandler:
                     # Per הנחיה: Check active_response_id AND (ai_response_active OR is_ai_speaking)
                     has_active_response = bool(self.active_response_id)
                     ai_can_be_cancelled = getattr(self, 'ai_response_active', False) or self.is_ai_speaking_event.is_set()
+                    is_greeting_now = bool(getattr(self, "greeting_mode_active", False) or getattr(self, "is_playing_greeting", False))
+                    barge_in_allowed_now = bool(
+                        ENABLE_BARGE_IN
+                        and getattr(self, "barge_in_enabled", True)
+                        and getattr(self, "barge_in_enabled_after_greeting", False)
+                        and not is_greeting_now
+                    )
                     
-                    if has_active_response and ai_can_be_cancelled and self.realtime_client:
+                    # ✅ FINAL HARDENING: Barge-in ONLY after COMPACT greeting completes.
+                    # - If user speaks during greeting: do NOT cancel.
+                    # - If user speaks after greeting: cancel active response (normal behavior).
+                    if has_active_response and ai_can_be_cancelled and self.realtime_client and barge_in_allowed_now:
                         # AI has active response that can be cancelled - user is interrupting
                         
                         # Normal barge-in: Cancel, flush, and clear (no greeting special case)
@@ -4039,17 +4061,17 @@ class MediaStreamHandler:
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
+                                logger.info("[BARGE-IN] Cancelled active response due to user speech")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Gracefully handle not_active errors (per הנחיה - should not happen now)
                                 if ('not_active' in error_str or 'no active' in error_str or 
                                     'already_cancelled' in error_str or 'already_completed' in error_str):
-                                    _orig_print(f"⚠️ [BARGE-IN] response_cancel_not_active (should be rare now) - response already ended", flush=True)
+                                    logger.debug("[BARGE-IN] response_cancel_not_active (already ended)")
                                 else:
-                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error (ignoring): {e}", flush=True)
+                                    logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
                         else:
-                            _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
+                            logger.debug("[BARGE-IN] Skipped duplicate cancel")
                         
                         # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
                         if self.stream_sid:
@@ -4059,9 +4081,9 @@ class MediaStreamHandler:
                                     "streamSid": self.stream_sid
                                 }
                                 self._ws_send(json.dumps(clear_event))
-                                _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
+                                logger.debug("[BARGE-IN] Sent Twilio clear event")
                             except Exception as e:
-                                _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
+                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
                         
                         # Step 3: Flush TX queue (clear all pending audio frames)
                         self._flush_tx_queue()
@@ -4075,9 +4097,12 @@ class MediaStreamHandler:
                         # Step 5: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, Twilio cleared, TX flushed", flush=True)
-                    elif has_active_response and not ai_can_be_cancelled:
-                        _orig_print(f"⏭️ [BARGE-IN] Response exists but not yet cancellable (ai_response_active={getattr(self, 'ai_response_active', False)}, is_ai_speaking={self.is_ai_speaking_event.is_set()})", flush=True)
+                        logger.debug("[BARGE-IN] User interrupted AI - cancel+clear+flush complete")
+                    elif has_active_response and not ai_can_be_cancelled and DEBUG:
+                        _orig_print(
+                            f"⏭️ [BARGE-IN] Response exists but not yet cancellable (ai_response_active={getattr(self, 'ai_response_active', False)}, is_ai_speaking={self.is_ai_speaking_event.is_set()})",
+                            flush=True,
+                        )
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -4301,12 +4326,16 @@ class MediaStreamHandler:
                                     self._greeting_audio_chunks_queued += 1
                                     
                                     # Log first and every 10th chunk
-                                    if self._greeting_audio_chunks_queued == 1 or self._greeting_audio_chunks_queued % 10 == 0:
-                                        _orig_print(f"📊 [TX_DIAG] Greeting audio queued: {self._greeting_audio_chunks_queued} chunks, {self._greeting_audio_bytes_queued} bytes (streamSid={self.stream_sid is not None})", flush=True)
+                                    if DEBUG_TX and (self._greeting_audio_chunks_queued == 1 or self._greeting_audio_chunks_queued % 10 == 0):
+                                        _orig_print(
+                                            f"📊 [TX_DIAG] Greeting audio queued: {self._greeting_audio_chunks_queued} chunks, {self._greeting_audio_bytes_queued} bytes (streamSid={self.stream_sid is not None})",
+                                            flush=True,
+                                        )
                                     now_mono = time.monotonic()
                                     if now_mono - self._enq_last_log_time >= 1.0:
                                         qsize = self.realtime_audio_out_queue.qsize()
-                                        _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                        if DEBUG_TX:
+                                            _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
                                         self._enq_counter = 0
                                         self._enq_last_log_time = now_mono
                                 except queue.Full:
@@ -4424,7 +4453,8 @@ class MediaStreamHandler:
                                 now_mono = time.monotonic()
                                 if now_mono - self._enq_last_log_time >= 1.0:
                                     qsize = self.realtime_audio_out_queue.qsize()
-                                    _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                    if DEBUG_TX:
+                                        _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
                                     self._enq_counter = 0
                                     self._enq_last_log_time = now_mono
                                 # 🎯 TASK D.2: Track frames sent for this response
@@ -7141,7 +7171,8 @@ class MediaStreamHandler:
             now_mono = time.monotonic()
             if now_mono - _last_enqueue_rate_time >= 1.0:
                 rx_qsize = self.realtime_audio_out_queue.qsize()
-                _orig_print(f"[ENQ_RATE] frames_per_sec={_enqueue_rate_counter}, rx_qsize={rx_qsize}", flush=True)
+                if DEBUG_TX:
+                    _orig_print(f"[ENQ_RATE] frames_per_sec={_enqueue_rate_counter}, rx_qsize={rx_qsize}", flush=True)
                 _enqueue_rate_counter = 0
                 _last_enqueue_rate_time = now_mono
             
