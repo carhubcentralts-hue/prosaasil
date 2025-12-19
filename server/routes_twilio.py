@@ -350,17 +350,22 @@ def incoming_call():
     ✅ BUILD 89: צור call_log מיד + TwiML with Twilio SDK + Parameter (CRITICAL!)
     ✅ BUILD 155: Support both GET and POST (Twilio may use either)
     """
-    start_time = time.time()
+    t0 = time.time()
+    logger.info(f"[GREETING_PROFILER] incoming_call START at {t0}")
     
     # ✅ BUILD 155: Support both GET (query params) and POST (form data)
     if request.method == "GET":
         call_sid = request.args.get("CallSid", "")
         from_number = request.args.get("From", "")
         to_number = request.args.get("To", "")
+        twilio_direction = request.args.get("Direction")  # 🔥 FIX: No default - None if missing
+        parent_call_sid = request.args.get("ParentCallSid")  # 🔥 NEW: Capture parent call SID
     else:
         call_sid = request.form.get("CallSid", "")
         from_number = request.form.get("From", "")
         to_number = request.form.get("To", "")
+        twilio_direction = request.form.get("Direction")  # 🔥 FIX: No default - None if missing
+        parent_call_sid = request.form.get("ParentCallSid")  # 🔥 NEW: Capture parent call SID
     
     # ✅ BUILD 100: זיהוי business לפי to_number - חיפוש ישיר ב-Business.phone_e164 (העמודה האמיתית!)
     from server.models_sql import Business
@@ -378,22 +383,11 @@ def incoming_call():
         
         if business:
             business_id = business.id
-            print(f"✅ Resolved business_id={business_id} from to_number={to_number} (Business: {business.name})")
         else:
-            print(f"⚠️ No business found for to_number={to_number}")
-            # Debug: show what we have
-            all_businesses = Business.query.filter_by(is_active=True).all()
-            print(f"📋 Active businesses: {[(b.id, b.name, b.phone_e164) for b in all_businesses]}")
-    
-    # Fallback: עסק פעיל ראשון
-    if not business_id:
-        business = Business.query.filter_by(is_active=True).first()
-        if business:
-            business_id = business.id
-            print(f"⚠️ Using fallback active business_id={business_id}")
-        else:
-            print(f"❌ No active business found for to_number={to_number}")
-            business_id = None  # Will create call_log without business association
+            # Fallback: עסק פעיל ראשון
+            business = Business.query.filter_by(is_active=True).first()
+            if business:
+                business_id = business.id
     
     # BUILD 174: Check inbound call concurrency limits
     if business_id:
@@ -411,27 +405,49 @@ def incoming_call():
     
     if call_sid and from_number:
         try:
-            # בדוק אם כבר קיים (למקרה של retry)
+            # 🔥 UPSERT: Check if call log already exists (for retry scenarios)
+            from server.tasks_recording import normalize_call_direction
+            
             existing = CallLog.query.filter_by(call_sid=call_sid).first()
             if not existing:
+                # CREATE: New call log
                 # ✅ BUILD 152: Dynamic to_number fallback (no hardcoded phone!)
                 fallback_to = to_number or (business.phone_e164 if business else None) or "unknown"
                 
+                # 🔥 CRITICAL: Only normalize if we have a direction, otherwise use "unknown"
+                if twilio_direction:
+                    normalized_direction = normalize_call_direction(twilio_direction)
+                else:
+                    normalized_direction = "unknown"
+                
                 call_log = CallLog(
                     call_sid=call_sid,
+                    parent_call_sid=parent_call_sid if parent_call_sid else None,  # 🔥 FIX: Explicit None
                     from_number=from_number,
                     to_number=fallback_to,  # ✅ BUILD 152: Dynamic, not hardcoded
                     business_id=business_id,
+                    direction=normalized_direction,  # 🔥 NEW: Normalized direction or "unknown"
+                    twilio_direction=twilio_direction if twilio_direction else None,  # 🔥 FIX: Explicit None if missing
                     call_status="initiated",  # ✅ BUILD 90: Legacy field
                     status="initiated"
                 )
                 db.session.add(call_log)
                 db.session.commit()
-                print(f"✅ call_log created immediately for {call_sid}")
+                logger.info(f"✅ Created CallLog: {call_sid}, direction={normalized_direction}, twilio_direction={twilio_direction}, parent={parent_call_sid}")
             else:
-                print(f"✅ call_log already exists for {call_sid}")
+                # UPDATE: Call log exists (retry scenario) - update ONLY if we have values
+                # 🔥 CRITICAL: Smart update - allow upgrading from "unknown" to real value
+                if parent_call_sid and not existing.parent_call_sid:
+                    existing.parent_call_sid = parent_call_sid
+                if twilio_direction:
+                    # Update if: (1) never set, OR (2) currently "unknown"
+                    if not existing.twilio_direction or existing.direction == "unknown":
+                        existing.twilio_direction = twilio_direction
+                        existing.direction = normalize_call_direction(twilio_direction)
+                db.session.commit()
+                logger.info(f"✅ Updated existing CallLog: {call_sid}")
         except Exception as e:
-            print(f"⚠️ Failed to create call_log immediately: {e}")
+            logger.error(f"Failed to create/update call_log: {e}")
             db.session.rollback()
     
     # בנה host נכון - PUBLIC_HOST מקבל עדיפות ראשונה!
@@ -453,7 +469,6 @@ def incoming_call():
     # 🎧 BUILD: Echo prevention - no greeting duplication
     # Recording starts AFTER stream ends (in stream_ended webhook)
     # This ensures clean recordings without AI greeting echo
-    print(f"[CALL_SETUP] Greeting mode: ai_only (no static Play/Say)")
     
     # ✅ Connect + Stream - Minimal required parameters
     # track="inbound_track" ensures only user audio is sent to AI (not AI's own voice)
@@ -470,45 +485,65 @@ def incoming_call():
     if business_id:
         stream.parameter(name="business_id", value=str(business_id))
     
-    # 🔥 PROMPT OPTIMIZATION: PRE-BUILD both COMPACT and FULL prompts in webhook
-    # COMPACT for ultra-fast greeting (<2s), FULL for post-greeting upgrade
-    if business_id and call_sid:
+    # 🔥 CRITICAL: Move prompt building to background thread - DO NOT block TwiML response!
+    # WebSocket connection depends on fast TwiML response
+    def _prebuild_prompts_async(call_sid, business_id):
+        """Background thread to pre-build prompts - doesn't block webhook response"""
         try:
             from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
             from server.stream_state import stream_registry
+            from server.app_factory import get_process_app
             
-            # Build COMPACT prompt (800 chars) - for INSTANT greeting
-            compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-            print(f"✅ [PROMPT] Pre-built COMPACT inbound prompt: {len(compact_prompt)} chars (for instant greeting)")
-            
-            # Build FULL prompt (3000+ chars) - for post-greeting upgrade
-            full_prompt = build_realtime_system_prompt(business_id, call_direction="inbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-            print(f"✅ [PROMPT] Pre-built FULL inbound prompt: {len(full_prompt)} chars (for post-greeting upgrade)")
-            
+            # 🔥 BUG FIX: Wrap with app context for database queries
+            app = get_process_app()
+            with app.app_context():
+                # Build COMPACT prompt (800 chars) - for INSTANT greeting
+                compact_prompt = build_compact_greeting_prompt(business_id, call_direction="inbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
+                
+                # Build FULL prompt (3000+ chars) - for post-greeting upgrade
+                full_prompt = build_realtime_system_prompt(business_id, call_direction="inbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
+                
+                print(f"✅ [PROMPT] Pre-built prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
         except Exception as e:
-            print(f"⚠️ [PROMPT] Failed to pre-build prompts: {e} - will fallback to async build")
-            import traceback
-            traceback.print_exc()
+            print(f"⚠️ [PROMPT] Background prompt build failed: {e} - will fallback to async build")
     
-    # === יצירה אוטומטית של ליד (ברקע) ===
+    # Start prompt building in background (non-blocking)
+    if business_id and call_sid:
+        threading.Thread(
+            target=_prebuild_prompts_async,
+            args=(call_sid, business_id),
+            daemon=True,
+            name=f"PromptBuild-{call_sid[:8]}"
+        ).start()
+    
+    # === יצירה אוטומטית של ליד (ברקע) - Non-blocking ===
+    # 🔥 GREETING OPTIMIZATION: Lead creation happens in background - doesn't block TwiML response
     if from_number:
-        print(f"🟢 INCOMING_CALL - Starting thread to create lead for {from_number}, call_sid={call_sid}")
         threading.Thread(
             target=_create_lead_from_call,
             args=(call_sid, from_number, to_number, business_id),
             daemon=True,
             name=f"LeadCreation-{call_sid[:8]}"
         ).start()
-        print(f"🟢 INCOMING_CALL - Thread started successfully")
-    else:
-        print(f"⚠️ INCOMING_CALL - No from_number, skipping lead creation")
     
     # ⏱️ מדידה
-    response_time_ms = int((time.time() - start_time) * 1000)
-    status_emoji = "✅" if response_time_ms < 1500 else "⚠️"
-    print(f"{status_emoji} incoming_call: {response_time_ms}ms - {call_sid[:16]}")
+    t1 = time.time()
+    twiml_ms = int((t1 - t0) * 1000)
+    
+    # 🔥 GREETING PROFILER: Save TwiML ready timestamp for timeline analysis
+    if call_sid:
+        stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
+    
+    # 🔥 GREETING SLA: Assert TwiML generation is fast enough
+    if twiml_ms > 200:
+        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > 200ms for {call_sid[:16]}")
+    
+    logger.info(f"[GREETING_PROFILER] incoming_call TwiML ready in {twiml_ms}ms")
+    
+    status_emoji = "✅" if twiml_ms < 200 else "⚠️"
+    print(f"{status_emoji} incoming_call: {twiml_ms}ms - {call_sid[:16]}")
     
     # 🔥 DEBUG: Log exact TwiML being sent
     twiml_str = str(vr)
@@ -527,8 +562,10 @@ def outbound_call():
     Similar to incoming_call but with outbound-specific handling:
     - Sets direction=outbound
     - Uses lead name and template prompt
+    🔥 GREETING OPTIMIZATION: Profile full greeting path for latency analysis
     """
-    start_time = time.time()
+    t0 = time.time()
+    logger.info(f"[GREETING_PROFILER] outbound_call START at {t0}")
     
     if request.method == "GET":
         call_sid = request.args.get("CallSid", "")
@@ -594,30 +631,52 @@ def outbound_call():
     if template_id:
         stream.parameter(name="template_id", value=template_id)
     
-    # 🔥 PROMPT OPTIMIZATION: PRE-BUILD both COMPACT and FULL prompts in webhook
-    # COMPACT for ultra-fast greeting (<2s), FULL for post-greeting upgrade
-    if business_id and call_sid:
+    # 🔥 CRITICAL: Move prompt building to background thread - DO NOT block TwiML response!
+    # WebSocket connection depends on fast TwiML response
+    def _prebuild_prompts_async_outbound(call_sid, business_id):
+        """Background thread to pre-build outbound prompts - doesn't block webhook response"""
         try:
             from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
             from server.stream_state import stream_registry
+            from server.app_factory import get_process_app
             
-            # Build COMPACT prompt (800 chars) - for INSTANT greeting
-            compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
-            print(f"✅ [PROMPT] Pre-built COMPACT outbound prompt: {len(compact_prompt)} chars (for instant greeting)")
-            
-            # Build FULL prompt (3000+ chars) - for post-greeting upgrade
-            full_prompt = build_realtime_system_prompt(int(business_id), call_direction="outbound")
-            stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
-            print(f"✅ [PROMPT] Pre-built FULL outbound prompt: {len(full_prompt)} chars (for post-greeting upgrade)")
-            
+            # 🔥 BUG FIX: Wrap with app context for database queries
+            app = get_process_app()
+            with app.app_context():
+                # Build COMPACT prompt (800 chars) - for INSTANT greeting
+                compact_prompt = build_compact_greeting_prompt(int(business_id), call_direction="outbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_compact_prompt', compact_prompt)
+                
+                # Build FULL prompt (3000+ chars) - for post-greeting upgrade
+                full_prompt = build_realtime_system_prompt(int(business_id), call_direction="outbound")
+                stream_registry.set_metadata(call_sid, '_prebuilt_full_prompt', full_prompt)
+                
+                print(f"✅ [PROMPT] Pre-built outbound prompts in background: compact={len(compact_prompt)}, full={len(full_prompt)}")
         except Exception as e:
-            print(f"⚠️ [PROMPT] Failed to pre-build outbound prompts: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"⚠️ [PROMPT] Background outbound prompt build failed: {e}")
     
-    response_time_ms = int((time.time() - start_time) * 1000)
-    logger.info(f"✅ outbound_call webhook: {response_time_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
+    # Start prompt building in background (non-blocking)
+    if business_id and call_sid:
+        threading.Thread(
+            target=_prebuild_prompts_async_outbound,
+            args=(call_sid, business_id),
+            daemon=True,
+            name=f"PromptBuildOut-{call_sid[:8]}"
+        ).start()
+    
+    t1 = time.time()
+    twiml_ms = int((t1 - t0) * 1000)
+    
+    # 🔥 GREETING PROFILER: Save TwiML ready timestamp for timeline analysis
+    if call_sid:
+        stream_registry.set_metric(call_sid, 'twiml_ready_ts', t1)
+    
+    # 🔥 GREETING SLA: Assert TwiML generation is fast enough
+    if twiml_ms > 200:
+        logger.warning(f"[SLA] TwiML generation too slow: {twiml_ms}ms > 200ms for {call_sid[:16] if call_sid else 'N/A'}")
+    
+    logger.info(f"[GREETING_PROFILER] outbound_call TwiML ready in {twiml_ms}ms")
+    logger.info(f"✅ outbound_call webhook: {twiml_ms}ms - {call_sid[:16] if call_sid else 'N/A'}")
     
     return _twiml(vr)
 
@@ -627,7 +686,18 @@ def outbound_call():
 @require_twilio_signature
 def stream_ended():
     """Stream ended - trigger recording + fast response"""
-    call_sid = request.form.get('CallSid', '')
+    # 🔥 VERIFICATION #2: Extract call_sid with fallback for different formats
+    call_sid = request.form.get('CallSid') or request.form.get('callSid', '')
+    stream_sid = request.form.get('StreamSid') or request.form.get('streamSid', '')
+    
+    # Log for debugging
+    if not call_sid:
+        print(f"⚠️ [STREAM_ENDED] No CallSid in request - stream_sid={stream_sid}, form_keys={list(request.form.keys())}")
+    
+    # 🔥 VERIFICATION #1: Close handler from webhook
+    if call_sid:
+        from server.media_ws_ai import close_handler_from_webhook
+        close_handler_from_webhook(call_sid, "webhook_stream_ended")
     
     # החזרה מיידית
     resp = make_response("", 204)
@@ -643,10 +713,8 @@ def stream_ended():
         ).start()
         
     try:
-        call_sid = request.form.get('CallSid', 'N/A')
-        stream_sid = request.form.get('StreamSid', 'N/A') 
         status = request.form.get('Status', 'N/A')
-        print(f"STREAM_ENDED call={call_sid} stream={stream_sid} status={status}")
+        print(f"STREAM_ENDED call={call_sid or 'N/A'} stream={stream_sid or 'N/A'} status={status}")
     except:
         pass
         
@@ -659,19 +727,37 @@ def handle_recording():
     """
     ✅ BUILD 89: Handle recording webhook עם self-heal fallback
     שלב 4: שדרוג למענה מיידי עם monitoring משופר
+    🔥 FIX: Capture Direction and ParentCallSid from webhook
     """
     import time
     start_time = time.time()
     
+    # Immediate response preparation FIRST (before any processing)
+    resp = make_response("", 200)
+    resp.headers.update({
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Connection": "close"
+    })
+    
     # Fast data extraction
     call_sid = request.form.get("CallSid", "unknown")
     rec_url = request.form.get("RecordingUrl")
+    rec_sid = request.form.get("RecordingSid")  # 🔥 FIX: Extract recording SID
     rec_duration = request.form.get("RecordingDuration", "0")
     rec_status = request.form.get("RecordingStatus", "unknown")
+    
+    # 🔥 NEW: Capture direction and parent_call_sid from recording webhook
+    twilio_direction = request.form.get("Direction")
+    parent_call_sid = request.form.get("ParentCallSid")
+    from_number = request.form.get("From", "unknown")
+    to_number = request.form.get("To", "unknown")
     
     # ✅ BUILD 89: עדכן או צור call_log מיד
     if call_sid and call_sid != "unknown":
         try:
+            from server.tasks_recording import normalize_call_direction
+            
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
             if not call_log:
                 # Self-heal: צור fallback call_log
@@ -686,35 +772,53 @@ def handle_recording():
                 biz_phone = biz.phone_e164 or "unknown"
                 print(f"📊 handle_recording fallback: business_id={biz_id}")
                 
+                # 🔥 NEW: Normalize direction when creating fallback
+                normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else "inbound"
+                
                 call_log = CallLog(
                     call_sid=call_sid,
-                    from_number="unknown",
-                    to_number=biz_phone,  # ✅ BUILD 152: Dynamic, not hardcoded
+                    parent_call_sid=parent_call_sid,  # 🔥 NEW: Store parent call SID
+                    from_number=from_number,
+                    to_number=to_number,
                     business_id=biz_id,
+                    direction=normalized_direction,  # 🔥 NEW: Normalized direction
+                    twilio_direction=twilio_direction,  # 🔥 NEW: Original Twilio direction
                     call_status="completed",  # ✅ BUILD 90: Legacy field
                     status="recorded"
                 )
                 db.session.add(call_log)
             else:
                 call_log.status = "recorded"
+                
+                # 🔥 CRITICAL: Smart direction update - allow upgrading from "unknown" to real value
+                if twilio_direction:
+                    # Update if: (1) never set, OR (2) currently "unknown"
+                    if not call_log.twilio_direction or call_log.direction == "unknown":
+                        call_log.twilio_direction = twilio_direction
+                        call_log.direction = normalize_call_direction(twilio_direction)
+                
+                # 🔥 NEW: Update parent_call_sid if not set and available
+                if parent_call_sid and not call_log.parent_call_sid:
+                    call_log.parent_call_sid = parent_call_sid
+                
+                # Update from/to if they were "unknown" in initial creation
+                if from_number and from_number != "unknown" and call_log.from_number == "unknown":
+                    call_log.from_number = from_number
+                if to_number and to_number != "unknown" and call_log.to_number == "unknown":
+                    call_log.to_number = to_number
             
-            # עדכן recording_url
+            # 🔥 FIX: עדכן recording_url AND recording_sid
             if rec_url:
                 call_log.recording_url = rec_url
+            if rec_sid:
+                call_log.recording_sid = rec_sid
+                print(f"✅ handle_recording: Saved recording_sid {rec_sid} for {call_sid}")
             
             db.session.commit()
-            print(f"✅ handle_recording: Updated call_log for {call_sid}")
+            print(f"✅ handle_recording: Updated call_log for {call_sid} (direction={call_log.direction}, parent={parent_call_sid})")
         except Exception as e:
             print(f"⚠️ handle_recording DB error: {e}")
             db.session.rollback()
-    
-    # Immediate response preparation (no blocking operations)
-    resp = make_response("", 200)
-    resp.headers.update({
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache",
-        "Connection": "close"
-    })
     
     # TRUE non-blocking background processing with daemon thread
     if rec_url and rec_url.strip():
@@ -763,17 +867,26 @@ def stream_status():
     """
     ✅ BUILD 89: Stream status עם self-heal fallback
     עדכן call_log ב-DB, ואם לא קיים - צור fallback
+    🔥 FIX: Capture Direction and ParentCallSid from webhook
     """
     try:
         call_sid = request.form.get('CallSid', 'N/A')
         stream_sid = request.form.get('StreamSid', 'N/A')
         event = request.form.get('Status', 'N/A')
         
-        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event}")
+        # 🔥 NEW: Capture direction and parent_call_sid
+        twilio_direction = request.form.get('Direction')
+        parent_call_sid = request.form.get('ParentCallSid')
+        from_number = request.form.get('From', 'unknown')
+        to_number = request.form.get('To', 'unknown')
+        
+        print(f"STREAM_STATUS call={call_sid} stream={stream_sid} event={event} direction={twilio_direction}")
         
         # ✅ BUILD 89: עדכן או צור call_log
         if call_sid and call_sid != 'N/A':
             try:
+                from server.tasks_recording import normalize_call_direction
+                
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 if not call_log:
                     # Self-heal: צור fallback call_log
@@ -788,11 +901,17 @@ def stream_status():
                     biz_phone = biz.phone_e164 or "unknown"
                     print(f"📊 stream_status fallback: business_id={biz_id}")
                     
+                    # 🔥 NEW: Normalize direction when creating fallback
+                    normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else "inbound"
+                    
                     call_log = CallLog(
                         call_sid=call_sid,
-                        from_number="unknown",
-                        to_number=biz_phone,  # ✅ BUILD 152: Dynamic, not hardcoded
+                        parent_call_sid=parent_call_sid,  # 🔥 NEW: Store parent call SID
+                        from_number=from_number,
+                        to_number=to_number,
                         business_id=biz_id,
+                        direction=normalized_direction,  # 🔥 NEW: Normalized direction
+                        twilio_direction=twilio_direction,  # 🔥 NEW: Original Twilio direction
                         call_status="in-progress",  # ✅ BUILD 90: Legacy field
                         status="streaming"
                     )
@@ -800,6 +919,23 @@ def stream_status():
                 else:
                     # עדכן סטטוס
                     call_log.status = event if event != 'N/A' else "streaming"
+                    
+                    # 🔥 CRITICAL: Smart direction update - allow upgrading from "unknown" to real value
+                    if twilio_direction:
+                        # Update if: (1) never set, OR (2) currently "unknown"
+                        if not call_log.twilio_direction or call_log.direction == "unknown":
+                            call_log.twilio_direction = twilio_direction
+                            call_log.direction = normalize_call_direction(twilio_direction)
+                    
+                    # 🔥 NEW: Update parent_call_sid if not set and available
+                    if parent_call_sid and not call_log.parent_call_sid:
+                        call_log.parent_call_sid = parent_call_sid
+                    
+                    # Update from/to if they were "unknown" in initial creation
+                    if from_number and from_number != "unknown" and call_log.from_number == "unknown":
+                        call_log.from_number = from_number
+                    if to_number and to_number != "unknown" and call_log.to_number == "unknown":
+                        call_log.to_number = to_number
                 
                 db.session.commit()
                 print(f"✅ stream_status: Updated call_log for {call_sid}")
@@ -822,18 +958,24 @@ def stream_status():
 @twilio_bp.route("/webhook/call_status", methods=["POST", "GET"])
 @require_twilio_signature
 def call_status():
-    """Handle call status updates - FAST אסינכרוני - BUILD 106"""
+    """Handle call status updates - FAST אסינכרוני - BUILD 106
+    
+    Now extracts parent_call_sid and original Twilio direction to prevent duplicates
+    and correctly classify call direction.
+    """
     # BUILD 168.4: Support both POST (form) and GET (args)
     if request.method == "GET":
         call_sid = request.args.get("CallSid")
         call_status_val = request.args.get("CallStatus")
         call_duration = request.args.get("CallDuration", "0")
-        direction = request.args.get("Direction", "inbound")
+        twilio_direction = request.args.get("Direction")  # 🔥 FIX: No default - None if missing
+        parent_call_sid = request.args.get("ParentCallSid")  # 🔥 NEW: Extract parent call SID
     else:
         call_sid = request.form.get("CallSid")
         call_status_val = request.form.get("CallStatus")
         call_duration = request.form.get("CallDuration", "0")
-        direction = request.form.get("Direction", "inbound")
+        twilio_direction = request.form.get("Direction")  # 🔥 FIX: No default - None if missing
+        parent_call_sid = request.form.get("ParentCallSid")  # 🔥 NEW: Extract parent call SID
     
     # החזרה מיידית ללא עיכובים
     resp = make_response("", 204)
@@ -842,10 +984,36 @@ def call_status():
     
     # עיבוד ברקע אחרי שהחזרנו response
     try:
-        current_app.logger.info("CALL_STATUS", extra={"call_sid": call_sid, "status": call_status_val, "duration": call_duration})
+        current_app.logger.info("CALL_STATUS", extra={
+            "call_sid": call_sid, 
+            "status": call_status_val, 
+            "duration": call_duration,
+            "twilio_direction": twilio_direction,
+            "parent_call_sid": parent_call_sid
+        })
         if call_status_val in ["completed", "busy", "no-answer", "failed", "canceled"]:
             # ✅ BUILD 106: Save with duration and direction
-            save_call_status(call_sid, call_status_val, int(call_duration), direction)
+            # 🔥 NEW: Pass twilio_direction and parent_call_sid for proper tracking
+            from server.tasks_recording import normalize_call_direction
+            # 🔥 CRITICAL: Only normalize if we have a direction, otherwise keep existing
+            normalized_direction = normalize_call_direction(twilio_direction) if twilio_direction else None
+            save_call_status(call_sid, call_status_val, int(call_duration), 
+                           normalized_direction, twilio_direction, parent_call_sid)
+            
+            # 🔥 VERIFICATION #1: Close handler from webhook for terminal statuses
+            if call_sid:
+                from server.media_ws_ai import close_handler_from_webhook
+                close_handler_from_webhook(call_sid, f"webhook_call_status_{call_status_val}")
+            
+            # 🔥 CRITICAL FIX: Close WebSocket immediately on terminal call status
+            # This prevents unnecessary Twilio charges from WebSocket staying open
+            if call_sid:
+                session = stream_registry.get(call_sid)
+                if session:
+                    print(f"🛑 [CALL_STATUS] Call {call_status_val} - triggering WebSocket close for {call_sid}")
+                    # Mark session as ended to trigger cleanup
+                    session['ended'] = True
+                    session['end_reason'] = f'call_status_{call_status_val}'
     except Exception:
         current_app.logger.exception("CALL_STATUS_HANDLER_ERROR")
     

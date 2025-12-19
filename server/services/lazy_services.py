@@ -1,5 +1,6 @@
 """
 Lazy Service Registry - Prevents boot blocking by deferring init to first use
+🚫 Google services DISABLED for production stability
 """
 import os
 import json
@@ -9,6 +10,12 @@ import threading
 from functools import wraps
 
 log = logging.getLogger("lazy_services")
+
+# 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
+DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
+
+if DISABLE_GOOGLE:
+    log.info("🚫 Google services DISABLED (DISABLE_GOOGLE=true)")
 
 # Thread-safe singleton registry
 _service_lock = threading.Lock()
@@ -55,80 +62,34 @@ def get_openai_client():
 
 @lazy_singleton("gcp_tts_client")  
 def get_tts_client():
-    """Lazy GCP TTS client with timeout"""
-    try:
-        from google.cloud import texttospeech
-        
-        # ✅ CRITICAL FIX: Try JSON string first, then check for file path
-        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-        if sa_json and sa_json.startswith('{'):
-            # It's a JSON string
-            credentials_info = json.loads(sa_json)
-            client = texttospeech.TextToSpeechClient.from_service_account_info(credentials_info)
-        else:
-            # Try file path from GOOGLE_APPLICATION_CREDENTIALS
-            creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-            if creds_path and os.path.exists(creds_path):
-                # It's a file path
-                client = texttospeech.TextToSpeechClient.from_service_account_json(creds_path)
-            elif not sa_json and not creds_path:
-                log.warning("Google TTS credentials missing - no GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS")
-                return None
-            else:
-                # Default to using environment (will use GOOGLE_APPLICATION_CREDENTIALS automatically)
-                client = texttospeech.TextToSpeechClient()
-        
-        # Just verify client creation worked
-        log.info("✅ TTS client created successfully")
-        
-        return client
-    except Exception as e:
-        log.error(f"GCP TTS init failed: {e}")
-        import traceback
-        traceback.print_exc()
+    """
+    🚫 DISABLED - Google TTS client is turned off for production stability
+    """
+    if DISABLE_GOOGLE:
+        log.debug("Google TTS client requested but DISABLE_GOOGLE=true")
         return None
+    
+    log.warning("⚠️ Google TTS should not be used - DISABLE_GOOGLE flag should be set")
+    return None
 
 @lazy_singleton("gcp_stt_client")
 def get_stt_client():
-    """Lazy GCP STT client with timeout"""
-    try:
-        from google.cloud import speech
-        
-        # ✅ CRITICAL FIX: Try JSON string first, then check for file path
-        sa_json = os.getenv('GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON')
-        if sa_json and sa_json.startswith('{'):
-            # It's a JSON string
-            credentials_info = json.loads(sa_json)
-            client = speech.SpeechClient.from_service_account_info(credentials_info)
-        else:
-            # Try file path from GOOGLE_APPLICATION_CREDENTIALS
-            creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-            if creds_path and os.path.exists(creds_path):
-                # It's a file path
-                client = speech.SpeechClient.from_service_account_json(creds_path)
-            elif not sa_json and not creds_path:
-                log.warning("Google STT credentials missing - no GOOGLE_CLOUD_SERVICE_ACCOUNT_JSON or GOOGLE_APPLICATION_CREDENTIALS")
-                return None
-            else:
-                # Default to using environment (will use GOOGLE_APPLICATION_CREDENTIALS automatically)
-                client = speech.SpeechClient()
-        
-        # Quick ping test - just verify client creation worked
-        log.info("✅ STT client created successfully")
-        
-        return client
-    except Exception as e:
-        log.error(f"GCP STT init failed: {e}")
-        import traceback
-        traceback.print_exc()
+    """
+    🚫 DISABLED - Google STT client is turned off for production stability
+    """
+    if DISABLE_GOOGLE:
+        log.debug("Google STT client requested but DISABLE_GOOGLE=true")
         return None
+    
+    log.warning("⚠️ Google STT should not be used - DISABLE_GOOGLE flag should be set")
+    return None
 
 def warmup_services_async():
     """⚡ Non-blocking warmup - starts immediately after app init"""
     def _warmup():
         import time  # Import at start of function
         time.sleep(0.5)  # ⚡ Minimal delay - just let Flask finish binding
-        print("🔥🔥🔥 WARMUP STARTING - Preloading all services...")
+        print("🔥🔥🔥 WARMUP STARTING - Preloading services...")
         log.info("🔥 Starting service warmup...")
         
         # Warmup OpenAI
@@ -140,26 +101,14 @@ def warmup_services_async():
         else:
             print("    ❌ OpenAI client failed")
             log.warning("WARMUP_OPENAI_ERR")
-            
-        # Warmup TTS
-        print("  🔥 Warming Google TTS client...")
-        client = get_tts_client()
-        if client:
-            print("    ✅ TTS client ready")
-            log.info("WARMUP_TTS_OK")
-        else:
-            print("    ❌ TTS client failed")
-            log.warning("WARMUP_TTS_ERR")
-            
-        # Warmup STT
-        print("  🔥 Warming Google STT client...")
-        client = get_stt_client()
-        if client:
-            print("    ✅ STT client ready")
-            log.info("WARMUP_STT_OK")
-        else:
-            print("    ❌ STT client failed")
-            log.warning("WARMUP_STT_ERR")
+        
+        # 🚫 SKIP Google TTS warmup (DISABLED)
+        print("  🚫 Google TTS warmup SKIPPED (DISABLE_GOOGLE=true)")
+        log.info("WARMUP_TTS_SKIPPED")
+        
+        # 🚫 SKIP Google STT warmup (DISABLED)
+        print("  🚫 Google STT warmup SKIPPED (DISABLE_GOOGLE=true)")
+        log.info("WARMUP_STT_SKIPPED")
         
         # 🔥 CRITICAL: Warmup Agent Kit to avoid first-call latency
         try:
@@ -252,97 +201,15 @@ def get_service_status():
 
 def start_periodic_warmup():
     """
-    🔥 Phase 2F: Periodic warmup ping every 7-8 minutes
-    Prevents cold start by keeping Google STT/TTS clients warm
+    🚫 DISABLED - Periodic warmup for Google services is turned off
+    
+    Google STT/TTS periodic ping is disabled for production stability.
+    This function is a no-op when DISABLE_GOOGLE=true.
     """
-    import random
+    if DISABLE_GOOGLE:
+        log.info("🚫 Periodic warmup DISABLED (Google services are off)")
+        return
     
-    def _warmup_loop():
-        """Background loop that pings services every 7-8 minutes"""
-        # First ping immediately (don't wait 7-8min on startup)
-        first_run = True
-        
-        while True:
-            if not first_run:
-                # Random interval 7-8 minutes (420-480 seconds)
-                interval = random.uniform(420, 480)
-                log.info(f"🔥 PERIODIC_WARMUP: Next ping in {interval/60:.1f}min")
-                time.sleep(interval)
-            else:
-                first_run = False
-                log.info("🔥 PERIODIC_WARMUP: First ping starting immediately")
-            
-            try:
-                # 🔥 CRITICAL: Make ACTUAL API requests to keep connections alive!
-                
-                # Ping TTS with real synthesis request
-                tts_client = get_tts_client()
-                if tts_client:
-                    try:
-                        from google.cloud import texttospeech
-                        
-                        # Synthesize 1 Hebrew word to keep connection alive
-                        synthesis_input = texttospeech.SynthesisInput(text="שלום")
-                        voice = texttospeech.VoiceSelectionParams(
-                            language_code="he-IL",
-                            name="he-IL-Wavenet-D"
-                        )
-                        audio_config = texttospeech.AudioConfig(
-                            audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                            sample_rate_hertz=8000
-                        )
-                        
-                        # Actual API call!
-                        response = tts_client.synthesize_speech(
-                            input=synthesis_input,
-                            voice=voice,
-                            audio_config=audio_config,
-                            timeout=5.0
-                        )
-                        
-                        log.info(f"WARMUP_TTS_PING: OK (generated {len(response.audio_content)} bytes)")
-                    except Exception as e:
-                        log.warning(f"WARMUP_TTS_PING: FAILED - {e}")
-                else:
-                    log.warning("WARMUP_TTS_PING: No client")
-                
-                # Ping STT with minimal audio (100ms silence)
-                stt_client = get_stt_client()
-                if stt_client:
-                    try:
-                        from google.cloud import speech
-                        
-                        # Create 100ms of silence at 8kHz PCM16
-                        # 8000 samples/sec * 0.1 sec * 2 bytes/sample = 1600 bytes
-                        silent_audio = b'\x00' * 1600
-                        
-                        # Minimal STT config
-                        config = speech.RecognitionConfig(
-                            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                            sample_rate_hertz=8000,
-                            language_code="he-IL",
-                            max_alternatives=1
-                        )
-                        
-                        audio = speech.RecognitionAudio(content=silent_audio)
-                        
-                        # Actual API call!
-                        response = stt_client.recognize(
-                            config=config,
-                            audio=audio,
-                            timeout=5.0
-                        )
-                        
-                        log.info(f"WARMUP_STT_PING: OK (results={len(response.results)})")
-                    except Exception as e:
-                        log.warning(f"WARMUP_STT_PING: FAILED - {e}")
-                else:
-                    log.warning("WARMUP_STT_PING: No client")
-                    
-            except Exception as e:
-                log.error(f"WARMUP_PING_ERROR: {e}")
-    
-    # Start warmup loop in background daemon thread
-    warmup_thread = threading.Thread(target=_warmup_loop, daemon=True, name="periodic-warmup")
-    warmup_thread.start()
-    log.info("🔥 Periodic warmup started (every 7-8 minutes)")
+    # If somehow called with DISABLE_GOOGLE=false, still don't start warmup
+    log.warning("⚠️ Periodic warmup requested but Google services should be disabled")
+    return

@@ -1,6 +1,7 @@
 """
 WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
+🚫 Google STT/TTS DISABLED for production stability
 """
 import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
 import builtins
@@ -9,6 +10,9 @@ from typing import Optional
 from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
+
+# 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
+DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
 
 # 🚫 LOOP DETECTION: Disabled by default - wrap all loop-detect logic behind this flag
 ENABLE_LOOP_DETECT = False
@@ -21,6 +25,7 @@ ENABLE_LEGACY_CITY_LOGIC = False
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
 DEBUG = os.getenv("DEBUG", "0") == "1"
+DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
 _orig_print = builtins.print
 
 def _dprint(*args, **kwargs):
@@ -69,23 +74,43 @@ USE_STREAMING_STT = False  # PERMANENTLY DISABLED - OpenAI only!
 # 🔥 BUILD 325: Import all call configuration from centralized config
 try:
     from server.config.calls import (
-        SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
+        AUDIO_CONFIG, SIMPLE_MODE, COST_EFFICIENT_MODE, COST_MIN_RMS_THRESHOLD, COST_MAX_FPS,
         VAD_BASELINE_TIMEOUT, VAD_ADAPTIVE_CAP, VAD_ADAPTIVE_OFFSET,
         ECHO_GATE_MIN_RMS, ECHO_GATE_MIN_FRAMES,
-        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL
+        BARGE_IN_VOICE_FRAMES, BARGE_IN_DEBOUNCE_MS,
+        MAX_REALTIME_SECONDS_PER_CALL, MAX_AUDIO_FRAMES_PER_CALL,
+        NOISE_GATE_MIN_FRAMES,
+        GREETING_PROTECT_DURATION_MS, GREETING_MIN_SPEECH_DURATION_MS
     )
 except ImportError:
     SIMPLE_MODE = True
-    COST_EFFICIENT_MODE = True   # BUILD 332: RE-ENABLED with higher FPS limit
+    COST_EFFICIENT_MODE = False   # ✅ DISABLED - No FPS throttling (NO FILTERS requirement)
     COST_MIN_RMS_THRESHOLD = 0
-    COST_MAX_FPS = 48  # BUILD 332: 48 FPS = 96% audio (balanced: quality + cost)
+    COST_MAX_FPS = 70  # Not used when COST_EFFICIENT_MODE=False
     VAD_BASELINE_TIMEOUT = 80.0
     VAD_ADAPTIVE_CAP = 120.0
     VAD_ADAPTIVE_OFFSET = 60.0
     ECHO_GATE_MIN_RMS = 300.0
     ECHO_GATE_MIN_FRAMES = 5
-    MAX_REALTIME_SECONDS_PER_CALL = 90  # BUILD 331: Hard limit
-    MAX_AUDIO_FRAMES_PER_CALL = 4500    # BUILD 331: 50fps × 90s
+    BARGE_IN_VOICE_FRAMES = 8
+    BARGE_IN_DEBOUNCE_MS = 350
+    GREETING_PROTECT_DURATION_MS = 500
+    GREETING_MIN_SPEECH_DURATION_MS = 250
+    MAX_REALTIME_SECONDS_PER_CALL = 600  # BUILD 335: 10 minutes
+    MAX_AUDIO_FRAMES_PER_CALL = 42000    # BUILD 341: 70fps × 600s
+    NOISE_GATE_MIN_FRAMES = 0  # Fallback: disabled in Simple Mode
+    AUDIO_CONFIG = {
+        "simple_mode": True,
+        "audio_guard_enabled": False,
+        "music_mode_enabled": False,
+        "noise_gate_min_frames": 0,
+        "echo_guard_enabled": True,
+        "frame_pacing_ms": 20,
+        "vad_rms": 60,
+        "rms_silence_threshold": 30,
+        "min_speech_rms": 40,
+        "min_rms_delta": 5.0,
+    }
 
 # 🎯 BARGE-IN: Allow users to interrupt AI mid-sentence
 # Enabled by default with smart state tracking (is_ai_speaking + has_pending_ai_response)
@@ -116,7 +141,7 @@ if _env_model:
     OPENAI_REALTIME_MODEL = _env_model
 
 print(f"💰 [BUILD 318] Using model: {OPENAI_REALTIME_MODEL} (cost-optimized)")
-print(f"🔊 [BUILD 330] FPS throttling: {'ENABLED (max={})'.format(COST_MAX_FPS) if COST_EFFICIENT_MODE else 'DISABLED'} - all audio passes through for best transcription")
+print(f"🔊 [NO FILTERS] FPS throttling: DISABLED - all audio passes through, constant pacing only")
 
 # ✅ CRITICAL: App Singleton - create ONCE for entire process lifecycle
 # This prevents Flask app recreation per-call which caused 5-6s delays and 503 errors
@@ -151,12 +176,12 @@ class CallConfig:
     
     # Greeting settings
     greeting_enabled: bool = True
-    bot_speaks_first: bool = False
+    bot_speaks_first: bool = False  # 🔥 DEPRECATED: Always True in runtime (hardcoded)
     greeting_text: str = ""
     
     # Call control settings
     auto_end_after_lead_capture: bool = False
-    auto_end_on_goodbye: bool = False
+    auto_end_on_goodbye: bool = True  # Changed default to True - auto-hangup on goodbye
     smart_hangup_enabled: bool = True
     enable_calendar_scheduling: bool = True  # 🔥 BUILD 186: AI can schedule appointments
     verification_enabled: bool = False  # 🔥 FIX: Disable legacy verification/lead confirmed early hangup
@@ -240,11 +265,10 @@ def load_call_config(business_id: int) -> CallConfig:
             business_id=business_id,
             business_name=business.name or "",
             greeting_enabled=True,
-            # 🔥 BUILD 350: Bot ALWAYS speaks first (default True if not set)
-            bot_speaks_first=getattr(settings, 'bot_speaks_first', True) if settings else True,
+            bot_speaks_first=getattr(settings, 'bot_speaks_first', False) if settings else False,  # 🔥 DEPRECATED: Loaded but ignored in runtime
             greeting_text=business.greeting_message or "",
             auto_end_after_lead_capture=getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
-            auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
+            auto_end_on_goodbye=getattr(settings, 'auto_end_on_goodbye', True) if settings else True,  # Changed default to True
             smart_hangup_enabled=getattr(settings, 'smart_hangup_enabled', True) if settings else True,
             enable_calendar_scheduling=getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
             verification_enabled=getattr(settings, 'verification_enabled', False) if settings else False,
@@ -290,6 +314,186 @@ class CallCrmContext:
     last_appointment_id: Optional[int] = None
     has_appointment_created: bool = False  # 🔥 GUARD: True only after [SERVER] ✅ appointment_created
     pending_slot: Optional[dict] = None  # 🔥 {"date": "2025-11-17", "time": "18:00", "available": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 🔥 MASTER FIX: AUDIO STATE MACHINE - Central control for all audio state
+# ═══════════════════════════════════════════════════════════════════════════════
+@dataclass
+class AudioState:
+    """
+    Unified audio state machine for reliable turn-taking and barge-in.
+    
+    Controls:
+    - is_ai_speaking: Flips only on response.audio.start/response.audio.done
+    - active_response_id: Synchronized with OpenAI response lifecycle
+    - is_playing_greeting: Set only on first response.audio.delta, cleared on done
+    - user_has_spoken: Per-utterance tracking
+    - barge_in_active: Debounced barge-in state (one trigger per utterance)
+    
+    Thread-safe via _lock.
+    """
+    # Core state flags
+    is_ai_speaking: bool = False
+    active_response_id: Optional[str] = None
+    is_playing_greeting: bool = False
+    user_has_spoken: bool = False
+    barge_in_active: bool = False
+    
+    # Debouncing
+    last_barge_in_ts: Optional[float] = None
+    barge_in_debounce_ms: int = 350  # Default from config (BARGE_IN_DEBOUNCE_MS)
+    
+    # VAD smoothing state
+    ema_noise_floor: float = 20.0  # EMA of noise floor
+    consecutive_voice_frames: int = 0
+    consecutive_silence_frames: int = 0
+    voice_started_ts: Optional[float] = None
+    
+    # 🔥 FIX: Track AI audio start time for echo suppression window
+    last_ai_audio_start_ts: Optional[float] = None
+    
+    # 🔥 FIX: Track last hallucination to prevent repeats
+    last_hallucination: str = ""
+    
+    # Safety tracking
+    _lock: threading.RLock = None  # Thread-safe state access
+    
+    def __post_init__(self):
+        """Initialize lock after dataclass creation"""
+        if self._lock is None:
+            self._lock = threading.RLock()
+    
+    def set_ai_speaking(self, speaking: bool, response_id: Optional[str] = None):
+        """
+        Set AI speaking state (thread-safe)
+        
+        Args:
+            speaking: True if AI is speaking
+            response_id: Response ID if starting, None if stopping
+        """
+        with self._lock:
+            self.is_ai_speaking = speaking
+            if speaking and response_id:
+                self.active_response_id = response_id
+                logger.debug(f"[AUDIO_STATE] AI speaking started: response_id={response_id}")
+            elif not speaking:
+                logger.debug(f"[AUDIO_STATE] AI speaking stopped: response_id={self.active_response_id}")
+                self.active_response_id = None
+    
+    def set_greeting_playing(self, playing: bool):
+        """Set greeting playing state (thread-safe)"""
+        with self._lock:
+            self.is_playing_greeting = playing
+            logger.debug(f"[AUDIO_STATE] Greeting playing: {playing}")
+    
+    def mark_user_spoken(self):
+        """Mark that user has spoken (thread-safe)"""
+        with self._lock:
+            self.user_has_spoken = True
+            logger.debug(f"[AUDIO_STATE] User has spoken")
+    
+    def try_trigger_barge_in(self) -> bool:
+        """
+        Try to trigger barge-in with debouncing
+        
+        Returns:
+            True if barge-in triggered, False if debounced
+        """
+        with self._lock:
+            now = time.time()
+            
+            # Check debounce
+            if self.last_barge_in_ts:
+                elapsed_ms = (now - self.last_barge_in_ts) * 1000
+                if elapsed_ms < self.barge_in_debounce_ms:
+                    logger.debug(f"[AUDIO_STATE] Barge-in debounced ({elapsed_ms:.0f}ms < {self.barge_in_debounce_ms}ms)")
+                    return False
+            
+            # Trigger barge-in
+            self.barge_in_active = True
+            self.last_barge_in_ts = now
+            logger.info(f"[AUDIO_STATE] Barge-in triggered! response_id={self.active_response_id}")
+            return True
+    
+    def clear_barge_in(self):
+        """Clear barge-in state after utterance completes"""
+        with self._lock:
+            self.barge_in_active = False
+            logger.debug(f"[AUDIO_STATE] Barge-in cleared")
+    
+    def update_vad_smoothing(self, rms: float, is_voice: bool, frame_duration_ms: int = 20):
+        """
+        Update VAD smoothing state with EMA noise floor
+        
+        Args:
+            rms: Current frame RMS
+            is_voice: Whether frame is classified as voice
+            frame_duration_ms: Frame duration in milliseconds
+        """
+        with self._lock:
+            # Import config here to avoid circular imports
+            try:
+                from server.config.calls import (
+                    AUDIO_GUARD_EMA_ALPHA,
+                    AUDIO_GUARD_MIN_SPEECH_FRAMES,
+                    AUDIO_GUARD_SILENCE_RESET_FRAMES
+                )
+            except ImportError:
+                AUDIO_GUARD_EMA_ALPHA = 0.12
+                AUDIO_GUARD_MIN_SPEECH_FRAMES = 12
+                AUDIO_GUARD_SILENCE_RESET_FRAMES = 20
+            
+            # Update EMA noise floor
+            if not is_voice:
+                self.ema_noise_floor = (AUDIO_GUARD_EMA_ALPHA * rms + 
+                                       (1 - AUDIO_GUARD_EMA_ALPHA) * self.ema_noise_floor)
+            
+            # Track consecutive frames
+            if is_voice:
+                self.consecutive_voice_frames += 1
+                self.consecutive_silence_frames = 0
+                if self.voice_started_ts is None:
+                    self.voice_started_ts = time.time()
+            else:
+                self.consecutive_silence_frames += 1
+                self.consecutive_voice_frames = 0
+                
+                # Reset on long silence
+                if self.consecutive_silence_frames >= AUDIO_GUARD_SILENCE_RESET_FRAMES:
+                    self.voice_started_ts = None
+    
+    def should_send_audio(self) -> bool:
+        """
+        Check if audio should be sent based on VAD smoothing
+        
+        Returns:
+            True if audio meets quality criteria
+        """
+        with self._lock:
+            # Import config
+            try:
+                from server.config.calls import AUDIO_GUARD_MIN_SPEECH_FRAMES
+            except ImportError:
+                AUDIO_GUARD_MIN_SPEECH_FRAMES = 12
+            
+            # Require minimum consecutive voice frames
+            return self.consecutive_voice_frames >= AUDIO_GUARD_MIN_SPEECH_FRAMES
+    
+    def get_dynamic_threshold(self) -> float:
+        """
+        Calculate dynamic VAD threshold based on EMA noise floor
+        
+        Returns:
+            Dynamic threshold value
+        """
+        with self._lock:
+            try:
+                from server.config.calls import VAD_ADAPTIVE_OFFSET
+            except ImportError:
+                VAD_ADAPTIVE_OFFSET = 55.0
+            
+            return self.ema_noise_floor + VAD_ADAPTIVE_OFFSET
 
 
 # 🔧 APPOINTMENT VALIDATION HELPER
@@ -471,6 +675,9 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
     """
     Find or create lead at call start
     
+    ⚠️ P0-1 FIX: This function runs in background threads with proper session management.
+    Each call creates its own scoped session for thread safety.
+    
     Args:
         business_id: Business ID
         customer_phone: Customer phone in E.164 format
@@ -479,46 +686,69 @@ def ensure_lead(business_id: int, customer_phone: str) -> Optional[int]:
         Lead ID if found/created, None on error
     """
     try:
-        from server.models_sql import db, Lead
+        from server.models_sql import Lead
+        from server.db import db
+        from sqlalchemy.orm import scoped_session, sessionmaker
         from datetime import datetime
         
         app = _get_flask_app()
         with app.app_context():
-            # Normalize phone to E.164
-            phone = customer_phone.strip()
-            if not phone.startswith('+'):
-                if phone.startswith('0'):
-                    phone = '+972' + phone[1:]
-                else:
-                    phone = '+972' + phone
+            # ✅ P0-1: Create new scoped session for this background thread
+            # Note: Each background thread MUST have its own session. We cannot reuse
+            # Flask's db.session because it's not thread-safe. Creating a new scoped
+            # session for each operation ensures proper isolation.
+            engine = db.engine
+            Session = scoped_session(sessionmaker(bind=engine))
+            session = Session()
             
-            # Search for existing lead
-            lead = Lead.query.filter_by(
-                tenant_id=business_id,
-                phone_e164=phone
-            ).first()
-            
-            if lead:
-                # Update last contact time
-                lead.last_contact_at = datetime.utcnow()
-                db.session.commit()
-                print(f"✅ [CRM] Found existing lead #{lead.id} for {phone}")
-                return lead.id
-            else:
-                # Create new lead
-                lead = Lead(
+            try:
+                # Normalize phone to E.164
+                phone = customer_phone.strip()
+                if not phone.startswith('+'):
+                    if phone.startswith('0'):
+                        phone = '+972' + phone[1:]
+                    else:
+                        phone = '+972' + phone
+                
+                # Search for existing lead
+                lead = session.query(Lead).filter_by(
                     tenant_id=business_id,
-                    phone_e164=phone,
-                    first_name="Customer",  # Will be updated during call
-                    source="phone_call",
-                    status="new",
-                    created_at=datetime.utcnow(),
-                    last_contact_at=datetime.utcnow()
-                )
-                db.session.add(lead)
-                db.session.commit()
-                print(f"✅ [CRM] Created new lead #{lead.id} for {phone}")
-                return lead.id
+                    phone_e164=phone
+                ).first()
+                
+                if lead:
+                    # Update last contact time
+                    lead.last_contact_at = datetime.utcnow()
+                    session.commit()
+                    lead_id = lead.id
+                    print(f"✅ [CRM] Found existing lead #{lead_id} for {phone}")
+                    return lead_id
+                else:
+                    # Create new lead
+                    lead = Lead(
+                        tenant_id=business_id,
+                        phone_e164=phone,
+                        first_name="Customer",  # Will be updated during call
+                        source="phone_call",
+                        status="new",
+                        created_at=datetime.utcnow(),
+                        last_contact_at=datetime.utcnow()
+                    )
+                    session.add(lead)
+                    session.commit()
+                    lead_id = lead.id
+                    print(f"✅ [CRM] Created new lead #{lead_id} for {phone}")
+                    return lead_id
+                    
+            except Exception as e:
+                session.rollback()
+                print(f"❌ [CRM] ensure_lead DB error: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+            finally:
+                session.close()
+                Session.remove()
                 
     except Exception as e:
         print(f"❌ [CRM] ensure_lead error: {e}")
@@ -532,6 +762,8 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
     """
     Update lead at call end with summary/status
     
+    ✅ P0-1 FIX: Uses proper session management for background threads
+    
     Args:
         lead_id: Lead ID to update
         summary: Call summary (optional)
@@ -539,32 +771,49 @@ def update_lead_on_call(lead_id: int, summary: Optional[str] = None,
         notes: Additional notes (optional)
     """
     try:
-        from server.models_sql import db, Lead
+        from server.models_sql import Lead
+        from server.db import db
+        from sqlalchemy.orm import scoped_session, sessionmaker
         from datetime import datetime
         
         app = _get_flask_app()
         with app.app_context():
-            lead = Lead.query.get(lead_id)
-            if not lead:
-                print(f"⚠️ [CRM] Lead #{lead_id} not found")
-                return
+            # ✅ P0-1: Create new session for this operation
+            engine = db.engine
+            Session = scoped_session(sessionmaker(bind=engine))
+            session = Session()
             
-            # Update fields
-            if summary:
-                lead.summary = summary
-            
-            if status:
-                lead.status = status
-            
-            if notes:
-                existing_notes = lead.notes or ""
-                timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
-                lead.notes = f"{existing_notes}\n\n[{timestamp}] {notes}".strip()
-            
-            lead.updated_at = datetime.utcnow()
-            db.session.commit()
-            
-            print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+            try:
+                lead = session.query(Lead).get(lead_id)
+                if not lead:
+                    print(f"⚠️ [CRM] Lead #{lead_id} not found")
+                    return
+                
+                # Update fields
+                if summary:
+                    lead.summary = summary
+                
+                if status:
+                    lead.status = status
+                
+                if notes:
+                    existing_notes = lead.notes or ""
+                    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+                    lead.notes = f"{existing_notes}\n\n[{timestamp}] {notes}".strip()
+                
+                lead.updated_at = datetime.utcnow()
+                session.commit()
+                
+                print(f"✅ [CRM] Updated lead #{lead_id}: summary={bool(summary)}, status={status}")
+                
+            except Exception as e:
+                session.rollback()
+                print(f"❌ [CRM] update_lead_on_call DB error: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                session.close()
+                Session.remove()
             
     except Exception as e:
         print(f"❌ [CRM] update_lead_on_call error: {e}")
@@ -672,11 +921,25 @@ logger.info(f"[BOOT] USE_REALTIME_API={USE_REALTIME_API} MODEL={OPENAI_REALTIME_
 if not USE_REALTIME_API:
     logger.warning("[BOOT] USE_REALTIME_API=FALSE - AI will NOT speak during calls!")
 
+# 🎯 AUDIO MODE STARTUP LOG - Single source of truth
+logger.info(
+    f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
+    f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
+    f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
+    f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
+    f"echo_guard_enabled={AUDIO_CONFIG['echo_guard_enabled']}"
+)
+
 # ⚡ THREAD-SAFE SESSION REGISTRY for multi-call support
 # Each call_sid has its own session + dispatcher state
 _sessions_registry = {}  # call_sid -> {"session": StreamingSTTSession, "utterance": {...}, "tenant": str, "ts": float}
 _registry_lock = threading.RLock()
 MAX_CONCURRENT_CALLS = int(os.getenv("MAX_CONCURRENT_CALLS", "50"))
+
+# 🔥 SESSION LIFECYCLE: Handler registry for webhook-triggered close
+# Maps call_sid -> MediaStreamHandler instance for external close triggers
+_handler_registry = {}  # call_sid -> MediaStreamHandler
+_handler_registry_lock = threading.RLock()
 
 def _register_session(call_sid: str, session, tenant_id=None):
     """Register a new STT session for a call (thread-safe)"""
@@ -720,6 +983,41 @@ def _close_session(call_sid: str):
             if DEBUG: print(f"✅ [REGISTRY] Closed session for call {call_sid[:8]}... (remaining: {len(_sessions_registry)})")
         except Exception as e:
             if DEBUG: print(f"⚠️ [REGISTRY] Error closing session for {call_sid[:8]}...: {e}")
+
+def _register_handler(call_sid: str, handler):
+    """Register MediaStreamHandler for webhook-triggered close (thread-safe)"""
+    with _handler_registry_lock:
+        _handler_registry[call_sid] = handler
+        _orig_print(f"✅ [HANDLER_REGISTRY] Registered handler for {call_sid}", flush=True)
+
+def _get_handler(call_sid: str):
+    """Get MediaStreamHandler for a call (thread-safe)"""
+    with _handler_registry_lock:
+        return _handler_registry.get(call_sid)
+
+def _unregister_handler(call_sid: str):
+    """Remove handler from registry (thread-safe)"""
+    with _handler_registry_lock:
+        handler = _handler_registry.pop(call_sid, None)
+        if handler:
+            _orig_print(f"✅ [HANDLER_REGISTRY] Unregistered handler for {call_sid}", flush=True)
+        return handler
+
+def close_handler_from_webhook(call_sid: str, reason: str):
+    """
+    🔥 SESSION LIFECYCLE: Close handler from webhook (call_status, stream_ended)
+    
+    This is called by Twilio webhooks when call ends externally.
+    Returns True if handler was found and closed, False otherwise.
+    """
+    handler = _get_handler(call_sid)
+    if handler and hasattr(handler, 'close_session'):
+        _orig_print(f"🔥 [WEBHOOK_CLOSE] Triggering close_session from webhook: {reason} for {call_sid}", flush=True)
+        handler.close_session(reason)
+        return True
+    else:
+        _orig_print(f"⚠️ [WEBHOOK_CLOSE] No handler found for {call_sid} (reason={reason})", flush=True)
+        return False
 
 def _create_dispatcher_callbacks(call_sid: str):
     """Create partial/final callbacks that route to the correct call's utterance"""
@@ -823,16 +1121,19 @@ SR = 8000
 # Trust OpenAI's Realtime API VAD - minimal local filtering
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# SPEECH DETECTION - Optimized for Hebrew phone calls
+# SPEECH DETECTION - Use values from centralized AUDIO_CONFIG
 MIN_UTT_SEC = 0.35              # Minimum utterance: 350ms - allows short Hebrew words like "כן", "לא"
 MAX_UTT_SEC = 12.0              # Maximum utterance: 12s - enough for detailed Hebrew descriptions
-VAD_RMS = 80                    # VAD RMS threshold: 80 - trust OpenAI VAD, lower local threshold
-RMS_SILENCE_THRESHOLD = 40     # Pure silence threshold: 40 - only absolute silence is filtered
-MIN_SPEECH_RMS = 60            # Minimum speech RMS: 60 - allows quiet Hebrew speakers through
+VAD_RMS = AUDIO_CONFIG.get("vad_rms", 60)                       # From AUDIO_CONFIG
+RMS_SILENCE_THRESHOLD = AUDIO_CONFIG.get("rms_silence_threshold", 30)  # From AUDIO_CONFIG
+MIN_SPEECH_RMS = AUDIO_CONFIG.get("min_speech_rms", 40)        # From AUDIO_CONFIG
 MIN_SPEECH_DURATION_MS = 350   # Minimum speech duration: 350ms - short Hebrew confirmations
 
-# CONSECUTIVE FRAMES - Let OpenAI handle VAD
-MIN_CONSECUTIVE_VOICE_FRAMES = 3   # 3 frames = 60ms - minimal local gating
+# 🎯 MASTER DIRECTIVE 3.1: VAD - Voice Detection
+# Continuous voice frames to prevent short noise spikes
+# Reduced from 400ms to 240ms to avoid missing short valid utterances like "כן", "לא"
+# 12 frames @ 20ms/frame = 240ms (balances noise rejection with responsiveness)
+MIN_CONSECUTIVE_VOICE_FRAMES = max(0, NOISE_GATE_MIN_FRAMES) if not SIMPLE_MODE else 12  # 12 frames = 240ms minimum
 
 # TIMING - Fast Hebrew response
 POST_AI_COOLDOWN_MS = 800      # Cooldown after AI speaks: 800ms - fast response
@@ -842,8 +1143,14 @@ RESP_MIN_DELAY_MS = 50         # Min response delay: 50ms - fast
 RESP_MAX_DELAY_MS = 120        # Max response delay: 120ms - responsive
 REPLY_REFRACTORY_MS = 1100     # Refractory period: 1100ms - prevents loops
 
-# BARGE-IN - Responsive interruption detection (200-300ms for natural interruption)
-BARGE_IN_VOICE_FRAMES = 15     # 15 frames = 300ms continuous speech to trigger barge-in (fast response)
+# BARGE-IN configuration imported from server.config.calls
+# See server/config/calls.py for BARGE_IN_VOICE_FRAMES and BARGE_IN_DEBOUNCE_MS values
+
+# TX BURST PROTECTION - Prevent chipmunk effect from audio bursts
+# ✅ P0-1: Constants for queue backlog management
+TX_BACKLOG_THRESHOLD_FRAMES = 100  # 100 frames = 2 seconds of audio - trigger burst protection
+TX_BACKLOG_TARGET_FRAMES = 50      # Target queue size after dropping frames
+TX_BACKLOG_MAX_DROP_FRAMES = 25    # Maximum frames to drop in one burst protection cycle
 
 # STT MERGING - Hebrew segment handling
 STT_MERGE_WINDOW_MS = 600      # Merge window: 600ms - balances speed and accuracy
@@ -853,6 +1160,113 @@ DEDUP_WINDOW_SEC = 8           # Deduplication window: 8 seconds
 LLM_NATURAL_STYLE = True       # Natural Hebrew responses
 
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# 🎯 STT GUARD: Use values from centralized AUDIO_CONFIG
+# These parameters ensure we only accept real speech, not silence/noise
+MIN_UTTERANCE_MS = 200      # Minimum utterance duration (200ms allows short valid responses like "כן", "לא")
+MIN_RMS_DELTA = AUDIO_CONFIG.get("min_rms_delta", 5.0)  # From AUDIO_CONFIG - microphone sensitivity
+MIN_WORD_COUNT = 2          # Minimum word count to accept (prevents single-word hallucinations like "היי", "מה")
+ECHO_SUPPRESSION_WINDOW_MS = 800  # 🔥 FIX ISSUE 5: Relaxed from 200ms (was too aggressive with jitter)
+ECHO_WINDOW_MS = 350        # Time window after AI audio where user speech is likely echo (for speech_started)
+ECHO_HIGH_RMS_THRESHOLD = 150.0  # RMS threshold to allow speech through echo window (real user is loud)
+
+# 🔥 BUILD 341: Minimum transcription length to mark user_has_spoken
+# Requirement: At least 2 characters after cleanup (not just whitespace/single char)
+# This prevents state progression on meaningless single-character transcriptions
+MIN_TRANSCRIPTION_LENGTH = 2
+
+# 🔥 SIMPLE_MODE: Early user_has_spoken detection threshold
+# 1.5x multiplier provides confident speech detection: 
+# - Below 1x: Too sensitive, may trigger on noise
+# - At 1x: Matches normal validation, defeats purpose of early detection
+# - At 1.5x: Clear speech signal, confident real user input (not echo/noise)
+# - Above 2x: Too strict, may miss quiet speakers
+SIMPLE_MODE_RMS_MULTIPLIER = 1.5  # Sweet spot: confident speech without missing quiet users
+
+# Valid short Hebrew phrases that should ALWAYS pass (even if 1 word when RMS is high)
+VALID_SHORT_HEBREW_PHRASES = {
+    "כן", "לא", "רגע", "שניה", "שנייה", "תן לי", "אני פה", "שומע",
+    "טוב", "בסדר", "תודה", "סליחה", "יופי", "נכון", "מעולה", "בדיוק",
+    "יאללה", "סבבה", "אוקיי", "אה", "אהה", "מה", "איפה", "מתי", "למה",
+    "איך", "כמה", "מי", "איזה", "זה", "אני", "היי", "הלו", "שלום", "ביי"
+}
+
+# 🎯 MASTER DIRECTIVE 3.2: FILLER DETECTION - Hebrew filler words that should NOT trigger bot responses
+# These are thinking sounds, not real speech. Drop silently at STT level.
+HEBREW_FILLER_WORDS = {
+    "אמ", "אם", "אממ", "אמממ", 
+    "אה", "אהה", "אההה", "אההההה",
+    "הממ", "אהם", "אהממ", "ממ", "הם"
+}
+
+# 🔧 GOODBYE DETECTION: Shared patterns for ignore list and greeting detection
+GOODBYE_IGNORE_PHRASES = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
+GOODBYE_GREETING_WORDS = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
+
+# 🔧 GOODBYE DETECTION: Clear goodbye words shared across functions
+CLEAR_GOODBYE_WORDS = [
+    "להתראות", "ביי", "bye", "bye bye", "goodbye",
+    "יאללה ביי", "יאללה להתראות",
+    "ביי יום טוב"  # "bye, good day"
+]
+
+# 🔧 GOODBYE DETECTION: Thresholds for polite ending detection
+# Short utterances (≤3 words) with polite phrases are likely goodbyes (e.g., "תודה רבה")
+# Longer utterances require phrase to be ≥50% of content to avoid false positives
+GOODBYE_SHORT_UTTERANCE_MAX_WORDS = 3  # Max words for "short utterance" classification
+GOODBYE_PHRASE_MIN_PERCENTAGE = 0.5  # Minimum 50% of utterance must be the goodbye phrase
+
+def is_valid_transcript(text: str) -> bool:
+    """
+    ✅ NO FILTERS: Always accept transcripts (except completely empty)
+    
+    If transcript arrives → it's real input. Process it.
+    No filler filtering, no length filtering.
+    
+    Args:
+        text: Transcribed text from STT
+        
+    Returns:
+        True if any text, False only if completely empty
+    """
+    # Only reject completely empty
+    if not text or not text.strip():
+        return False
+    
+    # Everything else is accepted - NO FILTERS
+    # No filler check, no length check
+    return True
+
+def should_accept_realtime_utterance(stt_text: str, utterance_ms: float, 
+                                     rms_snapshot: float, noise_floor: float,
+                                     ai_speaking: bool = False, 
+                                     last_ai_audio_start_ms: float = 0,
+                                     last_hallucination: str = "") -> bool:
+    """
+    ✅ NO FILTERS: Always accept transcripts from OpenAI
+    
+    If transcript arrives from speech_started or transcription.completed → it's real input.
+    Process it and generate response. No filtering.
+    
+    Args:
+        stt_text: The transcribed text from OpenAI
+        utterance_ms: Duration (unused - kept for signature compatibility)
+        rms_snapshot: RMS level (unused - kept for signature compatibility)
+        noise_floor: Baseline (unused - kept for signature compatibility)
+        ai_speaking: Whether AI speaking (unused - kept for signature compatibility)
+        last_ai_audio_start_ms: Time since AI audio (unused - kept for signature compatibility)
+        last_hallucination: Last rejection (unused - kept for signature compatibility)
+        
+    Returns:
+        True if there's any text, False only if empty
+    """
+    # Only reject completely empty text
+    if not stt_text or not stt_text.strip():
+        return False
+    
+    # Everything else is accepted - NO FILTERS
+    # No duration check, no RMS check, no hallucination check, no word count check
+    return True
 
 # מכונת מצבים
 STATE_LISTEN = "LISTENING"
@@ -998,6 +1412,14 @@ class MediaStreamHandler:
         self.ws = ws
         self.mode = "AI"  # תמיד במצב AI
         
+        # 🔥 SESSION LIFECYCLE GUARD: Atomic close protection
+        self.closed = False
+        self.close_lock = threading.Lock()
+        self.close_reason = None
+        
+        # 🔥 FIX: Guard against double-close websocket error
+        self._ws_closed = False
+        
         # 🔧 תאימות WebSocket - EventLet vs RFC6455 עם טיפול שגיאות
         if hasattr(ws, 'send'):
             self._ws_send_method = ws.send
@@ -1009,12 +1431,29 @@ class MediaStreamHandler:
         self.ws_connection_failed = False
         self.failed_send_count = 0
         
+        # 🎯 TX PERFORMANCE: Track slow sends for diagnostics
+        self._slow_send_count = 0
+        self._last_slow_send_warning = 0.0
+        
         def _safe_ws_send(data):
             if self.ws_connection_failed:
                 return False  # Don't spam when connection is dead
                 
             try:
+                # 🎯 VERIFY TX: Measure send time to detect blocking (requirement from issue)
+                send_start = time.perf_counter()
                 self._ws_send_method(data)
+                send_duration_ms = (time.perf_counter() - send_start) * 1000
+                
+                # ⚠️ Warn if send takes >5ms (indicates blocking/backpressure)
+                if send_duration_ms > 5.0:
+                    self._slow_send_count += 1
+                    now = time.time()
+                    # Log warning every 5 seconds (throttled to avoid spam)
+                    if now - self._last_slow_send_warning > 5.0:
+                        _orig_print(f"⚠️ [TX_SLOW] WebSocket send took {send_duration_ms:.1f}ms (>5ms threshold) - potential backpressure (count={self._slow_send_count})", flush=True)
+                        self._last_slow_send_warning = now
+                
                 self.failed_send_count = 0  # Reset on success
                 return True
             except Exception as e:
@@ -1096,13 +1535,26 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 BUILD 181: Increased to 1500 frames (~30s buffer) to handle OpenAI delays
-        # OpenAI Realtime can delay 10-15+ seconds during long text generation
-        self.tx_q = queue.Queue(maxsize=1500)  # Support up to 30s without drops
+        # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
+        # ✅ P0 FIX + AUDIO BACKPRESSURE FIX: Increased queue size to prevent drops
+        # 400 frames = 8s buffer - prevents mid-sentence audio cutting
+        # OpenAI sends audio in bursts, larger queue prevents drops while TX catches up
+        # Combined with backpressure (blocking put), this eliminates speech cuts
+        self.tx_q = queue.Queue(maxsize=400)  # 400 frames = 8s buffer
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
         self._audio_gap_recovery_active = False  # 🔥 BUILD 181: Gap recovery state
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 🎯 TASK 0.1: Log AUDIO_CONFIG at startup (Master QA - Single Source of Truth)
+        # ═══════════════════════════════════════════════════════════════════════════
+        _orig_print(f"[AUDIO_MODE] simple_mode={AUDIO_CONFIG['simple_mode']}, "
+                   f"audio_guard_enabled={AUDIO_CONFIG['audio_guard_enabled']}, "
+                   f"music_mode_enabled={AUDIO_CONFIG['music_mode_enabled']}, "
+                   f"noise_gate_min_frames={AUDIO_CONFIG['noise_gate_min_frames']}, "
+                   f"frame_pacing_ms={AUDIO_CONFIG['frame_pacing_ms']}, "
+                   f"sample_rate=8000, encoding=pcmu", flush=True)
         
         print("🎯 AI CONVERSATION STARTED")
         
@@ -1144,6 +1596,10 @@ class MediaStreamHandler:
         self.realtime_thread = None  # Thread running asyncio loop
         self.realtime_client = None  # 🔥 NEW: Store Realtime client for barge-in response.cancel
         
+        # 🎯 PROBE 4: Queue Flow Probe tracking
+        self._enq_counter = 0  # Frames enqueued to realtime_audio_out_queue
+        self._enq_last_log_time = time.monotonic()
+        
         # 🔥 BUILD 331: Usage guard tracking fields
         self._limit_exceeded = False
         self._limit_frames = 0
@@ -1173,7 +1629,21 @@ class MediaStreamHandler:
         self.barge_in_voice_frames = 0  # 🎯 NEW: Count continuous voice frames for 180ms detection
         self.barge_in_enabled_after_greeting = False  # 🎯 FIX: Allow barge-in after greeting without forcing user_has_spoken
         self.barge_in_enabled = True  # 🔥 BARGE-IN: Always enabled by default (can be disabled during DTMF)
+        self.barge_in_active = False  # 🔥 BARGE-IN FIX: Track if user is currently interrupting AI
+        # 🔄 ADAPTIVE: Second confirmation for barge-in - require OpenAI speech_started confirmation
+        self._openai_speech_started_confirmed = False  # Set on speech_started event, cleared after barge-in
         self._cancelled_response_ids = set()  # Track locally cancelled responses to ignore late deltas
+        # ✅ NEW REQ 4: Add TTL tracking to prevent memory leak
+        self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
+        self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
+        self._cancelled_response_max_size = 100  # Cap at 100 entries
+        
+        # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
+        # This is THE key to making barge-in actually listen (not just stop talking)
+        self.user_speaking = False  # True from speech_started until speech_stopped+transcription.completed
+        
+        # ✅ P0 FIX: Track which response IDs we've sent cancel for (prevent duplicate cancel)
+        self._cancel_sent_for_response_ids = set()  # Response IDs we've already sent cancel event for
         
         # 🧘 BUILD 345: Post-greeting breathing window state
         self._post_greeting_breath_window_sec = 3.5
@@ -1182,6 +1652,15 @@ class MediaStreamHandler:
         self._post_greeting_window_finished = False
         self._post_greeting_heard_user = False
         self._post_greeting_speech_cycle_complete = False
+        
+        # 🔥 FIX BUG 2: User turn timeout tracking (prevents stuck silence)
+        self._last_user_audio_ts = None  # Last time user audio was received
+        self._user_turn_timeout_ms = 1800  # 1.8s timeout for user turn finalization
+        
+        # 🔥 FIX BUG 3: Enhanced STT guard tracking
+        self._last_hallucination = ""  # Last rejected hallucination (to prevent repeats)
+        self._last_ai_audio_start_ts = None  # When AI audio started (for echo suppression)
+        self._last_ai_audio_ts = None  # Track last AI audio sent (for ECHO_GUARD at speech_started level)
         
         # 🔥 BUILD 165: LOOP PREVENTION - Track consecutive AI responses without user input
         self._consecutive_ai_responses = 0
@@ -1212,13 +1691,24 @@ class MediaStreamHandler:
         # When response is cancelled before any audio is sent (turn_detected), we need to trigger new response
         self._cancelled_response_needs_recovery = False
         self._cancelled_response_recovery_ts = 0
-        self._cancelled_response_recovery_delay_sec = 0.8  # Wait 800ms after speech stops before recovery
+        self._cancelled_response_recovery_delay_sec = 0.25  # 🎯 P0-5: 250ms (200-300ms range)
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
+        self._cancel_retry_attempted = False  # 🎯 P0-5: Track if we already attempted retry (one retry only)
         
         # 🔥 BUILD 302: HARD BARGE-IN - When user speaks over AI, we hard-cancel everything
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
         self.barge_in_active = False
         self._barge_in_started_ts = None  # When barge-in started (for timeout)
+        
+        # 🔥 GREETING PROTECT: Transcription confirmation flag for intelligent greeting protection
+        self._greeting_needs_transcription_confirm = False  # Wait for transcription to confirm interruption
+        
+        # 🎯 STT GUARD: Track utterance metadata for validation
+        # Prevents hallucinated transcriptions during silence from triggering barge-in
+        self._candidate_user_speaking = False  # Set on speech_started, validated on transcription.completed
+        self._utterance_start_ts = None  # When speech_started was received (for duration calculation)
+        self._utterance_start_rms = 0  # RMS level when speech started
+        self._utterance_start_noise_floor = 50.0  # Noise floor when speech started
         
         # 🔥 BUILD 303: GREETING FLOW MANAGEMENT - Wait for user answer to greeting question
         # Ensures we don't skip to next question before processing user's response to greeting
@@ -1240,6 +1730,10 @@ class MediaStreamHandler:
         self._greeting_audio_received = False  # True after at least one greeting audio delta
         self._greeting_audio_timeout_sec = 5.0  # 🔥 BUILD 350: Increased to 5s for outbound reliability
         
+        # 🎯 FIX A: GREETING STATE - Only first response is greeting, not all responses!
+        self.greeting_mode_active = False  # True only during FIRST response (real greeting)
+        self.greeting_completed = False    # Becomes True after first response.audio.done
+        
         # Timeout configuration (optimized for fast response + stability)
         # 🔥 FIX: Increased from 1.5s to 2.5s - some calls have START delay of 1.6-1.8s
         self._twilio_start_timeout_sec = 2.5  # Max wait for Twilio START event
@@ -1251,6 +1745,8 @@ class MediaStreamHandler:
         
         # 🔥 BUILD 303: SMART HANGUP - Always send goodbye before disconnect
         self.goodbye_message_sent = False  # Track if we sent a proper goodbye
+        self.user_said_goodbye = False  # Track if USER said goodbye (separate from AI polite closing)
+        self.last_user_goodbye_at = None  # Timestamp in milliseconds when user said goodbye (time.time() * 1000)
         
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
@@ -1259,14 +1755,16 @@ class MediaStreamHandler:
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
         
         # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
+        # 🔥 CRITICAL HOTFIX: Import MUSIC_MODE_ENABLED flag
         # Imports config values - see server/config/calls.py for tuning
         from server.config.calls import (
-            AUDIO_GUARD_ENABLED, AUDIO_GUARD_INITIAL_NOISE_FLOOR,
+            AUDIO_GUARD_ENABLED, MUSIC_MODE_ENABLED, AUDIO_GUARD_INITIAL_NOISE_FLOOR,
             AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR, AUDIO_GUARD_MIN_ZCR_FOR_SPEECH,
             AUDIO_GUARD_MIN_RMS_DELTA, AUDIO_GUARD_MUSIC_ZCR_THRESHOLD,
             AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER, AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
         )
         self._audio_guard_enabled = AUDIO_GUARD_ENABLED
+        self._music_mode_enabled = MUSIC_MODE_ENABLED
         self._audio_guard_noise_floor = AUDIO_GUARD_INITIAL_NOISE_FLOOR
         self._audio_guard_speech_factor = AUDIO_GUARD_SPEECH_THRESHOLD_FACTOR
         self._audio_guard_prev_rms = 0.0
@@ -1275,7 +1773,7 @@ class MediaStreamHandler:
         self._audio_guard_music_cooldown_frames = 0
         self._audio_guard_drop_count = 0  # Rate-limited logging
         self._audio_guard_last_summary_ts = 0.0  # For periodic summary logs
-        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED} (dynamic noise floor, speech gating, music_mode, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
+        print(f"🔊 [AUDIO_GUARD] Enabled={AUDIO_GUARD_ENABLED}, MusicMode={MUSIC_MODE_ENABLED} (dynamic noise floor, speech gating, gap_recovery={'OFF' if AUDIO_GUARD_ENABLED else 'ON'})")
         
         # ⚡ STREAMING STT: Will be initialized after business identification (in "start" event)
         
@@ -1305,10 +1803,10 @@ class MediaStreamHandler:
         # 🔥 BUILD 172 SINGLE SOURCE OF TRUTH: Call behavior settings
         # DEFAULTS only - overwritten by load_call_config(business_id) when business is identified
         # Do NOT modify these directly - always use self.call_config for the authoritative values
-        # 🔥 BUILD 350: Bot ALWAYS speaks first for faster, better UX
-        self.bot_speaks_first = True  # Default: bot speaks first - can be overwritten by CallConfig
+        # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - flag deprecated
+        self.bot_speaks_first = True  # HARDCODED: Always speak first (was: overwritten by CallConfig)
         self.auto_end_after_lead_capture = False  # Default: don't auto-end - overwritten by CallConfig
-        self.auto_end_on_goodbye = False  # Default: don't auto-end - overwritten by CallConfig
+        self.auto_end_on_goodbye = True  # Default: auto-end on goodbye - NOW ENABLED BY DEFAULT - overwritten by CallConfig
         self.lead_captured = False  # Runtime state: tracks if all required lead info is collected
         self.goodbye_detected = False  # Runtime state: tracks if goodbye phrase detected
         self.pending_hangup = False  # Runtime state: signals that call should end after current TTS
@@ -1372,6 +1870,16 @@ class MediaStreamHandler:
         self._post_greeting_grace_period_sec = 5.0  # 5 seconds after greeting to let user respond
         self._is_silence_handler_response = False  # Track if current response is from SILENCE_HANDLER (shouldn't count)
         self._user_responded_after_greeting = False  # Track if user has responded after greeting (end grace early)
+        
+        # 🔥 SESSION CONFIGURATION VALIDATION: Track session.update success/failure
+        self._session_config_confirmed = False  # True when session.updated received
+        self._session_config_failed = False  # True when session.update error received
+        
+        # 🔥 CALL METRICS: Performance tracking counters
+        self._barge_in_event_count = 0  # Count of barge-in events during call
+        self._silence_10s_count = 0  # Count of 10s+ silence gaps during call
+        self._stt_hallucinations_dropped = 0  # Count of STT hallucinations rejected by STT_GUARD
+        self.connection_start_time = time.time()  # Track connection start for metrics
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -1449,53 +1957,13 @@ class MediaStreamHandler:
     
     def _init_streaming_stt(self):
         """
-        ⚡ BUILD 114: Initialize streaming STT with retry mechanism
-        3 attempts before falling back to single-request mode
+        🚫 DISABLED - Google streaming STT is turned off for production stability
+        
+        This function is deprecated and should not be called.
+        Use OpenAI Realtime API instead.
         """
-        if not USE_STREAMING_STT or not self.call_sid:
-            return
-        
-        from server.services.gcp_stt_stream import StreamingSTTSession
-        
-        # ⚡ RETRY MECHANISM: 3 attempts before fallback
-        for attempt in range(3):
-            try:
-                # Create dispatcher callbacks for this specific call
-                on_partial, on_final = _create_dispatcher_callbacks(self.call_sid)
-                
-                # Create session
-                session = StreamingSTTSession(
-                    on_partial=on_partial,
-                    on_final=on_final
-                )
-                
-                # Register in thread-safe registry
-                _register_session(self.call_sid, session, tenant_id=self.business_id)
-                
-                self.s1_stream_opened = time.time()  # ⚡ [S1] STT stream opened
-                if DEBUG: print(f"✅ [S1={self.s1_stream_opened:.3f}] Streaming session started for call {self.call_sid[:8]}... (business: {self.business_id}, attempt: {attempt+1}, Δ={(self.s1_stream_opened - self.t0_connected)*1000:.0f}ms from T0)")
-                return  # Success!
-                
-            except RuntimeError as e:
-                if DEBUG: print(f"🚨 [STT] Over capacity (attempt {attempt+1}/3): {e}")
-                if attempt < 2:
-                    time.sleep(0.2)  # Brief delay before retry
-                    continue
-                # Don't crash - will use fallback STT
-                return
-                
-            except Exception as e:
-                if DEBUG: print(f"⚠️ [STT] Streaming start failed (attempt {attempt+1}/3): {e}", flush=True)
-                if attempt < 2:
-                    time.sleep(0.2)  # Brief delay before retry
-                    continue
-                if DEBUG:
-                    import traceback
-                    traceback.print_exc()
-                return
-        
-        # If we get here, all 3 attempts failed
-        if DEBUG: print(f"❌ [STT] All streaming attempts failed for call {self.call_sid[:8]} → using fallback single request", flush=True)
+        # Always skip initialization when Google is disabled or streaming STT is off
+        return
     
     def _close_streaming_stt(self):
         """Close streaming STT session at end of call"""
@@ -1589,18 +2057,19 @@ class MediaStreamHandler:
 
     def _set_safe_business_defaults(self, force_greeting=False):
         """🔥 SAFETY: Set ONLY MISSING fields with safe defaults. Never overwrite valid data."""
-        # Only set if attribute doesn't exist or is explicitly None
+        # ⛔ CRITICAL: NEVER allow calls without business_id - this causes cross-business contamination!
         if not hasattr(self, 'business_id') or self.business_id is None:
-            self.business_id = 1
-            print(f"🔒 [DEFAULTS] Set fallback business_id=1")
+            logger.error(f"❌ CRITICAL: Call without business_id! call_sid={getattr(self, 'call_sid', 'unknown')}, to={getattr(self, 'to_number', 'unknown')}")
+            raise ValueError("CRITICAL: business_id is required - cannot process call without valid business identification")
         if not hasattr(self, 'business_name') or self.business_name is None:
             self.business_name = "העסק"
         if not hasattr(self, 'bot_speaks_first'):
             self.bot_speaks_first = True
         if not hasattr(self, 'auto_end_after_lead_capture'):
             self.auto_end_after_lead_capture = False
+        # 🔥 FIX: Ensure auto_end_on_goodbye is set to True by default if not present
         if not hasattr(self, 'auto_end_on_goodbye'):
-            self.auto_end_on_goodbye = False
+            self.auto_end_on_goodbye = True  # Default: auto-end on goodbye - NOW ENABLED BY DEFAULT
         if not hasattr(self, 'greeting_text'):
             self.greeting_text = None
         
@@ -1688,10 +2157,31 @@ class MediaStreamHandler:
         4. Stream audio bidirectionally
         """
         from server.services.openai_realtime_client import OpenAIRealtimeClient
+        from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
         logger.info(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
+        
+        # Helper function for session configuration (used for initial config and retry)
+        async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=False):
+            """Send session.update event with specified configuration
+            
+            Args:
+                force: Set to True to bypass hash check (for retry)
+            """
+            await client.configure_session(
+                instructions=greeting_prompt,
+                voice=call_voice,
+                input_audio_format="g711_ulaw",
+                output_audio_format="g711_ulaw",
+                vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
+                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
+                temperature=0.6,
+                max_tokens=greeting_max_tokens,
+                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש.",  # ✅ QA: Simple Hebrew transcription guidance
+                force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
+            )
         
         client = None
         call_start_time = time.time()
@@ -1800,9 +2290,20 @@ class MediaStreamHandler:
             t_before_prompt = time.time()
             greeting_text = getattr(self, 'greeting_text', None)
             biz_name = getattr(self, 'business_name', None) or "העסק"
-            business_id_safe = self.business_id if self.business_id is not None else 1
+            
+            # ⛔ CRITICAL: business_id must be set before this point - no fallback allowed
+            if self.business_id is None:
+                logger.error(f"❌ CRITICAL: business_id is None at greeting! call_sid={self.call_sid}")
+                _orig_print(f"❌ [BUSINESS_ISOLATION] OpenAI session rejected - no business_id", flush=True)
+                raise ValueError("CRITICAL: business_id required for greeting")
+            
+            business_id_safe = self.business_id
             call_direction = getattr(self, 'call_direction', 'inbound')
             outbound_lead_name = getattr(self, 'outbound_lead_name', None)
+            
+            # 🔒 LOG BUSINESS ISOLATION: Confirm which business is being used for this OpenAI session
+            logger.info(f"[BUSINESS_ISOLATION] openai_session_start business_id={business_id_safe} call_sid={self.call_sid}")
+            _orig_print(f"🔒 [BUSINESS_ISOLATION] OpenAI session for business {business_id_safe}", flush=True)
             
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 FIX #2: ULTRA-FAST GREETING with PRE-BUILT COMPACT PROMPT
@@ -1826,16 +2327,18 @@ class MediaStreamHandler:
             # Step 3: Fallback - build if not in registry (should rarely happen)
             if not compact_prompt or not full_prompt:
                 print(f"⚠️ [PROMPT] Pre-built prompts not found in registry - building now (SLOW PATH)")
+                # 🔥 LOG: Direction being used for prompt building
+                print(f"🔍 [PROMPT_DEBUG] Building prompts for call_direction={call_direction}")
                 try:
                     from server.services.realtime_prompt_builder import build_compact_greeting_prompt, build_realtime_system_prompt
                     app = _get_flask_app()
                     with app.app_context():
                         if not compact_prompt:
                             compact_prompt = build_compact_greeting_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars")
+                            print(f"✅ [PROMPT] COMPACT built as fallback: {len(compact_prompt)} chars (direction={call_direction})")
                         if not full_prompt:
                             full_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
-                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars")
+                            print(f"✅ [PROMPT] FULL built as fallback: {len(full_prompt)} chars (direction={call_direction})")
                 except Exception as prompt_err:
                     print(f"❌ [PROMPT] Failed to build prompts: {prompt_err}")
                     import traceback
@@ -1849,6 +2352,20 @@ class MediaStreamHandler:
                 print(f"🚀 [PROMPT] Using PRE-BUILT prompts from registry (ULTRA-FAST PATH)")
                 print(f"   ├─ COMPACT: {len(compact_prompt)} chars (for greeting)")
                 print(f"   └─ FULL: {len(full_prompt)} chars (for upgrade)")
+                
+                # 🔥 HARD LOCK: Verify call_direction matches pre-built prompt
+                # If mismatch detected - LOG WARNING but DO NOT REBUILD
+                # The call continues with the already-loaded prompt
+                prompt_direction_check = "outbound" if "outbound" in full_prompt.lower() or self.call_direction == "outbound" else "inbound"
+                if prompt_direction_check != call_direction:
+                    # 🔥 CRITICAL: DO NOT REBUILD - just log and continue
+                    print(f"⚠️ [PROMPT_MISMATCH] WARNING: Pre-built prompt direction mismatch detected!")
+                    print(f"   Expected: {call_direction}, Pre-built for: {prompt_direction_check}")
+                    print(f"   ❌ NOT rebuilding - continuing with pre-built prompt (HARD LOCK)")
+                    _orig_print(f"[PROMPT_MISMATCH] call_sid={self.call_sid[:8]}... expected={call_direction} prebuilt={prompt_direction_check} action=CONTINUE_NO_REBUILD", flush=True)
+                else:
+                    print(f"✅ [PROMPT_VERIFY] Pre-built prompt matches call direction: {call_direction}")
+                    _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... direction={call_direction} status=MATCHED", flush=True)
             
             # Use compact for initial greeting (fast!)
             greeting_prompt_to_use = compact_prompt
@@ -1905,9 +2422,11 @@ class MediaStreamHandler:
             # 🔥 BUILD 304: Changed to 'ash' - conversational male, lower pitch, no jumps
             # User reported coral was too high-pitched and had voice jumps
             # 'ash' = calm conversational male, better for professional calls
-            call_voice = "ash"
+            # 🔥 CRITICAL: ALWAYS use male voice - NEVER change based on customer gender!
+            # Male voice is locked for all calls regardless of customer gender detection
+            call_voice = "ash"  # Male voice - NEVER change this!
             self._call_voice = call_voice  # Store for session.update reuse
-            print(f"🎤 [VOICE] Using voice={call_voice} for entire call (business={self.business_id})")
+            print(f"🎤 [VOICE] Using voice={call_voice} (MALE) for entire call (business={self.business_id})")
             
             # 🔥 FIX: Calculate max_tokens based on greeting length
             # Long greetings (14 seconds = ~280 words in Hebrew) need 500+ tokens
@@ -1925,51 +2444,114 @@ class MediaStreamHandler:
             print(f"🎤 [GREETING] max_tokens={greeting_max_tokens} (direction={call_direction})")
             
             # 🔥 BUILD 316: NO STT PROMPT - Let OpenAI transcribe naturally!
-            # Vocabulary prompts were causing hallucinations like "קליבר" 
+            # Vocabulary prompts were causing hallucinations with business names
             # Pure approach: language="he" + no prompt = best accuracy
             print(f"🎤 [BUILD 316] ULTRA SIMPLE STT: language=he, NO vocabulary prompt")
             
-            # 🔥 BUILD 316: Configure with MINIMAL settings for FAST greeting
-            await client.configure_session(
-                instructions=greeting_prompt,
-                voice=call_voice,
-                input_audio_format="g711_ulaw",
-                output_audio_format="g711_ulaw",
-                vad_threshold=0.85,
-                silence_duration_ms=450,
-                temperature=0.6,
-                max_tokens=greeting_max_tokens,
-                transcription_prompt=""  # 🔥 BUILD 316: EMPTY - no vocabulary hints!
-            )
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 STEP 1: Start RX loop BEFORE session.update to prevent event loss
+            # ═══════════════════════════════════════════════════════════════════════
+            _orig_print(f"🚀 [RX_LOOP] Starting receiver task BEFORE session.update (prevents event loss)", flush=True)
+            logger.info(f"[REALTIME] Starting receiver loop before session configuration")
+            
+            # Initialize flag to track when RX loop is ready
+            self._recv_loop_started = False
+            
+            audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
+            
+            # Wait for RX loop to signal it's listening (max 2 seconds)
+            rx_wait_start = time.time()
+            rx_max_wait = 2.0
+            while not self._recv_loop_started:
+                if time.time() - rx_wait_start > rx_max_wait:
+                    _orig_print(f"⚠️ [RX_LOOP] Timeout waiting for recv_loop_started flag - proceeding anyway", flush=True)
+                    break
+                await asyncio.sleep(0.01)  # Check every 10ms
+            
+            rx_ready_ms = (time.time() - rx_wait_start) * 1000
+            _orig_print(f"✅ [RX_LOOP] Receiver loop confirmed ready in {rx_ready_ms:.0f}ms - safe to send session.update", flush=True)
+            
+            # Send initial session configuration
+            _orig_print(f"📤 [SESSION] Sending session.update with config...", flush=True)
+            await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens)
+            _orig_print(f"✅ [SESSION] session.update sent - waiting for confirmation", flush=True)
+            
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 STEP 3: Extended timeout with retry logic
+            # ═══════════════════════════════════════════════════════════════════════
+            # CRITICAL: Wait for session.updated confirmation before proceeding
+            # This prevents race condition where response.create is sent before session is configured
+            # Without this wait: PCM16 audio (noise) + English responses + no instructions
+            _orig_print(f"⏳ [SESSION] Waiting for session.updated confirmation (max 8s with retry)...", flush=True)
+            wait_start = time.time()
+            max_wait = 8.0  # Maximum 8 seconds total
+            retry_at = 3.0  # Retry after 3 seconds if no response
+            retried = False
+            
+            while not getattr(self, '_session_config_confirmed', False):
+                # Check if session configuration failed
+                if getattr(self, '_session_config_failed', False):
+                    _orig_print(f"🚨 [SESSION] Configuration FAILED - aborting call", flush=True)
+                    raise RuntimeError("Session configuration failed - cannot proceed with call")
+                
+                # Check timeout
+                elapsed = time.time() - wait_start
+                
+                # Retry logic: Send session.update again if no response within 3s
+                if elapsed >= retry_at and not retried:
+                    retried = True
+                    _orig_print(f"⏰ [SESSION] No session.updated after {retry_at}s - retrying session.update", flush=True)
+                    # 🔥 FIX 3: Pass force=True to bypass hash check on retry
+                    await _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=True)
+                    _orig_print(f"📤 [SESSION] Retry session.update sent with force=True - continuing to wait", flush=True)
+                
+                if elapsed > max_wait:
+                    _orig_print(f"🚨 [SESSION] Timeout waiting for session.updated ({max_wait}s, retried={retried}) - aborting", flush=True)
+                    raise RuntimeError(f"Session configuration timeout after {max_wait}s - cannot proceed")
+                
+                # Wait a bit and check again
+                await asyncio.sleep(0.05)  # 50ms polling
+            
+            session_wait_ms = (time.time() - wait_start) * 1000
+            _orig_print(f"✅ [SESSION] session.updated confirmed in {session_wait_ms:.0f}ms (retried={retried}) - safe to proceed", flush=True)
+            
+            # 🔥 PROMPT_BIND LOGGING: Track prompt binding (should happen ONCE per call)
+            import hashlib
+            prompt_hash = hashlib.md5(greeting_prompt.encode()).hexdigest()[:8]
+            print(f"🔒 [PROMPT_BIND] business_id={business_id_safe} direction={call_direction} hash={prompt_hash} binding=INITIAL")
+            _orig_print(f"[PROMPT_BIND] call_sid={self.call_sid[:8]}... business_id={business_id_safe} direction={call_direction} hash={prompt_hash}", flush=True)
+            
             t_after_config = time.time()
             config_ms = (t_after_config - t_before_config) * 1000
             total_ms = (t_after_config - t_start) * 1000
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
-            # 🚀 Start audio/text bridges FIRST (before CRM)
-            logger.info(f"[REALTIME] Starting audio/text bridge tasks...")
+            # 🚀 Start audio/text bridges (RX already started above)
+            logger.info(f"[REALTIME] Starting audio/text sender tasks...")
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
-            audio_out_task = asyncio.create_task(self._realtime_audio_receiver(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
             logger.info(f"[REALTIME] Audio/text tasks created successfully")
             
-            # 🎯 BUILD 163 SPEED FIX: Bot speaks first - trigger IMMEDIATELY after session config
-            # No waiting for CRM, no 0.2s delay - just speak!
-            # 🔥 BUILD 350: OUTBOUND CALLS - Bot ALWAYS speaks first!
-            is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-            logger.info(f"[REALTIME] bot_speaks_first={self.bot_speaks_first}, direction={call_direction}, is_outbound={is_outbound}")
-            if is_outbound:
-                print(f"📤📤📤 [OUTBOUND] Bot will speak FIRST - NO WAITING for customer!")
-            if self.bot_speaks_first:
-                greeting_start_ts = time.time()
-                print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
-                self.greeting_sent = True  # Mark greeting as sent to allow audio through
-                self.is_playing_greeting = True
-                self._greeting_start_ts = greeting_start_ts  # Store for duration logging
-                # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
-                triggered = await self.trigger_response("GREETING", client, is_greeting=True)
-                if triggered:
+            # 🔥 MASTER FIX: ALWAYS trigger greeting immediately - no flag checks!
+            # Bot speaks first is now HARDCODED behavior for all calls
+            logger.info(f"[REALTIME] ENFORCING bot_speaks_first=True (hardcoded)")
+            
+            # 🔥 MASTER FIX: Store OpenAI connect metric
+            from server.stream_state import stream_registry
+            if hasattr(self, '_metrics_openai_connect_ms') and self.call_sid:
+                stream_registry.set_metric(self.call_sid, 'openai_connect_ms', self._metrics_openai_connect_ms)
+            
+            # 🔥 MASTER FIX: Always trigger greeting (hardcoded bot-first behavior)
+            greeting_start_ts = time.time()
+            print(f"🎤 [GREETING] Bot speaks first - triggering greeting at {greeting_start_ts:.3f}")
+            self.greeting_sent = True  # Mark greeting as sent to allow audio through
+            self.is_playing_greeting = True
+            self.greeting_mode_active = True  # 🎯 FIX A: Enable greeting mode for FIRST response only
+            self._greeting_start_ts = greeting_start_ts  # Store for duration logging
+            # 🔥 BUILD 200: Use trigger_response for greeting (with is_greeting=True to skip loop guard)
+            triggered = await self.trigger_response("GREETING", client, is_greeting=True)
+            if triggered:
                     t_speak = time.time()
                     total_openai_ms = (t_speak - t_start) * 1000
                     
@@ -2031,29 +2613,19 @@ class MediaStreamHandler:
                     # Start the watchdog
                     asyncio.create_task(_greeting_audio_timeout_watchdog())
                     
-                else:
-                    print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
-                    # Reset flags since greeting failed
-                    self.greeting_sent = False
-                    self.is_playing_greeting = False
             else:
-                # Standard flow - AI waits for user speech first
-                print(f"ℹ️ [BUILD 163] Bot speaks first disabled - waiting for user speech")
-                
-                # 🔥 BUILD 172: Start warmup timer - transition to ACTIVE after 800ms
-                async def warmup_to_active():
-                    await asyncio.sleep(0.8)  # 800ms warmup
-                    if self.call_state == CallState.WARMUP and not self.hangup_triggered:
-                        self.call_state = CallState.ACTIVE
-                        print(f"📞 [STATE] Transitioned WARMUP → ACTIVE (800ms timer)")
-                        await self._start_silence_monitor()
-                
-                asyncio.create_task(warmup_to_active())
+                print(f"❌ [BUILD 200] Failed to trigger greeting via trigger_response")
+                # Reset flags since greeting failed
+                self.greeting_sent = False
+                self.is_playing_greeting = False
             
             # 🎯 SMART TOOL SELECTION: Check if appointment tool should be enabled
             # Realtime phone calls: NO tools by default, ONLY appointment tool when enabled
             # 🔥 FIX: Wrap in try/except to prevent crashes - realtime should continue even if tools fail
             realtime_tools = []
+            # 🔥 CRITICAL FIX: Define tool_choice BEFORE any closure to avoid scope errors
+            tool_choice = "auto"
+            
             try:
                 logger.info(f"[REALTIME] Building tools for call...")
                 realtime_tools = self._build_realtime_tools_for_call()
@@ -2066,7 +2638,6 @@ class MediaStreamHandler:
             
             if realtime_tools:
                 # Appointment tool is enabled - send session update
-                tool_choice = "auto"
                 print(f"[TOOLS][REALTIME] Appointment tool enabled - tools={len(realtime_tools)}")
                 logger.info(f"[TOOLS][REALTIME] Session will use appointment tool (count={len(realtime_tools)})")
             else:
@@ -2114,11 +2685,14 @@ class MediaStreamHandler:
                         app = _get_flask_app()
                         with app.app_context():
                             # 🔥 BUILD 174: Use existing lead_id for outbound calls
+                            # 🔒 CRITICAL FIX: Lock lead_id at call start - this is THE lead_id for the entire call
                             if call_direction == 'outbound' and outbound_lead_id:
                                 lead_id = int(outbound_lead_id)
                                 print(f"📤 [OUTBOUND CRM] Using existing lead_id={lead_id}")
+                                print(f"🔒 [LEAD_ID_LOCK] Lead ID locked to {lead_id} for call {self.call_sid}")
                             else:
                                 lead_id = ensure_lead(business_id_safe, customer_phone)
+                                print(f"🔒 [LEAD_ID_LOCK] Lead ID locked to {lead_id} for call {self.call_sid}")
                             
                             self.crm_context = CallCrmContext(
                                 business_id=business_id_safe,
@@ -2129,6 +2703,47 @@ class MediaStreamHandler:
                             if hasattr(self, 'pending_customer_name') and self.pending_customer_name:
                                 self.crm_context.customer_name = self.pending_customer_name
                                 self.pending_customer_name = None
+                            
+                            # 🔥 P0-1 FIX: Link CallLog to lead_id with proper session management
+                            # 🔒 CRITICAL: This ensures ALL updates (recording/transcript/summary) use call_sid -> lead_id mapping
+                            if lead_id and hasattr(self, 'call_sid') and self.call_sid:
+                                try:
+                                    from server.models_sql import CallLog
+                                    from sqlalchemy.orm import scoped_session, sessionmaker
+                                    
+                                    # ✅ P0-1: Create new session for this background thread
+                                    engine = db.engine
+                                    Session = scoped_session(sessionmaker(bind=engine))
+                                    session = Session()
+                                    
+                                    try:
+                                        call_log = session.query(CallLog).filter_by(call_sid=self.call_sid).first()
+                                        if call_log:
+                                            if not call_log.lead_id:
+                                                call_log.lead_id = lead_id
+                                                session.commit()
+                                                print(f"✅ [LEAD_ID_LOCK] Linked CallLog {self.call_sid} to lead {lead_id}")
+                                            elif call_log.lead_id != lead_id:
+                                                # 🔒 CRITICAL: lead_id already set but differs
+                                                # This indicates a race condition or duplicate call handling
+                                                # Always use the FIRST locked lead_id to maintain consistency
+                                                print(f"❌ [LEAD_ID_LOCK] CONFLICT! CallLog {self.call_sid} has lead_id={call_log.lead_id}, attempted {lead_id}")
+                                                print(f"🔒 [LEAD_ID_LOCK] Keeping original lead_id={call_log.lead_id} (first-lock-wins)")
+                                                # Update local context to match DB
+                                                self.crm_context.lead_id = call_log.lead_id
+                                            else:
+                                                print(f"✅ [LEAD_ID_LOCK] CallLog {self.call_sid} already linked to lead {lead_id}")
+                                        else:
+                                            print(f"⚠️ [LEAD_ID_LOCK] CallLog not found for {self.call_sid} - will be created by webhook")
+                                    except Exception as commit_error:
+                                        session.rollback()
+                                        print(f"⚠️ [CRM] DB error linking CallLog: {commit_error}")
+                                    finally:
+                                        session.close()
+                                        Session.remove()
+                                except Exception as link_error:
+                                    print(f"⚠️ [CRM] Failed to link CallLog to lead: {link_error}")
+                            
                             print(f"✅ [CRM] Context ready (background): lead_id={lead_id}, direction={call_direction}")
                     except Exception as e:
                         print(f"⚠️ [CRM] Background init failed: {e}")
@@ -2200,6 +2815,13 @@ class MediaStreamHandler:
         _greeting_block_logged = False
         _greeting_resumed_logged = False
         
+        # 🔥 BUILD 341: FRAME METRICS - Track all frames for quality monitoring
+        _frames_in = 0        # Total frames received from queue
+        _frames_sent = 0      # Total frames sent to OpenAI
+        _frames_dropped = 0   # Total frames dropped (FPS limit or other)
+        _metrics_last_log = time.time()
+        _metrics_log_interval = 5.0  # Log every 5 seconds
+        
         # 🔥 BUILD 318: FPS LIMITER - Prevent sending too many frames/second
         # This is a critical cost optimization - limits frames to COST_MAX_FPS per second
         _fps_frame_count = 0
@@ -2212,11 +2834,28 @@ class MediaStreamHandler:
         _limit_exceeded = False
         _limit_logged = False
         
-        while not self.realtime_stop_flag:
+        # ═══════════════════════════════════════════════════════════════════════
+        # 🔥 STEP 5: Queue audio until session is confirmed
+        # ═══════════════════════════════════════════════════════════════════════
+        _session_wait_logged = False
+        
+        while not self.realtime_stop_flag and not self.closed:
             try:
                 if not hasattr(self, 'realtime_audio_in_queue'):
                     await asyncio.sleep(0.01)
                     continue
+                
+                # 🔥 STEP 5: Wait for session confirmation before sending audio
+                # This prevents audio from being sent with wrong config (PCM16 instead of g711_ulaw)
+                if not getattr(self, '_session_config_confirmed', False):
+                    if not _session_wait_logged:
+                        _orig_print(f"⏸️ [AUDIO_GATE] Queuing audio - waiting for session.updated confirmation", flush=True)
+                        _session_wait_logged = True
+                    await asyncio.sleep(0.05)  # Wait 50ms and check again
+                    continue
+                elif _session_wait_logged:
+                    _orig_print(f"▶️ [AUDIO_GATE] Session confirmed - starting audio transmission to OpenAI", flush=True)
+                    _session_wait_logged = False  # Reset for next check
                 
                 try:
                     audio_chunk = self.realtime_audio_in_queue.get_nowait()
@@ -2228,42 +2867,33 @@ class MediaStreamHandler:
                     print(f"📤 [REALTIME] Stop signal received")
                     break
                 
+                # 🔥 BUILD 341: Count incoming frames
+                _frames_in += 1
+                
+                # 🎯 FIX A: Block audio ONLY during greeting_mode_active (first response), not all responses!
                 # 🛡️ BUILD 168.5 FIX: Block audio input during greeting to prevent turn_detected cancellation!
                 # OpenAI's server-side VAD detects incoming audio as "user speech" and cancels the greeting.
                 # Solution: Don't send audio to OpenAI until greeting finishes playing.
-                if self.is_playing_greeting:
+                # 🔥 P0-4: Skip greeting protection in SIMPLE_MODE (passthrough only)
+                # OLD: if self.is_playing_greeting:
+                # NEW: Only block during actual greeting (first response)
+                if not SIMPLE_MODE and self.greeting_mode_active and not self.greeting_completed:
                     if not _greeting_block_logged:
                         print(f"🛡️ [GREETING PROTECT] Blocking audio input to OpenAI - greeting in progress")
                         _greeting_block_logged = True
                     # 🔥 BUILD 200: Track blocked audio stats
                     self._stats_audio_blocked += 1
+                    # 🔥 BUILD 341: Count as dropped
+                    _frames_dropped += 1
                     # Drop the audio chunk - don't send to OpenAI during greeting
                     continue
-                else:
+                elif _greeting_block_logged and not _greeting_resumed_logged:
                     # Greeting finished - resume sending audio
-                    if _greeting_block_logged and not _greeting_resumed_logged:
-                        print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
-                        _greeting_resumed_logged = True
+                    print(f"✅ [GREETING PROTECT] Greeting done - resuming audio to OpenAI")
+                    _greeting_resumed_logged = True
                 
-                # 🔥 BUILD 318: FPS LIMITER - Throttle frames to prevent cost explosion
-                current_time = time.time()
-                elapsed = current_time - _fps_window_start
-                
-                if elapsed >= 1.0:
-                    # Reset window every second
-                    if _fps_frame_count > COST_MAX_FPS and not _fps_throttle_logged:
-                        print(f"⚠️ [BUILD 318] FPS exceeded: {_fps_frame_count}/sec (max={COST_MAX_FPS})")
-                    _fps_frame_count = 0
-                    _fps_window_start = current_time
-                    _fps_throttle_logged = False
-                
-                # Check if we've exceeded FPS limit
-                if COST_EFFICIENT_MODE and _fps_frame_count >= COST_MAX_FPS:
-                    # Skip this frame - we're over the limit
-                    if not _fps_throttle_logged:
-                        print(f"💰 [FPS LIMIT] Throttling audio - {_fps_frame_count} frames this second (max={COST_MAX_FPS})")
-                        _fps_throttle_logged = True
-                    continue
+                # ✅ NO FPS LIMITING - All frames pass through
+                # TX loop maintains strict 20ms pacing, no artificial throttling here
                 
                 _fps_frame_count += 1
                 
@@ -2334,8 +2964,24 @@ class MediaStreamHandler:
                     self._user_speech_start = time.time()
                 self.realtime_audio_in_chunks += 1
                 
+                # 🔥 BUILD 341: Count frames sent and log metrics periodically
+                _frames_sent += 1
+                
+                # Log metrics every 5 seconds
+                current_time = time.time()
+                if current_time - _metrics_last_log >= _metrics_log_interval:
+                    call_duration = current_time - _call_start_time
+                    print(f"📊 [FRAME_METRICS] StreamSid={self.stream_sid} | "
+                          f"frames_in={_frames_in}, frames_sent={_frames_sent}, frames_dropped={_frames_dropped} | "
+                          f"call_duration={call_duration:.1f}s")
+                    _metrics_last_log = current_time
+                
                 # 🔥 BUILD 200: Track audio sent stats
                 self._stats_audio_sent += 1
+                
+                # 🔥 Log first frame sent after gate opens
+                if _frames_sent == 0:
+                    _orig_print(f"🎵 [AUDIO_GATE] First audio frame sent to OpenAI - transmission started", flush=True)
                 
                 await client.send_audio_chunk(audio_chunk)
                 
@@ -2408,24 +3054,9 @@ class MediaStreamHandler:
         print(f"📤 [REALTIME] Audio sender ended (frames={_total_frames_sent}, seconds={self._usage_guard_seconds:.1f})")
     
     # ═══════════════════════════════════════════════════════════════════════════════
-    # 🔥 BUILD 302: FLUSH TX QUEUE - Stop old audio from playing on barge-in
+    # ✅ NO QUEUE FLUSH: Removed per requirements - no flush on barge-in
+    # Audio drains naturally, no manual queue manipulation
     # ═══════════════════════════════════════════════════════════════════════════════
-    def _flush_twilio_tx_queue(self, reason: str = ""):
-        """
-        Flush all pending audio from the TX queue to Twilio.
-        Called on barge-in to immediately stop AI audio playback.
-        """
-        queue_size_before = self.tx_q.qsize()
-        flushed = 0
-        try:
-            while not self.tx_q.empty():
-                _ = self.tx_q.get_nowait()
-                flushed += 1
-        except Exception:
-            pass
-        
-        print(f"🧹 [TX_FLUSH] Flushed {flushed} frames (was {queue_size_before}, reason={reason or 'UNKNOWN'})")
-        return flushed
     
     # ═══════════════════════════════════════════════════════════════════════════════
     # 🔥 BUILD 320: AUDIO_GUARD - Lightweight filtering for noisy PSTN calls
@@ -2504,27 +3135,34 @@ class MediaStreamHandler:
             self._audio_guard_noise_floor = 0.9 * self._audio_guard_noise_floor + 0.1 * rms
         
         # ═══ MUSIC MODE DETECTION ═══
-        # Detect continuous background music: sustained RMS + moderate-high ZCR
-        if rms > effective_threshold and zcr > AUDIO_GUARD_MUSIC_ZCR_THRESHOLD:
-            self._audio_guard_music_frames_counter += 1
+        # 🔥 CRITICAL HOTFIX: Only enter music mode if MUSIC_MODE_ENABLED is True
+        if self._music_mode_enabled:
+            # Detect continuous background music: sustained RMS + moderate-high ZCR
+            if rms > effective_threshold and zcr > AUDIO_GUARD_MUSIC_ZCR_THRESHOLD:
+                self._audio_guard_music_frames_counter += 1
+            else:
+                self._audio_guard_music_frames_counter = 0
+            
+            # Enter music mode after sustained detection (~300ms)
+            if not self._audio_guard_music_mode and self._audio_guard_music_frames_counter >= AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER:
+                self._audio_guard_music_mode = True
+                self._audio_guard_music_cooldown_frames = AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
+                print(f"🎵 [AUDIO_GUARD] Entering music_mode (rms={rms:.1f}, zcr={zcr:.3f}) - filtering background music")
+            
+            # Exit music mode after cooldown
+            if self._audio_guard_music_mode:
+                self._audio_guard_music_cooldown_frames -= 1
+                if self._audio_guard_music_cooldown_frames <= 0:
+                    self._audio_guard_music_mode = False
+                    self._audio_guard_music_frames_counter = 0
+                    print(f"🎵 [AUDIO_GUARD] Leaving music_mode - resuming normal audio")
+                # During music mode, drop all frames
+                return False
         else:
-            self._audio_guard_music_frames_counter = 0
-        
-        # Enter music mode after sustained detection (~300ms)
-        if not self._audio_guard_music_mode and self._audio_guard_music_frames_counter >= AUDIO_GUARD_MUSIC_FRAMES_TO_ENTER:
-            self._audio_guard_music_mode = True
-            self._audio_guard_music_cooldown_frames = AUDIO_GUARD_MUSIC_COOLDOWN_FRAMES
-            print(f"🎵 [AUDIO_GUARD] Entering music_mode (rms={rms:.1f}, zcr={zcr:.3f}) - filtering background music")
-        
-        # Exit music mode after cooldown
-        if self._audio_guard_music_mode:
-            self._audio_guard_music_cooldown_frames -= 1
-            if self._audio_guard_music_cooldown_frames <= 0:
+            # Music mode disabled - reset state only if needed (avoid per-frame overhead)
+            if self._audio_guard_music_mode or self._audio_guard_music_frames_counter > 0:
                 self._audio_guard_music_mode = False
                 self._audio_guard_music_frames_counter = 0
-                print(f"🎵 [AUDIO_GUARD] Leaving music_mode - resuming normal audio")
-            # During music mode, drop all frames
-            return False
         
         # ═══ SPEECH DETECTION ═══
         is_speech = self._is_probable_speech(rms, zcr, effective_threshold, self._audio_guard_prev_rms)
@@ -2555,10 +3193,16 @@ class MediaStreamHandler:
         
         ALL response.create calls MUST go through this function!
         This ensures:
-        1. Only ONE response is active at a time
-        2. Proper lifecycle tracking of active_response_id
-        3. Loop guard protection
-        4. Consistent logging
+        1. Proper lifecycle tracking of active_response_id
+        2. Loop guard protection
+        3. Consistent logging
+        4. 🔥 FIX: NO blocking guards - cancel happens in barge-in handler only
+        5. 🔥 SESSION GATE: Blocks until session.updated is confirmed
+        
+        Cancel/replace pattern:
+        - response.cancel is called ONLY in speech_started handler when real barge-in detected
+        - This function never blocks based on active_response_id or is_ai_speaking
+        - Allows AI to finish speaking unless user actually interrupts
         
         Args:
             reason: Why we're creating a response (for logging)
@@ -2566,7 +3210,7 @@ class MediaStreamHandler:
             is_greeting: If True, this is the initial greeting - skip loop guard (first response)
             
         Returns:
-            True if response was triggered, False if blocked
+            True if response was triggered, False if blocked by lifecycle guards only
         """
         # Use stored client if not provided
         _client = client or self.realtime_client
@@ -2574,14 +3218,37 @@ class MediaStreamHandler:
             print(f"⚠️ [RESPONSE GUARD] No client available - cannot trigger ({reason})")
             return False
         
-        # 🛡️ GUARD 0: BUILD 303 - Wait for first user utterance after greeting
-        # Don't let AI auto-respond before user answers the greeting question
-        if self.awaiting_greeting_answer and not is_greeting:
-            if self._post_greeting_window_open():
-                print(f"⏸️ [RESPONSE GUARD] Breathing window active - waiting before prompting ({reason})")
+        # 🔥 CRITICAL SESSION GATE: Block response.create until session is confirmed
+        # This prevents race condition where response.create uses default settings (PCM16, English)
+        # Must wait for session.updated confirmation BEFORE any response.create
+        if not getattr(self, '_session_config_confirmed', False):
+            # Check if configuration failed
+            if getattr(self, '_session_config_failed', False):
+                _orig_print(f"🚨 [RESPONSE GUARD] Session config FAILED - blocking response.create ({reason})", flush=True)
                 return False
-            # Window elapsed - allow AI to gently follow-up, but still treat first utterance specially
-            print(f"⏳ [RESPONSE GUARD] Greeting window elapsed - allowing prompt ({reason})")
+            
+            # Configuration not yet confirmed - wait a bit for greeting case
+            if is_greeting:
+                # For greeting, we've already waited in connect_realtime, so this shouldn't happen
+                # But if it does, it's a critical error
+                _orig_print(f"🚨 [RESPONSE GUARD] CRITICAL: Greeting triggered before session confirmed! ({reason})", flush=True)
+                return False
+            else:
+                # For non-greeting, session should already be confirmed
+                # If not, block the response
+                _orig_print(f"🛑 [RESPONSE GUARD] Session not confirmed - blocking response.create ({reason})", flush=True)
+                return False
+        
+        # 🔥 FIX: Cancel/replace ONLY on real barge-in (user speaking while AI speaking)
+        # Do NOT cancel just because active_response_id exists - let AI finish speaking
+        # Cancel only happens in the barge-in handler (speech_started event), not here
+        # This prevents cutting off AI mid-sentence when there's no actual interruption
+        
+        # 🔥 CRITICAL GUARD: Block response.create while user is speaking
+        # This is THE key to proper turn-taking: wait until user finishes before responding
+        if getattr(self, 'user_speaking', False):
+            print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
+            return False
         
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
         # Don't let AI start new conversation loops after call should end
@@ -2597,11 +3264,6 @@ class MediaStreamHandler:
             # Clear the flag - AI can respond (but city is empty so it will ask dynamically)
             self._awaiting_user_correction = False
             print(f"🔄 [BUILD 308] User rejected - city cleared, AI will ask dynamically")
-        
-        # 🛡️ GUARD 1: Check if response is already active
-        if self.active_response_id is not None:
-            print(f"⏸️ [RESPONSE GUARD] Active response in progress ({self.active_response_id[:20]}...) - skipping ({reason})")
-            return False
         
         # 🛡️ GUARD 2: Check if response is pending (race condition prevention)
         if self.response_pending_event.is_set():
@@ -2641,7 +3303,7 @@ class MediaStreamHandler:
         """
         print(f"📝 [REALTIME] Text sender started")
         
-        while not self.realtime_stop_flag:
+        while not self.realtime_stop_flag and not self.closed:
             try:
                 if not hasattr(self, 'realtime_text_input_queue'):
                     await asyncio.sleep(0.01)
@@ -2689,19 +3351,61 @@ class MediaStreamHandler:
         """Receive audio and events from Realtime API"""
         print(f"📥 [REALTIME] Audio receiver started")
         
+        # 🔥 CRITICAL: Signal that RX loop is ready to receive events
+        # This ensures session.update is sent ONLY after recv_events() is listening
+        self._recv_loop_started = True
+        _orig_print(f"🎯 [RX_LOOP] recv_events() loop is now ACTIVE and listening", flush=True)
+        
         try:
             async for event in client.recv_events():
                 event_type = event.get("type", "")
+                
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 STEP 2: RAW EVENT TRACE - Log ALL events to diagnose missing events
+                # ═══════════════════════════════════════════════════════════════════════
+                # Log every event with type and error details (if any)
+                error_info = event.get("error")
+                if error_info:
+                    error_type = error_info.get("type", "unknown")
+                    error_code = error_info.get("code", "unknown")
+                    error_msg = error_info.get("message", "")
+                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, error_type={error_type}, error_code={error_code}, error_msg={error_msg}", flush=True)
+                elif event_type in ("session.created", "session.updated", "error"):
+                    # Log important session events
+                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}, event={event}", flush=True)
+                elif not event_type.endswith(".delta"):
+                    # Log all non-delta events (deltas are too verbose)
+                    _orig_print(f"🔍 [RAW_EVENT] type={event_type}", flush=True)
+                
                 response_id = event.get("response_id")
                 if not response_id and "response" in event:
                     response_id = event.get("response", {}).get("id")
                 
                 if response_id and response_id in self._cancelled_response_ids:
                     if event_type in ("response.done", "response.cancelled"):
+                        # ✅ CRITICAL FIX: Reset state on response.cancelled just like response.done
+                        # Per הנחיה: Clear all response state flags to prevent stale state
+                        if self.active_response_id == response_id:
+                            self.active_response_id = None
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                            print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, is_ai_speaking=False, ai_response_active=False (response_id={response_id[:20]}...)")
+                        
                         self._cancelled_response_ids.discard(response_id)
-                        print(f"🪓 [BARGE-IN] Ignoring final event for cancelled response {response_id[:20]}... (type={event_type})")
+                        # ✅ NEW REQ 4: Also remove from timestamps dict
+                        self._cancelled_response_timestamps.pop(response_id, None)
+                        # ✅ P0 FIX: Also remove from cancel guard set
+                        self._cancel_sent_for_response_ids.discard(response_id)
+                        print(f"🪓 [BARGE-IN] Final event for cancelled response {response_id[:20]}... (type={event_type})")
+                        # Don't continue - let it process through normal response.done/cancelled handler below
                     else:
-                        print(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
+                        # ✅ P0-3: Log when dropping audio delta for cancelled response
+                        if event_type == "response.audio.delta":
+                            print(f"[BARGE_IN_DROP_DELTA] response_id={response_id[:20]}... reason=cancelled_response")
+                        else:
+                            print(f"🪓 [BARGE-IN] Dropping {event_type} for cancelled response {response_id[:20]}...")
                         continue
                 
                 # 🔥 DEBUG BUILD 168.5: Log ALL events to diagnose missing audio
@@ -2709,12 +3413,15 @@ class MediaStreamHandler:
                     # Log all response-related events with details
                     if event_type == "response.audio.delta":
                         delta = event.get("delta", "")
-                        _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
+                        # 🚫 Production mode: Only log in DEBUG
+                        if DEBUG:
+                            _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
                     elif event_type == "response.done":
                         response = event.get("response", {})
                         status = response.get("status", "?")
                         output = response.get("output", [])
                         status_details = response.get("status_details", {})
+                        resp_id = response.get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}", flush=True)
                         # Log output items to see if audio was included
                         for i, item in enumerate(output[:3]):  # First 3 items
@@ -2722,6 +3429,34 @@ class MediaStreamHandler:
                             content = item.get("content", [])
                             content_types = [c.get("type", "?") for c in content] if content else []
                             _orig_print(f"   output[{i}]: type={item_type}, content_types={content_types}", flush=True)
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 TASK D.2: Log response completion metrics for audio quality analysis
+                        # Per הנחיה 5: Log frames_sent==0 cases with full snapshot
+                        # ═══════════════════════════════════════════════════════════════════════
+                        if hasattr(self, '_response_tracking') and resp_id in self._response_tracking:
+                            tracking = self._response_tracking[resp_id]
+                            end_time = time.time()
+                            duration_ms = int((end_time - tracking['start_time']) * 1000)
+                            frames_sent = tracking['frames_sent']
+                            avg_fps = frames_sent / ((end_time - tracking['start_time']) or 1)
+                            
+                            # 🔥 CRITICAL: Log frames_sent==0 cases with full diagnostic snapshot
+                            if frames_sent == 0:
+                                _orig_print(f"⚠️ [TX_DIAG] frames_sent=0 for response {resp_id[:20]}...", flush=True)
+                                _orig_print(f"   SNAPSHOT:", flush=True)
+                                _orig_print(f"   - streamSid: {self.stream_sid}", flush=True)
+                                _orig_print(f"   - tx_queue_size: {self.tx_q.qsize() if hasattr(self, 'tx_q') else 'N/A'}", flush=True)
+                                _orig_print(f"   - realtime_audio_out_queue_size: {self.realtime_audio_out_queue.qsize() if hasattr(self, 'realtime_audio_out_queue') else 'N/A'}", flush=True)
+                                _orig_print(f"   - active_response_id: {self.active_response_id[:20] if self.active_response_id else 'None'}...", flush=True)
+                                _orig_print(f"   - ai_response_active: {getattr(self, 'ai_response_active', False)}", flush=True)
+                                _orig_print(f"   - is_ai_speaking: {self.is_ai_speaking_event.is_set()}", flush=True)
+                                _orig_print(f"   - status: {status}", flush=True)
+                                _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
+                            
+                            print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
+                            # Cleanup
+                            del self._response_tracking[resp_id]
                         
                         # 🔥 PROMPT UPGRADE: After first response, upgrade from COMPACT to FULL prompt
                         # This happens automatically after greeting completes, giving AI full context
@@ -2733,7 +3468,12 @@ class MediaStreamHandler:
                                 full_prompt = self._full_prompt_for_upgrade
                                 upgrade_time = time.time()
                                 
-                                print(f"🔄 [PROMPT UPGRADE] Upgrading from COMPACT ({len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else '~800'} chars) to FULL ({len(full_prompt)} chars)")
+                                print(f"🔄 [PROMPT UPGRADE] Expanding from COMPACT to FULL (planned transition, NOT rebuild)")
+                                print(f"   Compact: ~{len(greeting_prompt_to_use) if 'greeting_prompt_to_use' in dir(self) else 800} chars → Full: {len(full_prompt)} chars")
+                                
+                                # Calculate hash for logging
+                                import hashlib
+                                full_prompt_hash = hashlib.md5(full_prompt.encode()).hexdigest()[:8]
                                 
                                 # Send session.update with full prompt (non-blocking, AI continues working)
                                 await client.send_event({
@@ -2746,12 +3486,13 @@ class MediaStreamHandler:
                                 self._prompt_upgraded_to_full = True
                                 upgrade_duration = int((time.time() - upgrade_time) * 1000)
                                 
-                                print(f"✅ [PROMPT UPGRADE] Successfully upgraded to FULL prompt in {upgrade_duration}ms")
-                                print(f"   └─ AI now has complete business context for rest of conversation")
-                                logger.info(f"[PROMPT UPGRADE] Upgraded business_id={self.business_id} in {upgrade_duration}ms")
+                                print(f"✅ [PROMPT UPGRADE] Expanded to FULL in {upgrade_duration}ms (hash={full_prompt_hash})")
+                                print(f"   └─ This is a planned EXPANSION, not a rebuild - same direction/business")
+                                _orig_print(f"[PROMPT_UPGRADE] call_sid={self.call_sid[:8]}... hash={full_prompt_hash} type=EXPANSION_NOT_REBUILD", flush=True)
+                                logger.info(f"[PROMPT UPGRADE] Expanded business_id={self.business_id} in {upgrade_duration}ms")
                                 
                             except Exception as upgrade_err:
-                                logger.error(f"❌ [PROMPT UPGRADE] Failed to upgrade prompt: {upgrade_err}")
+                                logger.error(f"❌ [PROMPT UPGRADE] Failed to expand prompt: {upgrade_err}")
                                 import traceback
                                 traceback.print_exc()
                                 # Don't fail the call if upgrade fails - compact prompt is still functional
@@ -2804,16 +3545,29 @@ class MediaStreamHandler:
                                     except Exception as fail_err:
                                         _orig_print(f"❌ [SERVER_ERROR] Failed to send failure message: {fail_err}", flush=True)
                         
-                        # 🔥 BUILD 200: Clear active_response_id when response is done (completed or cancelled)
-                        # This is the ONLY place where active_response_id should be cleared!
+                        # ✅ CRITICAL FIX: Full state reset on response.done
+                        # Ensure both active_response_id AND is_ai_speaking are cleared
+                        # Per הנחיה: Also clear ai_response_active flag
                         resp_id = response.get("id", "")
                         if resp_id and self.active_response_id == resp_id:
                             self.active_response_id = None
-                            _orig_print(f"✅ [BUILD 200] Response lifecycle complete: {resp_id[:20]}... -> None (status={status})", flush=True)
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
+                            # 🔥 BARGE-IN FIX: Clear all response flags
+                            self.barge_in_active = False
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
+                            _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
-                            _orig_print(f"⚠️ [BUILD 200] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
+                            _orig_print(f"⚠️ [STATE_RESET] Response ID mismatch: active={self.active_response_id[:20] if self.active_response_id else 'None'}... done={resp_id[:20] if resp_id else 'None'}...", flush=True)
                             self.active_response_id = None
+                            self.is_ai_speaking_event.clear()
+                            self.speaking = False
+                            # 🔥 BARGE-IN FIX: Clear all response flags
+                            self.barge_in_active = False
+                            if hasattr(self, 'ai_response_active'):
+                                self.ai_response_active = False
                         
                         # 🛡️ BUILD 168.5 FIX: If greeting was cancelled, unblock audio input!
                         # Otherwise is_playing_greeting stays True forever and blocks all audio
@@ -2830,26 +3584,250 @@ class MediaStreamHandler:
                             _orig_print(f"⚠️ [RESPONSE CANCELLED] Allowing next response (user hasn't spoken yet)", flush=True)
                             # greeting_sent stays True to bypass GUARD for next response
                         
-                        # 🔥 BUILD 187: RECOVERY for cancelled responses with NO audio!
-                        # When user speaks/noise triggers turn_detected BEFORE AI sends any audio,
-                        # the response gets cancelled and no new one is created = silence.
-                        # Solution: Schedule a recovery response.create after short delay
-                        if status == "cancelled" and len(output) == 0 and self.user_has_spoken:
-                            _orig_print(f"🔄 [BUILD 187] Response cancelled with NO audio! Scheduling recovery...", flush=True)
-                            self._cancelled_response_needs_recovery = True
-                            self._cancelled_response_recovery_ts = time.time()
+                        # 🎯 P0-5: RECOVERY for false cancel (Master Instruction)
+                        # When response is cancelled before ANY audio was sent:
+                        # - Could be false positive (echo/noise triggered turn_detected)
+                        # - If user is NOT actually speaking, retry ONCE after 200-300ms
+                        # - This prevents silence when cancel was spurious
+                        #
+                        # Conditions for recovery (ALL must be true):
+                        # 1. status == "cancelled"
+                        # 2. frames_sent == 0 (no audio was delivered)
+                        # 3. !user_has_spoken (not a real user interruption)
+                        #
+                        # Safety: Only ONE retry per response (prevent loops)
+                        if status == "cancelled" and len(output) == 0 and not self.user_has_spoken:
+                            # Check if we already retried this response
+                            if not self._cancel_retry_attempted:
+                                _orig_print(f"🔄 [P0-5] Response cancelled with NO audio and NO user speech - scheduling retry...", flush=True)
+                                self._cancelled_response_needs_recovery = True
+                                self._cancelled_response_recovery_ts = time.time()
+                                self._cancel_retry_attempted = True  # Mark that we're attempting retry
+                            else:
+                                _orig_print(f"⚠️ [P0-5] Response cancelled again - already attempted retry, not retrying again", flush=True)
                     elif event_type == "response.created":
                         resp_id = event.get("response", {}).get("id", "?")
                         _orig_print(f"🔊 [REALTIME] response.created: id={resp_id[:20]}...", flush=True)
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 TASK D.2: Per-response markers to track audio delivery quality
+                        # ═══════════════════════════════════════════════════════════════════════
+                        if not hasattr(self, '_response_tracking'):
+                            self._response_tracking = {}
+                        self._response_tracking[resp_id] = {
+                            'start_time': time.time(),
+                            'frames_sent': 0,
+                            'first_audio_ts': None
+                        }
+                        print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
                     else:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
-                # 🔥 DEBUG: Log errors and cancellations
+                # ✅ CRITICAL FIX: Handle response.cancelled event explicitly
+                # Ensure state cleanup even if response.done doesn't arrive
+                if event_type == "response.cancelled":
+                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
+                    
+                    # Extract response_id from event
+                    cancelled_resp_id = event.get("response_id")
+                    if not cancelled_resp_id and "response" in event:
+                        cancelled_resp_id = event.get("response", {}).get("id")
+                    
+                    # Clear state for this response
+                    if cancelled_resp_id and self.active_response_id == cancelled_resp_id:
+                        self.active_response_id = None
+                        self.is_ai_speaking_event.clear()
+                        self.speaking = False
+                        print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, is_ai_speaking=False ({cancelled_resp_id[:20]}...)")
+                
+                # 🔥 DEBUG: Log errors
                 if event_type == "error":
                     error = event.get("error", {})
                     _orig_print(f"❌ [REALTIME] ERROR: {error}", flush=True)
-                if event_type == "response.cancelled":
-                    _orig_print(f"❌ [REALTIME] RESPONSE CANCELLED: {event}", flush=True)
+                    
+                    # 🔥 CRITICAL: Validate session.update errors
+                    # If session.update fails, the session uses default settings which causes:
+                    # - PCM16 instead of G.711 μ-law → "vacuum cleaner" noise on Twilio
+                    # - English instead of Hebrew → AI speaks wrong language
+                    # - Missing instructions → AI doesn't follow business prompt
+                    error_msg = error.get("message", "")
+                    error_code = error.get("code", "")
+                    error_type = error.get("type", "")
+                    
+                    # More specific detection: Check error type, code, and message
+                    # Known session.update errors:
+                    # - type: "invalid_request_error"
+                    # - code: "invalid_value" or "invalid_type"
+                    # - message contains: "session", "input_audio_noise_reduction", etc.
+                    is_session_error = (
+                        error_type == "invalid_request_error" and 
+                        ("session" in error_msg.lower() or "session" in error_code.lower())
+                    )
+                    
+                    # 🔥 FALLBACK: If noise_reduction caused error, retry without it
+                    is_noise_reduction_error = (
+                        is_session_error and 
+                        "noise_reduction" in error_msg.lower()
+                    )
+                    
+                    if is_noise_reduction_error:
+                        _orig_print(f"⚠️ [SESSION ERROR] noise_reduction not supported - retrying without it", flush=True)
+                        logger.warning(f"[SESSION ERROR] noise_reduction not supported on this model/version - retrying")
+                        
+                        # Retry without noise_reduction if we have pending config
+                        client = getattr(self, 'realtime_client', None)
+                        if client and hasattr(client, '_pending_session_config'):
+                            pending_config = client._pending_session_config
+                            if pending_config and "input_audio_noise_reduction" in pending_config:
+                                # Remove noise_reduction and retry
+                                del pending_config["input_audio_noise_reduction"]
+                                client._session_config_retry_without_noise_reduction = True
+                                
+                                _orig_print(f"🔄 [SESSION RETRY] Sending session.update without noise_reduction", flush=True)
+                                await client.send_event({
+                                    "type": "session.update",
+                                    "session": pending_config
+                                })
+                                logger.info("[SESSION RETRY] Retried session.update without noise_reduction")
+                                continue  # Don't mark as failed yet - wait for retry result
+                    
+                    if is_session_error:
+                        _orig_print(f"🚨 [SESSION ERROR] session.update FAILED! Error: {error_msg}", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] Error type: {error_type}, code: {error_code}", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] Session will use DEFAULT settings (PCM16, English, no instructions)", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] This will cause audio noise and wrong language!", flush=True)
+                        logger.error(f"[SESSION ERROR] session.update failed - type={error_type}, code={error_code}, msg={error_msg}")
+                        
+                        # Mark that session configuration failed
+                        self._session_config_failed = True
+                
+                # ═══════════════════════════════════════════════════════════════════════
+                # 🔥 STEP 4: session.created FALLBACK - If session.created arrives but not session.updated
+                # ═══════════════════════════════════════════════════════════════════════
+                if event_type == "session.created":
+                    _orig_print(f"📋 [SESSION] session.created received", flush=True)
+                    session_data = event.get("session", {})
+                    
+                    # If we haven't received session.updated yet, validate session.created config
+                    # Some OpenAI versions may not send session.updated for default configs
+                    if not getattr(self, '_session_config_confirmed', False):
+                        output_format = session_data.get("output_audio_format", "unknown")
+                        input_format = session_data.get("input_audio_format", "unknown")
+                        voice = session_data.get("voice", "unknown")
+                        instructions = session_data.get("instructions", "")
+                        # 🔥 FIX: Handle None transcription safely - use or {} to prevent crash
+                        transcription = session_data.get("input_audio_transcription") or {}
+                        turn_detection = session_data.get("turn_detection", {})
+                        
+                        _orig_print(f"🔍 [SESSION] session.created config: input={input_format}, output={output_format}, voice={voice}, instructions_len={len(instructions)}", flush=True)
+                        
+                        # 🔥 SAME VALIDATION AS session.updated - critical settings must match!
+                        MIN_INSTRUCTION_LENGTH = 50  # Minimum length to consider instructions valid (not default/empty)
+                        validation_ok = True
+                        
+                        # Validate audio formats
+                        if output_format != "g711_ulaw":
+                            _orig_print(f"❌ [SESSION.CREATED] Wrong output format: {output_format} (expected g711_ulaw)", flush=True)
+                            validation_ok = False
+                        if input_format != "g711_ulaw":
+                            _orig_print(f"❌ [SESSION.CREATED] Wrong input format: {input_format} (expected g711_ulaw)", flush=True)
+                            validation_ok = False
+                        
+                        # Validate instructions
+                        if not instructions or len(instructions) < MIN_INSTRUCTION_LENGTH:
+                            _orig_print(f"❌ [SESSION.CREATED] Instructions too short: {len(instructions)} chars (min {MIN_INSTRUCTION_LENGTH})", flush=True)
+                            validation_ok = False
+                        
+                        # Validate transcription (safely handle None case)
+                        if not transcription or transcription.get("model") != "gpt-4o-transcribe":
+                            _orig_print(f"❌ [SESSION.CREATED] Transcription not configured: {transcription}", flush=True)
+                            validation_ok = False
+                        # Only check language if transcription has a model configured
+                        elif "language" in transcription and transcription.get("language") != "he":
+                            _orig_print(f"⚠️ [SESSION.CREATED] Transcription language not Hebrew: {transcription.get('language')}", flush=True)
+                        
+                        # Validate turn detection
+                        if not turn_detection or turn_detection.get("type") != "server_vad":
+                            _orig_print(f"❌ [SESSION.CREATED] Turn detection not configured: {turn_detection}", flush=True)
+                            validation_ok = False
+                        
+                        # 🔥 FIX 4: Treat session.created as baseline, not fatal
+                        # session.created shows the INITIAL state (before session.update is applied)
+                        # Don't fatal on it - just log and continue waiting for session.updated
+                        if validation_ok:
+                            _orig_print(f"✅ [SESSION.CREATED] Full validation passed - accepting as fallback", flush=True)
+                            _orig_print(f"✅ [SESSION.CREATED] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
+                            self._session_config_confirmed = True
+                        else:
+                            _orig_print(f"⚠️ [SESSION.CREATED] Validation failed (baseline state) - waiting for session.updated", flush=True)
+                            _orig_print(f"⚠️ [SESSION.CREATED] This is normal - session.created shows defaults before session.update applies", flush=True)
+                
+                # 🔥 VALIDATION: Confirm session.updated received after session.update
+                if event_type == "session.updated":
+                    _orig_print(f"✅ [SESSION] session.updated received - configuration applied successfully!", flush=True)
+                    
+                    # Log the session configuration for verification
+                    session_data = event.get("session", {})
+                    output_format = session_data.get("output_audio_format", "unknown")
+                    input_format = session_data.get("input_audio_format", "unknown")
+                    voice = session_data.get("voice", "unknown")
+                    instructions = session_data.get("instructions", "")
+                    modalities = session_data.get("modalities", [])
+                    # 🔥 FIX: Handle None transcription safely - use or {} to prevent crash
+                    transcription = session_data.get("input_audio_transcription") or {}
+                    turn_detection = session_data.get("turn_detection", {})
+                    
+                    _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
+                    _orig_print(f"✅ [SESSION] Modalities: {modalities}, transcription: model={transcription.get('model')}, lang={transcription.get('language')}", flush=True)
+                    
+                    # 🚨 CRITICAL VALIDATION: Verify all critical settings
+                    validation_failed = False
+                    
+                    # Validate output format (CRITICAL for Twilio)
+                    if output_format != "g711_ulaw":
+                        _orig_print(f"🚨 [SESSION ERROR] Wrong output format! Expected g711_ulaw, got {output_format}", flush=True)
+                        _orig_print(f"🚨 [SESSION ERROR] Twilio will receive {output_format} and produce noise!", flush=True)
+                        logger.error(f"[SESSION ERROR] Wrong output_audio_format: {output_format} (expected g711_ulaw)")
+                        validation_failed = True
+                    
+                    # Validate input format (CRITICAL for Twilio)
+                    if input_format != "g711_ulaw":
+                        _orig_print(f"🚨 [SESSION ERROR] Wrong input format! Expected g711_ulaw, got {input_format}", flush=True)
+                        logger.error(f"[SESSION ERROR] Wrong input_audio_format: {input_format} (expected g711_ulaw)")
+                        validation_failed = True
+                    
+                    # Validate instructions are not empty
+                    if not instructions or len(instructions.strip()) < 10:
+                        _orig_print(f"🚨 [SESSION ERROR] Instructions are empty or too short! AI will use default behavior", flush=True)
+                        logger.error(f"[SESSION ERROR] Instructions missing or invalid (length={len(instructions)})")
+                        validation_failed = True
+                    
+                    # Validate transcription is enabled (safely handle None case)
+                    if not transcription or transcription.get("model") != "gpt-4o-transcribe":
+                        _orig_print(f"🚨 [SESSION ERROR] Transcription not properly configured!", flush=True)
+                        logger.error(f"[SESSION ERROR] Transcription config invalid: {transcription}")
+                        validation_failed = True
+                    
+                    # Validate Hebrew language (only if transcription has language configured)
+                    if "language" in transcription and transcription.get("language") != "he":
+                        _orig_print(f"⚠️ [SESSION WARNING] Transcription language is not Hebrew: {transcription.get('language')}", flush=True)
+                        logger.warning(f"[SESSION WARNING] Transcription language: {transcription.get('language')} (expected 'he')")
+                    
+                    # Validate turn_detection
+                    if not turn_detection or turn_detection.get("type") != "server_vad":
+                        _orig_print(f"🚨 [SESSION ERROR] Turn detection not properly configured!", flush=True)
+                        logger.error(f"[SESSION ERROR] Turn detection invalid: {turn_detection}")
+                        validation_failed = True
+                    
+                    # Set validation flags
+                    if validation_failed:
+                        self._session_config_failed = True
+                        _orig_print(f"🚨 [SESSION] Configuration INVALID - do NOT proceed with response.create!", flush=True)
+                    else:
+                        self._session_config_confirmed = True
+                        _orig_print(f"✅ [SESSION] All validations passed - safe to proceed with response.create", flush=True)
+                        _orig_print(f"✅ [SESSION] validation passed: g711_ulaw + he + server_vad + instructions", flush=True)
+                        logger.info("[SESSION] session.updated confirmed - audio format, voice, and instructions are active")
+                
                 
                 # 🚨 COST SAFETY: Log transcription failures but DO NOT retry
                 if event_type == "conversation.item.input_audio_transcription.failed":
@@ -2874,135 +3852,147 @@ class MediaStreamHandler:
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
                 if event_type == "input_audio_buffer.speech_started":
-                    # 🔥 BUILD 350: OUTBOUND CALLS - NEVER cancel greeting on speech_started!
-                    # For outbound calls, bot ALWAYS speaks first regardless of customer noise
-                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 GREETING PROTECTION FIX + SIMPLE BARGE-IN
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Issue: Greeting sometimes interrupted by false speech_started from echo/noise
+                    # Solution: During greeting, require REAL speech before allowing barge-in
+                    # 
+                    # Rules:
+                    # 1. During greeting (first 500ms): Block barge-in on speech_started alone
+                    #    - Wait for transcription.completed OR 250ms+ of continuous speech
+                    #    - This prevents false triggers from echo/background noise
+                    # 2. After greeting: Normal barge-in (immediate cancel on speech_started)
+                    # 3. Set barge_in=True flag and wait for transcription.completed
+                    # ═══════════════════════════════════════════════════════════════════════
                     
-                    # 🔥 BUILD 303: BARGE-IN ON GREETING - User wants to talk over greeting
-                    # Instead of ignoring, treat this as valid input and stop the greeting
-                    if self.is_playing_greeting:
-                        # 🔥 BUILD 350: OUTBOUND - IGNORE speech_started during greeting!
-                        if is_outbound:
-                            print(f"📤 [OUTBOUND] IGNORING speech_started during greeting - bot speaks first!")
-                            continue  # Skip all speech_started processing during outbound greeting
+                    print(f"🎤 [SPEECH_STARTED] User started speaking")
+                    
+                    # Track utterance start for validation
+                    self._candidate_user_speaking = True
+                    self._utterance_start_ts = time.time()
+                    
+                    # Set user_speaking to block new AI responses until transcription completes
+                    self.user_speaking = True
+                    print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
+                    
+                    # Set user_has_spoken flag (user has interacted)
+                    if not self.user_has_spoken:
+                        self.user_has_spoken = True
+                        print(f"✅ [FIRST_SPEECH] user_has_spoken=True")
+                    
+                    # Reset loop guard when user speaks
+                    if self._consecutive_ai_responses > 0:
+                        self._consecutive_ai_responses = 0
+                        print(f"✅ [LOOP_GUARD] Reset counter on user speech")
+                    if self._loop_guard_engaged:
+                        self._loop_guard_engaged = False
+                        print(f"✅ [LOOP_GUARD] Disengaged on user speech")
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 BARGE-IN LOGIC - Simple & Stable (per הנחיה)
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Per requirements: Cancel only when active_response_id exists AND
+                    # (ai_response_active OR is_ai_speaking)
+                    # 
+                    # No special greeting protection - greeting is just first response
+                    # ═══════════════════════════════════════════════════════════════════════
+                    
+                    # ✅ Only trigger barge-in if there's an actual active response
+                    # Per הנחיה: Check active_response_id AND (ai_response_active OR is_ai_speaking)
+                    has_active_response = bool(self.active_response_id)
+                    ai_can_be_cancelled = getattr(self, 'ai_response_active', False) or self.is_ai_speaking_event.is_set()
+                    
+                    if has_active_response and ai_can_be_cancelled and self.realtime_client:
+                        # AI has active response that can be cancelled - user is interrupting
                         
-                        print(f"⛔ [BARGE-IN GREETING] User started talking during greeting - stopping greeting!")
-                        self.is_playing_greeting = False
+                        # Normal barge-in: Cancel, flush, and clear (no greeting special case)
+                        # Step 1: Cancel active response (with duplicate guard)
+                        if self._should_send_cancel(self.active_response_id):
+                            try:
+                                await self.realtime_client.cancel_response(self.active_response_id)
+                                # Mark as cancelled locally to track state
+                                self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
+                                _orig_print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id[:20]}...", flush=True)
+                            except Exception as e:
+                                error_str = str(e).lower()
+                                # Gracefully handle not_active errors (per הנחיה - should not happen now)
+                                if ('not_active' in error_str or 'no active' in error_str or 
+                                    'already_cancelled' in error_str or 'already_completed' in error_str):
+                                    _orig_print(f"⚠️ [BARGE-IN] response_cancel_not_active (should be rare now) - response already ended", flush=True)
+                                else:
+                                    _orig_print(f"⚠️ [BARGE-IN] Cancel error (ignoring): {e}", flush=True)
+                        else:
+                            _orig_print(f"⏭️ [BARGE-IN] Skipped duplicate cancel for {self.active_response_id[:20]}...", flush=True)
+                        
+                        # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
+                        if self.stream_sid:
+                            try:
+                                clear_event = {
+                                    "event": "clear",
+                                    "streamSid": self.stream_sid
+                                }
+                                self._ws_send(json.dumps(clear_event))
+                                _orig_print(f"🧹 [BARGE-IN] Sent Twilio clear event - stopping buffered audio", flush=True)
+                            except Exception as e:
+                                _orig_print(f"⚠️ [BARGE-IN] Error sending clear event: {e}", flush=True)
+                        
+                        # Step 3: Flush TX queue (clear all pending audio frames)
+                        self._flush_tx_queue()
+                        
+                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
+                        self.is_ai_speaking_event.clear()
+                        self.active_response_id = None
+                        if hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        
+                        # Step 5: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        
-                        # 🔥 BUILD 303: User is answering the greeting question
-                        self.awaiting_greeting_answer = True
-                        self.greeting_completed_at = time.time()  # Mark greeting as done
-                        self._post_greeting_window_active = False
-                        self._post_greeting_window_finished = True
-                        
-                        # Flush TX queue to stop greeting audio
-                        try:
-                            self._flush_twilio_tx_queue(reason="GREETING_BARGE_IN")
-                        except Exception as e:
-                            print(f"   ⚠️ Error flushing TX queue: {e}")
-                        
-                        # Cancel any pending response
-                        try:
-                            cancelled_id = self.active_response_id
-                            if self.realtime_client and cancelled_id:
-                                await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(cancelled_id),
-                                    timeout=0.5
-                                )
-                                self._mark_response_cancelled_locally(cancelled_id, "greeting_barge")
-                        except Exception:
-                            pass
-                        
-                        self.active_response_id = None
-                        self.response_pending_event.clear()
-                        self.is_ai_speaking_event.clear()
-                        
-                        # Enable barge-in for rest of call
-                        self.barge_in_enabled_after_greeting = True
-                        print(f"   ✅ [BARGE-IN GREETING] Greeting stopped, listening to user...")
+                        _orig_print(f"🪓 [BARGE-IN] User interrupted AI - Response cancelled, Twilio cleared, TX flushed", flush=True)
+                    elif has_active_response and not ai_can_be_cancelled:
+                        _orig_print(f"⏭️ [BARGE-IN] Response exists but not yet cancellable (ai_response_active={getattr(self, 'ai_response_active', False)}, is_ai_speaking={self.is_ai_speaking_event.is_set()})", flush=True)
                     
-                    # 🔥 BUILD 187: RESPONSE GRACE PERIOD - Ignore speech_started within 500ms of response.created
-                    # This prevents echo/noise from cancelling the response before audio starts
-                    RESPONSE_GRACE_PERIOD_MS = 500
-                    response_created_ts = getattr(self, '_response_created_ts', 0)
-                    time_since_response = (time.time() - response_created_ts) * 1000 if response_created_ts else 99999
-                    if time_since_response < RESPONSE_GRACE_PERIOD_MS and self.active_response_id:
-                        print(f"🛡️ [BUILD 187 GRACE] Ignoring speech_started - only {time_since_response:.0f}ms since response.created (grace={RESPONSE_GRACE_PERIOD_MS}ms)")
-                        # Don't mark user_has_spoken, don't bypass noise gate - just ignore this event
-                        continue
-                    
-                    print(f"🎤 [REALTIME] User started speaking - setting user_has_spoken=True")
-                    self.user_has_spoken = True
-                    if self._post_greeting_window_active:
-                        self._post_greeting_heard_user = True
-                    # 🔥 BUILD 182: IMMEDIATE LOOP GUARD RESET - Don't wait for transcription!
-                    # This prevents loop guard from triggering when user IS speaking
-                    if self._consecutive_ai_responses > 0:
-                        print(f"✅ [LOOP GUARD] User started speaking - resetting consecutive counter ({self._consecutive_ai_responses} -> 0)")
-                        self._consecutive_ai_responses = 0
-                    if self._loop_guard_engaged:
-                        print(f"✅ [LOOP GUARD] User started speaking - disengaging loop guard EARLY")
-                        self._loop_guard_engaged = False
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BUILD 302: HARD BARGE-IN - If AI is speaking, KILL the response NOW!
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # Goal: Any time user starts speaking while AI is speaking, we do a hard barge-in:
-                    #   1. Cancel the current OpenAI response
-                    #   2. Stop sending its audio to Twilio
-                    #   3. Clear guards/flags
-                    #   4. Let the new user utterance lead the next response
-                    if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
-                        print(f"⛔ [BARGE-IN] User started talking while AI speaking - HARD CANCEL!")
-                        print(f"   active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...")
-                        print(f"   is_ai_speaking={self.is_ai_speaking_event.is_set()}")
-                        
-                        # Set barge-in flag - ALL audio gates will be bypassed!
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()  # Track for failsafe timeout
-                        
-                        # 1) Cancel response on OpenAI side (with timeout protection)
-                        try:
-                            cancelled_id = self.active_response_id
-                            if self.realtime_client and cancelled_id:
-                                # Use asyncio.wait_for with 0.5s timeout to avoid blocking
-                                await asyncio.wait_for(
-                                    self.realtime_client.cancel_response(cancelled_id),
-                                    timeout=0.5
-                                )
-                                self._mark_response_cancelled_locally(cancelled_id, "speech_started")
-                                print(f"   ✅ Sent response.cancel to OpenAI")
-                        except asyncio.TimeoutError:
-                            print(f"   ⚠️ OpenAI cancel timed out (continuing anyway)")
-                        except Exception as e:
-                            print(f"   ⚠️ Error cancelling response: {e}")
-                        
-                        # 2) Clear local guards (ALWAYS, even if cancel failed)
-                        self.active_response_id = None
-                        self.response_pending_event.clear()
-                        self.is_ai_speaking_event.clear()
-                        self.speaking = False
-                        self.has_pending_ai_response = False
-                        
-                        # 3) Flush TX audio queue so Twilio stops playing old audio
-                        try:
-                            self._flush_twilio_tx_queue(reason="BARGE_IN")
-                        except Exception as e:
-                            print(f"   ⚠️ Error flushing TX queue: {e}")
-                        
-                        print(f"   ✅ [BARGE-IN] Response cancelled, guards cleared, queue flushed")
-                    
-                    # 🔥 BUILD 166: BYPASS NOISE GATE while OpenAI is processing speech
+                    # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
                     self._realtime_speech_started_ts = time.time()
-                    print(f"🎤 [BUILD 166] Noise gate BYPASSED - sending ALL audio to OpenAI")
+                    print(f"🎤 [SPEECH_ACTIVE] Bypassing noise gate - sending all audio to OpenAI")
                 
                 # 🔥 BUILD 166: Clear speech active flag when speech ends
                 if event_type == "input_audio_buffer.speech_stopped":
                     self._realtime_speech_active = False
+                    # 🔄 ADAPTIVE: Clear OpenAI confirmation flag when speech stops
+                    if self._openai_speech_started_confirmed:
+                        print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
+                        self._openai_speech_started_confirmed = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
+                    # Don't allow response.create between speech_stopped and transcription
+                    print(f"⏸️ [TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
+                    
+                    # 🔥 FIX BUG 2: Start timeout for user turn finalization
+                    # If no transcription arrives within 1.8s, finalize the turn anyway
+                    async def _user_turn_timeout_check():
+                        try:
+                            await asyncio.sleep(self._user_turn_timeout_ms / 1000.0)
+                            # Check if we're still waiting for transcription
+                            if self._candidate_user_speaking and not self.user_has_spoken:
+                                # Timeout expired - force turn finalization
+                                print(f"[TURN_END] 1800ms timeout triggered - finalizing user turn")
+                                self._finalize_user_turn_on_timeout()
+                        except asyncio.CancelledError:
+                            # Task was cancelled (connection closed or transcription received)
+                            print(f"[TURN_END] Timeout check cancelled")
+                        except Exception as e:
+                            # Log but don't crash
+                            print(f"[TURN_END] Error in timeout check: {e}")
+                    
+                    # Schedule timeout check and track it for cleanup
+                    timeout_task = asyncio.create_task(_user_turn_timeout_check())
+                    if not hasattr(self, '_timeout_tasks'):
+                        self._timeout_tasks = []
+                    self._timeout_tasks.append(timeout_task)
                     
                     if self._post_greeting_window_active and self._post_greeting_heard_user and not self._post_greeting_speech_cycle_complete:
                         self._post_greeting_speech_cycle_complete = True
@@ -3010,44 +4000,51 @@ class MediaStreamHandler:
                     
                     # 🔥 BUILD 302: Clear barge-in flag when user finishes speaking
                     if self.barge_in_active:
-                        barge_duration = time.time() - getattr(self, '_barge_in_started_ts', time.time())
+                        # 🔥 FIX: Guard against None - use 0 duration if timestamp not set
+                        barge_start = getattr(self, '_barge_in_started_ts', None)
+                        if barge_start is not None:
+                            barge_duration = time.time() - barge_start
+                        else:
+                            barge_duration = 0
                         print(f"✅ [BARGE-IN] User utterance completed - barge-in ended (duration={barge_duration:.1f}s)")
                         self.barge_in_active = False
                         self._barge_in_started_ts = None
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
-                        print(f"🔄 [BUILD 187] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for OpenAI...")
+                        print(f"🔄 [P0-5] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for recovery...")
                         # Schedule a delayed recovery check in a separate task
                         async def _recovery_check():
                             await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
-                            # 🛡️ BUILD 187 HARDENED: Multiple guards to prevent double triggers
+                            # 🎯 P0-5: Multiple guards to prevent double triggers
                             # Guard 1: Check if recovery is still needed
                             if not self._cancelled_response_needs_recovery:
-                                print(f"🔄 [BUILD 187] Recovery cancelled - flag cleared")
+                                print(f"🔄 [P0-5] Recovery cancelled - flag cleared")
                                 return
                             # Guard 2: Check if AI is already speaking
                             if self.is_ai_speaking_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - AI already speaking")
+                                print(f"🔄 [P0-5] Recovery skipped - AI already speaking")
                                 return
                             # Guard 3: Check if there's a pending response
                             if self.response_pending_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - response pending")
+                                print(f"🔄 [P0-5] Recovery skipped - response pending")
                                 return
-                            # Guard 4: Check if speech is active (user still talking)
-                            if self._realtime_speech_active:
+                            # Guard 4: Check if user is speaking (prevents retry during real user speech)
+                            if self._realtime_speech_active or self.user_has_spoken:
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [BUILD 187] Recovery skipped - user still speaking")
+                                print(f"🔄 [P0-5] Recovery skipped - user is speaking")
                                 return
                             
                             # All guards passed - trigger recovery via central function
                             # 🔥 BUILD 200: Use trigger_response for consistent response management
                             self._cancelled_response_needs_recovery = False  # Clear BEFORE triggering
-                            triggered = await self.trigger_response("BUILD_187_RECOVERY", client)
+                            triggered = await self.trigger_response("P0-5_FALSE_CANCEL_RECOVERY", client)
                             if not triggered:
-                                print(f"⚠️ [BUILD 187] Recovery was blocked by trigger_response guards")
+                                print(f"⚠️ [P0-5] Recovery was blocked by trigger_response guards")
+                            else:
+                                print(f"✅ [P0-5] Recovery response triggered successfully")
                         asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
@@ -3060,25 +4057,59 @@ class MediaStreamHandler:
                     status = response.get("status", "?")
                     _orig_print(f"🎯 [RESPONSE.CREATED] id={response_id[:20] if response_id else '?'}... status={status} modalities={modalities} output_format={output_audio_format}", flush=True)
                     if response_id:
+                        # 🔥 BARGE-IN FIX: Set BOTH active_response_id AND ai_response_active immediately
+                        # Per הנחיה: Enable barge-in detection on response.created (not audio.delta)
+                        # This allows cancellation even if audio hasn't started yet
                         self.active_response_id = response_id
                         self.response_pending_event.clear()  # 🔒 Clear thread-safe lock
+                        
+                        # 🔥 NEW: Set ai_response_active=True immediately (per requirements)
+                        # This is THE fix for barge-in timing issues
+                        # ai_response_active means "response exists and can be cancelled"
+                        # is_ai_speaking will still be set on first audio.delta when actual audio arrives
+                        if not hasattr(self, 'ai_response_active'):
+                            self.ai_response_active = False
+                        self.ai_response_active = True
+                        _orig_print(f"✅ [BARGE-IN] ai_response_active=True on response.created (id={response_id[:20]}...)", flush=True)
+                        self.barge_in_active = False  # Reset barge-in flag for new response
+                        print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
+                        
+                        print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
                         # 🔥 BUILD 187: Response grace period - track when response started
                         # This prevents false turn_detected from echo/noise in first 500ms
                         self._response_created_ts = time.time()
                         # 🔥 BUILD 187: Clear recovery flag - new response was created!
                         if self._cancelled_response_needs_recovery:
-                            print(f"🔄 [BUILD 187] New response created - cancelling recovery")
+                            print(f"🔄 [P0-5] New response created - cancelling recovery")
                             self._cancelled_response_needs_recovery = False
+                        # 🎯 P0-5: Reset retry flag for new response (allows recovery for this response)
+                        self._cancel_retry_attempted = False
                         # 🔥 BUILD 305: Reset gap detector for new response
                         # This prevents false "AUDIO GAP" warnings between responses
                         self._last_audio_chunk_ts = time.time()
                         self._openai_audio_chunks_received = 0
+                        
+                        # 🔥 SILENCE FAILSAFE: Cancel any pending response timeout
+                        # Response was created, so we're not stuck in silence
+                        if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
+                            if not self._response_timeout_task.done():
+                                self._response_timeout_task.cancel()
+                            self._response_timeout_task = None
+                            logger.info("[SILENCE_FAILSAFE] Response created - cancelled pending timeout")
                 
                 # ✅ ONLY handle audio.delta - ignore other audio events!
                 # 🔥 FIX: Use response.audio_transcript.delta for is_ai_speaking (reliable text-based flag)
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
+                    response_id = event.get("response_id", "")
                     if audio_b64:
+                        # ═══════════════════════════════════════════════════════════════
+                        # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (per הנחיה)
+                        # ═══════════════════════════════════════════════════════════════
+                        import base64
+                        audio_bytes = base64.b64decode(audio_b64)
+                        _orig_print(f"📥 [AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}", flush=True)
+                        
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -3086,8 +4117,10 @@ class MediaStreamHandler:
                             # Silently drop audio - don't even log each frame
                             continue
                         
-                        # 🎤 GREETING PRIORITY: If greeting sent but user hasn't spoken yet, ALWAYS allow
-                        if self.greeting_sent and not self.user_has_spoken:
+                        # 🎯 FIX A: GREETING MODE - Only apply to FIRST response, not all responses!
+                        # OLD: if self.greeting_sent and not self.user_has_spoken:
+                        # NEW: Only when greeting_mode_active (first response only)
+                        if self.greeting_mode_active and not self.greeting_completed:
                             # ═══════════════════════════════════════════════════════════════
                             # 🔥 REALTIME STABILITY: Mark greeting audio as received
                             # ═══════════════════════════════════════════════════════════════
@@ -3100,28 +4133,70 @@ class MediaStreamHandler:
                                 first_audio_ms = int((now - greeting_start) * 1000)
                                 self._metrics_first_greeting_audio_ms = first_audio_ms
                                 _orig_print(f"🎤 [GREETING] FIRST_AUDIO_DELTA received! delay={first_audio_ms}ms", flush=True)
+                                
+                                # 🔥 MASTER FIX: Store first_greeting_audio_ms metric
+                                from server.stream_state import stream_registry
+                                if self.call_sid:
+                                    stream_registry.set_metric(self.call_sid, 'first_greeting_audio_ms', first_audio_ms)
+                                    
+                                    # 🔥 MASTER FIX: Log structured greeting metrics
+                                    call_direction = getattr(self, 'call_direction', 'inbound')
+                                    openai_connect_ms = getattr(self, '_metrics_openai_connect_ms', 0)
+                                    logger.info(f"[GREETING_METRICS] openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_audio_ms}, direction={call_direction}")
                             
-                            print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                            # 🔥 TASK 0.4: THROTTLED GREETING LOG - Log only first chunk, not all chunks
+                            if not hasattr(self, '_greeting_audio_started_logged'):
+                                self._greeting_audio_started_logged = False
+                            if not self._greeting_audio_started_logged:
+                                print(f"[GREETING] Passing greeting audio to caller (greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken})")
+                                self._greeting_audio_started_logged = True
                             # Enqueue greeting audio - NO guards, NO cancellation
                             # Track AI speaking state for barge-in
+                            # 🔥 STATE FIX: Set is_ai_speaking ONLY when actual audio arrives
+                            # This prevents race condition where is_ai_speaking=True before audio actually starts
                             if not self.is_ai_speaking_event.is_set():
                                 self.ai_speaking_start_ts = now
                                 self.speaking_start_ts = now
+                                print(f"🔊 [STATE] AI started speaking (first audio.delta for greeting) - is_ai_speaking=True")
                             self.is_ai_speaking_event.set()
                             self.is_playing_greeting = True
-                            try:
-                                self.realtime_audio_out_queue.put_nowait(audio_b64)
-                            except queue.Full:
-                                pass
+                            # 🔥 VERIFICATION #3: Block enqueue if closed
+                            if not self.closed:
+                                try:
+                                    self.realtime_audio_out_queue.put_nowait(audio_b64)
+                                    # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                    self._enq_counter += 1
+                                    
+                                    # 🔥 TX DIAGNOSTICS: Log greeting audio bytes queued
+                                    if not hasattr(self, '_greeting_audio_bytes_queued'):
+                                        self._greeting_audio_bytes_queued = 0
+                                        self._greeting_audio_chunks_queued = 0
+                                    self._greeting_audio_bytes_queued += len(audio_b64)
+                                    self._greeting_audio_chunks_queued += 1
+                                    
+                                    # Log first and every 10th chunk
+                                    if self._greeting_audio_chunks_queued == 1 or self._greeting_audio_chunks_queued % 10 == 0:
+                                        _orig_print(f"📊 [TX_DIAG] Greeting audio queued: {self._greeting_audio_chunks_queued} chunks, {self._greeting_audio_bytes_queued} bytes (streamSid={self.stream_sid is not None})", flush=True)
+                                    now_mono = time.monotonic()
+                                    if now_mono - self._enq_last_log_time >= 1.0:
+                                        qsize = self.realtime_audio_out_queue.qsize()
+                                        _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                        self._enq_counter = 0
+                                        self._enq_last_log_time = now_mono
+                                except queue.Full:
+                                    pass
                             continue
                         
                         # 🛡️ GUARD: Block AI audio before first real user utterance (non-greeting)
-                        if not self.user_has_spoken:
-                            # User never spoke, and greeting not sent yet – block it
+                        # ✅ RULE 3: Allow greeting audio even before user speaks
+                        # In SIMPLE_MODE, we trust speech_started event + RMS to detect real user speech
+                        is_greeting_response = self.greeting_mode_active and not self.greeting_completed
+                        if not SIMPLE_MODE and not self.user_has_spoken and not is_greeting_response:
+                            # User never spoke, and this is not the greeting – block it
                             print(f"[GUARD] Blocking AI audio response before first real user utterance (greeting_sent={getattr(self, 'greeting_sent', False)}, user_has_spoken={self.user_has_spoken})")
-                            # If there is a response_id in the event, send response.cancel once
+                            # If there is a response_id in the event, send response.cancel once (with duplicate guard)
                             response_id = event.get("response_id")
-                            if response_id:
+                            if response_id and self._should_send_cancel(response_id):
                                 try:
                                     await client.send_event({
                                         "type": "response.cancel",
@@ -3135,27 +4210,40 @@ class MediaStreamHandler:
                         # 🎯 Track AI speaking state for ALL AI audio (not just greeting)
                         now = time.time()
                         
-                        # 🔥 BUILD 165: ONLY set timestamps on FIRST chunk per utterance
-                        # This prevents grace period from constantly resetting
+                        # 🔥 BARGE-IN FIX: ALWAYS ensure is_ai_speaking is set on audio.delta
+                        # This guarantees the flag tracks actual audio playback
+                        # 🔥 STATE FIX: This is the CORRECT place to set is_ai_speaking (not on response.created)
                         if not self.is_ai_speaking_event.is_set():
-                            print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
+                            # 🚫 Production mode: Only log in DEBUG
+                            if DEBUG:
+                                print(f"🔊 [REALTIME] AI started speaking (audio.delta)")
+                            print(f"🔊 [STATE] AI started speaking (first audio.delta) - is_ai_speaking=True")
                             self.ai_speaking_start_ts = now
                             self.speaking_start_ts = now
                             self.speaking = True  # 🔥 SYNC: Unify with self.speaking flag
-                            self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
+                            # 🔥 Track AI audio start time for metrics
+                            self._last_ai_audio_start_ts = now
                             # 🔥 BUILD 187: Clear recovery flag - AI is actually speaking!
                             if self._cancelled_response_needs_recovery:
-                                print(f"🔄 [BUILD 187] Audio started - cancelling recovery")
+                                print(f"🔄 [P0-5] Audio started - cancelling recovery")
                                 self._cancelled_response_needs_recovery = False
+                        
+                        # 🔥 BARGE-IN FIX: Ensure flag is ALWAYS set (safety redundancy)
+                        self.is_ai_speaking_event.set()  # Thread-safe: AI is speaking
                         # Don't reset timestamps on subsequent chunks!
                         self.has_pending_ai_response = True  # AI is generating response
                         self.last_ai_audio_ts = now
+                        # 🔥 ECHO_GUARD: Track timestamp for echo detection
+                        self._last_ai_audio_ts = now
                         
                         # 💰 COST TRACKING: Count AI audio chunks
                         # μ-law 8kHz: ~160 bytes per 20ms chunk = 50 chunks/second
                         if not hasattr(self, '_ai_speech_start') or self._ai_speech_start is None:
                             self._ai_speech_start = now
                         self.realtime_audio_out_chunks += 1
+                        
+                        # ✅ P0-3: Track last audio delta timestamp for watchdog
+                        self._last_audio_delta_ts = now
                         
                         # 🔍 DEBUG: Verify μ-law format from OpenAI + GAP DETECTION
                         if not hasattr(self, '_openai_audio_chunks_received'):
@@ -3170,47 +4258,85 @@ class MediaStreamHandler:
                             
                             # 🔥 BUILD 181: GAP RECOVERY - Insert silence frames for gaps >3 seconds
                             # 🔥 BUILD 320: DISABLED when AUDIO_GUARD is ON - let real timing flow naturally
+                            # 🔥 FIX #3: Fill up to 2000ms instead of 500ms for better stream stability
                             # This prevents audio distortion by maintaining continuous playback
                             if gap_ms > 3000 and not getattr(self, '_audio_guard_enabled', False):
                                 # Calculate how many silence frames needed to smooth transition
-                                # Don't add full gap - just 500ms transition buffer
-                                silence_frames_needed = min(25, int(gap_ms / 100))  # 25 frames max = 500ms
+                                # Fill up to 2000ms cap (was 500ms) to stabilize stream
+                                fill_ms = min(gap_ms, 2000)  # Cap at 2000ms as per fix requirements
+                                silence_frames_needed = int(fill_ms / 20)  # 20ms per frame
                                 import base64
                                 # Generate 160-byte μ-law silence frames (0xFF = silence in μ-law)
                                 silence_frame = base64.b64encode(bytes([0xFF] * 160)).decode('utf-8')
-                                for _ in range(silence_frames_needed):
-                                    try:
-                                        self.realtime_audio_out_queue.put_nowait(silence_frame)
-                                    except queue.Full:
-                                        break
-                                print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms)")
+                                # 🔥 VERIFICATION #3: Block silence fill if closed
+                                if not self.closed:
+                                    for _ in range(silence_frames_needed):
+                                        try:
+                                            self.realtime_audio_out_queue.put_nowait(silence_frame)
+                                            # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                            self._enq_counter += 1
+                                        except queue.Full:
+                                            break
+                                print(f"🔧 [GAP RECOVERY] Inserted {silence_frames_needed} silence frames ({silence_frames_needed * 20}ms) for {gap_ms:.0f}ms gap")
                         self._last_audio_chunk_ts = now
                         
                         if self._openai_audio_chunks_received <= 3:
                             import base64
                             chunk_bytes = base64.b64decode(audio_b64)
                             first5_bytes = ' '.join([f'{b:02x}' for b in chunk_bytes[:5]])
-                            print(f"[REALTIME] got audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes}")
+                            
+                            # 🔥 BARGE-IN FIX: Better logging to distinguish greeting vs. regular AI talk
+                            audio_type = "[GREETING]" if self.is_playing_greeting else "[AI_TALK]"
+                            print(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         
-                        try:
-                            self.realtime_audio_out_queue.put_nowait(audio_b64)
-                        except queue.Full:
-                            pass
+                        # 🔥 VERIFICATION #3: Block audio enqueue if closed
+                        if not self.closed:
+                            try:
+                                self.realtime_audio_out_queue.put_nowait(audio_b64)
+                                # 🎯 PROBE 4: Track enqueue for rate monitoring
+                                self._enq_counter += 1
+                                now_mono = time.monotonic()
+                                if now_mono - self._enq_last_log_time >= 1.0:
+                                    qsize = self.realtime_audio_out_queue.qsize()
+                                    _orig_print(f"[ENQ_RATE] frames_enqueued_per_sec={self._enq_counter}, qsize={qsize}", flush=True)
+                                    self._enq_counter = 0
+                                    self._enq_last_log_time = now_mono
+                                # 🎯 TASK D.2: Track frames sent for this response
+                                response_id = event.get("response_id")
+                                if response_id and hasattr(self, '_response_tracking') and response_id in self._response_tracking:
+                                    self._response_tracking[response_id]['frames_sent'] += 1
+                                    if self._response_tracking[response_id]['first_audio_ts'] is None:
+                                        self._response_tracking[response_id]['first_audio_ts'] = time.time()
+                            except queue.Full:
+                                pass
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
-                    # When audio finishes and we were in greeting mode, unset the flag
-                    if self.is_playing_greeting:
+                    # 🎯 FIX A: Complete greeting mode after FIRST response only
+                    if self.greeting_mode_active and not self.greeting_completed:
                         greeting_end_ts = time.time()
                         greeting_duration = 0
                         if hasattr(self, '_greeting_start_ts') and self._greeting_start_ts:
                             greeting_duration = (greeting_end_ts - self._greeting_start_ts) * 1000
                         print(f"🎤 [GREETING] Greeting finished at {greeting_end_ts:.3f} (duration: {greeting_duration:.0f}ms)")
+                        
+                        # 🎯 FIX A: Mark greeting as completed - ALL future responses are NORMAL
+                        self.greeting_mode_active = False
+                        self.greeting_completed = True
                         self.is_playing_greeting = False
+                        _orig_print(f"✅ [GREETING] Completed - switching to NORMAL AI responses. From now on NO greeting protect.", flush=True)
+                        
                         # 🎯 FIX: Enable barge-in after greeting completes
                         # Use dedicated flag instead of user_has_spoken to preserve guards
                         self.barge_in_enabled_after_greeting = True
                         print(f"✅ [GREETING] Barge-in now ENABLED for rest of call")
+                    elif self.is_playing_greeting:
+                        # This shouldn't happen after our fix, but handle gracefully
+                        print(f"⚠️ [GREETING] is_playing_greeting was True but greeting already completed - clearing flag")
+                        self.is_playing_greeting = False
+                        
+                        # 🔥 MASTER FIX: Validation check for greeting SLA
+                        self._validate_greeting_sla()
                         # 🔥 PROTECTION: Mark greeting completion time for hangup protection
                         self.greeting_completed_at = time.time()
                         print(f"🛡️ [PROTECTION] Greeting completed - hangup blocked for {self.min_call_duration_after_greeting_ms}ms")
@@ -3241,9 +4367,8 @@ class MediaStreamHandler:
                     self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
                     self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
                     
-                    # 🔥 BUILD 171: Track when AI finished speaking for cooldown check
+                    # 🔥 Track when AI finished speaking (for metrics only, no cooldown enforcement)
                     self._ai_finished_speaking_ts = time.time()
-                    print(f"🔥 [BUILD 171] AI finished speaking - cooldown started ({POST_AI_COOLDOWN_MS}ms)")
                     
                     # 🔥 BUILD 172: Update speech time for silence detection
                     self._update_speech_time()
@@ -3276,12 +4401,39 @@ class MediaStreamHandler:
                                 await asyncio.sleep(0.1)
                             
                             # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
+                            # 🔥 FIX #4: Add drain watchdog to detect stuck queue
                             # Each frame is 20ms, so 500 frames = 10 seconds of audio
+                            last_tx_size = self.tx_q.qsize()
+                            stuck_iterations = 0
+                            STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
+                            
                             for i in range(100):  # 100 * 100ms = 10 seconds max
                                 tx_size = self.tx_q.qsize()
                                 if tx_size == 0:
                                     print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
                                     break
+                                
+                                # 🔥 FIX #4: Detect if queue is stuck (not draining)
+                                if tx_size == last_tx_size:
+                                    stuck_iterations += 1
+                                    if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
+                                        print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
+                                        # Queue is stuck - check if tx_running is False
+                                        if not getattr(self, 'tx_running', False):
+                                            print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
+                                            # Clear the stuck queue
+                                            while not self.tx_q.empty():
+                                                try:
+                                                    self.tx_q.get_nowait()
+                                                except queue.Empty:
+                                                    break
+                                            print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
+                                            break
+                                else:
+                                    stuck_iterations = 0  # Reset on progress
+                                
+                                last_tx_size = tx_size
+                                
                                 if i % 10 == 0:  # Log every second
                                     print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
                                 await asyncio.sleep(0.1)
@@ -3728,18 +4880,19 @@ class MediaStreamHandler:
                             # Instead: just block NEW audio from being added via _tx_enqueue guard
                             # Let existing audio in queue play out naturally for smooth transition
                             
-                            # Only cancel if there's actually an active response
+                            # Only cancel if there's actually an active response (with duplicate guard)
                             if self.active_response_id and self.realtime_client and self.is_ai_speaking_event.is_set():
-                                try:
-                                    cancelled_id = self.active_response_id
-                                    await client.send_event({
-                                        "type": "response.cancel",
-                                        "response_id": cancelled_id
-                                    })
-                                    self._mark_response_cancelled_locally(cancelled_id, "loop_guard")
-                                    print(f"🛑 [LOOP GUARD] Cancelled active AI response (id={cancelled_id})")
-                                except:
-                                    pass
+                                cancelled_id = self.active_response_id
+                                if self._should_send_cancel(cancelled_id):
+                                    try:
+                                        await client.send_event({
+                                            "type": "response.cancel",
+                                            "response_id": cancelled_id
+                                        })
+                                        self._mark_response_cancelled_locally(cancelled_id, "loop_guard")
+                                        print(f"🛑 [LOOP GUARD] Cancelled active AI response (id={cancelled_id})")
+                                    except:
+                                        pass
                             else:
                                 print(f"⏭️ [LOOP GUARD] Skipped cancel - no active response (id={self.active_response_id}, speaking={self.is_ai_speaking_event.is_set()})")
                             
@@ -3850,10 +5003,52 @@ class MediaStreamHandler:
                         
                         # Case 4: BUILD 176 - auto_end_on_goodbye enabled AND AI said closing
                         # SAFETY: Only trigger if user has spoken (user_has_spoken=True) to avoid premature hangups
-                        # 🔥 PROMPT-ONLY MODE: When no required_lead_fields, rely only on goodbye + user interaction
+                        # 🔥 FIX: In SIMPLE_MODE, respect call_goal and auto_end_on_goodbye toggle
+                        # 🔧 NEW FIX: In SIMPLE_MODE, require explicit user goodbye - AI polite closing alone is NOT enough
                         elif self.auto_end_on_goodbye and ai_polite_closing_detected and self.user_has_spoken:
+                            call_goal = getattr(self, 'call_goal', 'lead_only')
+                            
+                            # 🔥 FIX: In SIMPLE_MODE, behavior depends on call_goal
+                            if SIMPLE_MODE:
+                                print(f"🔇 [GOODBYE] SIMPLE_MODE={SIMPLE_MODE} goal={call_goal} lead_complete={self.lead_captured} user_said_goodbye={self.user_said_goodbye}")
+                                if call_goal in ('lead_only', 'collect_details_only'):
+                                    # 🔧 NEW LOGIC: REQUIRE user goodbye first
+                                    # DO NOT hang up based only on AI polite closing
+                                    if not self.user_said_goodbye:
+                                        print(f"🔒 [GOODBYE] will_hangup=False - SIMPLE_MODE requires USER goodbye first")
+                                        print(f"   AI polite closing detected, but user has not said goodbye")
+                                        pass  # Don't hangup
+                                    else:
+                                        # User said goodbye - allow hangup
+                                        hangup_reason = "ai_goodbye_simple_mode_lead_only"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, user said goodbye")
+                                elif call_goal == 'appointment':
+                                    # For appointments: require user goodbye AND lead completion
+                                    if not self.user_said_goodbye:
+                                        print(f"🔒 [GOODBYE] will_hangup=False - appointment mode requires USER goodbye")
+                                        pass  # Don't hangup
+                                    elif self.required_lead_fields and not self.lead_captured:
+                                        # Lead incomplete - block hangup, AI should ask for missing info
+                                        print(f"🔒 [GOODBYE] will_hangup=False - goal=appointment, lead incomplete")
+                                        print(f"   required_lead_fields={self.required_lead_fields}, lead_captured={self.lead_captured}")
+                                        pass  # Don't hangup
+                                    else:
+                                        # User said goodbye AND lead complete - allow hangup
+                                        hangup_reason = "ai_goodbye_simple_mode_appointment"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal=appointment, user goodbye + lead complete")
+                                else:
+                                    # Unknown goal - still require user goodbye
+                                    if not self.user_said_goodbye:
+                                        print(f"🔒 [GOODBYE] will_hangup=False - unknown goal, requires USER goodbye")
+                                        pass  # Don't hangup
+                                    else:
+                                        hangup_reason = "ai_goodbye_simple_mode_unknown"
+                                        should_hangup = True
+                                        print(f"✅ [GOODBYE] will_hangup=True - goal={call_goal}, user said goodbye")
                             # Prompt-only mode: If no required fields configured, allow hangup on goodbye alone
-                            if not self.required_lead_fields:
+                            elif not self.required_lead_fields:
                                 hangup_reason = "ai_goodbye_prompt_only"
                                 should_hangup = True
                                 print(f"✅ [HANGUP PROMPT-ONLY] AI said goodbye with auto_end_on_goodbye=True + user has spoken - disconnecting")
@@ -3877,6 +5072,16 @@ class MediaStreamHandler:
                             print(f"   auto_end_after_lead_capture={self.auto_end_after_lead_capture}, lead_captured={self.lead_captured}")
                             print(f"   verification_confirmed={self.verification_confirmed}")
                         
+                        # 🔧 NEW FIX: Guard against hangup while user is speaking
+                        # In SIMPLE_MODE, check if user is currently speaking or just started
+                        if should_hangup and SIMPLE_MODE:
+                            # Check if there's active voice input (user speaking)
+                            # barge_in_voice_frames is always initialized to 0 in __init__
+                            user_is_speaking = getattr(self, 'barge_in_voice_frames', 0) > 0
+                            if user_is_speaking:
+                                print(f"🔒 [GOODBYE] Blocking hangup - user currently speaking! voice_frames={self.barge_in_voice_frames}")
+                                should_hangup = False
+                        
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
@@ -3895,33 +5100,205 @@ class MediaStreamHandler:
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
                     print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
                     
+                    # 🔥 MASTER CHECK: Log utterance received (verification requirement)
+                    logger.info(f"[UTTERANCE] text='{raw_text}'")
+                    
                     # 🔥 BUILD 170.4: Apply Hebrew normalization
                     text = normalize_hebrew_text(text)
                     
-                    # 🔥 BUILD 204: Apply business vocabulary corrections (fast fuzzy matching)
-                    # This corrects domain-specific terms BEFORE other filters
-                    vocab_corrections = {}
-                    try:
-                        from server.services.dynamic_stt_service import apply_vocabulary_corrections, semantic_repair, should_apply_semantic_repair
-                        text_before = text
-                        text, vocab_corrections = apply_vocabulary_corrections(text, self.business_id)
-                        if vocab_corrections:
-                            print(f"🔧 [BUILD 204] Vocabulary fix: '{text_before}' → '{text}' (corrections: {vocab_corrections})")
-                        
-                        # 🔥 BUILD 300: SEMANTIC REPAIR for short/unclear transcriptions
-                        if should_apply_semantic_repair(text):
-                            try:
-                                text_before_repair = text
-                                text = await semantic_repair(text, self.business_id)
-                                if text != text_before_repair:
-                                    print(f"[STT_REPAIRED] '{text_before_repair}' → '{text}'")
-                            except Exception as repair_err:
-                                print(f"⚠️ [BUILD 300] Semantic repair skipped: {repair_err}")
-                    except Exception as vocab_err:
-                        print(f"⚠️ [BUILD 204] Vocabulary correction skipped: {vocab_err}")
+                    # ✅ P0-0: REMOVED Dynamic STT completely (causes "Working outside of application context")
+                    # No DB access in realtime thread - vocabulary corrections disabled
+                    # This prevents crashes/stalls during calls caused by DB/Flask context issues
                     
                     now_ms = time.time() * 1000
                     now_sec = now_ms / 1000
+                    
+                    # 🎯 STT GUARD: Validate utterance before accepting
+                    # This prevents hallucinated transcriptions during silence from triggering barge-in
+                    utterance_start_ts = getattr(self, '_utterance_start_ts', None)
+                    if utterance_start_ts:
+                        utterance_duration_ms = (now_sec - utterance_start_ts) * 1000
+                    else:
+                        # Fallback: estimate from speech_stopped event
+                        utterance_duration_ms = 1000  # Assume 1s if we don't have timing
+                    
+                    current_rms = getattr(self, '_recent_audio_rms', 0)
+                    current_noise_floor = getattr(self, 'noise_floor', 50.0)
+                    
+                    # 🔥 FIX BUG 3: Calculate time since AI audio started (for echo suppression)
+                    ai_speaking = self.is_ai_speaking_event.is_set()
+                    time_since_ai_audio_start_ms = 0
+                    if ai_speaking and self._last_ai_audio_start_ts:
+                        time_since_ai_audio_start_ms = (now_sec - self._last_ai_audio_start_ts) * 1000
+                    
+                    # 🔥 PRE-COMPUTE: Check filler status once (used in both hallucination and success paths)
+                    is_filler_only = not is_valid_transcript(text)
+                    
+                    # 🔥 PRE-COMPUTE: Save state before any modifications (used in all logging paths)
+                    user_has_spoken_before = self.user_has_spoken
+                    
+                    # Run enhanced validation with all new parameters
+                    accept_utterance = should_accept_realtime_utterance(
+                        stt_text=text,
+                        utterance_ms=utterance_duration_ms,
+                        rms_snapshot=current_rms,
+                        noise_floor=current_noise_floor,
+                        ai_speaking=ai_speaking,
+                        last_ai_audio_start_ms=time_since_ai_audio_start_ms,
+                        last_hallucination=self._last_hallucination
+                    )
+                    
+                    if not accept_utterance:
+                        # 🚫 Utterance failed validation - save as hallucination and ignore
+                        logger.info(f"[STT_GUARD] Ignoring hallucinated/invalid utterance: '{text[:20]}...'")
+                        
+                        # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                        logger.info(
+                            f"[STT_DECISION] raw='{raw_text}' normalized='{text}' | "
+                            f"is_filler_only={is_filler_only} | "
+                            f"is_hallucination=True (failed validation) | "
+                            f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
+                            f"will_generate_response=False (hallucination dropped)"
+                        )
+                        
+                        # 🔥 FIX BUG 3: Save as last hallucination to prevent repeats
+                        self._last_hallucination = text.strip()
+                        # 🔥 METRICS: Increment STT hallucinations counter
+                        self._stt_hallucinations_dropped += 1
+                        # Clear candidate flag
+                        self._candidate_user_speaking = False
+                        self._utterance_start_ts = None
+                        continue
+                    
+                    # ✅ Utterance passed validation
+                    logger.info(
+                        f"[STT_GUARD] Accepted utterance: {utterance_duration_ms:.0f}ms, "
+                        f"rms={current_rms:.1f}, noise_floor={current_noise_floor:.1f}, "
+                        f"text_len={len(text)}"
+                    )
+                    
+                    # 🔥 BUILD 341: Set user_has_spoken ONLY after validated transcription with meaningful text
+                    # This ensures all guards pass before we mark user as having spoken
+                    # Minimum requirement: At least MIN_TRANSCRIPTION_LENGTH characters after cleanup
+                    if not self.user_has_spoken and text and len(text.strip()) >= MIN_TRANSCRIPTION_LENGTH:
+                        self.user_has_spoken = True
+                        print(f"[STT_GUARD] user_has_spoken set to True after full validation (text='{text[:40]}...', len={len(text.strip())})")
+                    elif not self.user_has_spoken and text:
+                        # Log when we get text but it's too short to count
+                        print(f"[STT_GUARD] Text too short to mark user_has_spoken (len={len(text.strip())}, need >={MIN_TRANSCRIPTION_LENGTH}): '{text}'")
+                    
+                    # 🔥 FIX: Enhanced logging for STT decisions (per problem statement)
+                    # is_filler_only already computed above, no duplicate function call
+                    logger.info(
+                        f"[STT_DECISION] raw='{raw_text}' normalized='{text}' | "
+                        f"is_filler_only={is_filler_only} | "
+                        f"is_hallucination=False (passed validation) | "
+                        f"user_has_spoken: {user_has_spoken_before} → {self.user_has_spoken} | "
+                        f"will_generate_response={not is_filler_only}"
+                    )
+                    
+                    # 🔥 MASTER CHECK: Confirm transcript committed to model (Path A - Realtime-native)
+                    # Transcript is already in session state via conversation.item.input_audio_transcription.completed
+                    # No manual conversation.item.create needed - OpenAI handles it automatically
+                    logger.info(f"[AI_INPUT] kind=realtime_transcript committed=True text_preview='{text[:100]}'")
+                    
+                    # Clear candidate flag - transcription received and validated
+                    self._candidate_user_speaking = False
+                    self._utterance_start_ts = None
+                    
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # If greeting was protected during speech_started, now confirm with transcription
+                    # Non-empty text = real user speech → interrupt greeting (INBOUND ONLY!)
+                    # 
+                    # 🔥 NEW REQUIREMENT: OUTBOUND calls NEVER interrupt greeting - ignore all transcriptions
+                    # ═══════════════════════════════════════════════════════════════════════
+                    is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
+                    
+                    if getattr(self, '_greeting_needs_transcription_confirm', False):
+                        if is_outbound:
+                            # OUTBOUND: Never interrupt greeting, even with valid transcription
+                            print(f"🛡️ [GREETING_PROTECT] OUTBOUND - ignoring transcription during greeting: '{text[:30]}...'")
+                            # Keep greeting playing - don't interrupt
+                        elif self.is_playing_greeting and text and len(text.strip()) >= 2:
+                            # INBOUND: Real user speech confirmed - interrupt greeting NOW
+                            print(f"🛡️ [GREETING_PROTECT] INBOUND - Transcription confirmed real speech: '{text[:30]}...' - interrupting greeting")
+                            self.is_playing_greeting = False
+                            self.awaiting_greeting_answer = True
+                            self.greeting_completed_at = time.time()
+                            self.barge_in_enabled_after_greeting = True
+                            
+                            # Cancel active response if still playing
+                            if self.is_ai_speaking_event.is_set() or self.active_response_id is not None:
+                                if self.active_response_id and self.realtime_client:
+                                    if self._should_send_cancel(self.active_response_id):
+                                        try:
+                                            await self.realtime_client.cancel_response(self.active_response_id)
+                                            self._mark_response_cancelled_locally(self.active_response_id, "greeting_protect_confirmed")
+                                            _orig_print(f"✅ [GREETING_PROTECT] Cancelled greeting response {self.active_response_id[:20]}...", flush=True)
+                                        except Exception as e:
+                                            _orig_print(f"⚠️ [GREETING_PROTECT] Cancel error: {e}", flush=True)
+                                
+                                # Flush TX queue and clear Twilio buffer
+                                self._flush_tx_queue()
+                                if self.stream_sid:
+                                    try:
+                                        clear_event = {"event": "clear", "streamSid": self.stream_sid}
+                                        self._ws_send(json.dumps(clear_event))
+                                        _orig_print(f"🧹 [GREETING_PROTECT] Sent Twilio clear event", flush=True)
+                                    except Exception as e:
+                                        _orig_print(f"⚠️ [GREETING_PROTECT] Clear error: {e}", flush=True)
+                                
+                                # Reset state
+                                self.is_ai_speaking_event.clear()
+                                self.active_response_id = None
+                        else:
+                            # Empty/filler text - false alarm, keep greeting playing
+                            print(f"🛡️ [GREETING_PROTECT] Transcription was filler/empty - keeping greeting (text='{text}')")
+                        
+                        # Always clear protection flag after handling (both inbound and outbound)
+                        self._greeting_needs_transcription_confirm = False
+                    
+                    # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
+                    # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
+                    self.user_speaking = False
+                    print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
+                    
+                    # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
+                    # If final text is filler → ignore, if real text → CONFIRMED barge-in
+                    if is_filler_only:
+                        logger.info(f"[FILLER_DETECT] Ignoring filler-only utterance: '{text[:40]}...'")
+                        
+                        # Don't cancel AI, don't flush queue, just ignore
+                        # If this was during AI speech, it's not a real barge-in
+                        if self.barge_in_active:
+                            logger.info(f"[BARGE-IN] Phase B: Filler detected - not a real barge-in, clearing flag")
+                            self.barge_in_active = False
+                            self._barge_in_started_ts = None
+                        
+                        # Save to conversation history for context but mark as filler
+                        # 🔧 CODE REVIEW FIX: Initialize conversation_history if it doesn't exist
+                        if not hasattr(self, 'conversation_history'):
+                            self.conversation_history = []
+                        self.conversation_history.append({
+                            "speaker": "user",
+                            "text": f"[FILLER: {text}]",
+                            "ts": time.time(),
+                            "filler_only": True
+                        })
+                        # Increment filler counter for metrics
+                        if not hasattr(self, '_stt_filler_only_count'):
+                            self._stt_filler_only_count = 0
+                        self._stt_filler_only_count += 1
+                        continue  # Skip to next event, don't process as user input
+                    
+                    # 🔥 FIX BUG 2: Cancel any pending timeout tasks (transcription received)
+                    if hasattr(self, '_timeout_tasks'):
+                        for task in self._timeout_tasks:
+                            if not task.done():
+                                task.cancel()
+                        self._timeout_tasks.clear()
                     
                     # 🔥 BUILD 300: REMOVED POST_AI_COOLDOWN GATE
                     # The guide says: "אסור לזרוק טקסט בגלל pause ארוך" and "המודל תמיד יודע טוב יותר"
@@ -3932,25 +5309,6 @@ class MediaStreamHandler:
                         # 🔥 BUILD 300: Only LOG, don't reject! OpenAI knows better than local timing
                         if time_since_ai_finished < 500:  # Very fast response - just log for debugging
                             print(f"⚡ [BUILD 300] Fast response: {time_since_ai_finished:.0f}ms after AI (trusting OpenAI)")
-                    
-                    # 🔥 BUILD 202 FIX: TRUST OPENAI STT OVER LOCAL RMS
-                    # If OpenAI Realtime API transcribed the speech, it detected valid audio.
-                    # Our local RMS measurement can be stale or wrong (race condition).
-                    # Only apply silence gate to very short/empty transcriptions.
-                    recent_rms = getattr(self, '_recent_audio_rms', 0)
-                    consec_frames = getattr(self, '_consecutive_voice_frames', 0)
-                    ABSOLUTE_SILENCE_RMS = 30
-                    
-                    # 🔥 BUILD 202: Only reject if BOTH conditions are met:
-                    # 1. Very low RMS (< 10, not 30 - true silence)
-                    # 2. Very short text (< 3 chars - likely noise artifact)
-                    # OpenAI's VAD is more reliable than our local measurement!
-                    if recent_rms < 10 and len(text.strip()) < 3:
-                        print(f"[SILENCE GATE] ❌ REJECTED (RMS={recent_rms:.0f} < 10, text too short): '{text}'")
-                        continue
-                    elif recent_rms < ABSOLUTE_SILENCE_RMS and len(text.strip()) >= 3:
-                        # 🔥 BUILD 202: Trust OpenAI - it heard something valid!
-                        print(f"[SILENCE GATE] ✅ TRUSTED (OpenAI heard '{text[:30]}...' despite low RMS={recent_rms:.0f})")
                     # 🔥 BUILD 170.3: REMOVED short text rejection - Hebrew can have short valid responses
                     
                     # 🔥 BUILD 169.1: ENHANCED NOISE/HALLUCINATION FILTER (Architect-reviewed)
@@ -4202,6 +5560,25 @@ class MediaStreamHandler:
                     self._stt_last_segment_ts = now_ms
                     transcript = text
                     
+                    # 🔥 SIMPLE_MODE: Structured utterance logging
+                    # Single log line with all key info for debugging and analysis
+                    try:
+                        call_direction = getattr(self, 'call_direction', 'inbound')
+                        call_goal = getattr(self, 'call_goal', 'lead_only')
+                        user_has_spoken_state = self.user_has_spoken
+                        is_ai_currently_speaking = self.is_ai_speaking_event.is_set()
+                        
+                        # Format: [UTTERANCE] SIMPLE_MODE=True direction=inbound goal=lead_only 
+                        #         user_has_spoken=True ai_speaking=False text='...'
+                        logger.info(
+                            f"[UTTERANCE] SIMPLE_MODE={SIMPLE_MODE} direction={call_direction} "
+                            f"goal={call_goal} user_has_spoken={user_has_spoken_state} "
+                            f"ai_speaking={is_ai_currently_speaking} text='{transcript[:100]}'"
+                        )
+                    except Exception as log_err:
+                        # Don't let logging errors break STT
+                        logger.warning(f"[UTTERANCE] Logging error: {log_err}")
+                    
                     # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 3: Log final transcript
                     # Format: [STT_FINAL] → what goes into Lead State / AI processing
                     print(f"[STT_FINAL] '{transcript}' (from raw: '{raw_text[:30]}...')")
@@ -4220,8 +5597,11 @@ class MediaStreamHandler:
                     except Exception as log_err:
                         pass  # Don't let logging errors break STT
                     
-                    # Mark that the user really spoke at least once
+                    # 🎯 STT GUARD: Only NOW (after validation) mark user as having spoken
+                    # This prevents hallucinated utterances from setting user_has_spoken flag
                     self.user_has_spoken = True
+                    self._candidate_user_speaking = False  # Clear candidate flag
+                    print(f"✅ [STT_GUARD] Validated utterance - user_has_spoken=True")
                     
                     # 🔥 BUILD 170.3: LOOP PREVENTION - Reset counter when user speaks
                     self._consecutive_ai_responses = 0
@@ -4459,9 +5839,25 @@ class MediaStreamHandler:
                         # Track conversation
                         self.conversation_history.append({"speaker": "user", "text": transcript, "ts": time.time()})
                         
+                        # 🔥 SILENCE FAILSAFE: Start timeout waiting for AI response
+                        # 🔥 FIX: SILENCE_FAILSAFE completely removed
+                        # Expected flow when user speaks:
+                        # 1. User speaks → transcription.completed fires
+                        # 2. Conversation context updated with user text
+                        # 3. AI should naturally respond (no synthetic prompts needed)
+                        # 4. If AI doesn't respond after 15s, silence monitor asks "are you there?"
+                        # No synthetic fallback content should be sent to the model
+                        
                         # 🎯 SMART HANGUP: Extract lead fields from user speech as well
                         # 🔥 BUILD 307: Pass is_user_speech=True for proper city extraction
                         self._extract_lead_fields_from_ai(transcript, is_user_speech=True)
+                        
+                        # 🔧 FIX: Track user goodbye separately from AI polite closing
+                        if self._looks_like_user_goodbye(transcript):
+                            self.user_said_goodbye = True
+                            self.last_user_goodbye_at = time.time() * 1000  # ms
+                            print(f"[USER GOODBYE] User said goodbye: '{transcript[:50]}...'")
+                        
                         self._current_stt_confidence = None
                         self._current_transcript_token_count = 0
                         self._current_transcript_is_first_answer = False
@@ -4477,6 +5873,47 @@ class MediaStreamHandler:
                         
                         # 🎯 Mark that we have pending AI response (AI will respond to this)
                         self.has_pending_ai_response = True
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 BARGE-IN: Clear barge_in flag now that transcription is complete
+                        # ═══════════════════════════════════════════════════════════════════════
+                        if self.barge_in_active:
+                            self.barge_in_active = False
+                            print(f"✅ [BARGE-IN] Cleared barge_in flag after transcription")
+                        
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🔥 SILENCE COMMANDS: Handle "שקט/די/רגע/תפסיק" → HARD STOP
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # This is a COMMAND, not a question that wasn't understood
+                        # NEVER respond with "לא שמעתי" or any other response
+                        # Just return to listening in complete silence
+                        # ═══════════════════════════════════════════════════════════════════════
+                        silence_commands = ["שקט", "שקטי", "די", "רגע", "תפסיק", "תפסיקי", "סתום", "סתמי", "שש", "שששש"]
+                        transcript_normalized = transcript.strip().lower().replace(".", "").replace("!", "").replace(",", "").replace("?", "")
+                        
+                        is_silence_command = transcript_normalized in silence_commands
+                        
+                        if is_silence_command:
+                            print(f"🤫 [SILENCE_CMD] User said '{transcript}' - HARD STOP, no response, returning to listening")
+                            # Clear user_speaking flag immediately - ready for next input
+                            self.user_speaking = False
+                            # Mark that we received input but won't respond
+                            self.has_pending_ai_response = False
+                            # CRITICAL: Do NOT trigger response.create
+                            # Do NOT send "לא שמעתי" or any acknowledgment
+                            # Just go back to listening mode
+                            print(f"✅ [SILENCE_CMD] Back to listening mode - awaiting next user input")
+                            continue  # Skip all response logic
+                        
+                        # 🔥 FIX: DO NOT manually trigger response.create here
+                        # OpenAI's server_vad already automatically creates responses when speech ends
+                        # Manual triggering causes "conversation_already_has_active_response" errors
+                        # The automatic response from server_vad is sufficient and properly timed
+                        # We just log that we received the transcription
+                        if transcript and len(transcript.strip()) > 0:
+                            print(f"✅ [TRANSCRIPTION] Received user input: '{transcript[:40]}...' (response auto-created by server_vad)")
+                        else:
+                            print(f"⚠️ [TRANSCRIPTION] Empty transcript received")
                         
                         # 🛡️ CHECK: Don't run NLP twice for same appointment
                         already_confirmed = getattr(self, 'appointment_confirmed_in_session', False)
@@ -4620,132 +6057,162 @@ class MediaStreamHandler:
     
     async def _send_server_event_to_ai(self, message_text: str):
         """
-        🔥 Send server-side message to AI via conversation.item.create
-        Used for appointment validation feedback, calendar availability, etc.
+        🚫 DEPRECATED: This function is permanently disabled and will be removed in future versions.
+        
+        REASON: Sending server-generated events to the AI model with role="user" violated
+        the "transcription is truth" principle and caused confusion. The AI would receive
+        synthetic messages as if the customer said them, leading to inappropriate responses.
+        
+        ⚠️ WARNING: This function does nothing. If you're calling it, remove the call.
+        All server-side intelligence should be handled through proper context management,
+        not synthetic user messages.
         
         Args:
-            message_text: Message to send to AI (in Hebrew)
+            message_text: Message text - IGNORED (function does nothing)
         """
-        if not self.realtime_client:
-            print(f"⚠️ [SERVER_EVENT] No Realtime client - cannot send message")
-            return
-        
-        try:
-            # 🔥 BUILD 148 FIX: OpenAI Realtime API only accepts "input_text" type for conversation.item.create
-            # System/assistant messages need special handling - use "user" role with special marker
-            # The AI will understand this is server feedback and respond appropriately
-            event = {
-                "type": "conversation.item.create",
-                "item": {
-                    "type": "message",
-                    "role": "user",  # 🔥 Must be "user" for conversation.item.create
-                    "content": [
-                        {
-                            "type": "input_text",  # 🔥 Must be "input_text" (not "text"!)
-                            "text": f"[SERVER] {message_text}"  # Prefix to distinguish from real user
-                        }
-                    ]
-                }
-            }
-            
-            await self.realtime_client.send_event(event)
-            print(f"🔇 [SERVER_EVENT] Sent SILENTLY to AI: {message_text[:100]}")
-            
-            # 🎯 DEBUG: Track appointment_created messages
-            if "appointment_created" in message_text:
-                print(f"🔔 [APPOINTMENT] appointment_created message sent to AI!")
-                print(f"🔔 [APPOINTMENT] Message content: {message_text}")
-            
-            # 🔥 BUILD 302: DON'T trigger response during barge-in!
-            # If user just interrupted AI, don't let server_events revive old context
-            if self.barge_in_active:
-                print(f"⏸️ [SERVER_EVENT] Skipping trigger - barge-in active (message logged but no response)")
-                return
-            
-            # 🔥 BUILD 200: Use central trigger_response for ALL response.create calls
-            # The trigger_response function handles:
-            # - Active response ID check (prevents "already has active response" errors)
-            # - Response pending check (race condition prevention)
-            # - Loop guard check (for inbound calls)
-            is_appointment_msg = "appointment" in message_text.lower() or "תור" in message_text or "זמינות" in message_text
-            reason = f"SERVER_EVENT:{message_text[:30]}"
-            if is_appointment_msg:
-                reason = f"APPOINTMENT:{message_text[:30]}"
-            
-            triggered = await self.trigger_response(reason)
-            if not triggered:
-                print(f"⏸️ [SERVER_EVENT] Response blocked by trigger_response guards")
-            
-        except Exception as e:
-            print(f"❌ [SERVER_EVENT] Failed to send: {e}")
-            import traceback
-            traceback.print_exc()
+        # Log deprecated usage for tracking
+        logger.warning(f"[DEPRECATED] _send_server_event_to_ai called but does nothing. "
+                      f"Remove this call. Preview: '{message_text[:100]}'")
+        return
     
-    def _handle_realtime_barge_in(self):
+    async def _send_silence_warning(self):
         """
-        🔥 ENHANCED BARGE-IN: Stop AI generation + playback when user speaks
-        Sends response.cancel to Realtime API to stop text generation (not just audio!)
+        🔥 FIX BUG 2: Finalize user turn when timeout expires without transcription
+        
+        This prevents the system from getting stuck in silence when:
+        - speech_started fired
+        - speech_stopped fired
+        - But no transcription.completed was received
+        
+        The AI should always reply, even if transcription failed.
+        
+        NOTE: This is async wrapper for _finalize_user_turn_on_timeout
         """
-        # 🛡️ FIX: PROTECT GREETING - Never cancel during greeting playback!
-        if self.is_playing_greeting:
-            print(f"🛡️ [PROTECT GREETING] Ignoring barge-in - greeting still playing")
+        print(f"[TURN_END] Async silence warning triggered")
+        self._finalize_user_turn_on_timeout()
+    
+    def _finalize_user_turn_on_timeout(self):
+        """
+        🔥 FIX ISSUE 2: Finalize user turn when timeout expires without transcription
+        
+        This prevents the system from getting stuck in silence when:
+        - speech_started fired
+        - speech_stopped fired
+        - But no transcription.completed was received
+        
+        The AI should always reply, even if transcription failed.
+        This method is called from the timeout check in speech_started handler.
+        
+        ✅ NEW REQ: "Gentle" implementation - doesn't create response, doesn't override state
+        """
+        print(f"[TURN_END] Timeout finalization triggered")
+        
+        # ✅ NEW REQ: Don't act if user is still speaking
+        if getattr(self, 'user_speaking', False):
+            print(f"[TURN_END] User still speaking - skipping timeout action")
             return
         
-        print("🔍 [BARGE-IN] Stopping AI response and audio playback...")
+        # ✅ NEW REQ: Don't act if session is closing/closed
+        if getattr(self, 'closed', False) or getattr(self, 'hangup_triggered', False):
+            print(f"[TURN_END] Session closing - skipping timeout action")
+            return
         
-        # 🔥 CRITICAL: Cancel active AI response generation (not just playback!)
-        if self.active_response_id and self.realtime_client:
-            try:
-                import asyncio
-                # Create event loop if needed
+        # Clear candidate flag
+        self._candidate_user_speaking = False
+        self._utterance_start_ts = None
+        
+        # Check if we're truly stuck (no response in progress)
+        # ✅ NEW REQ: Don't override state if response.created already started
+        if not self.response_pending_event.is_set() and not self.is_ai_speaking_event.is_set():
+            # No AI response in progress - this means we're stuck
+            # The transcription probably failed or was rejected
+            print(f"[TURN_END] No AI response in progress - system was stuck in silence")
+            
+            # CORRECTIVE ACTION: Clear any stale state that might block response
+            # ✅ NEW REQ: Only clear stale state, don't create new response
+            if self.active_response_id:
+                print(f"[TURN_END] Clearing stale active_response_id: {self.active_response_id[:20]}...")
+                self.active_response_id = None
+            
+            if self.has_pending_ai_response:
+                print(f"[TURN_END] Clearing stale has_pending_ai_response flag")
+                self.has_pending_ai_response = False
+            
+            # The silence monitor will detect this and trigger a prompt for user to speak
+            # We don't force a response here to avoid AI hallucinations
+            print(f"[TURN_END] State cleared - silence monitor will handle next action")
+        else:
+            print(f"[TURN_END] AI response already in progress - no action needed")
+    
+    def _simple_barge_in_stop(self, reason="user_speech"):
+        """
+        🔥 BARGE-IN: Stop AI when user starts speaking
+        
+        Clean barge-in implementation:
+        1. Cancel OpenAI current response (if active)
+        2. Flush TX queue to stop audio playback immediately
+        3. Clear speaking flags
+        
+        Rule: Use response.cancel, never drop audio deltas.
+        """
+        # 🛡️ PROTECT GREETING - Never cancel during greeting playback!
+        if hasattr(self, 'is_playing_greeting') and self.is_playing_greeting:
+            print(f"🛡️ [BARGE_IN] Ignoring - greeting still playing")
+            return
+        
+        # 1) Cancel OpenAI current response
+        cancelled_id = None
+        try:
+            if getattr(self, "active_response_id", None) and getattr(self, "realtime_client", None):
+                # Create event loop if needed (reuse pattern from _handle_realtime_barge_in)
                 try:
                     loop = asyncio.get_event_loop()
                 except RuntimeError:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                 
-                # Send response.cancel event
                 cancelled_id = self.active_response_id
-                cancel_event = {"type": "response.cancel"}
-                if cancelled_id:
-                    cancel_event["response_id"] = cancelled_id
-                future = asyncio.run_coroutine_threadsafe(
-                    self.realtime_client.send_event(cancel_event),
-                    loop
-                )
-                future.result(timeout=0.5)  # Wait max 0.5s
-                print(f"✅ [BARGE-IN] Cancelled response {self.active_response_id}")
-                if cancelled_id:
-                    self._mark_response_cancelled_locally(cancelled_id, "threaded_barge")
-                self.active_response_id = None
-            except Exception as e:
-                print(f"⚠️ [BARGE-IN] Failed to cancel response: {e}")
+                cancel_event = {"type": "response.cancel", "response_id": cancelled_id}
+                
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.realtime_client.send_event(cancel_event),
+                        loop
+                    )
+                    future.result(timeout=0.3)  # Quick timeout
+                    print(f"[BARGE_IN] cancel_sent response_id={cancelled_id[:20] if cancelled_id else 'None'}")
+                except Exception as cancel_err:
+                    print(f"⚠️ [BARGE_IN] Cancel failed: {cancel_err}")
+        except Exception as e:
+            print(f"⚠️ [BARGE_IN] Error during cancel: {e}")
         
-        # Stop AI speaking flag (checked in audio output bridge)
-        self.is_ai_speaking_event.clear()  # Thread-safe: AI stopped due to barge-in
-        self.speaking = False  # 🔥 BUILD 165: SYNC with self.speaking flag
-        self.last_ai_audio_ts = None
-        self.ai_speaking_start_ts = None  # 🔥 FIX: Clear start timestamp
-        
-        # Clear any queued AI audio that hasn't been sent yet
+        # 2) Flush TX queue to stop audio playback immediately
+        cleared = 0
         try:
-            while not self.realtime_audio_out_queue.empty():
-                self.realtime_audio_out_queue.get_nowait()
-        except:
-            pass
+            q = getattr(self, "tx_q", None)
+            if q:
+                while True:
+                    try:
+                        q.get_nowait()
+                        cleared += 1
+                    except queue.Empty:
+                        break
+        except Exception as e:
+            print(f"⚠️ [BARGE_IN] Error during flush: {e}")
         
-        # Send clear to Twilio to stop any audio in flight
-        if not self.ws_connection_failed:
-            try:
-                self._tx_enqueue({"type": "clear"})
-            except:
-                pass
+        print(f"[BARGE_IN] tx_q_flushed frames={cleared}")
         
-        # Reset barge-in state
-        self.current_user_voice_start_ts = None
+        # 3) Clear speaking flags
+        try:
+            if hasattr(self, 'is_ai_speaking_event'):
+                self.is_ai_speaking_event.clear()
+            self.speaking = False
+            self.active_response_id = None
+        except Exception as e:
+            print(f"⚠️ [BARGE_IN] Error clearing flags: {e}")
         
-        print("🎤 [REALTIME] BARGE-IN complete – AI FULLY STOPPED, user can speak")
-    
+        print(f"🛑 [BARGE_IN] Stop complete (reason={reason})")
+
     async def _check_appointment_confirmation_async(self):
         """
         Check for appointment requests using GPT-4o-mini NLP parser
@@ -5479,6 +6946,7 @@ class MediaStreamHandler:
         """⚡ BUILD 168.2: Optimized audio bridge - minimal logging
         
         🔥 PART C DEBUG: Added logging to trace tx=0 issues
+        🔥 FIX #1: Continue draining queue even after stop flag
         """
         if not hasattr(self, 'realtime_tx_frames'):
             self.realtime_tx_frames = 0
@@ -5489,17 +6957,35 @@ class MediaStreamHandler:
         _first_frame_logged = False
         _frames_skipped_no_stream_sid = 0
         
+        # 🎯 PROBE 4: Queue Flow Probe - Track enqueue rate every 1 second
+        _enqueue_rate_counter = 0
+        _last_enqueue_rate_time = time.monotonic()
+        
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
         audio_buffer = b''  # Rolling buffer for incomplete frames
         
         _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
         
-        while not self.realtime_stop_flag:
+        # 🔥 FIX #1: Continue until queue is empty OR sentinel received
+        # 🔥 SESSION LIFECYCLE: Also check self.closed to exit immediately on session close
+        # Don't exit just because stop_flag is set - drain the queue first!
+        while (not self.realtime_stop_flag or not self.realtime_audio_out_queue.empty()) and not self.closed:
+            # 🎯 PROBE 4: Queue Flow Probe - Log enqueue rate every 1 second
+            now_mono = time.monotonic()
+            if now_mono - _last_enqueue_rate_time >= 1.0:
+                rx_qsize = self.realtime_audio_out_queue.qsize()
+                _orig_print(f"[ENQ_RATE] frames_per_sec={_enqueue_rate_counter}, rx_qsize={rx_qsize}", flush=True)
+                _enqueue_rate_counter = 0
+                _last_enqueue_rate_time = now_mono
+            
             try:
                 audio_b64 = self.realtime_audio_out_queue.get(timeout=0.1)
                 if audio_b64 is None:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] Received None sentinel - exiting loop (frames_enqueued={self.realtime_tx_frames})", flush=True)
                     break
+                
+                # 🎯 PROBE 4: Count frames dequeued from realtime_audio_out_queue
+                _enqueue_rate_counter += 1
                 
                 import base64
                 chunk_bytes = base64.b64decode(audio_b64)
@@ -5509,6 +6995,13 @@ class MediaStreamHandler:
                 if not _first_frame_logged:
                     _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
                     _first_frame_logged = True
+                
+                # 🔥 RECORDING TRIGGER: Start recording when first audio sent (from TX loop flag)
+                # This is done here in background thread, NOT in TX loop itself
+                if getattr(self, '_first_audio_sent', False) and not getattr(self, '_recording_started', False):
+                    self._recording_started = True
+                    _orig_print(f"✅ [AUDIO_OUT_LOOP] Starting recording (triggered by FIRST_AUDIO_SENT flag)", flush=True)
+                    threading.Thread(target=self._start_call_recording, daemon=True).start()
                 
                 if not self.stream_sid:
                     _frames_skipped_no_stream_sid += 1
@@ -5529,38 +7022,60 @@ class MediaStreamHandler:
                         "media": {"payload": frame_b64}
                     }
                     
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 AUDIO BACKPRESSURE FIX: Pacing + Blocking put with timeout
+                    # This prevents mid-sentence audio cutting by waiting instead of dropping frames
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Get queue state once to avoid redundant system calls
+                    queue_size = self.tx_q.qsize()
+                    queue_maxsize = self.tx_q.maxsize  # 400 frames = 8s
+                    
+                    # Thresholds for backpressure control
+                    PACING_THRESHOLD = 0.6  # Start pacing at 60% full
+                    BACKPRESSURE_THRESHOLD = 0.8  # Log warnings at 80% full
+                    
+                    pacing_threshold = int(queue_maxsize * PACING_THRESHOLD)  # 240 frames
+                    backpressure_threshold = int(queue_maxsize * BACKPRESSURE_THRESHOLD)  # 320 frames
+                    
+                    # Apply pacing when queue ≥60% full to slow production to TX rate
+                    if queue_size >= pacing_threshold:
+                        time.sleep(0.02)  # 20ms = match TX loop pace (50 FPS)
+                    
+                    # Log when queue is getting high (throttled)
+                    if queue_size >= backpressure_threshold:
+                        now = time.time()
+                        if not hasattr(self, '_last_backpressure_log') or now - self._last_backpressure_log > 5:
+                            print(f"⏸️ [BACKPRESSURE] Queue high ({queue_size}/{queue_maxsize}), applying backpressure (blocking put)")
+                            self._last_backpressure_log = now
+                    
+                    # 🔥 FIX: Use blocking put() with timeout instead of put_nowait()
+                    # This applies true backpressure - we wait for TX to catch up instead of dropping frames
                     try:
-                        # 🔥 BUILD 181: Queue overflow protection
-                        queue_size = self.tx_q.qsize()
-                        if queue_size >= 1400:  # Near max (1500)
-                            # Log overflow warning (throttled)
-                            now = time.time()
-                            if not hasattr(self, '_last_overflow_warning') or now - self._last_overflow_warning > 5:
-                                print(f"⚠️ [AUDIO OVERFLOW] TX queue at {queue_size}/1500 - dropping oldest frames")
-                                self._last_overflow_warning = now
-                            # Drop 100 oldest frames to make room
-                            for _ in range(100):
-                                try:
-                                    self.tx_q.get_nowait()
-                                except queue.Empty:
-                                    break
-                        
-                        self.tx_q.put_nowait(twilio_frame)
+                        self.tx_q.put(twilio_frame, timeout=0.5)  # Wait up to 500ms for space
                         self.realtime_tx_frames += 1
                     except queue.Full:
-                        # 🔥 BUILD 181: If still full after cleanup, drop oldest and retry
-                        try:
-                            self.tx_q.get_nowait()  # Remove oldest
-                            self.tx_q.put_nowait(twilio_frame)  # Add new
-                            self.realtime_tx_frames += 1
-                        except (queue.Empty, queue.Full):
-                            pass  # Last resort: skip this frame
+                        # Queue is STILL full after 500ms timeout - this is exceptional
+                        # Only happens if TX thread is stalled/dead
+                        now = time.time()
+                        if not hasattr(self, '_last_full_error') or now - self._last_full_error > 5:
+                            print(f"⚠️ [AUDIO BACKPRESSURE TIMEOUT] Queue full for >500ms ({queue_size}/{queue_maxsize}) - TX thread may be stalled!")
+                            self._last_full_error = now
+                        # Drop this ONE frame only as emergency measure
+                        pass
                     
             except queue.Empty:
+                # 🔥 FIX #1: If stop flag is set and queue is empty, we're done draining
+                if self.realtime_stop_flag:
+                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] Stop flag set, queue empty - drain complete", flush=True)
+                    break
                 continue
             except Exception as e:
                 logger.error(f"[AUDIO] Bridge error: {e}")
                 break
+        
+        # 🔥 FIX #1: Log drain completion
+        remaining = self.realtime_audio_out_queue.qsize()
+        _orig_print(f"🔊 [AUDIO_OUT_LOOP] Exiting - frames_enqueued={self.realtime_tx_frames}, remaining_in_queue={remaining}", flush=True)
 
     def _calculate_and_log_cost(self):
         """💰 Calculate and log call cost - called at end of every call"""
@@ -5613,6 +7128,167 @@ class MediaStreamHandler:
             print(f"❌ [COST] Error calculating cost: {e}")
             return 0.0
     
+    def close_session(self, reason: str):
+        """
+        🔥 SESSION LIFECYCLE GUARD: Atomic session close - runs ONCE only
+        
+        This is the SINGLE SOURCE OF TRUTH for session cleanup.
+        All close triggers must call this method.
+        
+        Args:
+            reason: Why the session is closing (e.g., "stop_event", "ws_disconnect", "call_status_completed")
+        """
+        with self.close_lock:
+            if self.closed:
+                # Already closed - this is idempotent
+                _orig_print(f"🔒 [SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})", flush=True)
+                return
+            
+            # Mark as closed FIRST to prevent re-entry
+            self.closed = True
+            self.close_reason = reason
+            _orig_print(f"🔒 [SESSION_CLOSE] Closing session (reason={reason}, call_sid={self.call_sid}, stream_sid={self.stream_sid})", flush=True)
+        
+        # From here on, we're guaranteed to run only once
+        
+        # 🔥 VERIFICATION: Wrap in try/finally to ensure cleanup even on exception
+        try:
+            # STEP 0: Clear all state flags to prevent leakage between calls
+            _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
+            try:
+                # Clear speaking state
+                if hasattr(self, 'is_ai_speaking_event'):
+                    self.is_ai_speaking_event.clear()
+                self.speaking = False
+                self.active_response_id = None
+                
+                # Clear barge-in state
+                self.barge_in_active = False
+                self._barge_in_started_ts = None
+                
+                # Clear user speaking state
+                self.user_speaking = False
+                self._candidate_user_speaking = False
+                self._utterance_start_ts = None
+                
+                # Clear response tracking
+                self.has_pending_ai_response = False
+                self.response_pending_event.clear()
+                
+                _orig_print(f"   ✅ State flags cleared", flush=True)
+            except Exception as e:
+                _orig_print(f"   ⚠️ Error clearing state flags: {e}", flush=True)
+            
+            # STEP 1: Set stop flags for all loops
+            _orig_print(f"   [1/8] Setting stop flags...", flush=True)
+            self.realtime_stop_flag = True
+            if hasattr(self, 'tx_running'):
+                self.tx_running = False
+            
+            # STEP 2: Signal queues to stop (sentinel values)
+            _orig_print(f"   [2/8] Sending stop signals to queues...", flush=True)
+            if hasattr(self, 'realtime_audio_in_queue') and self.realtime_audio_in_queue:
+                try:
+                    self.realtime_audio_in_queue.put_nowait(None)
+                except:
+                    pass
+            if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
+                try:
+                    self.realtime_audio_out_queue.put_nowait(None)
+                except:
+                    pass
+            
+            # STEP 3: Stop timers/watchdogs
+            _orig_print(f"   [3/8] Stopping timers and watchdogs...", flush=True)
+            # (Add any timer cleanup here if needed)
+            
+            # STEP 4: Close OpenAI connection
+            _orig_print(f"   [4/8] Closing OpenAI connection...", flush=True)
+            # The realtime_stop_flag will make the async tasks exit naturally
+            
+            # STEP 5: Wait for TX thread to finish draining
+            # 🔥 VERIFICATION #2: Only drain politely if AI initiated hangup
+            # If Twilio closed (call_status/stream_ended), clear queues immediately
+            ai_initiated = 'twilio' not in reason and 'call_status' not in reason and 'stream_ended' not in reason
+            
+            if ai_initiated:
+                _orig_print(f"   [5/8] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
+                if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
+                    try:
+                        self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
+                        if self.tx_thread.is_alive():
+                            _orig_print(f"   ⚠️ TX thread still alive after 2s timeout", flush=True)
+                        else:
+                            _orig_print(f"   ✅ TX thread drained and stopped", flush=True)
+                    except:
+                        pass
+            else:
+                # Twilio closed - clear queues immediately, no drain
+                _orig_print(f"   [5/8] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
+                if hasattr(self, 'tx_q'):
+                    cleared = 0
+                    while not self.tx_q.empty():
+                        try:
+                            self.tx_q.get_nowait()
+                            cleared += 1
+                        except:
+                            break
+                    if cleared > 0:
+                        _orig_print(f"   🧹 Cleared {cleared} frames from TX queue", flush=True)
+                if hasattr(self, 'realtime_audio_out_queue'):
+                    cleared = 0
+                    while not self.realtime_audio_out_queue.empty():
+                        try:
+                            self.realtime_audio_out_queue.get_nowait()
+                            cleared += 1
+                        except:
+                            break
+                    if cleared > 0:
+                        _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
+            
+            # STEP 6: Close Twilio WebSocket
+            _orig_print(f"   [6/8] Closing Twilio WebSocket...", flush=True)
+            try:
+                if hasattr(self.ws, 'close') and not self._ws_closed:
+                    self.ws.close()
+                    self._ws_closed = True
+                    _orig_print(f"   ✅ WebSocket closed", flush=True)
+            except Exception as e:
+                error_msg = str(e).lower()
+                if 'websocket.close' not in error_msg and 'asgi' not in error_msg:
+                    _orig_print(f"   ⚠️ Error closing websocket: {e}", flush=True)
+        
+        finally:
+            # STEP 7: Unregister session from registry - ALWAYS runs even on exception
+            _orig_print(f"   [7/8] Unregistering session and handler...", flush=True)
+            if self.call_sid:
+                try:
+                    _close_session(self.call_sid)
+                except Exception as e:
+                    _orig_print(f"   ⚠️ Error unregistering session: {e}", flush=True)
+                try:
+                    _unregister_handler(self.call_sid)
+                except Exception as e:
+                    _orig_print(f"   ⚠️ Error unregistering handler: {e}", flush=True)
+                _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
+            
+            # STEP 8: Final state verification
+            _orig_print(f"   [8/8] Final state verification...", flush=True)
+            is_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
+            _orig_print(f"   is_ai_speaking={is_speaking}", flush=True)
+            _orig_print(f"   active_response_id={getattr(self, 'active_response_id', None)}", flush=True)
+            _orig_print(f"   user_speaking={getattr(self, 'user_speaking', False)}", flush=True)
+            _orig_print(f"   barge_in_active={getattr(self, 'barge_in_active', False)}", flush=True)
+            
+            _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
+            _orig_print(f"🔒 [SHUTDOWN_VERIFICATION] After this point, NO MORE logs should appear for:", flush=True)
+            _orig_print(f"   ❌ BARGE-IN DEBUG / BARGE-IN CONFIRM", flush=True)
+            _orig_print(f"   ❌ WS_KEEPALIVE / TX_HEARTBEAT", flush=True)
+            _orig_print(f"   ❌ SILENCE Warning / SILENCE Monitor", flush=True)
+            _orig_print(f"   ❌ VAD State / Speech started/stopped", flush=True)
+            _orig_print(f"   ❌ Any audio processing logs", flush=True)
+            _orig_print(f"   ✅ WS_DONE and final cleanup logs are OK", flush=True)
+    
     def run(self):
         """⚡ BUILD 168.2: Streamlined main loop - minimal logging
         
@@ -5644,6 +7320,17 @@ class MediaStreamHandler:
                 if self._limit_exceeded:
                     print(f"🛑 [BUILD 331] LIMIT_EXCEEDED flag detected in main loop - exiting immediately")
                     break
+                
+                # 🔥 CRITICAL FIX: Check if call ended externally (call_status webhook)
+                # This prevents WebSocket from staying open after call completes
+                if self.call_sid:
+                    session = stream_registry.get(self.call_sid)
+                    if session and session.get('ended'):
+                        end_reason = session.get('end_reason', 'external_signal')
+                        print(f"🛑 [CALL_END] Call ended externally ({end_reason}) - closing WebSocket immediately")
+                        self.hangup_triggered = True
+                        self.call_state = CallState.ENDED
+                        break
                 
                 # COMPATIBILITY: Handle both EventLet and Flask-Sock WebSocket APIs
                 raw = None
@@ -5776,7 +7463,26 @@ class MediaStreamHandler:
                         )
                         
                         # 🔥 BUILD 174: Outbound call parameters
-                        self.call_direction = custom_params.get("direction", "inbound")
+                        # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
+                        # 🔥 HARD LOCK: Prevent any attempt to change direction after initial set
+                        incoming_direction = custom_params.get("direction", "inbound")
+                        
+                        # Check if direction was already set (should never happen, but guard against it)
+                        if hasattr(self, 'call_direction') and self.call_direction:
+                            if self.call_direction != incoming_direction:
+                                # 🔥 CRITICAL ERROR: Attempt to change direction after it was set
+                                print(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
+                                print(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
+                                print(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
+                                _orig_print(f"[ERROR] CALL_DIRECTION_CHANGE_BLOCKED call_sid={self.call_sid[:8]}... current={self.call_direction} attempted={incoming_direction}", flush=True)
+                            else:
+                                print(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
+                        else:
+                            # First time setting direction - this is the ONLY allowed assignment
+                            self.call_direction = incoming_direction
+                            print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
+                            _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
+                        
                         self.outbound_lead_id = custom_params.get("lead_id")
                         self.outbound_lead_name = custom_params.get("lead_name")
                         self.outbound_template_id = custom_params.get("template_id")
@@ -5807,6 +7513,10 @@ class MediaStreamHandler:
                         # 🎯 DYNAMIC LEAD STATE: Add caller phone to lead capture state
                         if self.phone_number:
                             self._update_lead_capture_state('phone', self.phone_number)
+                        
+                        # 🔥 SESSION LIFECYCLE: Register handler for webhook-triggered close
+                        if self.call_sid:
+                            _register_handler(self.call_sid, self)
                     else:
                         # Direct format: {"event": "start", "streamSid": "...", "callSid": "..."}
                         self.stream_sid = evt.get("streamSid")
@@ -5814,8 +7524,31 @@ class MediaStreamHandler:
                         self.phone_number = evt.get("from") or evt.get("phone_number")
                         self.to_number = evt.get("to") or evt.get("called")
                         
+                        # 🔥 SESSION LIFECYCLE: Register handler for webhook-triggered close
+                        if self.call_sid:
+                            _register_handler(self.call_sid, self)
+                        
                         # 🔥 BUILD 174: Outbound call parameters (direct format)
-                        self.call_direction = evt.get("direction", "inbound")
+                        # ⚠️ CRITICAL: call_direction is set ONCE at start and NEVER changed
+                        # 🔥 HARD LOCK: Prevent any attempt to change direction after initial set
+                        incoming_direction = evt.get("direction", "inbound")
+                        
+                        # Check if direction was already set (should never happen, but guard against it)
+                        if hasattr(self, 'call_direction') and self.call_direction:
+                            if self.call_direction != incoming_direction:
+                                # 🔥 CRITICAL ERROR: Attempt to change direction after it was set
+                                print(f"❌ [CALL_DIRECTION_LOCK] ERROR: Attempt to change direction!")
+                                print(f"   Current: {self.call_direction}, Attempted: {incoming_direction}")
+                                print(f"   ⛔ BLOCKED - keeping original direction: {self.call_direction}")
+                                _orig_print(f"[ERROR] CALL_DIRECTION_CHANGE_BLOCKED call_sid={self.call_sid[:8]}... current={self.call_direction} attempted={incoming_direction}", flush=True)
+                            else:
+                                print(f"✅ [CALL_DIRECTION_LOCK] Direction already set to {self.call_direction} (no change)")
+                        else:
+                            # First time setting direction - this is the ONLY allowed assignment
+                            self.call_direction = incoming_direction
+                            print(f"🔒 [CALL_DIRECTION_SET] Locked to: {self.call_direction} (IMMUTABLE)")
+                            _orig_print(f"[CALL_DIRECTION_SET] call_sid={self.call_sid[:8]}... direction={self.call_direction} locked=True", flush=True)
+                        
                         self.outbound_lead_id = evt.get("lead_id")
                         self.outbound_lead_name = evt.get("lead_name")
                         self.outbound_template_id = evt.get("template_id")
@@ -5850,56 +7583,45 @@ class MediaStreamHandler:
                     print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
+                        # 🔥 GREETING PROFILER: Track WS connect time
+                        stream_registry.set_metric(self.call_sid, 'ws_connect_ts', self.t0_connected)
                     
-                    # 🚀 PARALLEL STARTUP: Start OpenAI connection AND DB query simultaneously!
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # ⛔ CRITICAL: VALIDATE BUSINESS_ID **BEFORE** STARTING OPENAI SESSION
+                    # This prevents OpenAI charges if business cannot be identified
+                    # ═══════════════════════════════════════════════════════════════════════
                     logger.info(f"[REALTIME] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
-                    logger.info(f"[REALTIME] About to check if we should start realtime thread...")
-                    logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
                     
-                    # 🔥 STEP 1: Start OpenAI thread IMMEDIATELY (connects while DB runs)
-                    if USE_REALTIME_API and not self.realtime_thread:
-                        logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
-                        t_realtime_start = time.time()
-                        delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
-                        _orig_print(f"🚀 [PARALLEL] Starting OpenAI at T0+{delta_from_t0:.0f}ms (BEFORE DB query!)", flush=True)
-                        
-                        logger.info(f"[REALTIME] Creating realtime thread...")
-                        self.realtime_thread = threading.Thread(
-                            target=self._run_realtime_mode_thread,
-                            daemon=True
-                        )
-                        logger.info(f"[REALTIME] Starting realtime thread...")
-                        self.realtime_thread.start()
-                        self.background_threads.append(self.realtime_thread)
-                        logger.info(f"[REALTIME] Realtime thread started successfully!")
-                        
-                        logger.info(f"[REALTIME] Creating realtime audio out thread...")
-                        realtime_out_thread = threading.Thread(
-                            target=self._realtime_audio_out_loop,
-                            daemon=True
-                        )
-                        realtime_out_thread.start()
-                        self.background_threads.append(realtime_out_thread)
-                        logger.info(f"[REALTIME] Both realtime threads started successfully!")
-                    else:
-                        logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
-                    
-                    # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 PART D OPTIMIZATION: DB query + prompt building runs IN PARALLEL with OpenAI connection
-                    # Previously: Main thread did DB query, async loop did ANOTHER DB query to build prompt
-                    # Now: Main thread builds prompt ONCE, async loop uses pre-built prompt
-                    # Expected savings: 500-2000ms (eliminates redundant DB query)
-                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 STEP 1: IDENTIFY BUSINESS FIRST (before OpenAI connection)
                     t_biz_start = time.time()
                     try:
                         app = _get_flask_app()
                         with app.app_context():
                             business_id, greet = self._identify_business_and_get_greeting()
                             
+                            # ⛔ CRITICAL: business_id must be set - no fallback to prevent cross-business contamination
+                            if not self.business_id:
+                                if not business_id:
+                                    logger.error(f"❌ CRITICAL: Cannot identify business! call_sid={self.call_sid}, to={self.to_number}")
+                                    _orig_print(f"❌ [BUSINESS_ISOLATION] Call rejected - no business_id for to={self.to_number}", flush=True)
+                                    raise ValueError("CRITICAL: business_id required - call cannot proceed")
+                                self.business_id = business_id
+                            
+                            # ⛔ CRITICAL: Verify business_id is set before continuing
+                            if self.business_id is None:
+                                logger.error(f"❌ CRITICAL: business_id still None after DB query! to={self.to_number}, call_sid={self.call_sid}")
+                                _orig_print(f"❌ [BUSINESS_ISOLATION] Call rejected - business_id=None after query", flush=True)
+                                raise ValueError(f"CRITICAL: Cannot identify business for to_number={self.to_number}")
+                            
+                            business_id_safe = self.business_id
+                            call_direction = getattr(self, 'call_direction', 'inbound')
+                            
+                            # 🔒 LOG BUSINESS ISOLATION: Track which business is handling this call
+                            logger.info(f"[BUSINESS_ISOLATION] call_accepted business_id={business_id_safe} to={self.to_number} call_sid={self.call_sid}")
+                            _orig_print(f"✅ [BUSINESS_ISOLATION] Business validated: {business_id_safe}", flush=True)
+                            
                             # 🔥 PART D: PRE-BUILD full prompt here (while we have app context!)
                             # This eliminates redundant DB query in async loop
-                            call_direction = getattr(self, 'call_direction', 'inbound')
-                            business_id_safe = self.business_id if self.business_id is not None else (business_id or 1)
                             try:
                                 from server.services.realtime_prompt_builder import build_realtime_system_prompt
                                 self._prebuilt_prompt = build_realtime_system_prompt(business_id_safe, call_direction=call_direction)
@@ -5912,11 +7634,37 @@ class MediaStreamHandler:
                         print(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
-                        # 🔥 SAFETY: Only set defaults if fields are truly None (preserve valid 0 or empty)
-                        if self.business_id is None:
-                            self.business_id = 1
-                            self.business_name = "העסק"
-                            print(f"🔒 [DEFAULTS] No business_id from DB - using fallback=1")
+                        # 🔥 STEP 2: Now that business is validated, START OPENAI SESSION
+                        # OpenAI connection happens ONLY AFTER business_id is confirmed
+                        logger.info(f"[REALTIME] About to check if we should start realtime thread...")
+                        logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
+                        
+                        if USE_REALTIME_API and not self.realtime_thread:
+                            logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
+                            t_realtime_start = time.time()
+                            delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
+                            _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
+                            
+                            logger.info(f"[REALTIME] Creating realtime thread...")
+                            self.realtime_thread = threading.Thread(
+                                target=self._run_realtime_mode_thread,
+                                daemon=True
+                            )
+                            logger.info(f"[REALTIME] Starting realtime thread...")
+                            self.realtime_thread.start()
+                            self.background_threads.append(self.realtime_thread)
+                            logger.info(f"[REALTIME] Realtime thread started successfully!")
+                            
+                            logger.info(f"[REALTIME] Creating realtime audio out thread...")
+                            realtime_out_thread = threading.Thread(
+                                target=self._realtime_audio_out_loop,
+                                daemon=True
+                            )
+                            realtime_out_thread.start()
+                            self.background_threads.append(realtime_out_thread)
+                            logger.info(f"[REALTIME] Both realtime threads started successfully!")
+                        else:
+                            logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):
                             self.bot_speaks_first = True
                         
@@ -5933,7 +7681,7 @@ class MediaStreamHandler:
                         self._init_streaming_stt()
                         print("✅ Google STT initialized (USE_REALTIME_API=False)")
                     
-                    # 🚀 DEFERRED: Call log + recording run in background thread (non-blocking)
+                    # 🚀 DEFERRED: Call log creation (recording deferred until FIRST_AUDIO_SENT)
                     def _deferred_call_setup():
                         try:
                             app = _get_flask_app()
@@ -5941,17 +7689,30 @@ class MediaStreamHandler:
                                 if self.call_sid and not getattr(self, '_call_log_created', False):
                                     self._create_call_log_on_start()
                                     self._call_log_created = True
-                                    self._start_call_recording()
+                                    # 🔥 RECORDING DEFERRED: Will start after FIRST_AUDIO_SENT (in TX loop)
                         except Exception as e:
                             print(f"⚠️ Deferred call setup failed: {e}")
                     
                     # Start deferred setup in background (doesn't block greeting)
                     threading.Thread(target=_deferred_call_setup, daemon=True).start()
                     
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # 🔥 TX FIX: Ensure streamSid is set before starting TX loop
+                    # ═══════════════════════════════════════════════════════════════════════
+                    # Issue: TX loop sends to "air" if streamSid not set yet
+                    # Solution: Validate streamSid before starting TX thread
+                    # ═══════════════════════════════════════════════════════════════════════
+                    if not self.stream_sid:
+                        _orig_print(f"⚠️ [TX_FIX] streamSid not set yet - this should not happen! call_sid={self.call_sid}", flush=True)
+                        logger.warning(f"[TX_FIX] streamSid missing at TX start - audio may not be sent")
+                    else:
+                        _orig_print(f"✅ [TX_FIX] streamSid validated: {self.stream_sid[:16]}... - TX ready", flush=True)
+                    
                     # ✅ ברכה מיידית - בלי השהיה!
                     if not self.tx_running:
                         self.tx_running = True
                         self.tx_thread.start()
+                        _orig_print(f"🚀 [TX_LOOP] Started TX thread (streamSid={'SET' if self.stream_sid else 'MISSING'})", flush=True)
                     
                     # 🔥 STEP 3: Store greeting and signal event (OpenAI thread is waiting!)
                     if not self.greeting_sent and USE_REALTIME_API:
@@ -6063,87 +7824,129 @@ class MediaStreamHandler:
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        # 🛡️ BUILD 168.5 FIX: Block audio enqueue during greeting!
-                        # OpenAI's server-side VAD detects incoming audio and cancels the greeting.
-                        # Block audio until greeting finishes OR user has already spoken.
-                        # 🔥 BUILD 350: OUTBOUND - ALWAYS block during greeting (even if user spoke)
-                        is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
-                        if self.is_playing_greeting:
-                            if is_outbound:
-                                # 🔥 OUTBOUND: ALWAYS block audio during greeting
-                                if not hasattr(self, '_greeting_enqueue_block_logged_outbound'):
-                                    print(f"📤 [OUTBOUND] BLOCKING all audio during greeting - bot speaks first!")
-                                    self._greeting_enqueue_block_logged_outbound = True
-                                continue  # Don't enqueue any audio during outbound greeting
-                            elif not self.user_has_spoken:
-                                # INBOUND: Block only if user hasn't spoken
-                                if not hasattr(self, '_greeting_enqueue_block_logged'):
-                                    print(f"🛡️ [GREETING PROTECT] Blocking audio ENQUEUE - greeting in progress")
-                                    self._greeting_enqueue_block_logged = True
-                                continue  # Don't enqueue audio during greeting
+                        # 🔥 FIX ISSUE 4: Allow audio forwarding to OpenAI during greeting
+                        # Still forward mic audio to OpenAI (for VAD + transcription)
+                        # But prevent early barge-in/cancel during the first part of greeting
+                        # This allows "caller can speak immediately" while protecting greeting from premature cancel
+                        
+                        # Note: The actual barge-in protection during greeting happens in speech_started handler
+                        # where we check for _greeting_start_ts and prevent cancel for the first 500ms
+                        # This block only logs but no longer blocks audio enqueue
+                        if self.is_playing_greeting and not self.user_has_spoken:
+                            # Log once for diagnostics but DON'T block audio
+                            if not hasattr(self, '_greeting_audio_allowed_logged'):
+                                print(f"🎤 [GREETING PROTECT] Allowing audio forward to OpenAI during greeting (for VAD)")
+                                self._greeting_audio_allowed_logged = True
+                            # Don't continue - allow audio to flow through
                         
                         if not self.barge_in_enabled_after_greeting:
-                            # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
-                            # This prevents OpenAI from transcribing its own voice output as user speech!
-                            # The AI's TTS audio echoes back through the phone line and causes hallucinations
-                            # 
-                            # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
-                            # So we can't just use RMS threshold - we must block ALL audio during AI speech
-                            # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
-                            
-                            # Track consecutive high-RMS frames for barge-in detection
-                            if not hasattr(self, '_echo_gate_consec_frames'):
-                                self._echo_gate_consec_frames = 0
-                            
-                            # Use calibrated noise floor for RMS-based speech detection
-                            # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
-                            noise_floor_rms = getattr(self, 'noise_floor', 100.0)
-                            # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
-                            rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
-                            is_above_speech = rms > rms_speech_threshold
-                            
-                            # Count consecutive frames above RMS speech threshold
-                            if is_above_speech:
-                                self._echo_gate_consec_frames += 1
+                            # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
+                            if SIMPLE_MODE:
+                                # SIMPLE_MODE = no guards, passthrough all audio + logs only
+                                pass  # Skip all echo gate logic
                             else:
-                                # Reset quickly when audio drops - echo is intermittent
-                                self._echo_gate_consec_frames = 0
-                            
-                            # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
-                            # Echo spikes are typically 1-3 frames, real speech is sustained
-                            # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
-                            is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
-                            
-                            if self.is_ai_speaking_event.is_set():
-                                # AI is actively speaking - block ALL audio UNLESS proven barge-in
-                                if not is_likely_real_speech and not self.barge_in_active and not self._realtime_speech_active:
-                                    # Block - this is echo or noise
-                                    if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
-                                        print(f"🛡️ [ECHO GATE] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES})")
-                                        self._echo_gate_logged = True
-                                    continue
-                                elif is_likely_real_speech:
-                                    # 5+ frames = real barge-in, let it through
-                                    if not hasattr(self, '_echo_barge_logged'):
-                                        print(f"🎤 [ECHO GATE] BARGE-IN detected: {self._echo_gate_consec_frames} sustained frames (rms={rms:.0f})")
-                                        self._echo_barge_logged = True
-                            
-                            # Check echo decay period (800ms after AI stops speaking)
-                            if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
-                                echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
-                                if echo_decay_ms < POST_AI_COOLDOWN_MS:
-                                    # Still in echo decay period - block unless proven real speech
-                                    if not is_likely_real_speech and not self._realtime_speech_active and not self.barge_in_active:
-                                        if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
-                                            print(f"🛡️ [ECHO GATE] Blocking - echo decay ({echo_decay_ms:.0f}ms, frames={self._echo_gate_consec_frames})")
-                                            self._echo_decay_logged = True
-                                        continue
-                                else:
-                                    # Echo decay complete - reset log flags for next AI response
-                                    self._echo_gate_logged = False
-                                    self._echo_decay_logged = False
-                                    self._echo_barge_logged = False
+                                # 🔥 BUILD 304: ECHO GATE - Block echo while AI is speaking + 800ms after
+                                # This prevents OpenAI from transcribing its own voice output as user speech!
+                                # The AI's TTS audio echoes back through the phone line and causes hallucinations
+                                # 
+                                # CRITICAL: Echo can be HIGH RMS (2000+) because TTS plays loud through phone
+                                # So we can't just use RMS threshold - we must block ALL audio during AI speech
+                                # ONLY allow through if we have SUSTAINED high-RMS speech (5+ frames = 100ms)
+                                
+                                # Track consecutive high-RMS frames for barge-in detection
+                                if not hasattr(self, '_echo_gate_consec_frames'):
                                     self._echo_gate_consec_frames = 0
+                                
+                                # Use calibrated noise floor for RMS-based speech detection
+                                # Note: self.noise_floor is RMS value (~100), self.vad_threshold is probability (0.85)!
+                                noise_floor_rms = getattr(self, 'noise_floor', 100.0)
+                                # 🔥 BUILD 325: Echo gate from config - prevents AI echo from triggering barge-in
+                                rms_speech_threshold = max(noise_floor_rms * 3.0, ECHO_GATE_MIN_RMS)
+                                is_above_speech = rms > rms_speech_threshold
+                                
+                                # Count consecutive frames above RMS speech threshold
+                                if is_above_speech:
+                                    self._echo_gate_consec_frames += 1
+                                else:
+                                    # Reset quickly when audio drops - echo is intermittent
+                                    self._echo_gate_consec_frames = 0
+                                
+                                # ═══════════════════════════════════════════════════════════════
+                                # 🎯 P0-3: Stable Barge-In with Short Forwarding Window
+                                # ═══════════════════════════════════════════════════════════════
+                                # When AI is speaking:
+                                # 1. Block ALL audio by default (no echo to OpenAI)
+                                # 2. Local VAD runs continuously (RMS + consecutive frames)
+                                # 3. When VAD confirms real speech → open SHORT forwarding window (200-400ms)
+                                # 4. After window closes → back to blocking until next VAD confirmation
+                                # ═══════════════════════════════════════════════════════════════
+                                
+                                # STRICT barge-in detection: ECHO_GATE_MIN_FRAMES consecutive = real speech
+                                # Echo spikes are typically 1-3 frames, real speech is sustained
+                                # ECHO_GATE_MIN_FRAMES comes from config (default: 5 = 100ms)
+                                is_likely_real_speech = self._echo_gate_consec_frames >= ECHO_GATE_MIN_FRAMES
+                                
+                                # 🎯 P0-3: Short forwarding window (200-400ms) after VAD confirmation
+                                FORWARDING_WINDOW_MS = 300  # 300ms window after VAD confirms speech
+                                
+                                # Track forwarding window state
+                                if not hasattr(self, '_forwarding_window_open_ts'):
+                                    self._forwarding_window_open_ts = None
+                                
+                                # Open forwarding window when VAD confirms real speech
+                                if is_likely_real_speech and not self._forwarding_window_open_ts:
+                                    self._forwarding_window_open_ts = time.time()
+                                    print(f"🔓 [P0-3] Opening {FORWARDING_WINDOW_MS}ms forwarding window - VAD confirmed speech")
+                                
+                                # Check if forwarding window is still open
+                                window_is_open = False
+                                if self._forwarding_window_open_ts:
+                                    elapsed_ms = (time.time() - self._forwarding_window_open_ts) * 1000
+                                    if elapsed_ms < FORWARDING_WINDOW_MS:
+                                        window_is_open = True
+                                    else:
+                                        # Window expired - close it
+                                        self._forwarding_window_open_ts = None
+                                        print(f"🔒 [P0-3] Forwarding window closed after {elapsed_ms:.0f}ms")
+                                
+                                if self.is_ai_speaking_event.is_set():
+                                    # AI is actively speaking - block ALL audio UNLESS:
+                                    # 1. Barge-in already active (user confirmed to be speaking)
+                                    # 2. OpenAI speech detection active (bypass during user turn)
+                                    # 3. Forwarding window is open (short window after VAD confirmation)
+                                    if not self.barge_in_active and not self._realtime_speech_active and not window_is_open:
+                                        # Block - this is echo or noise
+                                        if not hasattr(self, '_echo_gate_logged') or not self._echo_gate_logged:
+                                            print(f"🛡️ [P0-3] Blocking audio - AI speaking (rms={rms:.0f}, frames={self._echo_gate_consec_frames}/{ECHO_GATE_MIN_FRAMES}, window_open={window_is_open})")
+                                            self._echo_gate_logged = True
+                                        continue
+                                    elif window_is_open:
+                                        # Forwarding window is open - let audio through
+                                        if not hasattr(self, '_forwarding_window_logged'):
+                                            print(f"📤 [P0-3] Forwarding audio through {FORWARDING_WINDOW_MS}ms window (frames={self._echo_gate_consec_frames})")
+                                            self._forwarding_window_logged = True
+                                
+                                # Check echo decay period (800ms after AI stops speaking)
+                                if hasattr(self, '_ai_finished_speaking_ts') and self._ai_finished_speaking_ts:
+                                    echo_decay_ms = (time.time() - self._ai_finished_speaking_ts) * 1000
+                                    if echo_decay_ms < POST_AI_COOLDOWN_MS:
+                                        # Still in echo decay period - block unless:
+                                        # 1. OpenAI speech detection active
+                                        # 2. Barge-in active
+                                        # 3. Forwarding window is open
+                                        if not self._realtime_speech_active and not self.barge_in_active and not window_is_open:
+                                            if not hasattr(self, '_echo_decay_logged') or not self._echo_decay_logged:
+                                                print(f"🛡️ [P0-3] Blocking - echo decay ({echo_decay_ms:.0f}ms, window_open={window_is_open})")
+                                                self._echo_decay_logged = True
+                                            continue
+                                    else:
+                                        # Echo decay complete - reset log flags for next AI response
+                                        self._echo_gate_logged = False
+                                        self._echo_decay_logged = False
+                                        self._forwarding_window_logged = False
+                                        self._echo_gate_consec_frames = 0
+                                        # Also close forwarding window
+                                        self._forwarding_window_open_ts = None
                         else:
                             # Greeting finished - don't block user speech at all, let OpenAI detect barge-in
                             self._echo_gate_consec_frames = 0
@@ -6163,34 +7966,19 @@ class MediaStreamHandler:
                         # 🔥 BUILD 302/303: ALWAYS send during barge-in, even if noise/low RMS!
                         has_sustained_speech = self._consecutive_voice_frames >= MIN_CONSECUTIVE_VOICE_FRAMES
                         
-                        # 🔥 BUILD 318: COST OPTIMIZATION - Filter silence even in SIMPLE_MODE
-                        # 🔥 BUILD 309: SIMPLE_MODE - Trust Twilio + OpenAI completely
-                        # 🔥 BUILD 303: During barge-in, BYPASS ALL FILTERS - trust OpenAI's VAD
-                        # 🔥 BUILD 320: AUDIO_GUARD - Intelligent filtering for noisy PSTN calls
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # 🎯 P0-4: SIMPLE_MODE Must Be Passthrough (Master Instruction)
+                        # ═══════════════════════════════════════════════════════════════════════
+                        # ❌ NO guards in SIMPLE_MODE
+                        # ❌ NO frame dropping in SIMPLE_MODE  
+                        # ❌ NO echo_window in SIMPLE_MODE
+                        # ❌ NO hallucination filters in SIMPLE_MODE
+                        # ✅ Passthrough + logs only
+                        # ═══════════════════════════════════════════════════════════════════════
                         if SIMPLE_MODE:
-                            # 🔥 BUILD 320: Use AUDIO_GUARD for intelligent speech filtering
-                            # Replaces simple RMS threshold with dynamic noise floor + ZCR analysis
-                            if getattr(self, '_audio_guard_enabled', False):
-                                # Compute ZCR for this frame (need PCM16 data)
-                                zcr = self._compute_zcr(pcm16) if pcm16 else 0.0
-                                
-                                # 🛡️ During barge-in or active speech - BYPASS audio guard
-                                if self.barge_in_active or self._realtime_speech_active:
-                                    should_send_audio = True
-                                else:
-                                    # Apply intelligent audio guard
-                                    should_send_audio = self._update_audio_guard_state(rms, zcr)
-                            elif COST_EFFICIENT_MODE and rms < COST_MIN_RMS_THRESHOLD:
-                                # Fallback: Simple RMS threshold if audio guard disabled
-                                should_send_audio = False
-                                if not hasattr(self, '_cost_silence_blocked'):
-                                    self._cost_silence_blocked = 0
-                                self._cost_silence_blocked += 1
-                                if self._cost_silence_blocked % 200 == 0:
-                                    print(f"💰 [COST SAVE] Blocked {self._cost_silence_blocked} silence frames (rms={rms:.0f} < {COST_MIN_RMS_THRESHOLD})")
-                            else:
-                                should_send_audio = True  # SIMPLE_MODE: send audio above threshold
-                            is_noise = False  # Trust OpenAI's VAD for actual noise filtering
+                            # 🔥 P0-4: SIMPLE_MODE = passthrough ONLY, trust OpenAI completely
+                            should_send_audio = True  # ALWAYS send in SIMPLE_MODE
+                            is_noise = False  # Trust OpenAI's VAD for noise filtering
                         elif self.barge_in_active or self._realtime_speech_active:
                             should_send_audio = True  # Send EVERYTHING during barge-in or active speech
                             is_noise = False  # Force override noise flag too
@@ -6205,9 +7993,13 @@ class MediaStreamHandler:
                                     self._twilio_audio_chunks_sent = 0
                                 self._twilio_audio_chunks_sent += 1
                                 
+                                # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation
                                 if self._twilio_audio_chunks_sent <= 3:
                                     first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, consec_frames={self._consecutive_voice_frames}")
+                                    mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
+                                    guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
+                                    print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
+                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
@@ -6241,6 +8033,7 @@ class MediaStreamHandler:
                     # No need to recalculate - reuse the 'rms' variable
                     
                     # 🔥 BUILD 165: BALANCED BARGE-IN - Filter noise while allowing speech
+                    # ✅ P0-2: Clean barge-in with local RMS VAD only (no duplex/guards)
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
                         # 🔍 DEBUG: Log AI speaking state every 50 frames (~1 second)
                         if not hasattr(self, '_barge_in_debug_counter'):
@@ -6248,60 +8041,15 @@ class MediaStreamHandler:
                         self._barge_in_debug_counter += 1
                         
                         if self._barge_in_debug_counter % 50 == 0:
+                            # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning
+                            current_threshold = MIN_SPEECH_RMS
                             print(f"🔍 [BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
-                                  f"rms={rms:.0f}, voice_frames={self.barge_in_voice_frames}")
+                                  f"rms={rms:.0f}, threshold={current_threshold:.0f}, voice_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
                         
-                        # 🔥 BUILD 165: NOISE GATE - already checked via is_noise flag
-                        # 🔥 BUILD 302: Skip noise check during barge-in - trust OpenAI's VAD
-                        if is_noise and not self.barge_in_active:
-                            # Pure noise - don't count for barge-in
-                            self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 1)
-                            continue
-                        
-                        # Only allow barge-in if AI is speaking
-                        if self.is_ai_speaking_event.is_set() and not self.waiting_for_dtmf:
-                            # 🔥 BARGE-IN: Always enabled (unless explicitly disabled or waiting for DTMF)
-                            # Allow user to interrupt at ANY time during AI speech
-                            if not self.barge_in_enabled:
-                                self.barge_in_voice_frames = 0
-                                continue
-                            
-                            # 🛡️ PROTECT GREETING: Never barge-in during greeting playback!
-                            # (Allow barge-in AFTER greeting starts, just not during the audio file playback)
-                            if self.is_playing_greeting:
-                                self.barge_in_voice_frames = 0
-                                continue
-                            
-                            current_time = time.monotonic()
-                            time_since_tts_start = current_time - self.speaking_start_ts if hasattr(self, 'speaking_start_ts') and self.speaking_start_ts else 999
-                            
-                            # 🔥 BUILD 164B: 150ms grace period
-                            grace_period = 0.15  # 150ms grace period
-                            if time_since_tts_start < grace_period:
-                                self.barge_in_voice_frames = 0
-                                continue
-                            
-                            # 🔥 BUILD 325: Use MIN_SPEECH_RMS (60) for barge-in detection
-                            speech_threshold = MIN_SPEECH_RMS  # Currently 60 - allows quieter speech
-                            
-                            # 🔥 BARGE-IN: Require continuous speech to trigger interruption
-                            # Fast response time: 300ms (15 frames @ 20ms each) for natural interruption
-                            if rms >= speech_threshold:
-                                self.barge_in_voice_frames += 1
-                                # 🔥 ARCHITECT FIX: Use BARGE_IN_VOICE_FRAMES constant, not hardcoded 11
-                                if self.barge_in_voice_frames >= BARGE_IN_VOICE_FRAMES:
-                                    print(f"🔍 [BARGE-IN] User interrupted AI - stopping TTS and switching to user speech")
-                                    print(f"    └─ Detection: rms={rms:.0f} >= {speech_threshold:.0f}, "
-                                          f"continuous={self.barge_in_voice_frames} frames ({BARGE_IN_VOICE_FRAMES*20}ms)")
-                                    logger.info(f"[BARGE-IN] User speech detected while AI speaking "
-                                              f"(rms={rms:.1f}, frames={self.barge_in_voice_frames})")
-                                    self._handle_realtime_barge_in()
-                                    self.barge_in_voice_frames = 0
-                                    continue
-                            else:
-                                # Voice dropped below threshold - gradual reset
-                                self.barge_in_voice_frames = max(0, self.barge_in_voice_frames - 2)
+                        # 🔥 FIX 2: Barge-in moved to speech_started ONLY
+                        # No RMS-based barge-in here - trust OpenAI VAD in speech_started event
+                        # This section previously had RMS-based barge-in logic (removed)
                     
                     # 🔥 BUILD 165: Calibration already done above (before audio routing)
                     # No duplicate calibration needed here
@@ -6648,19 +8396,14 @@ class MediaStreamHandler:
                     print(f"WS_STOP sid={self.stream_sid} rx={self.rx} tx={self.tx}")
                     # ✅ CRITICAL: סיכום שיחה בסיום
                     self._finalize_call_on_stop()
-                    # Send close frame properly
-                    try:
-                        if hasattr(self.ws, 'close'):
-                            self.ws.close()
-                    except:
-                        pass
+                    # 🔥 SESSION LIFECYCLE: Call atomic close_session instead of manual cleanup
+                    self.close_session("twilio_stop_event")
                     break
 
         except ConnectionClosed as e:
             print(f"📞 WS_CLOSED sid={self.stream_sid} rx={self.rx} tx={self.tx} reason=ConnectionClosed")
-            # ✅ ניסיון התאוששות אם השיחה עדיין פעילה
-            if self.call_sid:
-                print(f"🔄 WS connection lost for active call {self.call_sid} - recovery might be possible via Twilio REST API")
+            # 🔥 SESSION LIFECYCLE: Call atomic close_session
+            self.close_session("ws_connection_closed")
         except Exception as e:
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME_FATAL: Unhandled exception in main run loop
@@ -6727,45 +8470,47 @@ class MediaStreamHandler:
             # Log metrics - include is_ghost flag for monitoring
             _orig_print(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}, is_ghost={is_ghost_session}", flush=True)
             
+            # 🔥 GREETING OPTIMIZATION: Log complete timeline for latency analysis
+            # Get TwiML timing from stream registry (set by webhook)
+            twiml_ms = 0
+            ws_start_offset_ms = 0
+            call_direction = getattr(self, 'call_direction', 'unknown')
+            
+            if self.call_sid:
+                try:
+                    # Try to get webhook timing from stream registry
+                    twiml_ts = stream_registry.get_metric(self.call_sid, 'twiml_ready_ts')
+                    ws_connect_ts = stream_registry.get_metric(self.call_sid, 'ws_connect_ts')
+                    
+                    if twiml_ts and ws_connect_ts:
+                        ws_start_offset_ms = int((ws_connect_ts - twiml_ts) * 1000)
+                except Exception as e:
+                    pass
+            
+            # Calculate greeting SLA result
+            is_inbound = (call_direction == 'inbound')
+            greeting_threshold = 1600 if is_inbound else 2000
+            total_greeting_ms = openai_connect_ms + first_greeting_audio_ms
+            sla_met = total_greeting_ms <= greeting_threshold and total_greeting_ms > 0
+            
+            if not is_ghost_session and total_greeting_ms > 0:
+                # Log complete greeting timeline (only for real calls with greeting)
+                if sla_met:
+                    _orig_print(f"[GREETING_SLA_MET] {total_greeting_ms}ms (threshold={greeting_threshold}ms, direction={call_direction})", flush=True)
+                else:
+                    _orig_print(f"[GREETING_SLA_FAILED] inbound={is_inbound} twiml_ms={twiml_ms} openai_ms={openai_connect_ms} greet_ms={first_greeting_audio_ms} total={total_greeting_ms}ms > {greeting_threshold}ms", flush=True)
+                
+                # Unified timeline log for analysis
+                _orig_print(f"[GREETING_TIMELINE] inbound={is_inbound} twiml_ms={twiml_ms} ws_start_offset_ms={ws_start_offset_ms} openai_connect_ms={openai_connect_ms} first_greeting_audio_ms={first_greeting_audio_ms} total={total_greeting_ms}ms sla_met={sla_met}", flush=True)
+                logger.info(f"[GREETING_TIMELINE] inbound={is_inbound} total={total_greeting_ms}ms sla_met={sla_met}")
+            
             # ⚡ STREAMING STT: Close session at end of call
             self._close_streaming_stt()
             
-            # 🚀 REALTIME API: Signal threads to stop
-            self.realtime_stop_flag = True
-            if self.realtime_audio_in_queue:
-                try:
-                    self.realtime_audio_in_queue.put_nowait(None)
-                except:
-                    pass
-            if self.realtime_audio_out_queue:
-                try:
-                    self.realtime_audio_out_queue.put_nowait(None)
-                except:
-                    pass
-            
-            # Clean up TX thread
-            if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
-                self.tx_running = False
-                try:
-                    self.tx_thread.join(timeout=1.0)
-                except:
-                    pass
-            
-            # ✅ CRITICAL: Wait for all background threads to complete
-            # This prevents crashes when threads access DB after WebSocket closes
-            if hasattr(self, 'background_threads') and self.background_threads:
-                print(f"🧹 Waiting for {len(self.background_threads)} background threads...")
-                for i, thread in enumerate(self.background_threads):
-                    if thread.is_alive():
-                        try:
-                            thread.join(timeout=3.0)  # Max 3 seconds per thread
-                            if thread.is_alive():
-                                print(f"⚠️ Background thread {i} still running after timeout")
-                            else:
-                                print(f"✅ Background thread {i} completed")
-                        except Exception as e:
-                            print(f"❌ Error joining thread {i}: {e}")
-                print(f"✅ All background threads cleanup complete")
+            # 🔥 SESSION LIFECYCLE: Use atomic close_session for cleanup
+            # This ensures single-source-of-truth cleanup even if finally block is hit without explicit close
+            if not self.closed:
+                self.close_session("finally_block_fallback")
             
             # 💰 CALCULATE AND LOG CALL COST
             if USE_REALTIME_API:
@@ -6778,10 +8523,7 @@ class MediaStreamHandler:
             limit_exceeded_flag = getattr(self, '_limit_exceeded', False)
             print(f"🛡️ OPENAI_USAGE_GUARD: frames_sent={frames_sent}, estimated_seconds={seconds_used:.1f}, limit_exceeded={limit_hit or limit_exceeded_flag}")
             
-            try: 
-                self.ws.close()
-            except: 
-                pass
+            # 🔥 SESSION LIFECYCLE: close_session() already handled WebSocket close, no need to duplicate
             # Mark as ended
             if hasattr(self, 'call_sid') and self.call_sid:
                 stream_registry.clear(self.call_sid)
@@ -7191,11 +8933,8 @@ class MediaStreamHandler:
             # ⏱️ TTS timing instrumentation
             tts_start = time.time()
             
-            # 🚀 TTS (blocking mode - Hebrew doesn't support streaming API yet)
-            from server.services.gcp_tts_live import maybe_warmup
-            
-            # ⚡ Pre-warm TTS
-            maybe_warmup()
+            # 🚫 Google TTS is DISABLED - OpenAI Realtime handles TTS natively
+            # This code should never run when USE_REALTIME_API=True
             
             tts_audio = self._hebrew_tts(text)
             tts_generation_time = time.time() - tts_start
@@ -7240,7 +8979,12 @@ class MediaStreamHandler:
         """
         ⚡ BUILD 115.1: Enqueue with drop-oldest policy
         If queue is full, drop oldest frame and insert new one (Real-time > past)
+        🔥 VERIFICATION #3: Block enqueue when session is closed
         """
+        # 🔥 VERIFICATION #3: No enqueue after close
+        if self.closed:
+            return  # Silently drop - session is closing/closed
+        
         # 🛑 BUILD 165: LOOP GUARD - Block all audio except "clear" when engaged
         # 🔥 BUILD 178: Disabled for outbound calls
         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
@@ -7621,89 +9365,17 @@ class MediaStreamHandler:
                 print(f"⚠️ Advanced audio analysis failed: {numpy_error} - using basic validation")
                 # אם נכשלנו בבדיקות מתקדמות - המשך עם בסיסיות
             
-            try:
-                from server.services.lazy_services import get_stt_client
-                from google.cloud import speech
-            except ImportError as import_error:
-                print(f"⚠️ Google Speech library not available: {import_error} - using Whisper")
+            # 🚫 Google STT is DISABLED - use Whisper only
+            if DISABLE_GOOGLE:
+                print("🚫 Google STT is DISABLED - using Whisper")
                 return self._whisper_fallback(pcm16_8k)
             
-            client = get_stt_client()
-            if not client:
-                print("❌ Google STT client not available - fallback to Whisper")
-                return self._whisper_fallback(pcm16_8k)
-            
-            # ⚡ BUILD 117: FORCE default model - phone_call NOT supported for Hebrew!
-            # Google returns error: "The phone_call model is currently not supported for language : iw-IL"
-            recognition_config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-                sample_rate_hertz=8000,  
-                language_code="he-IL",   # עברית ישראל
-                model="default",         # ⚡ FORCED: phone_call crashes for Hebrew!
-                use_enhanced=True,       # ✅ ENHANCED model for better Hebrew accuracy!
-                enable_automatic_punctuation=False,  # מניעת הפרעות
-                # קונטקסט קל - רק לרמז
-                speech_contexts=[
-                    speech.SpeechContext(phrases=[
-                        # 🔥 BUILD 186: GENERIC Hebrew phrases only - NO hardcoded cities!
-                        # Cities should come from business settings, not hardcoded here
-                        "שלום", "היי", "בוקר טוב", "תודה", "תודה רבה", "בבקשה",
-                        "כן", "לא", "בסדר", "מעולה", "נהדר", "מצוין", "אוקיי",
-                        "תור", "פגישה", "מחר", "מחרתיים", "יום", "שבוע", "חודש",
-                        "אחד", "שניים", "שלוש", "ארבע", "חמש", "שש", "עשר", "עשרים"
-                    ], boost=15.0)  # Reduced boost - let Whisper do the heavy lifting
-                ]
-            )
-            
-            # Single request recognition (לא streaming למבע קצר)
-            audio = speech.RecognitionAudio(content=pcm16_8k)
-            
-            # ⚡ AGGRESSIVE TIMEOUT: 1.5s for speed (Hebrew usually < 1s)
-            try:
-                response = client.recognize(
-                    config=recognition_config,
-                    audio=audio,
-                    timeout=1.5  # ✅ FAST: 1.5s timeout (was 3s)
-                )
-            except Exception as timeout_error:
-                # Timeout = likely empty audio, return empty
-                print(f"⚠️ STT_TIMEOUT ({timeout_error}) - likely silence")
-                return ""
-            
-            if DEBUG: print(f"📊 GOOGLE_STT_ENHANCED: Processed {len(pcm16_8k)} bytes")
-            
-            if response.results and response.results[0].alternatives:
-                hebrew_text = response.results[0].alternatives[0].transcript.strip()
-                confidence = response.results[0].alternatives[0].confidence
-                if DEBUG: print(f"📊 GOOGLE_STT_RESULT: '{hebrew_text}' (confidence: {confidence:.2f})")
-                
-                # ⚡ ACCURACY FIX: LOWER confidence thresholds to accept more valid Hebrew
-                # Hebrew speech often has lower confidence scores than English
-                if confidence < 0.25:  # ⚡ LOWERED: 0.25 instead of 0.4 - accept more valid Hebrew
-                    print(f"🚫 VERY_LOW_CONFIDENCE: {confidence:.2f} < 0.25 - rejecting result")
-                    return ""  # Return empty instead of nonsense
-                
-                # ⚡ ACCURACY FIX: Accept short phrases with lower confidence
-                # "חמישים אפשר" might have 0.5-0.6 confidence but is valid!
-                word_count = len(hebrew_text.split())
-                if word_count <= 2 and confidence < 0.2:  # 🔥 BUILD 114: LOWERED 0.4 → 0.2 for Hebrew names
-                    print(f"🚫 SHORT_LOW_CONFIDENCE: {word_count} words, confidence {confidence:.2f} < 0.2 - likely noise")
-                    return ""
-                
-                # 🔥 BUILD 134: Log alternative transcripts for debugging
-                if len(response.results[0].alternatives) > 1:
-                    alt_text = response.results[0].alternatives[1].transcript
-                    print(f"   📝 Alternative: '{alt_text}'")
-                
-                print(f"✅ GOOGLE_STT_SUCCESS: '{hebrew_text}' ({word_count} words, confidence: {confidence:.2f})")
-                return hebrew_text
-            else:
-                # No results = silence
-                print("⚠️ STT_NO_RESULTS - likely silence")
-                return ""
+            # Even if not disabled, warn and use Whisper
+            logger.warning("⚠️ Google STT should not be used - using Whisper fallback")
+            return self._whisper_fallback(pcm16_8k)
                 
         except Exception as e:
-            print(f"❌ GOOGLE_STT_ERROR: {e}")
+            print(f"❌ STT_ERROR: {e}")
             return ""
     
     def _whisper_fallback_validated(self, pcm16_8k: bytes) -> str:
@@ -7976,6 +9648,16 @@ class MediaStreamHandler:
                     greeting = business.greeting_message or None
                     business_name = self.business_name
                     
+                    # 🎯 MASTER DIRECTIVE 7: CALL DIRECTION VERIFICATION - Log at call start
+                    call_direction = getattr(self, 'call_direction', 'inbound')
+                    # Use call_config if already loaded (avoids redundant DB query)
+                    call_goal = getattr(self.call_config, 'call_goal', 'lead_only') if hasattr(self, 'call_config') else 'lead_only'
+                    
+                    logger.info(
+                        f"[BUILD] SIMPLE_MODE={SIMPLE_MODE} business_id={self.business_id} "
+                        f"direction={call_direction} goal={call_goal}"
+                    )
+                    
                     if greeting:
                         greeting = greeting.replace("{{business_name}}", business_name)
                         greeting = greeting.replace("{{BUSINESS_NAME}}", business_name)
@@ -8003,7 +9685,8 @@ class MediaStreamHandler:
                         print(f"   ✓ auto_end=OFF, silence_timeout=120s, smart_hangup=OFF, loop_guard_max=20")
                     else:
                         # Copy config values to instance variables for backward compatibility (INBOUND only)
-                        self.bot_speaks_first = self.call_config.bot_speaks_first
+                        # 🔥 MASTER FIX: bot_speaks_first is now ALWAYS True (hardcoded) - ignore DB value
+                        self.bot_speaks_first = True  # HARDCODED: Always True (deprecated: self.call_config.bot_speaks_first)
                         self.auto_end_after_lead_capture = self.call_config.auto_end_after_lead_capture
                         self.auto_end_on_goodbye = self.call_config.auto_end_on_goodbye
                         self.silence_timeout_sec = self.call_config.silence_timeout_sec
@@ -8029,6 +9712,10 @@ class MediaStreamHandler:
                     print(f"🔍 [CONFIG] required_lead_fields={self.required_lead_fields}")
                     print(f"🔍 [CONFIG] smart_hangup_enabled={self.smart_hangup_enabled}")
                     print(f"🔍 [BUILD 309] call_goal={getattr(self, 'call_goal', 'lead_only')}, confirm_before_hangup={getattr(self, 'confirm_before_hangup', True)}")
+                    
+                    # 🔥 COMPREHENSIVE LOGGING: Show SIMPLE_MODE, direction, and goal at call start
+                    call_direction = getattr(self, 'call_direction', 'inbound')
+                    print(f"📞 [BUILD] SIMPLE_MODE={SIMPLE_MODE} direction={call_direction} goal={getattr(self, 'call_goal', 'lead_only')}")
                     
                     return (self.business_id, greeting)
                 else:
@@ -8339,6 +10026,80 @@ class MediaStreamHandler:
             import traceback
             traceback.print_exc()
     
+    # 🔥 MASTER FIX: Greeting SLA validation
+    def _validate_greeting_sla(self):
+        """
+        Validate greeting performance against SLA requirements:
+        - Did greeting play?
+        - Did it play before first user speech?
+        - What was first_greeting_audio_ms?
+        - Does it meet SLA? (Inbound <=1600ms; Outbound <=1400ms)
+        """
+        try:
+            from server.stream_state import stream_registry
+            
+            if not self.call_sid:
+                return
+            
+            # Get metrics
+            first_greeting_audio_ms = getattr(self, '_metrics_first_greeting_audio_ms', 0)
+            greeting_audio_received = getattr(self, '_greeting_audio_received', False)
+            user_has_spoken = getattr(self, 'user_has_spoken', False)
+            call_direction = getattr(self, 'call_direction', 'inbound')
+            
+            # Check 1: Did greeting play?
+            greeting_played = greeting_audio_received and first_greeting_audio_ms > 0
+            
+            # Check 2: Did it play before first user speech?
+            # Note: user_has_spoken would be True if they spoke during greeting
+            played_before_user_speech = greeting_played  # If played, it played first (by design)
+            
+            # Check 3: SLA threshold
+            sla_threshold_ms = 1400 if call_direction == 'outbound' else 1600
+            meets_sla = first_greeting_audio_ms > 0 and first_greeting_audio_ms <= sla_threshold_ms
+            
+            # Log validation results
+            logger.info(
+                f"[GREETING_VALIDATE] call_sid={self.call_sid[:8]}..., "
+                f"played={greeting_played}, "
+                f"played_before_user_speech={played_before_user_speech}, "
+                f"first_greeting_audio_ms={first_greeting_audio_ms}, "
+                f"direction={call_direction}, "
+                f"sla_threshold={sla_threshold_ms}ms, "
+                f"meets_sla={meets_sla}"
+            )
+            
+            # If SLA failed, log ERROR with tag
+            if not meets_sla:
+                if not greeting_played:
+                    reason = "greeting_not_played"
+                elif first_greeting_audio_ms > sla_threshold_ms:
+                    reason = f"exceeded_threshold_{sla_threshold_ms}ms"
+                else:
+                    reason = "no_audio_received"
+                
+                logger.error(
+                    f"[GREETING_SLA_FAILED] call_sid={self.call_sid[:8]}..., "
+                    f"reason={reason}, "
+                    f"ms={first_greeting_audio_ms}, "
+                    f"threshold={sla_threshold_ms}ms, "
+                    f"direction={call_direction}"
+                )
+                _orig_print(
+                    f"❌ [GREETING_SLA_FAILED] {reason}: {first_greeting_audio_ms}ms "
+                    f"(threshold={sla_threshold_ms}ms, direction={call_direction})",
+                    flush=True
+                )
+            else:
+                _orig_print(
+                    f"✅ [GREETING_SLA_MET] {first_greeting_audio_ms}ms "
+                    f"(threshold={sla_threshold_ms}ms, direction={call_direction})",
+                    flush=True
+                )
+                
+        except Exception as e:
+            logger.error(f"[GREETING_VALIDATE] Error during validation: {e}")
+    
     # 🔥 BUILD 172: SILENCE MONITORING - Auto-hangup on prolonged silence
     async def _start_silence_monitor(self):
         """
@@ -8381,6 +10142,9 @@ class MediaStreamHandler:
             while True:
                 # 🔥 BUILD 340 CRITICAL: Check state BEFORE sleeping to exit immediately
                 # This prevents AI from speaking during the sleep window after goodbye
+                if self.closed:
+                    print(f"🔇 [SILENCE] Monitor exiting - session closed")
+                    return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting BEFORE sleep - call state is {self.call_state.value}")
                     return
@@ -8391,6 +10155,9 @@ class MediaStreamHandler:
                 await asyncio.sleep(2.0)  # Check every 2 seconds
                 
                 # 🔥 BUILD 339 CRITICAL: Check AGAIN after sleep (state may have changed during sleep)
+                if self.closed:
+                    print(f"🔇 [SILENCE] Monitor exiting - session closed (after sleep)")
+                    return
                 if self.call_state != CallState.ACTIVE:
                     print(f"🔇 [SILENCE] Monitor exiting - call state is {self.call_state.value}")
                     return  # Use return, not break, to completely exit
@@ -8403,20 +10170,25 @@ class MediaStreamHandler:
                     print(f"🔇 [SILENCE] Monitor exiting - pending_hangup=True")
                     return
                 
+                # 🔥 FIX: SILENCE FAILSAFE completely removed - proper idle timeout instead
+                # Rule: 2 valid states only:
+                # 1. User never spoke + silence > 30s → close_session(idle_timeout)
+                # 2. User spoke + silence → End-of-utterance → AI must respond
+                
                 # 🔥 BUILD 312: NEVER count silence until user has spoken at least once!
                 # This prevents AI from responding "are you there?" before user says anything
                 if not self.user_has_spoken:
-                    # User hasn't spoken yet - extend grace period indefinitely
-                    # But add a safety limit of 60 seconds to avoid zombie calls
+                    # User hasn't spoken yet - check for idle timeout
+                    # But add a safety limit of 30 seconds to avoid zombie calls
                     if self.greeting_completed_at:
                         time_since_greeting = time.time() - self.greeting_completed_at
-                        if time_since_greeting > 60.0:
-                            # 60 seconds with no user speech - this is a dead call
-                            # But only close if call is still ACTIVE!
+                        if time_since_greeting > 30.0:
+                            # 30 seconds with no user speech - idle timeout
+                            # Close immediately without AI message
                             if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
-                                print(f"🔇 [SILENCE] 60s+ no user speech - closing dead call")
+                                print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
                                 self.call_state = CallState.CLOSING
-                                self._trigger_auto_hangup("no_user_speech_timeout")
+                                self._trigger_auto_hangup("idle_timeout_no_user_speech")
                             return
                     # Still waiting for user to speak - don't count silence
                     continue
@@ -8434,15 +10206,12 @@ class MediaStreamHandler:
                         # Send "are you there?" warning
                         self._silence_warning_count += 1
                         print(f"🔇 [SILENCE] Warning {self._silence_warning_count}/{self.silence_max_warnings} after {silence_duration:.1f}s silence")
+                        print(f"🔇 [SILENCE] SIMPLE_MODE={SIMPLE_MODE} action=ask_are_you_there")
                         
-                        # 🔥 BUILD 338 COST FIX: Only send AI prompt on LAST warning (not all warnings)
-                        # This reduces response.create calls by ~50% in silence scenarios
-                        if self._silence_warning_count >= self.silence_max_warnings:
-                            # Last warning - actually send AI prompt (but _send_silence_warning has its own guards)
+                        # 🔥 FIX: If user has spoken, ALWAYS trigger AI response (not dependent on SIMPLE_MODE)
+                        # This is end-of-utterance - AI must respond
+                        if self.user_has_spoken:
                             await self._send_silence_warning()
-                        else:
-                            # Not last warning - just log, don't spend tokens
-                            print(f"🔇 [SILENCE] Skipping AI prompt (cost optimization) - waiting for timeout")
                         
                         # Reset timer
                         self._last_speech_time = time.time()
@@ -8483,6 +10252,17 @@ class MediaStreamHandler:
                         if self.call_state != CallState.ACTIVE or self.hangup_triggered or getattr(self, 'pending_hangup', False):
                             print(f"🔇 [SILENCE] State changed before hangup - exiting")
                             return
+                        
+                        # 🔥 FIX: In SIMPLE_MODE, never auto-hangup after max warnings
+                        # Just stay idle and let the call continue or let Twilio disconnect
+                        if SIMPLE_MODE:
+                            print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
+                            print(f"   Keeping line open - user may return or Twilio will disconnect")
+                            # Optionally send a final message
+                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+                            # Reset timer to avoid immediate re-triggering, but don't close
+                            self._last_speech_time = time.time()
+                            continue  # Stay in monitor loop
                         
                         print(f"🔇 [SILENCE] Max warnings exceeded - initiating polite hangup")
                         self.call_state = CallState.CLOSING
@@ -8601,26 +10381,117 @@ class MediaStreamHandler:
         print(f"🧘 [GREETING] Breathing window ended ({reason})")
 
     def _mark_response_cancelled_locally(self, response_id: Optional[str], source: str = ""):
-        """Remember responses we cancelled so late events can be ignored."""
+        """
+        Remember responses we cancelled so late events can be ignored.
+        
+        ✅ NEW REQ 4: Added TTL and size cap to prevent memory leaks
+        """
         if not response_id:
             return
+        
+        # ✅ NEW REQ 4: Cleanup old entries before adding new one
+        now = time.time()
+        
+        # Remove entries older than max_age
+        expired_ids = [
+            rid for rid, ts in self._cancelled_response_timestamps.items()
+            if now - ts > self._cancelled_response_max_age_sec
+        ]
+        for rid in expired_ids:
+            self._cancelled_response_ids.discard(rid)
+            del self._cancelled_response_timestamps[rid]
+        
+        if expired_ids:
+            print(f"🧹 [CLEANUP] Removed {len(expired_ids)} expired cancelled response IDs (>{self._cancelled_response_max_age_sec}s old)")
+        
+        # ✅ NEW REQ 4: If at max size, remove oldest entry
+        if len(self._cancelled_response_ids) >= self._cancelled_response_max_size:
+            # Find oldest entry
+            oldest_id = min(self._cancelled_response_timestamps.items(), key=lambda x: x[1])[0]
+            self._cancelled_response_ids.discard(oldest_id)
+            del self._cancelled_response_timestamps[oldest_id]
+            print(f"🧹 [CLEANUP] Removed oldest cancelled response ID (cap={self._cancelled_response_max_size})")
+        
+        # Add new entry
         self._cancelled_response_ids.add(response_id)
+        self._cancelled_response_timestamps[response_id] = now
         if source:
             print(f"🪓 [BARGE-IN] Marked response {response_id[:20]}... as cancelled ({source})")
     
+    def _should_send_cancel(self, response_id: Optional[str]) -> bool:
+        """
+        ✅ NEW REQ: Check if we should send cancel for this response_id
+        Returns True if ALL 3 conditions met:
+        1. response_id exists (not None)
+        2. We haven't already sent cancel for this ID
+        3. Response not already completed (not in cancelled_response_ids)
+        
+        Prevents duplicate cancel events that cause "response_cancel_not_active" errors
+        """
+        # Condition 1: response_id must exist
+        if not response_id:
+            return False
+        
+        # Condition 2: Check if we already sent cancel for this response
+        if response_id in self._cancel_sent_for_response_ids:
+            print(f"⏭️ [CANCEL_GUARD] Skipping duplicate cancel for response {response_id[:20]}... (already sent)")
+            return False
+        
+        # Condition 3: Check if response already done/cancelled (don't cancel completed responses)
+        # If response is in _cancelled_response_ids, we already processed its completion
+        if response_id in self._cancelled_response_ids:
+            print(f"⏭️ [CANCEL_GUARD] Skipping cancel for completed response {response_id[:20]}... (already done)")
+            return False
+        
+        # All 3 conditions met - mark that we're sending cancel for this ID
+        self._cancel_sent_for_response_ids.add(response_id)
+        
+        # ✅ Simple cleanup: when set grows large, clear it completely
+        # Response IDs are short-lived (seconds), so full reset is safe
+        # Using 100 threshold (larger than _cancelled_response_max_size to allow for burst scenarios)
+        CANCEL_GUARD_MAX_SIZE = 100
+        if len(self._cancel_sent_for_response_ids) > CANCEL_GUARD_MAX_SIZE:
+            print(f"🧹 [CANCEL_GUARD] Clearing guard set (size={len(self._cancel_sent_for_response_ids)})")
+            self._cancel_sent_for_response_ids.clear()
+            # Re-add current ID after clear
+            self._cancel_sent_for_response_ids.add(response_id)
+        
+        return True
+    
     async def _send_text_to_ai(self, text: str):
         """
-        Send a text message to OpenAI Realtime for processing.
-        Used for system prompts and silence handling.
+        🔥 DISABLED: Sending text as user input violates "transcription is truth"
         
-        🔥 BUILD 200: Updated to use realtime_client and trigger_response
-        🔥 BUILD 311: Mark SILENCE_HANDLER responses - shouldn't count towards LOOP GUARD
+        This function has been disabled because sending [SYSTEM] messages with role="user"
+        makes the AI think the customer said these things, causing prompt confusion.
+        
+        The AI should respond based ONLY on actual customer speech transcripts.
+        
+        Args:
+            text: Text to send - IGNORED
         """
+        # 🔥 FIX: Do NOT send synthetic text as user input
+        # Block [SYSTEM] and [SERVER] messages from being injected
+        if "[SYSTEM]" in text or "[SERVER]" in text:
+            # 🔥 REQUIREMENT: Mandatory logging when blocking server events
+            logger.warning(f"[AI_INPUT_BLOCKED] kind=server_event reason=never_send_to_model text_preview='{text[:100]}'")
+            print(f"🛡️ [PROMPT_FIX] BLOCKED synthetic message from being sent as user input")
+            print(f"   └─ Blocked: {text[:100]}")
+            return
+        
+        # If not a system message, log warning but allow (for backward compatibility)
+        logger.warning(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
+        print(f"⚠️ [_send_text_to_ai] Called with non-system text: {text[:50]}")
+        
         try:
             # 🔥 BUILD 200: Use realtime_client instead of openai_ws
             if not self.realtime_client:
                 print(f"⚠️ [AI] No realtime_client - cannot send text")
                 return
+            
+            # 🔥 REQUIREMENT: Mandatory logging for every AI input
+            # Truncate to protect sensitive customer data in logs
+            logger.info(f"[AI_INPUT] kind=user_transcript text_preview='{text[:100]}'")
             
             msg = {
                 "type": "conversation.item.create",
@@ -8640,6 +10511,70 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"❌ [AI] Failed to send text: {e}")
 
+    def _looks_like_user_goodbye(self, text: str) -> bool:
+        """
+        🔧 FIX: Detect USER goodbye phrases (separate from AI polite closing)
+        
+        User goodbye phrases include:
+        - Clear goodbye: "ביי", "להתראות", "bye", "goodbye"
+        - Polite endings: "תודה רבה", "אין צורך", "לא צריך", "אפשר לסיים"
+        - Combined phrases: "תודה וביי", "תודה להתראות"
+        
+        This is used to track user_said_goodbye separately from AI polite closing.
+        
+        Args:
+            text: User transcript to check
+            
+        Returns:
+            True if user is ending the call
+        """
+        text_lower = text.lower().strip()
+        
+        # Skip very short utterances (noise)
+        if len(text_lower) < 3:
+            return False
+        
+        # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
+        for ignore in GOODBYE_IGNORE_PHRASES:
+            if ignore in text_lower:
+                return False
+        
+        # 🛡️ FILTER: Exclude greetings that sound like goodbye
+        for greeting in GOODBYE_GREETING_WORDS:
+            if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
+                return False
+        
+        # ✅ CLEAR goodbye words - use shared constant
+        for word in CLEAR_GOODBYE_WORDS:
+            if word in text_lower:
+                print(f"[USER GOODBYE] Clear goodbye: '{word}' in '{text_lower[:30]}...'")
+                return True
+        
+        # ✅ Polite endings that indicate user wants to end call
+        # These should only count as goodbye if they're the main content of the utterance
+        polite_endings = [
+            "תודה רבה", "אין צורך", "לא צריך", "אפשר לסיים",
+            "תודה וביי", "תודה להתראות", "תודה רבה וביי", "תודה רבה להתראות"
+        ]
+        
+        # Check if any polite ending is present and is a significant portion of the text
+        words_in_text = text_lower.split()
+        text_length = len(words_in_text)
+        
+        for phrase in polite_endings:
+            if phrase in text_lower:
+                phrase_words = phrase.split()
+                phrase_length = len(phrase_words)
+                
+                # Use configurable constants for threshold logic
+                # Short utterances with polite phrases are likely goodbyes
+                # Longer utterances require phrase to be significant portion to avoid false positives
+                if text_length <= GOODBYE_SHORT_UTTERANCE_MAX_WORDS or phrase_length >= text_length * GOODBYE_PHRASE_MIN_PERCENTAGE:
+                    print(f"[USER GOODBYE] Polite ending: '{phrase}' in '{text_lower[:30]}...'")
+                    return True
+        
+        return False
+    
     def _check_goodbye_phrases(self, text: str) -> bool:
         """
         🎯 BUILD 163 STRICT: Check if text contains CLEAR goodbye phrases
@@ -8659,27 +10594,19 @@ class MediaStreamHandler:
         text_lower = text.lower().strip()
         
         # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
-        ignore_phrases = ["היי כבי", "היי ביי", "הי כבי", "הי ביי"]
-        for ignore in ignore_phrases:
+        for ignore in GOODBYE_IGNORE_PHRASES:
             if ignore in text_lower:
                 print(f"[GOODBYE CHECK] IGNORED phrase (not goodbye): '{text_lower[:30]}...'")
                 return False
         
         # 🛡️ FILTER: Exclude greetings that sound like goodbye
-        greeting_words = ["היי", "הי", "שלום וברכה", "בוקר טוב", "צהריים טובים", "ערב טוב"]
-        for greeting in greeting_words:
+        for greeting in GOODBYE_GREETING_WORDS:
             if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
                 print(f"[GOODBYE CHECK] Skipping greeting: '{text_lower[:30]}...'")
                 return False
         
-        # ✅ CLEAR goodbye words - ONLY these trigger hangup!
-        # Must contain "ביי" or "להתראות" or English equivalents
-        clear_goodbye_words = [
-            "להתראות", "ביי", "bye", "bye bye", "goodbye",
-            "יאללה ביי", "יאללה להתראות"
-        ]
-        
-        has_clear_goodbye = any(word in text_lower for word in clear_goodbye_words)
+        # ✅ CLEAR goodbye words - ONLY these trigger hangup! Use shared constant
+        has_clear_goodbye = any(word in text_lower for word in CLEAR_GOODBYE_WORDS)
         
         if has_clear_goodbye:
             print(f"[GOODBYE CHECK] Clear goodbye detected: '{text_lower[:30]}...'")
@@ -8722,9 +10649,10 @@ class MediaStreamHandler:
             "תודה שהתקשרת", "תודה על הפנייה", "תודה על השיחה",
             "יום נפלא", "יום נעים", "יום טוב", "ערב נעים", "ערב טוב",
             "נשמח לעזור", "נשמח לעמוד לשירותך",
-            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר",
+            "נציג יחזור אליך", "נחזור אליך", "ניצור קשר", "יחזרו אליך",
             "שמח שיכולתי לעזור", "שמחתי לעזור",
-            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות"
+            "אם תצטרך משהו נוסף", "אם יש שאלות נוספות",
+            "תודה יחזרו אליך"  # Added: Common closing phrase
         ]
         
         for phrase in polite_closing_phrases:
@@ -10082,199 +12010,142 @@ class MediaStreamHandler:
     
     
     def _hebrew_tts(self, text: str) -> bytes | None:
-        """🔥 BUILD 314: LEGACY CODE - Never used when USE_REALTIME_API=True
+        """
+        🚫 DISABLED - Google TTS is turned off for production stability
+        
+        This function should never be called when USE_REALTIME_API=True.
         OpenAI Realtime API handles ALL TTS natively.
-        This is kept only for backwards compatibility.
         """
         # 🚀 REALTIME API: Skip Google TTS completely - OpenAI Realtime generates audio natively
         if USE_REALTIME_API:
             return None
         
-        try:
-            print(f"🔊 TTS_START: Generating Natural Hebrew TTS for '{text[:50]}...' ({len(text)} chars)")
-            
-            # ✅ OPTION 1: Use punctuation polish if enabled
-            try:
-                from server.services.punctuation_polish import polish_hebrew_text
-                text = polish_hebrew_text(text)
-                print(f"✅ Punctuation polished: '{text[:40]}...'")
-            except Exception as e:
-                print(f"⚠️ Punctuation polish unavailable: {e}")
-            
-            # ✅ OPTION 2: Use upgraded TTS with SSML, natural voice, telephony profile
-            try:
-                from server.services.gcp_tts_live import get_hebrew_tts, maybe_warmup
-                
-                # ⚡ Phase 2: Pre-warm TTS (כל 8 דקות)
-                maybe_warmup()
-                
-                tts_service = get_hebrew_tts()
-                audio_bytes = tts_service.synthesize_hebrew_pcm16_8k(text)
-                
-                if audio_bytes and len(audio_bytes) > 1000:
-                    duration_seconds = len(audio_bytes) / (8000 * 2)
-                    print(f"✅ TTS_SUCCESS: {len(audio_bytes)} bytes Natural Wavenet ({duration_seconds:.1f}s)")
-                    return audio_bytes
-                else:
-                    print("⚠️ TTS returned empty or too short")
-                    return None
-                    
-            except ImportError as ie:
-                print(f"⚠️ Upgraded TTS unavailable ({ie}), using fallback...")
-                
-                # ✅ FALLBACK: Basic Google TTS (if upgraded version fails)
-                from server.services.lazy_services import get_tts_client
-                from google.cloud import texttospeech
-                
-                client = get_tts_client()
-                if not client:
-                    print("❌ Google TTS client not available")
-                    return None
-                
-                # ✅ קבלת הגדרות מ-ENV - לא מקודד!
-                voice_name = os.getenv("TTS_VOICE", "he-IL-Wavenet-D")
-                speaking_rate = float(os.getenv("TTS_RATE", "0.96"))
-                pitch = float(os.getenv("TTS_PITCH", "-2.0"))
-                
-                synthesis_input = texttospeech.SynthesisInput(text=text)
-                voice = texttospeech.VoiceSelectionParams(language_code="he-IL", name=voice_name)
-                audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                    sample_rate_hertz=8000,
-                    speaking_rate=speaking_rate,
-                    pitch=pitch,
-                    effects_profile_id=["telephony-class-application"]
-                )
-                
-                response = client.synthesize_speech(
-                    input=synthesis_input,
-                    voice=voice,
-                    audio_config=audio_config
-                )
-                
-                duration_seconds = len(response.audio_content) / (8000 * 2)
-                print(f"✅ TTS_FALLBACK_SUCCESS: {len(response.audio_content)} bytes (voice={voice_name}, rate={speaking_rate}, pitch={pitch}, {duration_seconds:.1f}s)")
-                return response.audio_content
-            
-        except Exception as e:
-            print(f"❌ TTS_CRITICAL_ERROR: {e}")
-            print(f"   Text was: '{text}'")
-            import traceback
-            traceback.print_exc()
+        # 🚫 Google TTS is DISABLED
+        if DISABLE_GOOGLE:
+            logger.warning("⚠️ _hebrew_tts called but Google TTS is DISABLED")
             return None
+        
+        logger.error("❌ Google TTS should not be used - DISABLE_GOOGLE flag should be set")
+        return None
+    
+    def _flush_tx_queue(self):
+        """
+        🔥 BARGE-IN FIX: Flushes BOTH queues to ensure no old audio continues playing
+        
+        Called when user interrupts AI - clears all queued audio to prevent
+        AI voice from continuing after barge-in.
+        
+        CRITICAL: This is the key to instant barge-in response.
+        Flushes:
+        1. realtime_audio_out_queue - Audio from OpenAI not yet in TX queue
+        2. tx_q - Audio waiting to be sent to Twilio
+        """
+        realtime_flushed = 0
+        tx_flushed = 0
+        
+        try:
+            # Flush OpenAI → TX queue (realtime_audio_out_queue)
+            if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
+                while True:
+                    try:
+                        self.realtime_audio_out_queue.get_nowait()
+                        realtime_flushed += 1
+                    except queue.Empty:
+                        break
+            
+            # Flush TX → Twilio queue (tx_q)
+            if hasattr(self, 'tx_q') and self.tx_q:
+                while True:
+                    try:
+                        self.tx_q.get_nowait()
+                        tx_flushed += 1
+                    except queue.Empty:
+                        break
+            
+            total_flushed = realtime_flushed + tx_flushed
+            if total_flushed > 0:
+                _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {total_flushed} frames total (realtime_queue={realtime_flushed}, tx_queue={tx_flushed})", flush=True)
+            else:
+                _orig_print(f"🧹 [BARGE-IN FLUSH] Both queues already empty", flush=True)
+        except Exception as e:
+            _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queues: {e}", flush=True)
     
     def _tx_loop(self):
         """
-        ⚡ BUILD 115.1 FINAL: Production-grade TX loop
-        - Precise 20ms/frame timing with next_deadline
-        - Back-pressure at 90% threshold
-        - Real-time telemetry (fps/q/drops)
+        ✅ ZERO LOGS INSIDE: Clean TX loop - take frame, send to Twilio, sleep 20ms
         
-        🔥 PART C DEBUG: Added logging to trace first frame sent to Twilio
+        NO LOGS, NO WATCHDOGS, NO STALL RECOVERY, NO FLUSH
+        Only: get frame → send → sleep
         """
-        _orig_print(f"🔊 [TX_LOOP] STARTED - ready to send audio to Twilio (tx_running={self.tx_running})", flush=True)
+        call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
+        _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
         
-        FRAME_INTERVAL = 0.02  # 20 ms per frame expected by Twilio
+        FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms
         next_deadline = time.monotonic()
-        tx_count = 0
-        
-        # 🔥 PART C: Track first frame for tx=0 diagnostics
+        frames_sent_total = 0
         _first_frame_sent = False
         
-        # Telemetry
-        frames_sent_last_sec = 0
-        drops_last_sec = 0
-        last_telemetry_time = time.monotonic()
+        # Pre-format event templates (outside loop to avoid json.dumps inside)
+        clear_event_template = {"event": "clear", "streamSid": self.stream_sid}
         
-        while self.tx_running:
-            try:
-                item = self.tx_q.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            
-            if item.get("type") == "end":
-                print("🔚 TX_LOOP_END: End signal received")
-                break
-            
-            # Handle "clear" event
-            if item.get("type") == "clear" and self.stream_sid:
-                success = self._ws_send(json.dumps({"event": "clear", "streamSid": self.stream_sid}))
-                print(f"🧹 TX_CLEAR: {'SUCCESS' if success else 'FAILED'}")
-                continue
-            
-            # Handle "media" event (both old format and new Realtime format)
-            if item.get("type") == "media" or item.get("event") == "media":
-                # 🔥 Support both formats:
-                # Old: {"type": "media", "payload": "..."}
-                # New Realtime: {"event": "media", "streamSid": "...", "media": {"payload": "..."}}
-                queue_size = self.tx_q.qsize()
+        try:
+            while self.tx_running or not self.tx_q.empty():
+                # Get frame
+                try:
+                    item = self.tx_q.get(timeout=0.5)
+                except queue.Empty:
+                    if not self.tx_running:
+                        break
+                    continue
                 
-                # 🔍 DEBUG: Log what format we received
-                if tx_count < 3:
-                    print(f"[TX_LOOP] Frame {tx_count}: type={item.get('type')}, event={item.get('event')}, has_media={('media' in item)}")
+                if item.get("type") == "end":
+                    break
                 
-                # If already has correct format (from Realtime), send as-is
-                if item.get("event") == "media" and "media" in item:
-                    success = self._ws_send(json.dumps(item))
-                    if tx_count < 3:
-                        print(f"[TX_LOOP] Sent Realtime format: success={success}")
+                # Handle "clear" event - send to Twilio (NO LOGS)
+                if item.get("type") == "clear" and self.stream_sid:
+                    self._ws_send(json.dumps(clear_event_template))
+                    continue
+                
+                # Handle "media" event - send audio to Twilio (NO LOGS)
+                if item.get("type") == "media" or item.get("event") == "media":
+                    # Send frame to Twilio WS (item already has correct format from enqueue)
+                    if item.get("event") == "media" and "media" in item:
+                        success = self._ws_send(json.dumps(item))
+                    else:
+                        # Old format - convert (pre-build dict to minimize work)
+                        payload = {"event": "media", "streamSid": self.stream_sid, "media": {"payload": item["payload"]}}
+                        success = self._ws_send(json.dumps(payload))
+                    
                     if success:
-                        self.tx += 1  # ✅ Increment tx counter!
-                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
+                        self.tx += 1
+                        frames_sent_total += 1
                         if not _first_frame_sent:
                             _first_frame_sent = True
-                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
-                else:
-                    # Old format - convert
-                    success = self._ws_send(json.dumps({
-                        "event": "media", 
-                        "streamSid": self.stream_sid,
-                        "media": {"payload": item["payload"]}
-                    }))
-                    if tx_count < 3:
-                        print(f"[TX_LOOP] Sent old format (converted): success={success}")
-                    if success:
-                        self.tx += 1  # ✅ Increment tx counter!
-                        # 🔥 PART C: Log first frame sent for tx=0 diagnostics
-                        if not _first_frame_sent:
-                            _first_frame_sent = True
-                            _orig_print(f"✅ [TX_LOOP] FIRST_FRAME_SENT to Twilio! tx={self.tx}, stream_sid={self.stream_sid}", flush=True)
+                            self._first_audio_sent = True
+                    
+                    # ✅ Strict 20ms timing - advance deadline and sleep
+                    next_deadline += FRAME_INTERVAL
+                    delay = next_deadline - time.monotonic()
+                    if delay > 0:
+                        time.sleep(delay)
+                    else:
+                        # Missed deadline - resync to prevent catch-up bursts
+                        next_deadline = time.monotonic()
+                    
+                    # NO GAP LOGGING INSIDE LOOP - causes micro-blocks
+                    continue
                 
-                tx_count += 1
-                frames_sent_last_sec += 1
-                
-                # ⚡ Precise timing with next_deadline
-                next_deadline += FRAME_INTERVAL
-                delay = next_deadline - time.monotonic()
-                if delay > 0:
-                    time.sleep(delay)
-                else:
-                    # Missed deadline - resync
-                    next_deadline = time.monotonic()
-                
-                # ⚡ Telemetry: Print stats every second (only if issues)
-                now = time.monotonic()
-                if now - last_telemetry_time >= 1.0:
-                    queue_size = self.tx_q.qsize()
-                    # 🔥 BUILD 181: Updated threshold to 750 frames (50% of 1500)
-                    if queue_size > 750:
-                        print(f"[TX] fps={frames_sent_last_sec} q={queue_size}/1500", flush=True)
-                    frames_sent_last_sec = 0
-                    drops_last_sec = 0
-                    last_telemetry_time = now
-                
-                continue
-            
-            # Handle "mark" event
-            if item.get("type") == "mark":
-                success = self._ws_send(json.dumps({
-                    "event": "mark", 
-                    "streamSid": self.stream_sid,
-                    "mark": {"name": item.get("name", "mark")}
-                }))
-                print(f"📍 TX_MARK: {item.get('name', 'mark')} {'SUCCESS' if success else 'FAILED'}")
+                # Handle "mark" event (NO LOGS)
+                if item.get("type") == "mark" and self.stream_sid:
+                    mark_event = {"event": "mark", "streamSid": self.stream_sid, "mark": {"name": item.get("name", "mark")}}
+                    self._ws_send(json.dumps(mark_event))
         
-        # ⚡ Removed flooding log - TX loop ended naturally
+        except Exception as tx_loop_error:
+            # NO TRACEBACK - just log and re-raise
+            _orig_print(f"[TX_CRASH] {tx_loop_error}", flush=True)
+            raise
+        finally:
+            _orig_print(f"[AUDIO_TX_LOOP] exiting (frames_sent={frames_sent_total}, call_sid={call_sid_short})", flush=True)
     
     def _speak_with_breath(self, text: str):
         """דיבור עם נשימה אנושית ו-TX Queue - תמיד משדר משהו"""
@@ -10360,68 +12231,45 @@ class MediaStreamHandler:
         return ""
     
     # 🔥 BUILD 200: REMOVED _analyze_lead_completeness() function
-    # It contained hardcoded real estate terms (דירה, חדרים, נכס, תקציב)
+    # It contained hardcoded business-specific field requirements
     # Lead completeness is now handled 100% by AI prompt - each business defines
     # their own required fields and logic in their custom prompts.
-    # This ensures the system works for ANY business type, not just real estate.
+    # This ensures the system works for ANY business type dynamically.
     
     def _finalize_call_on_stop(self):
-        """✅ סיכום מלא של השיחה בסיום - עדכון call_log וליד + יצירת פגישות
-        🔥 BUILD 183: Only generate summary if USER actually spoke!
+        """✅ TX_STALL FIX: Minimal finalization - defer heavy tasks to offline worker
+        
+        RULE 1: NO HEAVY TASKS DURING CALL
+        - No AI summary generation (defer to offline worker)
+        - No CustomerIntelligence processing (defer to offline worker)
+        - No webhook sending (defer to offline worker)
+        
+        Only lightweight operations:
+        - Log call metrics (already in memory)
+        - Save basic call_log state
+        - Save realtime transcript (already in memory)
         """
         try:
+            # 🔥 CALL METRICS: Log comprehensive metrics before finalizing
+            self._log_call_metrics()
+            
             from server.models_sql import CallLog
-            from server.services.customer_intelligence import CustomerIntelligence
-            from server.app_factory import create_app
             from server.db import db
             import threading
             
             def finalize_in_background():
+                """Lightweight finalization - only save what's already in memory"""
                 try:
                     app = _get_flask_app()  # ✅ Use singleton
                     with app.app_context():
                         # 🔁 IMPORTANT: Load fresh CallLog from DB (not cached)
                         call_log = CallLog.query.filter_by(call_sid=self.call_sid).first()
                         if not call_log:
-                            print(f"⚠️ No call_log found for final summary: {self.call_sid}")
+                            force_print(f"⚠️ No call_log found for finalization: {self.call_sid}")
                             return
                         
-                        # 🔍 DEBUG: Log initial state
-                        print(f"[DEBUG] CallLog initial state for {self.call_sid}:")
-                        print(f"  - final_transcript: {len(call_log.final_transcript) if call_log.final_transcript else 0} chars")
-                        print(f"  - extracted_city: {call_log.extracted_city}")
-                        print(f"  - extracted_service: {call_log.extracted_service}")
-                        
-                        # 🔥 BUILD 183: Check if user actually spoke before building summary
-                        user_spoke = False
-                        user_content_length = 0
-                        
-                        if hasattr(self, 'conversation_history') and self.conversation_history:
-                            for turn in self.conversation_history:
-                                speaker = turn.get('speaker', '')
-                                text = turn.get('text', '') or turn.get('user', '')
-                                if speaker == 'user' or 'user' in turn:
-                                    content = text.strip() if text else ""
-                                    # Filter out noise
-                                    noise_patterns = ['...', '(שקט)', '(silence)', '(noise)']
-                                    if content and len(content) > 2:
-                                        is_noise = any(n in content.lower() for n in noise_patterns)
-                                        if not is_noise:
-                                            user_spoke = True
-                                            user_content_length += len(content)
-                        
-                        # 🔥 BUILD 183: If no user speech, mark as completed but DON'T generate summary
-                        if not user_spoke or user_content_length < 5:
-                            print(f"📊 [FINALIZE] NO USER SPEECH - skipping summary generation for {self.call_sid}")
-                            call_log.status = "completed"
-                            call_log.transcription = ""  # Empty transcription
-                            call_log.summary = ""  # Empty summary - DO NOT HALLUCINATE!
-                            call_log.ai_summary = ""
-                            db.session.commit()
-                            print(f"✅ CALL FINALIZED (no conversation): {self.call_sid}")
-                            return  # Exit early - no webhook, no lead update
-                        
-                        # בנה סיכום מלא - only if user spoke
+                        # 🔥 TX_STALL FIX: Only save realtime transcript (already in memory)
+                        # Do NOT generate AI summary here - that's heavy and runs AFTER call ends
                         full_conversation = ""
                         if hasattr(self, 'conversation_history') and self.conversation_history:
                             # ✅ Support both formats: old {'user': X, 'bot': Y} and new {'speaker': X, 'text': Y}
@@ -10436,75 +12284,39 @@ class MediaStreamHandler:
                                     conv_lines.append(f"לקוח: {turn['user']}\nעוזר: {turn['bot']}")
                             full_conversation = "\n".join(conv_lines)
                         
-                        # צור סיכום AI - only if we have actual conversation
-                        business_id = getattr(self, 'business_id', None)
-                        if not business_id:
-                            print(f"❌ No business_id set for call summary - skipping")
-                            return
-                        ci = CustomerIntelligence(business_id)
-                        summary_data = ci.generate_conversation_summary(
-                            full_conversation,
-                            {'conversation_history': self.conversation_history}
-                        )
-                        
-                        # עדכן call_log
+                        # ✅ Save lightweight data only (no AI processing!)
                         call_log.status = "completed"
-                        call_log.transcription = full_conversation  # ✅ FIX: transcription not transcript!
-                        call_log.summary = summary_data.get('summary', '')
-                        call_log.ai_summary = summary_data.get('detailed_summary', '')
+                        call_log.transcription = full_conversation  # Realtime transcript (already in memory)
+                        # summary and ai_summary will be filled by offline worker
+                        
+                        # 🔥 FIX: Save recording_sid if available
+                        if hasattr(self, '_recording_sid') and self._recording_sid:
+                            call_log.recording_sid = self._recording_sid
+                            if DEBUG:
+                                force_print(f"✅ [FINALIZE] Saved recording_sid: {self._recording_sid}")
                         
                         db.session.commit()
+                        force_print(f"✅ [FINALIZE] Call metadata saved (realtime only): {self.call_sid}")
                         
-                        print(f"✅ CALL FINALIZED: {self.call_sid}")
-                        print(f"📝 Summary: {summary_data.get('summary', 'N/A')}")
-                        print(f"🎯 Intent: {summary_data.get('intent', 'N/A')}")
-                        if DEBUG: print(f"📊 Next Action: {summary_data.get('next_action', 'N/A')}")
-                        
-                        # 📋 CRM: Update lead with call summary (Realtime mode only)
-                        if USE_REALTIME_API and hasattr(self, 'crm_context') and self.crm_context and self.crm_context.lead_id:
-                            update_lead_on_call(
-                                lead_id=self.crm_context.lead_id,
-                                summary=summary_data.get('summary', ''),
-                                notes=f"Call {self.call_sid}: {summary_data.get('intent', 'general_inquiry')}"
-                            )
-                            print(f"✅ [CRM] Lead #{self.crm_context.lead_id} updated with call summary")
-                        
-                        # 📅 UPDATE APPOINTMENT with call summary (if appointment was created during call)
-                        if hasattr(self, 'crm_context') and self.crm_context and hasattr(self.crm_context, 'last_appointment_id') and self.crm_context.last_appointment_id:
-                            from server.models_sql import Appointment
-                            appt_id = self.crm_context.last_appointment_id
-                            appointment = Appointment.query.get(appt_id)
-                            if appointment:
-                                # Update appointment with call summary and link to call log
-                                appointment.call_summary = summary_data.get('summary', '')
-                                appointment.call_log_id = call_log.id
-                                db.session.commit()
-                                print(f"✅ [CALENDAR] Appointment #{appt_id} updated with call summary")
-                            else:
-                                print(f"⚠️ [CALENDAR] Appointment #{appt_id} not found for summary update")
-                        
-                        # 🤖 BUILD 119: Agent handles appointments during conversation!
-                        # AUTO-APPOINTMENT disabled - Agent creates appointments in real-time
-                        print(f"ℹ️ Appointment handling: Managed by Agent during call (BUILD 119)")
-                        
-                        # ✅ CLEAN PIPELINE: Webhook handled by offline worker ONLY
-                        # No webhook sending, no extraction, no waiting loops here
-                        # The worker (tasks_recording.py) handles everything after call ends:
+                        # 🔥 TX_STALL FIX: Defer ALL heavy processing to offline worker
+                        # The offline worker (tasks_recording.py) will handle:
                         #   1. Download recording
-                        #   2. Whisper transcription
-                        #   3. GPT summary
+                        #   2. Offline Whisper transcription (higher quality than realtime)
+                        #   3. AI summary generation
                         #   4. Extract city/service from summary
-                        #   5. Save to DB
-                        #   6. Send webhook
-                        print(f"✅ [CLEAN PIPELINE] Call ended - realtime handler done. Worker will handle offline processing + webhook.")
-                        print(f"   Call SID: {self.call_sid}")
-                        print(f"   Business ID: {business_id}")
-                        print(f"   Offline worker will process: transcription → summary → extraction → webhook")
+                        #   5. Update lead with summary
+                        #   6. Send webhook call.completed
+                        force_print(f"✅ [TX_STALL_FIX] Call {self.call_sid} closed - offline worker will handle heavy processing")
                         
                 except Exception as e:
-                    print(f"❌ Failed to finalize call: {e}")
+                    force_print(f"❌ Failed to finalize call: {e}")
                     import traceback
                     traceback.print_exc()
+                    # 🔥 CRITICAL FIX: Rollback on DB errors to prevent InFailedSqlTransaction
+                    try:
+                        db.session.rollback()
+                    except:
+                        pass
             
             # רוץ ברקע
             thread = threading.Thread(target=finalize_in_background, daemon=True)
@@ -10512,7 +12324,7 @@ class MediaStreamHandler:
             self.background_threads.append(thread)  # ✅ Track for cleanup
             
         except Exception as e:
-            print(f"❌ Call finalization setup failed: {e}")
+            force_print(f"❌ Call finalization setup failed: {e}")
     
     def _start_call_recording(self):
         """✅ התחל הקלטת שיחה דרך Twilio REST API - מבטיח שכל השיחות מוקלטות
@@ -10748,82 +12560,167 @@ class MediaStreamHandler:
     
     def _process_customer_intelligence(self, user_text: str, bot_reply: str):
         """
-        ✨ עיבוד חכם של השיחה עם זיהוי/יצירת לקוח וליד אוטומטית
+        ✨ TX_STALL FIX: DISABLED - No heavy processing during call
+        
+        This function previously did heavy AI processing during active calls:
+        - generate_conversation_summary (GPT API call)
+        - auto_update_lead_status (AI processing)
+        
+        All of this is now deferred to the offline worker which runs AFTER
+        the call ends. See tasks_recording.py:save_call_to_db() for the
+        implementation.
+        """
+        # 🔥 TX_STALL FIX: Disabled - all processing moved to offline worker
+        return
+    
+    def _log_call_metrics(self):
+        """
+        🔥 CALL METRICS: Log comprehensive metrics for each call
+        
+        Called at call end to log key performance indicators:
+        - Greeting latency
+        - First user utterance timing
+        - Average turn durations
+        - Barge-in events count
+        - Silence events count
+        - STT hallucinations dropped count
+        
+        This helps identify patterns and tune thresholds per business.
         """
         try:
-            # וודא שיש מספר טלפון ו-business_id
-            if not self.phone_number or not hasattr(self, 'business_id'):
-                print("⚠️ Missing phone_number or business_id for customer intelligence")
-                return
+            # Calculate greeting latency
+            greeting_ms = 0
+            if hasattr(self, 'greeting_completed_at') and hasattr(self, 'connection_start_time'):
+                if self.greeting_completed_at and self.connection_start_time:
+                    greeting_ms = int((self.greeting_completed_at - self.connection_start_time) * 1000)
             
-            # Import only when needed to avoid circular imports
-            from server.services.customer_intelligence import CustomerIntelligence
-            from server.app_factory import create_app
-            from server.db import db
+            # Calculate first user utterance timing
+            first_user_utterance_ms = 0
+            if hasattr(self, 'conversation_history') and self.conversation_history:
+                for msg in self.conversation_history:
+                    if msg.get('speaker') == 'user' and msg.get('ts'):
+                        if hasattr(self, 'connection_start_time') and self.connection_start_time:
+                            first_user_utterance_ms = int((msg['ts'] - self.connection_start_time) * 1000)
+                        break
             
-            # הרצה אסינכרונית כדי לא לחסום את השיחה
-            import threading
+            # Helper to avoid code duplication
+            conversation_history = self.conversation_history if hasattr(self, 'conversation_history') else []
             
-            def process_in_background():
-                try:
-                    app = _get_flask_app()  # ✅ Use singleton
-                    with app.app_context():
-                        business_id = getattr(self, 'business_id', None)
-                        if not business_id:
-                            print(f"❌ No business_id for customer intelligence - skipping")
-                            return
-                        ci = CustomerIntelligence(business_id)
-                        
-                        # יצירת טקסט מלא מההיסטוריה הנוכחית
-                        full_conversation = ""
-                        if hasattr(self, 'conversation_history') and self.conversation_history:
-                            full_conversation = " ".join([
-                                f"{turn['user']} {turn['bot']}" 
-                                for turn in self.conversation_history[-5:]  # רק 5 אחרונות
-                            ])
-                        
-                        # זיהוי/יצירת לקוח וליד עם התמלול הנוכחי
-                        customer, lead, was_created = ci.find_or_create_customer_from_call(
-                            str(self.phone_number or ""),
-                            self.call_sid or f"live_{int(time.time())}",
-                            full_conversation,
-                            conversation_data={'conversation_history': self.conversation_history}
-                        )
-                        
-                        # סיכום חכם של השיחה
-                        conversation_summary = ci.generate_conversation_summary(
-                            full_conversation,
-                            {'conversation_history': self.conversation_history}
-                        )
-                        
-                        # עדכון סטטוס אוטומטי
-                        new_status = ci.auto_update_lead_status(lead, conversation_summary)
-                        
-                        # עדכון פתקיות הליד עם התקדמות השיחה הנוכחית
-                        if lead.notes:
-                            lead.notes += f"\n[Live Call]: {user_text[:100]}... → {bot_reply[:50]}..."
-                        else:
-                            lead.notes = f"[Live Call]: {user_text[:100]}... → {bot_reply[:50]}..."
-                        
-                        db.session.commit()
-                        
-                        # רישום לוגים מפורטים
-                        print(f"🎯 Live Call AI Processing: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'})")
-                        print(f"📋 Live Summary: {conversation_summary.get('summary', 'N/A')}")
-                        print(f"🎭 Live Intent: {conversation_summary.get('intent', 'N/A')}")
-                        if DEBUG: print(f"📊 Live Status: {new_status}")
-                        print(f"⚡ Live Next Action: {conversation_summary.get('next_action', 'N/A')}")
-                        
-                except Exception as e:
-                    print(f"❌ Customer Intelligence background processing failed: {e}")
-                    import traceback
-                    traceback.print_exc()
+            # Calculate average AI turn duration
+            ai_turn_durations = []
+            for i, msg in enumerate(conversation_history):
+                if msg.get('speaker') == 'ai' and msg.get('ts'):
+                    # Find next message to calculate duration
+                    if i + 1 < len(conversation_history):
+                        next_msg = conversation_history[i + 1]
+                        if next_msg.get('ts'):
+                            duration_ms = int((next_msg['ts'] - msg['ts']) * 1000)
+                            ai_turn_durations.append(duration_ms)
             
-            # הרץ ברקע כדי לא לחסום את השיחה
-            thread = threading.Thread(target=process_in_background, daemon=True)
-            thread.start()
-            self.background_threads.append(thread)  # ✅ Track for cleanup
+            avg_ai_turn_ms = int(sum(ai_turn_durations) / len(ai_turn_durations)) if ai_turn_durations else 0
+            
+            # Calculate average user turn duration
+            user_turn_durations = []
+            for i, msg in enumerate(conversation_history):
+                if msg.get('speaker') == 'user' and msg.get('ts'):
+                    # Find next message to calculate duration
+                    if i + 1 < len(conversation_history):
+                        next_msg = conversation_history[i + 1]
+                        if next_msg.get('ts'):
+                            duration_ms = int((next_msg['ts'] - msg['ts']) * 1000)
+                            user_turn_durations.append(duration_ms)
+            
+            avg_user_turn_ms = int(sum(user_turn_durations) / len(user_turn_durations)) if user_turn_durations else 0
+            
+            # Count barge-in events
+            barge_in_events = getattr(self, '_barge_in_event_count', 0)
+            
+            # Count silence events (10s+ gaps)
+            silences_10s = getattr(self, '_silence_10s_count', 0)
+            
+            # Count STT hallucinations dropped
+            stt_hallucinations_dropped = getattr(self, '_stt_hallucinations_dropped', 0)
+            
+            # 🎯 TASK 6.1: STT QUALITY METRICS
+            # 🔧 CODE REVIEW FIX: Optimize - single pass instead of multiple list comprehensions
+            stt_utterances_total = 0
+            stt_empty_count = 0
+            stt_very_short_count = 0
+            
+            for msg in conversation_history:
+                if msg.get('speaker') == 'user':
+                    stt_utterances_total += 1
+                    if msg.get('filtered', False):
+                        text_len = len(msg.get('text', '').strip())
+                        if text_len == 0:
+                            stt_empty_count += 1
+                        elif text_len < 5:
+                            stt_very_short_count += 1
+            
+            # Count filler-only utterances
+            stt_filler_only_count = getattr(self, '_stt_filler_only_count', 0)
+            
+            # 🎯 TASK 6.1: AUDIO PIPELINE METRICS
+            frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
+            frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
+            frames_dropped_by_filters = getattr(self, '_stats_audio_blocked', 0)
+            
+            # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
+            if SIMPLE_MODE and frames_dropped_by_filters > 0:
+                logger.warning(
+                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_by_filters} frames dropped! "
+                    f"In SIMPLE_MODE, no frames should be dropped by filters."
+                )
+            
+            # Log comprehensive metrics
+            logger.info(
+                "[CALL_METRICS] greeting_ms=%(greeting_ms)d, "
+                "first_user_utterance_ms=%(first_user_utterance_ms)d, "
+                "avg_ai_turn_ms=%(avg_ai_turn_ms)d, "
+                "avg_user_turn_ms=%(avg_user_turn_ms)d, "
+                "barge_in_events=%(barge_in_events)d, "
+                "silences_10s=%(silences_10s)d, "
+                "stt_hallucinations_dropped=%(stt_hallucinations_dropped)d, "
+                "stt_utterances_total=%(stt_utterances_total)d, "
+                "stt_empty=%(stt_empty)d, "
+                "stt_short=%(stt_short)d, "
+                "stt_filler_only=%(stt_filler_only)d, "
+                "frames_in=%(frames_in)d, "
+                "frames_forwarded=%(frames_forwarded)d, "
+                "frames_dropped=%(frames_dropped)d",
+                {
+                    'greeting_ms': greeting_ms,
+                    'first_user_utterance_ms': first_user_utterance_ms,
+                    'avg_ai_turn_ms': avg_ai_turn_ms,
+                    'avg_user_turn_ms': avg_user_turn_ms,
+                    'barge_in_events': barge_in_events,
+                    'silences_10s': silences_10s,
+                    'stt_hallucinations_dropped': stt_hallucinations_dropped,
+                    'stt_utterances_total': stt_utterances_total,
+                    'stt_empty': stt_empty_count,
+                    'stt_short': stt_very_short_count,
+                    'stt_filler_only': stt_filler_only_count,
+                    'frames_in': frames_in_from_twilio,
+                    'frames_forwarded': frames_forwarded_to_realtime,
+                    'frames_dropped': frames_dropped_by_filters
+                }
+            )
+            
+            # Also print for visibility
+            print(f"📊 [CALL_METRICS] Call {self.call_sid[:16] if hasattr(self, 'call_sid') else 'N/A'}")
+            print(f"   Greeting: {greeting_ms}ms")
+            print(f"   First user utterance: {first_user_utterance_ms}ms")
+            print(f"   Avg AI turn: {avg_ai_turn_ms}ms")
+            print(f"   Avg user turn: {avg_user_turn_ms}ms")
+            print(f"   Barge-in events: {barge_in_events}")
+            print(f"   Silences (10s+): {silences_10s}")
+            print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
+            print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
+            print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped={frames_dropped_by_filters}")
+            if SIMPLE_MODE and frames_dropped_by_filters > 0:
+                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_by_filters} frames were dropped!")
             
         except Exception as e:
-            print(f"❌ Customer Intelligence setup failed: {e}")
-            # אל תקריס את השיחה - המשך רגיל
+            logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
+            import traceback
+            traceback.print_exc()

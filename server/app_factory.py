@@ -7,9 +7,12 @@ from flask import Flask, jsonify, send_from_directory, send_file, current_app, r
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# Setup async logging BEFORE anything else
-from server.logging_async import setup_async_root
-if os.getenv("ASYNC_LOG_QUEUE", "1") == "1":
+# Setup async logging BEFORE anything else - SKIP in migration mode
+if os.getenv('MIGRATION_MODE') == '1':
+    # Migration mode - use standard logging to avoid eventlet dependency
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
+elif os.getenv("ASYNC_LOG_QUEUE", "1") == "1":
+    from server.logging_async import setup_async_root
     setup_async_root(level=logging.INFO)
 else:
     logging.basicConfig(level=logging.INFO)
@@ -23,6 +26,9 @@ except ImportError:
 from datetime import datetime, timedelta
 import secrets
 import hashlib
+
+# Module-level logger
+logger = logging.getLogger(__name__)
 
 # 🔥 CRITICAL FIX: Single instance management to prevent APP_START crashes
 _app_singleton = None
@@ -57,8 +63,51 @@ def get_process_app():
         
         return _app_singleton
 
+def create_minimal_app():
+    """
+    Create minimal Flask app for migrations - NO background threads, NO warmup, NO eventlet
+    
+    This is used ONLY for database migrations to avoid hanging.
+    """
+    app = Flask(__name__)
+    
+    # Database configuration with SSL fix
+    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///default.db')
+    
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    
+    app.config.update({
+        'SECRET_KEY': os.getenv('SECRET_KEY', secrets.token_hex(32)),
+        'DATABASE_URL': DATABASE_URL,
+        'SQLALCHEMY_DATABASE_URI': DATABASE_URL,
+        'SQLALCHEMY_TRACK_MODIFICATIONS': False,
+        'SQLALCHEMY_ENGINE_OPTIONS': {
+            'pool_pre_ping': True,
+            'pool_recycle': 300,
+            'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
+            'connect_args': {
+                'connect_timeout': 30,
+                'application_name': 'AgentLocator-Migrations',
+                'options': '-c statement_timeout=30000'
+            }
+        }
+    })
+    
+    # Initialize SQLAlchemy with minimal app
+    from server.db import db
+    import server.models_sql  # Import models module
+    db.init_app(app)
+    
+    return app
+
 def create_app():
     """Create Flask application with React frontend (לפי ההנחיות המדויקות)"""
+    
+    # Check if we're in migration mode - skip all heavy initialization
+    if os.getenv('MIGRATION_MODE') == '1':
+        logger.info("🔧 MIGRATION_MODE detected - creating minimal app")
+        return create_minimal_app()
     
     # GCP credentials setup
     import json
@@ -117,13 +166,15 @@ def create_app():
         'SQLALCHEMY_DATABASE_URI': DATABASE_URL,
         'SQLALCHEMY_TRACK_MODIFICATIONS': False,
         'SQLALCHEMY_ENGINE_OPTIONS': {
-            'pool_pre_ping': True,
-            'pool_recycle': 300,
+            'pool_pre_ping': True,  # ✅ DB RESILIENCE: Verify connections before use (prevents stale connections)
+            'pool_recycle': 300,    # ✅ DB RESILIENCE: Recycle connections after 5 min (handles Neon idle timeout)
             # Fix for Eventlet + SQLAlchemy lock issue
             'poolclass': __import__('sqlalchemy.pool', fromlist=['NullPool']).NullPool,
             'connect_args': {
                 'connect_timeout': 30,
-                'application_name': 'AgentLocator-71'
+                'application_name': 'AgentLocator-71',
+                # ✅ DB RESILIENCE: Add statement timeout to prevent hanging queries
+                'options': '-c statement_timeout=30000'  # 30 seconds max per statement
             }
         },
         # Session configuration
@@ -131,6 +182,9 @@ def create_app():
         'PERMANENT_SESSION_LIFETIME': timedelta(hours=8),
         'SESSION_REFRESH_EACH_REQUEST': True
     })
+    
+    # ✅ DB RESILIENCE: Log pool configuration for troubleshooting
+    logger.info(f"[DB_POOL] pool_pre_ping=True pool_recycle=300s (Neon-optimized)")
     
     # 1) Flask bootstrap - ProxyFix for Replit's reverse proxy
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
@@ -298,7 +352,64 @@ def create_app():
          methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     )
     
-    # UI Blueprint registration (לפי ההנחיות) - MUST BE FIRST!
+    # ⚡ CRITICAL FIX: Register essential API blueprints FIRST (before all other blueprints)
+    # This ensures dashboard, business, notifications, etc. work even if other blueprints fail
+    # If these fail to register, app CRASHES (fail-fast) instead of running without API
+    try:
+        # Health endpoints - MUST be registered FIRST for monitoring
+        from server.health_endpoints import health_bp
+        app.register_blueprint(health_bp)
+        app.logger.info("✅ Health endpoints registered")
+        
+        # API Adapter - Dashboard, stats, activity endpoints
+        from server.api_adapter import api_adapter_bp
+        app.register_blueprint(api_adapter_bp)
+        app.logger.info("✅ API Adapter blueprint registered (dashboard endpoints)")
+        
+        # Admin endpoints - /api/admin/businesses, etc.
+        from server.routes_admin import admin_bp
+        app.register_blueprint(admin_bp)
+        app.logger.info("✅ Admin blueprint registered")
+        
+        # Business management - /api/business/current, settings, FAQs
+        from server.routes_business_management import biz_mgmt_bp
+        app.register_blueprint(biz_mgmt_bp)
+        app.logger.info("✅ Business management blueprint registered")
+        
+        # Leads - /api/leads, /api/notifications
+        from server.routes_leads import leads_bp
+        app.register_blueprint(leads_bp)
+        app.logger.info("✅ Leads blueprint registered")
+        
+        # Search - /api/search
+        from server.routes_search import search_api
+        app.register_blueprint(search_api)
+        app.logger.info("✅ Search blueprint registered")
+        
+        # CRM - /api/crm/threads
+        from server.routes_crm import crm_bp
+        app.register_blueprint(crm_bp)
+        app.logger.info("✅ CRM blueprint registered")
+        
+        # Status management - /api/statuses
+        from server.routes_status_management import status_management_bp
+        app.register_blueprint(status_management_bp)
+        app.logger.info("✅ Status management blueprint registered")
+        
+        # WhatsApp - /api/whatsapp/*
+        from server.routes_whatsapp import whatsapp_bp, internal_whatsapp_bp
+        app.register_blueprint(whatsapp_bp)
+        app.register_blueprint(internal_whatsapp_bp)
+        app.logger.info("✅ WhatsApp blueprints registered")
+        
+    except Exception as e:
+        app.logger.error(f"❌ CRITICAL: Failed to register essential API blueprints: {e}")
+        import traceback
+        traceback.print_exc()
+        # Re-raise to prevent app from starting with broken API
+        raise RuntimeError(f"Essential API blueprints failed to register: {e}")
+    
+    # UI Blueprint registration (לפי ההנחיות)
     try:
         from server.ui.routes import ui_bp
         # Removed routes_auth.py - using only auth_api.py for cleaner code
@@ -313,9 +424,7 @@ def create_app():
         from server.routes_ai_prompt import ai_prompt_bp
         app.register_blueprint(ai_prompt_bp)
         
-        # Status Management Blueprint - Custom Lead Statuses
-        from server.routes_status_management import status_management_bp
-        app.register_blueprint(status_management_bp)
+        # Note: Status Management Blueprint now registered earlier (before line 356)
         
         @app.before_request  
         def setup_security_context():
@@ -358,20 +467,16 @@ def create_app():
         # Register auth blueprint - single clean system
         app.register_blueprint(auth_api)
         
-        # Register new API blueprints
-        from server.routes_admin import admin_bp
-        from server.routes_crm import crm_bp
-        from server.routes_business_management import biz_mgmt_bp
+        # ⚡ NOTE: Critical API blueprints (admin, business, leads, search, crm, status, whatsapp, health, api_adapter)
+        # are now registered EARLIER in a separate try-except block (before line 356)
+        # This ensures they load even if other blueprints fail
+        
+        # Register additional API blueprints
         from server.routes_twilio import twilio_bp
         from server.routes_calendar import calendar_bp
-        from server.routes_leads import leads_bp
         from server.routes_user_management import user_mgmt_api
-        app.register_blueprint(admin_bp)
-        app.register_blueprint(crm_bp)
-        app.register_blueprint(biz_mgmt_bp)
         app.register_blueprint(twilio_bp)
         app.register_blueprint(calendar_bp)
-        app.register_blueprint(leads_bp)
         app.register_blueprint(user_mgmt_api)
         
         # Calls API for recordings and transcripts
@@ -386,10 +491,7 @@ def create_app():
         from server.routes_receipts_contracts import receipts_contracts_bp
         app.register_blueprint(receipts_contracts_bp)
         
-        # WhatsApp Canonical API (replaces all other WhatsApp routes)
-        from server.routes_whatsapp import whatsapp_bp, internal_whatsapp_bp
-        app.register_blueprint(whatsapp_bp)
-        app.register_blueprint(internal_whatsapp_bp)  # BUILD 151: Internal status webhook
+        # Note: WhatsApp blueprints now registered earlier (before line 356)
         
         # WhatsApp Webhook endpoints for Baileys service
         from server.routes_webhook import webhook_bp
@@ -423,15 +525,7 @@ def create_app():
         app.logger.info("New API blueprints registered")
         app.logger.info("Twilio webhooks registered")
         
-        # Register API Adapter Blueprint - Frontend Compatibility Layer
-        from server.api_adapter import api_adapter_bp
-        app.register_blueprint(api_adapter_bp)
-        app.logger.info("API Adapter blueprint registered")
-        
-        # Health endpoints - MUST be registered
-        from server.health_endpoints import health_bp
-        app.register_blueprint(health_bp)
-        app.logger.info("Health endpoints registered")
+        # Note: API Adapter and Health blueprints now registered earlier (before line 356)
         
         # data_api removed - כפילות
         
@@ -632,91 +726,93 @@ def create_app():
     
     # ⚡ DEPLOYMENT FIX: Run heavy initialization in background
     # This prevents deployment timeout while still ensuring DB is ready
-    def _background_initialization():
-        """Run migrations and initialization after server is listening"""
-        import time
-        time.sleep(0.5)  # Let server bind to port first
-        
-        is_production = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
-        
-        if is_production:
-            try:
-                with app.app_context():
-                    from server.db_migrate import apply_migrations
-                    apply_migrations()
-                    
-                    # Migrate legacy admin roles to system_admin
-                    try:
-                        from server.scripts.migrate_admin_roles import migrate_admin_roles
-                        migrate_admin_roles()
-                    except Exception:
-                        pass
-                    
-                    # Fix FAQ patterns
-                    try:
-                        from server.models_sql import FAQ
-                        import json
+    # SKIP if in migration mode to prevent hanging
+    if os.getenv('MIGRATION_MODE') != '1':
+        def _background_initialization():
+            """Run migrations and initialization after server is listening"""
+            import time
+            time.sleep(0.5)  # Let server bind to port first
+            
+            is_production = os.getenv('RUN_MIGRATIONS_ON_START', '0') == '1'
+            
+            if is_production:
+                try:
+                    with app.app_context():
+                        from server.db_migrate import apply_migrations
+                        apply_migrations()
                         
-                        def normalize_patterns_quick(payload):
-                            if payload is None or payload == "":
+                        # Migrate legacy admin roles to system_admin
+                        try:
+                            from server.scripts.migrate_admin_roles import migrate_admin_roles
+                            migrate_admin_roles()
+                        except Exception:
+                            pass
+                        
+                        # Fix FAQ patterns
+                        try:
+                            from server.models_sql import FAQ
+                            import json
+                            
+                            def normalize_patterns_quick(payload):
+                                if payload is None or payload == "":
+                                    return []
+                                if isinstance(payload, list):
+                                    return [str(p).strip() for p in payload if p and str(p).strip()]
+                                if isinstance(payload, str):
+                                    try:
+                                        parsed = json.loads(payload.strip())
+                                        if isinstance(parsed, list):
+                                            return [str(p).strip() for p in parsed if p and str(p).strip()]
+                                    except:
+                                        pass
                                 return []
-                            if isinstance(payload, list):
-                                return [str(p).strip() for p in payload if p and str(p).strip()]
-                            if isinstance(payload, str):
-                                try:
-                                    parsed = json.loads(payload.strip())
-                                    if isinstance(parsed, list):
-                                        return [str(p).strip() for p in parsed if p and str(p).strip()]
-                                except:
-                                    pass
-                            return []
-                        
-                        faqs = FAQ.query.all()
-                        fixed_count = 0
-                        for faq in faqs:
-                            if not isinstance(faq.patterns_json, list):
-                                normalized = normalize_patterns_quick(faq.patterns_json)
-                                faq.patterns_json = normalized
-                                fixed_count += 1
-                        
-                        if fixed_count > 0:
-                            db.session.commit()
-                            from server.services.faq_cache import faq_cache
-                            affected = set(faq.business_id for faq in faqs if faq.patterns_json)
-                            for bid in affected:
-                                faq_cache.invalidate(bid)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        else:
-            # Development mode - quick table creation
+                            
+                            faqs = FAQ.query.all()
+                            fixed_count = 0
+                            for faq in faqs:
+                                if not isinstance(faq.patterns_json, list):
+                                    normalized = normalize_patterns_quick(faq.patterns_json)
+                                    faq.patterns_json = normalized
+                                    fixed_count += 1
+                            
+                            if fixed_count > 0:
+                                db.session.commit()
+                                from server.services.faq_cache import faq_cache
+                                affected = set(faq.business_id for faq in faqs if faq.patterns_json)
+                                for bid in affected:
+                                    faq_cache.invalidate(bid)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            else:
+                # Development mode - quick table creation
+                try:
+                    with app.app_context():
+                        db.create_all()
+                except Exception:
+                    pass
+            
+            # Shared initialization
             try:
                 with app.app_context():
-                    db.create_all()
+                    from server.auth_api import create_default_admin
+                    create_default_admin()
+                    
+                    from server.init_database import initialize_production_database
+                    initialize_production_database()
             except Exception:
                 pass
         
-        # Shared initialization
-        try:
-            with app.app_context():
-                from server.auth_api import create_default_admin
-                create_default_admin()
-                
-                from server.init_database import initialize_production_database
-                initialize_production_database()
-        except Exception:
-            pass
-    
-    # Start background initialization thread
-    import threading
-    init_thread = threading.Thread(target=_background_initialization, daemon=True)
-    init_thread.start()
-    
-    # Preload services after startup to avoid cold start
-    from server.services.lazy_services import warmup_services_async, start_periodic_warmup
-    warmup_services_async()
-    start_periodic_warmup()
+        # Start background initialization thread
+        import threading
+        init_thread = threading.Thread(target=_background_initialization, daemon=True)
+        init_thread.start()
+        
+        # Preload services after startup to avoid cold start
+        from server.services.lazy_services import warmup_services_async, start_periodic_warmup
+        warmup_services_async()
+        start_periodic_warmup()
     
 
     # ✅ ERROR HANDLERS - JSON responses instead of Error {}
@@ -778,78 +874,80 @@ def create_app():
     
     
     # TTS Pre-warming on startup (prevents cold start)
-    try:
-        from server.services.gcp_tts_live import maybe_warmup
-        maybe_warmup()
-    except Exception:
-        pass
-    
-    # Pre-create agents to eliminate cold starts
-    try:
-        from server.agent_tools.agent_factory import warmup_all_agents
+    # SKIP if in migration mode
+    if os.getenv('MIGRATION_MODE') != '1':
+        try:
+            from server.services.gcp_tts_live import maybe_warmup
+            maybe_warmup()
+        except Exception:
+            pass
         
-        def warmup_with_context():
-            with app.app_context():
-                try:
-                    warmup_all_agents()
-                except Exception:
-                    pass
+        # Pre-create agents to eliminate cold starts
+        try:
+            from server.agent_tools.agent_factory import warmup_all_agents
+            
+            def warmup_with_context():
+                with app.app_context():
+                    try:
+                        warmup_all_agents()
+                    except Exception:
+                        pass
+            
+            import threading
+            warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
+            warmup_thread.start()
+        except Exception:
+            pass
         
-        import threading
-        warmup_thread = threading.Thread(target=warmup_with_context, daemon=True)
-        warmup_thread.start()
-    except Exception:
-        pass
+        # Automatic recording cleanup scheduler (7-day retention)
+        try:
+            from server.tasks_recording import auto_cleanup_old_recordings
+            import threading
+            import time as scheduler_time
+            
+            def recording_cleanup_scheduler():
+                """Background scheduler - runs cleanup daily"""
+                scheduler_time.sleep(300)  # Wait 5 minutes after startup
+                while True:
+                    try:
+                        with app.app_context():
+                            auto_cleanup_old_recordings()
+                    except Exception:
+                        pass
+                    scheduler_time.sleep(21600)  # Run every 6 hours
+            
+            cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
+            cleanup_thread.start()
+        except Exception:
+            pass
+        
+        # WhatsApp session processor (15-min auto-summary)
+        try:
+            from server.services.whatsapp_session_service import start_session_processor
+            start_session_processor()
+        except Exception:
+            pass
+        
+        # Recording transcription worker (offline STT + lead extraction)
+        try:
+            from server.tasks_recording import start_recording_worker
+            import threading
+            
+            recording_thread = threading.Thread(
+                target=start_recording_worker,
+                args=(app,),
+                daemon=True,
+                name="RecordingWorker"
+            )
+            recording_thread.start()
+            print("✅ [BACKGROUND] Recording worker started")
+        except Exception as e:
+            print(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
     
     # Set singleton so future calls to get_process_app() reuse this instance
     global _app_singleton
     with _app_lock:
         if _app_singleton is None:
             _app_singleton = app
-    
-    # Automatic recording cleanup scheduler (7-day retention)
-    try:
-        from server.tasks_recording import auto_cleanup_old_recordings
-        import threading
-        import time as scheduler_time
-        
-        def recording_cleanup_scheduler():
-            """Background scheduler - runs cleanup daily"""
-            scheduler_time.sleep(300)  # Wait 5 minutes after startup
-            while True:
-                try:
-                    with app.app_context():
-                        auto_cleanup_old_recordings()
-                except Exception:
-                    pass
-                scheduler_time.sleep(21600)  # Run every 6 hours
-        
-        cleanup_thread = threading.Thread(target=recording_cleanup_scheduler, daemon=True, name="RecordingCleanup")
-        cleanup_thread.start()
-    except Exception:
-        pass
-    
-    # WhatsApp session processor (15-min auto-summary)
-    try:
-        from server.services.whatsapp_session_service import start_session_processor
-        start_session_processor()
-    except Exception:
-        pass
-    
-    # Recording transcription worker (offline STT + lead extraction)
-    try:
-        from server.tasks_recording import start_recording_worker
-        import threading
-        
-        recording_thread = threading.Thread(
-            target=start_recording_worker,
-            args=(app,),
-            daemon=True,
-            name="RecordingWorker"
-        )
-        recording_thread.start()
-        print("✅ [BACKGROUND] Recording worker started")
-    except Exception as e:
-        print(f"⚠️ [BACKGROUND] Could not start recording worker: {e}")
     
     return app

@@ -13,6 +13,15 @@ os.environ['APP_START_TIME'] = str(int(APP_START_TIME))
 
 health_bp = Blueprint('health', __name__)
 
+@health_bp.route('/api/health', methods=['GET'])
+def api_health():
+    """API health check endpoint"""
+    return jsonify({
+        "status": "ok",
+        "service": "prosaasil-api",
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
 @health_bp.route('/healthz', methods=['GET'])
 def healthz_endpoint():
     """Basic health check"""
@@ -183,3 +192,98 @@ def db_check():
         "is_production": os.getenv('REPLIT_DEPLOYMENT') == '1',
         "timestamp": datetime.now().isoformat()
     }), 200
+
+@health_bp.route('/api/debug/routes', methods=['GET'])
+def debug_routes():
+    """
+    🔧 Debug endpoint - Lists all registered Flask routes
+    Useful for troubleshooting 404 issues in production
+    
+    Security: Only available in development or for system_admin
+    """
+    try:
+        from flask import current_app
+        from server.auth_api import require_api_auth
+        
+        # Check if in development mode or user is system_admin
+        is_dev = os.getenv('FLASK_ENV') == 'development' or os.getenv('MIGRATION_MODE') == '1'
+        
+        if not is_dev:
+            # In production, require system_admin role
+            user = session.get('al_user') or session.get('user')
+            if not user or user.get('role') != 'system_admin':
+                return jsonify({
+                    'error': 'forbidden',
+                    'message': 'This endpoint is only available to system administrators'
+                }), 403
+        
+        # Critical endpoints that MUST exist
+        critical_endpoints = [
+            '/api/health',
+            '/api/dashboard/stats',
+            '/api/dashboard/activity',
+            '/api/business/current',
+            '/api/notifications',
+            '/api/admin/businesses',
+            '/api/search',
+            '/api/whatsapp/status',
+            '/api/whatsapp/templates',
+            '/api/whatsapp/broadcasts',
+            '/api/crm/threads',
+            '/api/statuses',
+            '/api/leads',
+        ]
+        
+        # Get all registered routes
+        all_routes = []
+        critical_status = {}
+        
+        for rule in current_app.url_map.iter_rules():
+            route_path = str(rule)
+            route_info = {
+                'path': route_path,
+                'methods': list(rule.methods - {'HEAD', 'OPTIONS'}),
+                'endpoint': rule.endpoint
+            }
+            all_routes.append(route_info)
+            
+            # Check if this is a critical endpoint (exact match only)
+            for critical in critical_endpoints:
+                # Exact match with or without trailing slash
+                route_clean = route_path.rstrip('/')
+                critical_clean = critical.rstrip('/')
+                if route_clean == critical_clean:
+                    critical_status[critical] = True
+        
+        # Mark missing critical endpoints
+        for critical in critical_endpoints:
+            if critical not in critical_status:
+                critical_status[critical] = False
+        
+        # Filter to only show API routes
+        api_routes = [r for r in all_routes if '/api/' in r['path']]
+        api_routes.sort(key=lambda x: x['path'])
+        
+        # Count critical endpoints status
+        critical_ok = sum(1 for v in critical_status.values() if v)
+        critical_total = len(critical_endpoints)
+        
+        return jsonify({
+            'status': 'ok' if critical_ok == critical_total else 'degraded',
+            'total_routes': len(all_routes),
+            'api_routes_count': len(api_routes),
+            'critical_endpoints': {
+                'total': critical_total,
+                'registered': critical_ok,
+                'missing': critical_total - critical_ok,
+                'status': critical_status
+            },
+            'api_routes': api_routes[:50] if not is_dev else api_routes,  # Limit in production
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500

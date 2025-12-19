@@ -14,12 +14,14 @@ import {
   ChevronRight,
   Clock
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/cn';
 import { useAuth } from '../../../features/auth/hooks';
+import { http } from '../../../services/http';
 
 export interface SearchResult {
-  id: string;
-  type: 'client' | 'invoice' | 'call' | 'whatsapp' | 'meeting' | 'function' | 'business';
+  id: string | number;
+  type: 'lead' | 'call' | 'whatsapp' | 'contact' | 'client' | 'invoice' | 'meeting' | 'function' | 'business';
   title: string;
   subtitle?: string;
   description?: string;
@@ -33,221 +35,14 @@ export interface SearchResult {
     phone?: string;
     email?: string;
     lastActivity?: string;
+    created_at?: string;
+    lead_id?: number;
+    // For function/page/setting types
+    path?: string;
+    section?: string;
+    action?: string;
+    category?: string;
   };
-}
-
-// Mock search data generator
-function generateSearchResults(query: string, userRole: string, businessId?: number): SearchResult[] {
-  if (!query || query.length < 2) return [];
-
-  const allResults: SearchResult[] = [
-    // Clients
-    {
-      id: 'client-1',
-      type: 'client',
-      title: 'לאה בן דוד',
-      subtitle: '054-123-4567',
-      description: 'מעוניינת בדירה 3 חדרים בתל אביב',
-      metadata: {
-        businessId: 1,
-        businessName: 'ProSaaS',
-        phone: '054-123-4567',
-        email: 'leah@email.com',
-        lastActivity: 'לפני 2 שעות',
-        status: 'פעיל'
-      }
-    },
-    {
-      id: 'client-2',
-      type: 'client',
-      title: 'משה כהן',
-      subtitle: '053-999-8888',
-      description: 'מחפש משרד להשכרה במרכז',
-      metadata: {
-        businessId: 1,
-        businessName: 'ProSaaS',
-        phone: '053-999-8888',
-        email: 'moshe@email.com',
-        lastActivity: 'לפני יום',
-        status: 'מעקב'
-      }
-    },
-    {
-      id: 'client-3',
-      type: 'client',
-      title: 'שרה לוי',
-      subtitle: '052-777-6666',
-      description: 'קניית דירה ברמת גן',
-      metadata: {
-        businessId: 2,
-        businessName: 'נדלן טופ',
-        phone: '052-777-6666',
-        email: 'sarah@email.com',
-        lastActivity: 'לפני 3 ימים',
-        status: 'פוטנציאלי'
-      }
-    },
-    // ⚠️ BILLING DISABLED - Invoices hidden until payments feature is activated
-    // {
-    //   id: 'invoice-1',
-    //   type: 'invoice',
-    //   title: 'חשבונית #1001',
-    //   subtitle: 'לאה בן דוד',
-    //   description: 'עמלת תיווך דירה',
-    //   metadata: {
-    //     businessId: 1,
-    //     businessName: 'ProSaaS',
-    //     amount: 25000,
-    //     date: '15/12/2024',
-    //     status: 'שולם'
-    //   }
-    // },
-    // {
-    //   id: 'invoice-2',
-    //   type: 'invoice',
-    //   title: 'חשבונית #1002',
-    //   subtitle: 'דוד גרין',
-    //   description: 'שכירות משרד',
-    //   metadata: {
-    //     businessId: 1,
-    //     businessName: 'ProSaaS',
-    //     amount: 15000,
-    //     date: '20/12/2024',
-    //     status: 'ממתין'
-    //   }
-    // },
-    // Calls
-    {
-      id: 'call-1',
-      type: 'call',
-      title: 'שיחה עם לאה בן דוד',
-      subtitle: '054-123-4567',
-      description: 'שיחה של 3:45 דקות על דירה בתל אביב',
-      metadata: {
-        businessId: 1,
-        businessName: 'ProSaaS',
-        date: '25/12/2024',
-        lastActivity: 'לפני שעתיים',
-        status: 'הושלמה'
-      }
-    },
-    // WhatsApp
-    {
-      id: 'whatsapp-1',
-      type: 'whatsapp',
-      title: 'הודעת WhatsApp ממשה כהן',
-      subtitle: '053-999-8888',
-      description: 'שאילתה על משרדים זמינים',
-      metadata: {
-        businessId: 1,
-        businessName: 'ProSaaS',
-        date: '25/12/2024',
-        lastActivity: 'לפני שעה',
-        status: 'נענה'
-      }
-    },
-    // Meetings
-    {
-      id: 'meeting-1',
-      type: 'meeting',
-      title: 'פגישה עם שרה לוי',
-      subtitle: 'יום ראשון 16:00',
-      description: 'צפייה בדירה ברמת גן',
-      metadata: {
-        businessId: 1,
-        businessName: 'ProSaaS',
-        date: '29/12/2024',
-        status: 'מתוכננת'
-      }
-    },
-    // Functions (for admin/manager)
-    {
-      id: 'function-1',
-      type: 'function',
-      title: 'ניהול משתמשים',
-      subtitle: 'מערכת',
-      description: 'הוספה, עריכה ומחיקה של משתמשים',
-      metadata: {
-        lastActivity: 'זמין',
-        status: 'פעיל'
-      }
-    },
-    {
-      id: 'function-2',
-      type: 'function',
-      title: 'דוחות מכירות',
-      subtitle: 'מערכת',
-      description: 'צפייה וייצוא דוחות מכירות',
-      metadata: {
-        lastActivity: 'זמין',
-        status: 'פעיל'
-      }
-    },
-    // Businesses (admin only)
-    {
-      id: 'business-1',
-      type: 'business',
-      title: 'ProSaaS CRM',
-      subtitle: 'עסק פעיל',
-      description: '8 משתמשים, 45 לקוחות פעילים',
-      metadata: {
-        businessId: 1,
-        status: 'פעיל',
-        lastActivity: 'לפני דקה'
-      }
-    },
-    {
-      id: 'business-2',
-      type: 'business',
-      title: 'נדלן טופ',
-      subtitle: 'עסק פעיל',
-      description: '3 משתמשים, 22 לקוחות פעילים',
-      metadata: {
-        businessId: 2,
-        status: 'פעיל',
-        lastActivity: 'לפני 5 דקות'
-      }
-    }
-  ];
-
-  // Filter by search query
-  const queryLower = query.toLowerCase();
-  let filteredResults = allResults.filter(result => 
-    result.title.toLowerCase().includes(queryLower) ||
-    result.subtitle?.toLowerCase().includes(queryLower) ||
-    result.description?.toLowerCase().includes(queryLower)
-  );
-
-  // Apply role-based filtering
-  if (userRole === 'admin' && businessId) {
-    // Business admins only see their own business data
-    filteredResults = filteredResults.filter(result => 
-      result.type === 'function' || // Functions are available to all
-      result.metadata?.businessId === businessId
-    );
-    // Remove business management for business admins
-    filteredResults = filteredResults.filter(result => result.type !== 'business');
-  } else if (userRole === 'agent' && businessId) {
-    // Agents only see their own business data
-    filteredResults = filteredResults.filter(result => 
-      result.type === 'function' || // Functions are available to all
-      result.metadata?.businessId === businessId
-    );
-    // Remove business management for agents
-    filteredResults = filteredResults.filter(result => result.type !== 'business');
-  } else if (userRole === 'owner' && businessId) {
-    // Owners see all their business data plus management of their own business only
-    filteredResults = filteredResults.filter(result => 
-      result.type === 'function' || 
-      (result.type === 'business' && result.metadata?.businessId === businessId) || // Only own business
-      result.metadata?.businessId === businessId
-    );
-  } else if (userRole === 'system_admin') {
-    // System admins see everything across all businesses
-    // No filtering needed
-  }
-
-  return filteredResults.slice(0, 8); // Limit results
 }
 
 interface SearchResultItemProps {
@@ -257,8 +52,11 @@ interface SearchResultItemProps {
 
 function SearchResultItem({ result, onClick }: SearchResultItemProps) {
   const getIcon = () => {
-    switch (result.type) {
+    const type = result.type;
+    switch (type) {
+      case 'lead':
       case 'client': return <User className="h-4 w-4" />;
+      case 'contact': return <User className="h-4 w-4" />;
       case 'invoice': return <FileText className="h-4 w-4" />;
       case 'call': return <Phone className="h-4 w-4" />;
       case 'whatsapp': return <MessageCircle className="h-4 w-4" />;
@@ -270,8 +68,11 @@ function SearchResultItem({ result, onClick }: SearchResultItemProps) {
   };
 
   const getIconColor = () => {
-    switch (result.type) {
+    const type = result.type;
+    switch (type) {
+      case 'lead':
       case 'client': return 'text-purple-600';
+      case 'contact': return 'text-indigo-600';
       case 'invoice': return 'text-green-600';
       case 'call': return 'text-blue-600';
       case 'whatsapp': return 'text-emerald-600';
@@ -283,8 +84,11 @@ function SearchResultItem({ result, onClick }: SearchResultItemProps) {
   };
 
   const getTypeLabel = () => {
-    switch (result.type) {
+    const type = result.type;
+    switch (type) {
+      case 'lead': return 'ליד';
       case 'client': return 'לקוח';
+      case 'contact': return 'איש קשר';
       case 'invoice': return 'חשבונית';
       case 'call': return 'שיחה';
       case 'whatsapp': return 'WhatsApp';
@@ -376,6 +180,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { user } = useAuth();
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus input when modal opens
@@ -385,22 +190,50 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
     }
   }, [isOpen]);
 
-  // Search with debouncing
+  // Search with debouncing and real API
   useEffect(() => {
-    if (!query.trim()) {
+    if (!query.trim() || query.length < 2) {
       setResults([]);
       return;
     }
 
     setIsLoading(true);
-    const timeoutId = setTimeout(() => {
-      const searchResults = generateSearchResults(query, user?.role || 'business', user?.business_id);
-      setResults(searchResults);
-      setIsLoading(false);
-    }, 300);
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await http.get<{
+          query: string;
+          results: {
+            leads: SearchResult[];
+            calls: SearchResult[];
+            whatsapp: SearchResult[];
+            contacts: SearchResult[];
+            pages: SearchResult[];
+            settings: SearchResult[];
+          };
+          total: number;
+        }>(`/api/search?q=${encodeURIComponent(query)}&types=all&limit=10`);
+        
+        // Flatten all results into a single array, prioritizing pages/settings at top
+        const allResults: SearchResult[] = [
+          ...response.results.pages,
+          ...response.results.settings,
+          ...response.results.leads,
+          ...response.results.calls,
+          ...response.results.whatsapp,
+          ...response.results.contacts
+        ];
+        
+        setResults(allResults);
+      } catch (error) {
+        console.error('Search error:', error);
+        setResults([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }, 250); // 250ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [query, user?.role, user?.business_id]);
+  }, [query]);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -417,15 +250,61 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   }, [isOpen, onClose]);
 
   const handleResultClick = (result: SearchResult) => {
-    // In a real app, this would navigate to the specific item
-    console.log('Clicked result:', result);
-    alert(`פתיחת ${result.title} - ${getTypeLabel(result.type)}`);
+    // Navigate to the appropriate page based on result type
     onClose();
+    
+    switch (result.type) {
+      case 'lead':
+        if (result.id) {
+          navigate(`/app/leads/${result.id}`);
+        } else {
+          navigate(`/app/leads`);
+        }
+        break;
+      case 'call':
+        if (result.metadata?.lead_id) {
+          navigate(`/app/leads/${result.metadata.lead_id}`);
+        } else {
+          navigate(`/app/calls`);
+        }
+        break;
+      case 'whatsapp':
+        if (result.metadata?.lead_id) {
+          navigate(`/app/leads/${result.metadata.lead_id}`);
+        } else {
+          navigate(`/app/whatsapp`);
+        }
+        break;
+      case 'contact':
+        navigate(`/app/users`);
+        break;
+      case 'function':
+        // Navigate to page or setting
+        if (result.metadata?.path) {
+          navigate(result.metadata.path);
+          // If there's a section/action, you could handle it here
+          if (result.metadata?.action) {
+            // Could trigger action after navigation, e.g., open modal
+            setTimeout(() => {
+              // Dispatch custom event or state update
+              console.log('Action:', result.metadata?.action);
+            }, 300);
+          }
+        } else {
+          // Fallback: if no path is provided, log warning
+          console.warn('Search result has no path:', result);
+        }
+        break;
+      default:
+        console.log('Navigation not configured for type:', result.type);
+    }
   };
 
   const getTypeLabel = (type: string) => {
     switch (type) {
+      case 'lead': return 'ליד';
       case 'client': return 'לקוח';
+      case 'contact': return 'איש קשר';
       case 'invoice': return 'חשבונית';
       case 'call': return 'שיחה';
       case 'whatsapp': return 'WhatsApp';
@@ -453,7 +332,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
           <input
             ref={inputRef}
             type="text"
-            placeholder="חפש לקוחות, חשבוניות, פונקציות..."
+            placeholder="חפש לידים, שיחות, דפים, הגדרות..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="flex-1 text-lg placeholder-slate-400 bg-transparent outline-none"
@@ -480,13 +359,18 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
           {!query.trim() ? (
             <div className="p-8 text-center text-slate-500">
               <Search className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-              <p className="text-lg font-medium mb-2">חיפוש מהיר</p>
+              <p className="text-lg font-medium mb-2">חיפוש גלובלי 🔍</p>
               <p className="text-sm">
-                חפש לקוחות, חשבוניות, שיחות, פגישות ופונקציות מערכת
+                חפש לידים, שיחות, דפים במערכת, והגדרות
               </p>
+              <div className="mt-4 text-xs text-slate-400 space-y-1">
+                <p>נסה: <span className="font-mono bg-slate-100 px-2 py-1 rounded">webhook</span></p>
+                <p>או: <span className="font-mono bg-slate-100 px-2 py-1 rounded">הגדרות</span></p>
+                <p>או: <span className="font-mono bg-slate-100 px-2 py-1 rounded">שיחות</span></p>
+              </div>
               {(user?.role === 'system_admin' || user?.role === 'owner') && (
-                <p className="text-xs text-slate-400 mt-2">
-                  כמנהל, אתה יכול לחפש בכל העסקים במערכת
+                <p className="text-xs text-slate-400 mt-3">
+                  כמנהל, אתה יכול לחפש בכל המערכת
                 </p>
               )}
             </div>

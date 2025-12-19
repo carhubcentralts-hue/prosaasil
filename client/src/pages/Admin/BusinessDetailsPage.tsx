@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useParams, useNavigate } from 'react-router-dom';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   Building2, 
   ArrowRight, 
@@ -27,10 +29,15 @@ import {
   WifiOff
 } from 'lucide-react';
 import { cn } from '../../shared/utils/cn';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { BusinessEditModal } from '../../features/businesses/components/BusinessEditModal';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useBusinessActions } from '../../features/businesses/useBusinessActions';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Business } from '../../features/businesses/types';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { businessAPI } from '../../features/businesses/api';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // BusinessDetails extends Business with additional stats and business hours
 interface BusinessDetails extends Business {

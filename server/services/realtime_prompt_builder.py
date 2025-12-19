@@ -38,15 +38,15 @@ def _build_universal_system_prompt() -> str:
     - Call isolation rules (each call independent)
     - Language rules (Hebrew default, auto-switch)
     - Truth & safety rules (transcription is truth)
-    - Conversation rules (one question at a time, warm tone)
-    - Clarity rules (ask if unclear)
+    - Conversation rules (short, clear responses)
     
     ❌ MUST NOT CONTAIN:
+    - Flow logic (comes from Business Prompt)
     - Service names, city names, business names
-    - Business flow, appointment flow
-    - Hardcoded scripts or domain-specific examples
+    - Domain-specific examples or scripts
     
     This prompt is IDENTICAL for all businesses - only behavior, no content.
+    Written in English for optimal AI understanding.
     """
     return """
 ═══════════════════════════════════════════════════════════════
@@ -67,75 +67,175 @@ business or call → DISCARD IT IMMEDIATELY.
 
 ═══════════════════════════════════════════════════════════════
 
-1. REALTIME API BEHAVIOR RULES
-───────────────────────────────
-BARGE-IN (User Interruption):
-- If the user starts speaking while you are talking → STOP IMMEDIATELY
-- Never talk over the user
-- After stopping, wait for the user to finish completely
+🔥 0. VOICE & AGENT IDENTITY (CRITICAL - NEVER CHANGE)
+───────────────────────────────────────────────────────
+YOU ARE ALWAYS A MALE AGENT. NEVER CHANGE THIS.
 
-PAUSES & PACING:
-- After each sentence, pause briefly (200-400ms)
-- Let the user respond naturally
-- Do NOT rush or speak too fast
+VOICE RULES:
+- Your voice is LOCKED to male preset
+- NEVER change your voice, gender, or speaking style
+- NEVER adapt your voice to match the customer
+- NEVER sound feminine regardless of customer gender
 
-NOISE HANDLING:
-- Ignore background noise, audio artifacts, or choppy fragments
-- Do NOT respond to noise or unclear audio
-- If audio quality is poor → ask the user to repeat
+CUSTOMER GENDER DETECTION FOR LANGUAGE FORMULATION:
+Purpose: Detect customer gender to adjust LANGUAGE FORMULATION ONLY (not voice).
 
-TRANSCRIPTION TRUST:
-- If you didn't hear clearly → ASK the user to repeat
-- NEVER guess or make assumptions about what was said
-- Trust only clear, complete transcriptions
+Detection Method (lightest → heaviest):
+1. From explicit words in transcript:
+   - "אני צריכה / אני רוצה / הזמנתי" → Female
+   - "אני צריך / אני רוצה / הזמנתי" → Male
+   
+2. From direct address:
+   - "אני גרה ב..." → Female
+   - "אני גר ב..." → Male
+   
+3. If unclear → Unknown (use neutral formulation)
+
+Usage of Detection:
+- If detected FEMALE → Use feminine language formulation
+  Example: "את יכולה לספר לי", "היית צריכה"
+  
+- If detected MALE → Use masculine language formulation
+  Example: "אתה יכול לספר לי", "היית צריך"
+  
+- If UNKNOWN → Use neutral formulation
+  Example: "אפשר לספר לי", "היה צורך"
+
+Detection affects ONLY:
+✅ Spoken responses (language formulation)
+✅ Call summary text
+✅ CRM text fields
+
+Detection does NOT affect:
+❌ Voice (stays male always)
+❌ Tone
+❌ Speed
+❌ Any other behavior
+
+HARD RULE: You are a professional male agent. Your VOICE never changes.
+Only your LANGUAGE FORMULATION adapts to the customer.
 
 ═══════════════════════════════════════════════════════════════
 
-2. LANGUAGE RULES
-─────────────────
-DEFAULT: Always start in Hebrew.
+1. PRIMARY LANGUAGE & TRANSCRIPTION
+────────────────────────────────────
+DEFAULT RESPONSE LANGUAGE: Hebrew
+TRANSCRIPTION: Accurate in all languages
 
-SWITCHING: If the caller speaks English, Arabic, Russian, or any 
-other language → switch immediately to that language for the 
-entire conversation.
-
-NEVER mix languages unless the caller does so explicitly.
-
-If the caller switches mid-call → switch immediately to match.
+LANGUAGE SWITCHING RULES:
+- ALWAYS start the conversation in Hebrew
+- ONLY switch language if customer explicitly requests it
+  (e.g., "אני לא מבין עברית", "speak English", "Русский пожалуйста")
+- If customer speaks another language but doesn't request switch:
+  → Continue in Hebrew and gently confirm: "האם תרצה שנמשיך באנגלית?"
+- Once switched, maintain that language for the entire call
+- Do NOT switch language randomly or mid-sentence
+- Do NOT mix languages unless customer does
 
 ═══════════════════════════════════════════════════════════════
 
-3. TRUTH & SAFETY RULES
-────────────────────────
+2. BARGE-IN (User Interruption)
+────────────────────────────────
+HARD RULE: Customer speaks = AI stops. Always.
+
+- If the customer starts speaking while you are talking → STOP IMMEDIATELY
+- Do NOT finish your current sentence
+- Do NOT talk over the customer under ANY circumstance
+- Wait for the customer to finish completely
+- Then respond ONLY to what they said
+
+NO greeting protections. NO grace periods. NO exceptions.
+
+═══════════════════════════════════════════════════════════════
+
+3. FOLLOW THE BUSINESS PROMPT (Critical Hierarchy)
+───────────────────────────────────────────────────
+PROMPT HIERARCHY:
+- System Prompt (this) = Behavior rules, technical constraints ONLY
+- Business Prompt (below) = Content, goals, flow, scripts
+
+The Business Prompt below defines:
+- The conversation flow
+- What questions to ask and in what order
+- When to capture information
+- When to transfer or end the call
+
+CONFLICTS:
+If there is a conflict between System Prompt and Business Prompt:
+→ Business Prompt WINS (as long as it doesn't violate speech/language rules)
+
+SYSTEM PROMPT MUST NOT:
+❌ Add content not in Business Prompt
+❌ Change business goals
+❌ "Take over" the conversation
+❌ Override business-specific instructions
+
+SYSTEM PROMPT ONLY ENFORCES:
+✅ Barge-in behavior (stop when customer speaks)
+✅ Language rules (Hebrew default, switch on request)
+✅ Voice rules (always male)
+✅ Truth & accuracy (no guessing)
+
+YOUR ROLE:
+- Follow the Business Prompt instructions EXACTLY
+- Ask ONE question at a time as specified
+- Wait for clear answer before advancing
+- If customer asks an off-topic question:
+  → Answer briefly
+  → Return to where you were in the flow
+- Do NOT invent information not in the Business Prompt
+- Do NOT skip steps or reorder the flow
+- Do NOT end call or transfer without explicit trigger from Business Prompt
+
+═══════════════════════════════════════════════════════════════
+
+4. AUDIO & TELEPHONY CONTEXT
+─────────────────────────────
+AUDIO FORMAT:
+- Phone call over telephony network: 8kHz narrow-band, G.711 μ-law
+- Expect: line noise, dropouts, compression artifacts, background sounds
+- Focus on understanding the customer's TRUE INTENT
+
+FILLER HANDLING:
+- Do NOT respond to filler-only utterances like "um", "uh", "hmm"
+- These are thinking sounds, not questions
+- Wait for the customer to complete their thought
+
+UNCLEAR AUDIO:
+- If you didn't hear clearly → ASK the customer to repeat
+- Do NOT guess or make assumptions
+
+═══════════════════════════════════════════════════════════════
+
+5. TRUTH & ACCURACY
+───────────────────
 TRANSCRIPTION IS YOUR SINGLE SOURCE OF TRUTH.
 
 - NEVER invent facts, services, cities, or details
-- NEVER substitute or "correct" what the caller said
+- NEVER substitute or "correct" what the customer said
 - NEVER assume or guess information
-- Use EXACTLY what the caller says, word-for-word
+- Use EXACTLY what the customer says, word-for-word
 - If unclear → ask for clarification, do NOT guess
 
 ═══════════════════════════════════════════════════════════════
 
-4. CONVERSATION RULES
+6. CONVERSATION STYLE
 ──────────────────────
-- Stay warm, calm, human, short, and clear
-- Ask ONE question at a time
-- NEVER rush the caller
-- Wait until the caller finishes speaking before responding
-- NEVER repeat the same question more than twice
-- If the caller is unsure, offer alternatives gently
+- Warm, calm, human, short, and clear
 - Keep responses concise (1-2 sentences when possible)
+- Do NOT rush the customer
+- Wait until the customer finishes speaking before responding
+- NEVER repeat the same question more than twice
 
 ═══════════════════════════════════════════════════════════════
 
-5. BEHAVIOR HIERARCHY
-──────────────────────
+7. HIERARCHY
+────────────
 Business Prompt > System Prompt > Model Defaults
 
 If there is ANY conflict between instructions:
 → ALWAYS follow the Business Prompt below
-→ The Business Prompt is the source of truth for what to say and do
+→ The Business Prompt is the source of truth for WHAT to say and do
 → System Rules define HOW to behave, Business Prompt defines WHAT to do
 
 ═══════════════════════════════════════════════════════════════
@@ -258,9 +358,12 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             
             logger.info(f"✅ [COMPACT] Extracted {len(compact_context)} chars from {call_direction} prompt")
         else:
-            # Fallback - should never happen in production
+            # 🎯 MASTER DIRECTIVE 1: PROMPT FALLBACK logging
+            # If missing → fallback ONCE and log
             compact_context = f"You are a professional service rep for {business_name}. SPEAK HEBREW to customer. Be brief and helpful."
-            logger.warning(f"⚠️ [COMPACT] No prompt for business {business_id} - using fallback")
+            logger.warning(
+                f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
+            )
         
         # 🔥 Add minimal context (direction, STT truth)
         direction = "INBOUND call" if call_direction == "inbound" else "OUTBOUND call"
@@ -272,6 +375,13 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
 If unclear - ask to repeat. SPEAK HEBREW."""
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
+        
+        # 🔥 PROMPT_CONTEXT: Log that compact prompt is fully dynamic
+        has_prompt = bool(ai_prompt_text and ai_prompt_text.strip())
+        logger.info(
+            "[PROMPT_CONTEXT] business_id=%s, prompt_source=%s, has_hardcoded_templates=False, mode=compact",
+            business_id, "ui" if has_prompt else "fallback"
+        )
         
         # 🔥 PROMPT DEBUG: Log compact prompt
         logger.info(
@@ -288,7 +398,7 @@ If unclear - ask to repeat. SPEAK HEBREW."""
         return "You are a professional service rep. SPEAK HEBREW to customer. Be brief and helpful."
 
 
-def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound") -> str:
+def build_realtime_system_prompt(business_id: int, db_session=None, call_direction: str = "inbound", use_cache: bool = True) -> str:
     """
     🔥 ROUTER: Routes to correct prompt builder based on call direction
     
@@ -296,16 +406,29 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
     - build_inbound_system_prompt() for inbound calls
     - build_outbound_system_prompt() for outbound calls
     
+    🔥 GREETING OPTIMIZATION: Uses prompt cache to eliminate DB/prompt building latency
+    
     Args:
         business_id: Business ID
         db_session: Optional SQLAlchemy session (for transaction safety)
         call_direction: "inbound" or "outbound" - determines which prompt to use
+        use_cache: Whether to use prompt cache (default: True)
     
     Returns:
         Complete system prompt for the AI assistant
     """
     try:
         from server.models_sql import Business, BusinessSettings
+        
+        # 🔥 CACHE CHECK: Try to get cached prompt first
+        # 🔥 FIX: Include direction in cache key to prevent inbound/outbound prompt mixing
+        if use_cache:
+            from server.services.prompt_cache import get_prompt_cache
+            cache = get_prompt_cache()
+            cached = cache.get(business_id, direction=call_direction)
+            if cached:
+                logger.info(f"✅ [PROMPT CACHE HIT] Returning cached prompt for business {business_id} ({call_direction})")
+                return cached.system_prompt
         
         logger.info(f"🔥 [PROMPT ROUTER] Called for business_id={business_id}, direction={call_direction}")
         
@@ -322,11 +445,14 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             return _get_fallback_prompt(business_id)
         
         if not business:
-            raise ValueError(f"Business {business_id} not found")
+            logger.error(f"❌ CRITICAL: Business {business_id} not found!")
+            raise ValueError(f"CRITICAL: Business {business_id} not found - cannot build prompt")
         
         business_name = business.name or "Business"
         
+        # 🔥 BUSINESS ISOLATION: Log business context to track cross-contamination
         logger.info(f"📋 [ROUTER] Building prompt for {business_name} (business_id={business_id}, direction={call_direction})")
+        logger.info(f"[BUSINESS_ISOLATION] prompt_request business_id={business_id} direction={call_direction}")
         
         # 🔥 PREPARE BUSINESS SETTINGS DICT
         business_settings_dict = {
@@ -338,14 +464,17 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
         }
         
         # 🔥 ROUTE TO CORRECT BUILDER
+        final_prompt = None
         if call_direction == "outbound":
             # 🔥 OUTBOUND: Use pure prompt mode (no call control settings)
-            return build_outbound_system_prompt(
+            logger.info(f"📤 [PROMPT_ROUTER] Building OUTBOUND prompt for business {business_id}")
+            final_prompt = build_outbound_system_prompt(
                 business_settings=business_settings_dict,
                 db_session=db_session
             )
         else:
             # 🔥 INBOUND: Use full call control settings
+            logger.info(f"📞 [PROMPT_ROUTER] Building INBOUND prompt for business {business_id}")
             call_control_settings_dict = {
                 "enable_calendar_scheduling": settings.enable_calendar_scheduling if (settings and hasattr(settings, 'enable_calendar_scheduling')) else True,
                 "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if (settings and hasattr(settings, 'auto_end_after_lead_capture')) else False,
@@ -355,11 +484,33 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
                 "silence_max_warnings": settings.silence_max_warnings if (settings and hasattr(settings, 'silence_max_warnings')) else 2,
             }
             
-            return build_inbound_system_prompt(
+            final_prompt = build_inbound_system_prompt(
                 business_settings=business_settings_dict,
                 call_control_settings=call_control_settings_dict,
                 db_session=db_session
             )
+        
+        # 🔥 BUSINESS ISOLATION VERIFICATION: Ensure prompt contains correct business context
+        if final_prompt and business_name:
+            # Log verification - prompt should contain business-specific content
+            logger.info(f"[BUSINESS_ISOLATION] prompt_built business_id={business_id} contains_business_name={business_name in final_prompt}")
+        
+        # 🔥 CACHE STORE: Save to cache for future use
+        # 🔥 FIX: Include direction in cache key to prevent inbound/outbound prompt mixing
+        if use_cache and final_prompt:
+            from server.services.prompt_cache import get_prompt_cache
+            cache = get_prompt_cache()
+            greeting_text = business_settings_dict.get("greeting_message", "")
+            cache.set(
+                business_id=business_id,
+                system_prompt=final_prompt,
+                greeting_text=greeting_text,
+                direction=call_direction,
+                language_config={}  # Can be extended later
+            )
+            logger.info(f"💾 [PROMPT CACHE STORE] Cached prompt for business {business_id} ({call_direction})")
+        
+        return final_prompt
         
     except Exception as e:
         logger.error(f"❌ Error building Realtime prompt: {e}")
@@ -614,6 +765,14 @@ Follow the business rules above for how to greet and handle the call.
 ═══════════════════════════════════════════════════════════════"""
         
         logger.info(f"✅ [INBOUND] Prompt built: {len(full_prompt)} chars (system + business)")
+        logger.info(f"🔍 [PROMPT_VERIFICATION] business_id={business_id}, direction=INBOUND, call_type_in_prompt={'CALL TYPE: INBOUND' in full_prompt}")
+        
+        # 🔥 PROMPT_CONTEXT: Log that prompt is fully dynamic with no hardcoded templates
+        has_business_prompt = bool(ai_prompt_raw and ai_prompt_raw.strip())
+        logger.info(
+            "[PROMPT_CONTEXT] business_id=%s, prompt_source=%s, has_hardcoded_templates=False",
+            business_id, "ui" if has_business_prompt else "fallback"
+        )
         
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
         logger.info(
@@ -717,6 +876,14 @@ Follow the outbound business rules above for all content and flow.
 ═══════════════════════════════════════════════════════════════"""
         
         logger.info(f"✅ [OUTBOUND] Prompt built: {len(full_prompt)} chars (system + outbound)")
+        logger.info(f"🔍 [PROMPT_VERIFICATION] business_id={business_id}, direction=OUTBOUND, call_type_in_prompt={'CALL TYPE: OUTBOUND' in full_prompt}")
+        
+        # 🔥 PROMPT_CONTEXT: Log that prompt is fully dynamic with no hardcoded templates
+        has_outbound_prompt = bool(outbound_prompt_raw and outbound_prompt_raw.strip())
+        logger.info(
+            "[PROMPT_CONTEXT] business_id=%s, prompt_source=%s, has_hardcoded_templates=False",
+            business_id, "ui" if has_outbound_prompt else "fallback"
+        )
         
         # 🔥 PROMPT DEBUG: Log the actual prompt content (first 400 chars)
         logger.info(

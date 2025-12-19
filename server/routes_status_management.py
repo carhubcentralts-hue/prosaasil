@@ -35,15 +35,19 @@ def get_business_statuses():
         
         # ✅ Auto-seeding: If no statuses exist, create default ones (idempotent)
         if not statuses:
-            # Default Hebrew real estate statuses
+            # Default Hebrew statuses with auto-status support
             default_statuses = [
                 {'name': 'new', 'label': 'חדש', 'color': 'bg-blue-100 text-blue-800', 'is_default': True},
                 {'name': 'attempting', 'label': 'בניסיון קשר', 'color': 'bg-yellow-100 text-yellow-800'},
+                {'name': 'no_answer', 'label': 'לא ענה', 'color': 'bg-gray-100 text-gray-800'},
                 {'name': 'contacted', 'label': 'נוצר קשר', 'color': 'bg-purple-100 text-purple-800'},
-                {'name': 'qualified', 'label': 'מוכשר', 'color': 'bg-green-100 text-green-800'},
+                {'name': 'interested', 'label': 'מעוניין', 'color': 'bg-green-100 text-green-800'},
+                {'name': 'follow_up', 'label': 'חזרה', 'color': 'bg-orange-100 text-orange-800'},
+                {'name': 'not_relevant', 'label': 'לא רלוונטי', 'color': 'bg-red-100 text-red-800'},
+                {'name': 'qualified', 'label': 'מוכשר', 'color': 'bg-teal-100 text-teal-800'},
                 {'name': 'won', 'label': 'זכיה', 'color': 'bg-emerald-100 text-emerald-800', 'is_system': True},
-                {'name': 'lost', 'label': 'אובדן', 'color': 'bg-red-100 text-red-800', 'is_system': True},
-                {'name': 'unqualified', 'label': 'לא מוכשר', 'color': 'bg-gray-100 text-gray-800', 'is_system': True}
+                {'name': 'lost', 'label': 'אובדן', 'color': 'bg-rose-100 text-rose-800', 'is_system': True},
+                {'name': 'unqualified', 'label': 'לא מוכשר', 'color': 'bg-slate-100 text-slate-800', 'is_system': True}
             ]
             
             for index, status_data in enumerate(default_statuses):
@@ -84,6 +88,50 @@ def get_business_statuses():
         
     except Exception as e:
         logging.error(f"Error fetching business statuses: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@status_management_bp.route('/api/lead-statuses', methods=['GET'])
+@require_api_auth(['owner', 'admin', 'agent', 'system_admin'])
+def get_lead_statuses():
+    """
+    Get all active statuses for the current business (Kanban-compatible endpoint)
+    Returns simple array format for Kanban UI
+    """
+    try:
+        business_id = g.tenant
+        logging.info(f"[LeadStatusAPI GET] Using g.tenant={business_id}")
+        
+        # System admin without tenant can specify business_id via query param
+        if not business_id and getattr(g, 'role', None) == 'system_admin':
+            business_id = request.args.get('business_id', type=int)
+        
+        if not business_id:
+            return jsonify({'error': 'Business context required'}), 400
+        
+        # Use the same logic as get_business_statuses but return simpler format
+        from server.routes_leads import ensure_default_statuses_exist
+        ensure_default_statuses_exist(business_id)
+        
+        statuses = LeadStatus.query.filter_by(
+            business_id=business_id,
+            is_active=True
+        ).order_by(LeadStatus.order_index).all()
+        
+        result = []
+        for status in statuses:
+            result.append({
+                'name': status.name,
+                'label': status.label,
+                'color': status.color,
+                'order_index': status.order_index,
+                'is_system': status.is_system
+            })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logging.error(f"Error fetching lead statuses: {e}")
         return jsonify({'error': str(e)}), 500
 
 @status_management_bp.route('/api/statuses', methods=['POST'])  

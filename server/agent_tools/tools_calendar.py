@@ -473,7 +473,7 @@ def _calendar_create_appointment_impl(input: CreateAppointmentInput, context: Op
             start_time=start_naive,  # Save naive datetime (local Israel time)
             end_time=end_naive,      # Save naive datetime (local Israel time)
             status='confirmed',
-            appointment_type='treatment',
+            appointment_type='appointment',  # Generic - AI agent can specify in notes
             contact_name=customer_name,
             contact_phone=phone,  # Can be None! Phone is in call log
             auto_generated=True,

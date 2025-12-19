@@ -2,14 +2,25 @@
 Leads CRM API routes - Monday/HubSpot/Salesforce style
 Modern lead management with Kanban board support, reminders, and activity tracking
 """
-from flask import Blueprint, jsonify, request, session, g
-from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, User, Business, CallLog
+from flask import Blueprint, jsonify, request, session, g, send_file
+from server.models_sql import Lead, LeadActivity, LeadReminder, LeadMergeCandidate, LeadNote, LeadAttachment, User, Business, CallLog
 from server.db import db
 from server.auth_api import require_api_auth
 from datetime import datetime, timezone
 from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
 import logging
+import os
+import uuid
+from werkzeug.utils import secure_filename
+
+# Import psycopg2 for database error handling
+try:
+    import psycopg2.errors
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+    logging.warning("psycopg2 not available - some error handling may be limited")
 
 log = logging.getLogger(__name__)
 
@@ -140,15 +151,19 @@ def ensure_default_statuses_exist(business_id):
     if existing_statuses > 0:
         return  # Already seeded
     
-    # Default Hebrew real estate statuses - ALWAYS lowercase canonical names
+    # Default Hebrew statuses with auto-status support - ALWAYS lowercase canonical names
     default_statuses = [
         {'name': 'new', 'label': 'חדש', 'color': 'bg-blue-100 text-blue-800', 'is_default': True},
         {'name': 'attempting', 'label': 'בניסיון קשר', 'color': 'bg-yellow-100 text-yellow-800'},
+        {'name': 'no_answer', 'label': 'לא ענה', 'color': 'bg-gray-100 text-gray-800'},
         {'name': 'contacted', 'label': 'נוצר קשר', 'color': 'bg-purple-100 text-purple-800'},
-        {'name': 'qualified', 'label': 'מוכשר', 'color': 'bg-green-100 text-green-800'},
+        {'name': 'interested', 'label': 'מעוניין', 'color': 'bg-green-100 text-green-800'},
+        {'name': 'follow_up', 'label': 'חזרה', 'color': 'bg-orange-100 text-orange-800'},
+        {'name': 'not_relevant', 'label': 'לא רלוונטי', 'color': 'bg-red-100 text-red-800'},
+        {'name': 'qualified', 'label': 'מוכשר', 'color': 'bg-teal-100 text-teal-800'},
         {'name': 'won', 'label': 'זכיה', 'color': 'bg-emerald-100 text-emerald-800', 'is_system': True},
-        {'name': 'lost', 'label': 'אובדן', 'color': 'bg-red-100 text-red-800', 'is_system': True},
-        {'name': 'unqualified', 'label': 'לא מוכשר', 'color': 'bg-gray-100 text-gray-800', 'is_system': True}
+        {'name': 'lost', 'label': 'אובדן', 'color': 'bg-rose-100 text-rose-800', 'is_system': True},
+        {'name': 'unqualified', 'label': 'לא מוכשר', 'color': 'bg-slate-100 text-slate-800', 'is_system': True}
     ]
     
     for index, status_data in enumerate(default_statuses):
@@ -207,113 +222,143 @@ def get_valid_statuses_for_business(business_id):
 def list_leads():
     """List leads with filtering and pagination"""
     
-    user = get_current_user()
-    is_system_admin = user.get('role') == 'system_admin' if user else False
-    
-    # BUILD 135: ONLY system_admin can see ALL leads
-    if is_system_admin:
-        # System admin sees all leads across all businesses
-        query = Lead.query
-    else:
-        # BUILD 135: owner/admin/agent see only their tenant's leads
-        tenant_id = get_current_tenant()
-        if not tenant_id:
-            return jsonify({"error": "No tenant access"}), 403
-        query = Lead.query.filter_by(tenant_id=tenant_id)
-    
-    # Parse query parameters
-    status_filter = request.args.get('status', '')
-    source_filter = request.args.get('source', '')
-    owner_filter = request.args.get('owner', '')
-    q_filter = request.args.get('q', '')  # Search query
-    from_date = request.args.get('from', '')
-    to_date = request.args.get('to', '')
-    page = int(request.args.get('page', 1))
-    page_size = min(int(request.args.get('pageSize', 50)), 100)  # Max 100 per page
-    
-    # Apply filters
-    if status_filter:
-        # ✅ FIXED: Case-insensitive status filtering for legacy compatibility
-        query = query.filter(func.lower(Lead.status) == status_filter.lower())
-    
-    if source_filter:
-        if source_filter == 'phone':
-            phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
-            query = query.filter(Lead.source.in_(phone_sources))
-        elif source_filter == 'whatsapp':
-            whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
-            query = query.filter(Lead.source.in_(whatsapp_sources))
-    
-    if owner_filter:
-        query = query.filter(Lead.owner_user_id == owner_filter)
-    
-    if q_filter:
-        # ✅ BUILD 170: Search only by name or phone number (partial match)
-        # Remove email from search, phone partial match works (e.g., "075" finds any number containing "075")
-        search_term = f"%{q_filter}%"
-        query = query.filter(
-            or_(
-                Lead.first_name.ilike(search_term),
-                Lead.last_name.ilike(search_term),
-                Lead.phone_e164.ilike(search_term)
+    try:
+        user = get_current_user()
+        is_system_admin = user.get('role') == 'system_admin' if user else False
+        
+        # BUILD 135: ONLY system_admin can see ALL leads
+        if is_system_admin:
+            # System admin sees all leads across all businesses
+            query = Lead.query
+        else:
+            # BUILD 135: owner/admin/agent see only their tenant's leads
+            tenant_id = get_current_tenant()
+            if not tenant_id:
+                return jsonify({"error": "No tenant access"}), 403
+            query = Lead.query.filter_by(tenant_id=tenant_id)
+        
+        # Parse query parameters
+        status_filter = request.args.get('status', '')
+        statuses_filter = request.args.getlist('statuses[]')  # Multi-status filter
+        source_filter = request.args.get('source', '')
+        owner_filter = request.args.get('owner', '')
+        outbound_list_id = request.args.get('outbound_list_id', '')
+        direction_filter = request.args.get('direction', '')  # inbound|outbound|all
+        q_filter = request.args.get('q', '')  # Search query
+        from_date = request.args.get('from', '')
+        to_date = request.args.get('to', '')
+        page = int(request.args.get('page', 1))
+        page_size = min(int(request.args.get('pageSize', 50)), 100)  # Max 100 per page
+        
+        # Apply filters
+        if statuses_filter:
+            # ✅ NEW: Multi-status filter (case-insensitive)
+            query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
+        elif status_filter:
+            # ✅ FIXED: Case-insensitive status filtering for legacy compatibility
+            query = query.filter(func.lower(Lead.status) == status_filter.lower())
+        
+        if source_filter:
+            if source_filter == 'phone':
+                phone_sources = ['call', 'phone', 'phone_call', 'realtime_phone', 'ai_agent', 'form', 'manual']
+                query = query.filter(Lead.source.in_(phone_sources))
+            elif source_filter == 'whatsapp':
+                whatsapp_sources = ['whatsapp', 'wa', 'whats_app']
+                query = query.filter(Lead.source.in_(whatsapp_sources))
+        
+        if owner_filter:
+            query = query.filter(Lead.owner_user_id == owner_filter)
+        
+        if outbound_list_id:
+            query = query.filter(Lead.outbound_list_id == int(outbound_list_id))
+        
+        if direction_filter and direction_filter != 'all':
+            # Filter by call direction (inbound/outbound)
+            query = query.filter(Lead.last_call_direction == direction_filter)
+        
+        if q_filter:
+            # ✅ BUILD 170: Search only by name or phone number (partial match)
+            # Remove email from search, phone partial match works (e.g., "075" finds any number containing "075")
+            search_term = f"%{q_filter}%"
+            query = query.filter(
+                or_(
+                    Lead.first_name.ilike(search_term),
+                    Lead.last_name.ilike(search_term),
+                    Lead.phone_e164.ilike(search_term)
+                )
             )
-        )
-    
-    if from_date:
-        try:
-            from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
-            query = query.filter(Lead.created_at >= from_dt)
-        except ValueError:
-            pass
-    
-    if to_date:
-        try:
-            to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
-            query = query.filter(Lead.created_at <= to_dt)
-        except ValueError:
-            pass
-    
-    # Order by created_at DESC for faster sorting (indexed column)
-    # BUILD 174: Performance optimization - avoid ORDER BY on multiple columns
-    query = query.order_by(Lead.created_at.desc())
-    
-    # Pagination - BUILD 174: Optimize count query
-    offset = (page - 1) * page_size
-    
-    # Use a lighter count query - only count IDs (faster)
-    count_query = query.with_entities(Lead.id)
-    total = count_query.count()
-    
-    # Fetch leads with pagination
-    leads = query.offset(offset).limit(page_size).all()
-    
-    # Format response
-    items = []
-    for lead in leads:
-        items.append({
-            "id": lead.id,
-            "first_name": lead.first_name,
-            "last_name": lead.last_name,
-            "full_name": lead.full_name,
-            "phone_e164": lead.phone_e164,
-            "display_phone": lead.display_phone,
-            "email": lead.email,
-            "status": lead.status,
-            "source": normalize_source(lead.source),
-            "owner_user_id": lead.owner_user_id,
-            "tags": lead.tags or [],
-            "created_at": lead.created_at.isoformat() if lead.created_at else None,
-            "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
-            "last_contact_at": lead.last_contact_at.isoformat() if lead.last_contact_at else None
+        
+        if from_date:
+            try:
+                from_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
+                query = query.filter(Lead.created_at >= from_dt)
+            except ValueError:
+                pass
+        
+        if to_date:
+            try:
+                to_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00'))
+                query = query.filter(Lead.created_at <= to_dt)
+            except ValueError:
+                pass
+        
+        # Order by created_at DESC for faster sorting (indexed column)
+        # BUILD 174: Performance optimization - avoid ORDER BY on multiple columns
+        query = query.order_by(Lead.created_at.desc())
+        
+        # Pagination - BUILD 174: Optimize count query
+        offset = (page - 1) * page_size
+        
+        # Use a lighter count query - only count IDs (faster)
+        count_query = query.with_entities(Lead.id)
+        total = count_query.count()
+        
+        # Fetch leads with pagination
+        leads = query.offset(offset).limit(page_size).all()
+        
+        # Format response
+        items = []
+        for lead in leads:
+            items.append({
+                "id": lead.id,
+                "first_name": lead.first_name,
+                "last_name": lead.last_name,
+                "full_name": lead.full_name,
+                "phone_e164": lead.phone_e164,
+                "display_phone": lead.display_phone,
+                "email": lead.email,
+                "status": lead.status,
+                "source": normalize_source(lead.source),
+                "owner_user_id": lead.owner_user_id,
+                "outbound_list_id": lead.outbound_list_id,
+                "last_call_direction": lead.last_call_direction,
+                "summary": lead.summary,
+                "tags": lead.tags or [],
+                "created_at": lead.created_at.isoformat() if lead.created_at else None,
+                "updated_at": lead.updated_at.isoformat() if lead.updated_at else None,
+                "last_contact_at": lead.last_contact_at.isoformat() if lead.last_contact_at else None
+            })
+        
+        return jsonify({
+            "items": items,
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+            "totalPages": (total + page_size - 1) // page_size
         })
-    
-    return jsonify({
-        "items": items,
-        "total": total,
-        "page": page,
-        "pageSize": page_size,
-        "totalPages": (total + page_size - 1) // page_size
-    })
+    except Exception as e:
+        # 🔒 DB RESILIENCE: Catch schema mismatch errors (e.g., missing last_call_direction column)
+        db.session.rollback()
+        if PSYCOPG2_AVAILABLE and (isinstance(e, psycopg2.errors.UndefinedColumn) or 'last_call_direction does not exist' in str(e)):
+            log.error(f"❌ Database schema mismatch: last_call_direction column missing. Please run migrations. Error: {e}")
+            return jsonify({
+                "error": "Database schema outdated",
+                "message": "Please run database migrations to add missing columns",
+                "details": "Column 'last_call_direction' does not exist in leads table"
+            }), 500
+        # Re-raise other exceptions
+        log.error(f"❌ Unexpected error in list_leads: {e}")
+        raise
 
 @leads_bp.route("/api/leads", methods=["POST"])
 @require_api_auth()  # BUILD 137: Use proper decorator that sets g.user and g.tenant
@@ -333,6 +378,17 @@ def create_lead():
         if not data:
             log.error(f"🔴 CREATE LEAD - No JSON data")
             return jsonify({"error": "JSON data required"}), 400
+        
+        # 🔥 FIX: Normalize phone number to E.164 format if provided
+        raw_phone = data.get('phone_e164')
+        if raw_phone:
+            from server.agent_tools.phone_utils import normalize_il_phone
+            normalized_phone = normalize_il_phone(raw_phone)
+            if normalized_phone:
+                data['phone_e164'] = normalized_phone
+                log.info(f"📞 Normalized phone: {raw_phone} → {normalized_phone}")
+            else:
+                log.warning(f"⚠️ Could not normalize phone: {raw_phone}")
         
         # Validate required fields
         if not data.get('first_name') and not data.get('phone_e164'):
@@ -583,6 +639,17 @@ def update_lead(lead_id):
     if not data:
         return jsonify({"error": "JSON data required"}), 400
     
+    # 🔥 FIX: Normalize phone number to E.164 format if provided
+    if 'phone_e164' in data and data['phone_e164']:
+        from server.agent_tools.phone_utils import normalize_il_phone
+        raw_phone = data['phone_e164']
+        normalized_phone = normalize_il_phone(raw_phone)
+        if normalized_phone:
+            data['phone_e164'] = normalized_phone
+            log.info(f"📞 Normalized phone: {raw_phone} → {normalized_phone}")
+        else:
+            log.warning(f"⚠️ Could not normalize phone: {raw_phone}")
+    
     lead = Lead.query.filter_by(id=lead_id).first()
     if not lead:
         return jsonify({"error": "Lead not found"}), 404
@@ -674,7 +741,7 @@ def delete_lead(lead_id):
     
     return jsonify({"message": "Lead deleted successfully"}), 200
 
-@leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST"])
+@leads_bp.route("/api/leads/<int:lead_id>/status", methods=["POST", "PATCH"])
 @require_api_auth()  # BUILD 137: Added missing decorator
 def update_lead_status(lead_id):
     """Update lead status (for Kanban board)"""
@@ -1579,12 +1646,14 @@ def get_lead_notes(lead_id):
         LeadNote.created_at.desc()
     ).all()
     
+    # 🔥 FIX: Return attachments from the JSON field, not from LeadAttachment table
+    # The upload endpoint saves to the JSON field, so we need to read from there
     return jsonify({
         "success": True,
         "notes": [{
             "id": note.id,
             "content": note.content,
-            "attachments": note.attachments or [],
+            "attachments": note.attachments or [],  # Use JSON field
             "created_at": note.created_at.isoformat() if note.created_at else None,
             "updated_at": note.updated_at.isoformat() if note.updated_at else None
         } for note in notes]
@@ -1604,20 +1673,37 @@ def create_lead_note(lead_id):
         return jsonify({"error": "Lead not found"}), 404
     
     data = request.get_json()
-    if not data or not data.get('content', '').strip():
-        return jsonify({"error": "Note content is required"}), 400
+    # 🔥 FIX: Allow notes with just attachments (no text content required)
+    # The frontend will send placeholder text if only files are attached
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    content = data.get('content', '').strip()
+    if not content:
+        # 🔥 FIX: content is NOT NULL, so use placeholder for file-only notes
+        content = '📎 קבצים מצורפים'
     
     user = get_current_user()
     
     note = LeadNote()
     note.lead_id = lead_id
     note.tenant_id = tenant_id
-    note.content = data['content'].strip()
+    note.content = content
     note.attachments = data.get('attachments', [])
     note.created_by = user.get('id') if user else None
     
-    db.session.add(note)
-    db.session.commit()
+    # 🔥 CRITICAL FIX: Mark JSON field as modified for SQLAlchemy
+    if note.attachments:
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(note, 'attachments')
+    
+    try:
+        db.session.add(note)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error creating note: {e}")
+        return jsonify({"error": "Failed to create note"}), 500
     
     return jsonify({
         "success": True,
@@ -1652,9 +1738,18 @@ def update_lead_note(lead_id, note_id):
     
     if 'attachments' in data:
         note.attachments = data['attachments']
+        # 🔥 CRITICAL FIX: Mark JSON field as modified for SQLAlchemy
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(note, 'attachments')
     
     note.updated_at = datetime.utcnow()
-    db.session.commit()
+    
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error updating note: {e}")
+        return jsonify({"error": "Failed to update note"}), 500
     
     return jsonify({
         "success": True,
@@ -1746,9 +1841,286 @@ def upload_note_attachment(lead_id, note_id):
     note.attachments = attachments
     note.updated_at = datetime.utcnow()
     
+    # 🔥 CRITICAL FIX: Mark JSON field as modified for SQLAlchemy to detect changes
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(note, 'attachments')
+    
     db.session.commit()
     
     return jsonify({
         "success": True,
         "attachment": attachment
     })
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/notes/<int:note_id>/attachments/<attachment_id>", methods=["DELETE"])
+@require_api_auth()
+def delete_note_attachment(lead_id, note_id, attachment_id):
+    """
+    Delete a file attachment from a note
+    - Removes attachment from note.attachments JSON field
+    - Deletes file from storage
+    - Validates tenant access
+    """
+    import os
+    
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Get note and verify tenant access
+    note = LeadNote.query.filter_by(id=note_id, lead_id=lead_id, tenant_id=tenant_id).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+    
+    # Find attachment in JSON field by ID (UUID)
+    attachments = note.attachments or []
+    attachment_to_delete = None
+    new_attachments = []
+    
+    for att in attachments:
+        if str(att.get('id')) == str(attachment_id):
+            attachment_to_delete = att
+        else:
+            new_attachments.append(att)
+    
+    if not attachment_to_delete:
+        return jsonify({"error": "Attachment not found"}), 404
+    
+    # Delete file from storage if it exists
+    url = attachment_to_delete.get('url', '')
+    if url.startswith('/uploads/notes/'):
+        # Extract file path from URL
+        # URL format: /uploads/notes/{tenant_id}/{filename}
+        file_path = os.path.join(os.getcwd(), url.lstrip('/'))
+        
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                log.info(f"Deleted note attachment file: {file_path}")
+            except Exception as e:
+                log.error(f"Error deleting file {file_path}: {e}")
+                # Continue with DB update even if file deletion fails
+    
+    # Update note with remaining attachments
+    note.attachments = new_attachments
+    note.updated_at = datetime.utcnow()
+    
+    # Mark JSON field as modified for SQLAlchemy
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(note, 'attachments')
+    
+    try:
+        db.session.commit()
+        return jsonify({"success": True, "message": "Attachment deleted successfully"})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error deleting note attachment from database: {e}")
+        return jsonify({"error": "Failed to delete attachment"}), 500
+
+
+# ============================================================================
+# ATTACHMENT ENDPOINTS - Production-ready file uploads for leads
+# ============================================================================
+
+ALLOWED_EXTENSIONS = {
+    'pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp',  # Images & PDFs
+    'mp3', 'wav', 'ogg', 'm4a', 'aac',  # Audio
+    'mp4', 'avi', 'mov', 'webm',  # Video
+    'txt', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',  # Documents
+    'zip', 'rar', '7z'  # Archives
+}
+
+MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10MB
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def sanitize_filename(filename):
+    """Sanitize filename to prevent path traversal attacks"""
+    # Use werkzeug's secure_filename and add additional sanitization
+    safe_name = secure_filename(filename)
+    # Remove any remaining path separators
+    safe_name = safe_name.replace('/', '').replace('\\', '')
+    # Limit length
+    if len(safe_name) > 255:
+        name, ext = os.path.splitext(safe_name)
+        safe_name = name[:255-len(ext)] + ext
+    return safe_name
+
+
+@leads_bp.route("/api/leads/<int:lead_id>/attachments", methods=["POST"])
+@require_api_auth()
+def upload_lead_attachment(lead_id):
+    """
+    Upload file attachment for a lead
+    - Validates tenant access
+    - Stores file in tenant-isolated directory
+    - Creates database record
+    - Returns attachment metadata with download URL
+    """
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Verify lead belongs to tenant
+    lead = Lead.query.filter_by(id=lead_id, tenant_id=tenant_id).first()
+    if not lead:
+        return jsonify({"error": "Lead not found"}), 404
+    
+    # Check file in request
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+    
+    # Validate file extension
+    if not allowed_file(file.filename):
+        return jsonify({"error": f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+    
+    # Check file size
+    file.seek(0, 2)  # Seek to end
+    size_bytes = file.tell()
+    file.seek(0)  # Reset to start
+    
+    if size_bytes > MAX_ATTACHMENT_SIZE:
+        return jsonify({"error": f"File too large. Maximum size is {MAX_ATTACHMENT_SIZE // (1024*1024)}MB"}), 400
+    
+    # Sanitize and generate unique filename
+    original_filename = sanitize_filename(file.filename)
+    file_ext = os.path.splitext(original_filename)[1]
+    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    
+    # Create tenant-isolated storage path
+    storage_dir = os.path.join(os.getcwd(), 'data', 'tenants', str(tenant_id), 'leads', str(lead_id))
+    os.makedirs(storage_dir, exist_ok=True)
+    
+    # Full file path
+    file_path = os.path.join(storage_dir, unique_filename)
+    storage_key = os.path.join('tenants', str(tenant_id), 'leads', str(lead_id), unique_filename)
+    
+    try:
+        # Save file
+        file.save(file_path)
+        
+        # Get current user
+        user = get_current_user()
+        user_id = user.get('id') if user else None
+        
+        # Create database record
+        attachment = LeadAttachment()
+        attachment.tenant_id = tenant_id
+        attachment.lead_id = lead_id
+        attachment.filename = original_filename
+        attachment.content_type = file.content_type or 'application/octet-stream'
+        attachment.size_bytes = size_bytes
+        attachment.storage_key = storage_key
+        attachment.created_by = user_id
+        
+        db.session.add(attachment)
+        db.session.commit()
+        
+        return jsonify({
+            "id": attachment.id,
+            "filename": attachment.filename,
+            "content_type": attachment.content_type,
+            "size_bytes": attachment.size_bytes,
+            "download_url": f"/api/attachments/{attachment.id}/download",
+            "created_at": attachment.created_at.isoformat() if attachment.created_at else None
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error uploading attachment: {e}")
+        # Clean up file if database insert failed
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
+        return jsonify({"error": "Failed to upload file"}), 500
+
+
+@leads_bp.route("/api/attachments/<int:attachment_id>/download", methods=["GET"])
+@require_api_auth()
+def download_attachment(attachment_id):
+    """
+    Download or preview an attachment
+    - Validates tenant access
+    - Supports both inline (preview) and attachment (download) modes
+    - Query param ?download=1 forces download
+    """
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Get attachment and verify tenant access
+    attachment = LeadAttachment.query.filter_by(id=attachment_id, tenant_id=tenant_id).first()
+    if not attachment:
+        return jsonify({"error": "Attachment not found or access denied"}), 404
+    
+    # Build file path
+    file_path = os.path.join(os.getcwd(), 'data', attachment.storage_key)
+    
+    # Check if file exists
+    if not os.path.exists(file_path):
+        log.error(f"Attachment file not found: {file_path}")
+        return jsonify({"error": "File not found on server"}), 404
+    
+    # Determine if download or inline
+    as_attachment = request.args.get('download', '0') == '1'
+    
+    try:
+        return send_file(
+            file_path,
+            mimetype=attachment.content_type,
+            as_attachment=as_attachment,
+            download_name=attachment.filename
+        )
+    except Exception as e:
+        log.error(f"Error serving attachment {attachment_id}: {e}")
+        return jsonify({"error": "Failed to serve file"}), 500
+
+
+@leads_bp.route("/api/attachments/<int:attachment_id>", methods=["DELETE"])
+@require_api_auth()
+def delete_attachment(attachment_id):
+    """
+    Delete an attachment
+    - Removes from database
+    - Removes file from storage
+    - Validates tenant access
+    """
+    tenant_id = get_current_tenant()
+    if not tenant_id:
+        return jsonify({"error": "No tenant access"}), 403
+    
+    # Get attachment and verify tenant access
+    attachment = LeadAttachment.query.filter_by(id=attachment_id, tenant_id=tenant_id).first()
+    if not attachment:
+        return jsonify({"error": "Attachment not found or access denied"}), 404
+    
+    # Build file path
+    file_path = os.path.join(os.getcwd(), 'data', attachment.storage_key)
+    
+    # Delete file from storage
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            log.info(f"Deleted attachment file: {file_path}")
+        except Exception as e:
+            log.error(f"Error deleting file {file_path}: {e}")
+            # Continue with DB deletion even if file deletion fails
+    
+    # Delete from database
+    try:
+        db.session.delete(attachment)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Attachment deleted successfully"})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error deleting attachment from database: {e}")
+        return jsonify({"error": "Failed to delete attachment"}), 500

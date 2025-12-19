@@ -1,4 +1,4 @@
-import os, requests, logging
+import os, requests, logging, csv, io
 from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request, session, g, current_app
 from server.extensions import csrf
@@ -1558,3 +1558,372 @@ def get_whatsapp_summaries():
         "success": True,
         "summaries": summaries
     }), 200
+
+# === WhatsApp Broadcast Endpoints ===
+
+@whatsapp_bp.route('/templates', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_templates():
+    """
+    Get WhatsApp templates from Meta Cloud API
+    Only for Meta provider
+    """
+    try:
+        from server.routes_crm import get_business_id
+        business_id = get_business_id()
+        
+        # Get Meta WhatsApp credentials from business settings
+        business = Business.query.get(business_id)
+        if not business:
+            return jsonify({'templates': []}), 200
+        
+        # Check if Meta Cloud API is configured
+        meta_phone_id = os.getenv('META_PHONE_NUMBER_ID')
+        meta_token = os.getenv('META_ACCESS_TOKEN')
+        
+        if not meta_phone_id or not meta_token:
+            log.warning("Meta Cloud API not configured - no templates available")
+            return jsonify({'templates': []}), 200
+        
+        # Fetch templates from Meta API
+        # GET /v18.0/{WABA_ID}/message_templates
+        waba_id = os.getenv('META_WABA_ID')
+        if not waba_id:
+            return jsonify({'templates': []}), 200
+        
+        url = f"https://graph.facebook.com/v18.0/{waba_id}/message_templates"
+        headers = {
+            'Authorization': f'Bearer {meta_token}'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
+            templates = data.get('data', [])
+            
+            return jsonify({
+                'templates': [{
+                    'id': t.get('id'),
+                    'name': t.get('name'),
+                    'status': t.get('status'),
+                    'language': t.get('language'),
+                    'category': t.get('category'),
+                    'components': t.get('components', [])
+                } for t in templates]
+            }), 200
+        else:
+            log.error(f"Failed to fetch templates from Meta: {response.status_code} {response.text}")
+            return jsonify({'templates': []}), 200
+            
+    except Exception as e:
+        log.error(f"Error fetching templates: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'templates': []}), 200
+
+
+@whatsapp_bp.route('/broadcasts', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_broadcasts():
+    """
+    Get broadcast campaign history
+    """
+    try:
+        from server.routes_crm import get_business_id
+        from server.models_sql import WhatsAppBroadcast
+        
+        business_id = get_business_id()
+        
+        # Get all broadcasts for this business
+        broadcasts = WhatsAppBroadcast.query.filter_by(
+            business_id=business_id
+        ).order_by(WhatsAppBroadcast.created_at.desc()).limit(50).all()
+        
+        campaigns = []
+        for broadcast in broadcasts:
+            creator = User.query.get(broadcast.created_by) if broadcast.created_by else None
+            campaigns.append({
+                'id': broadcast.id,
+                'name': broadcast.name or f'תפוצה #{broadcast.id}',
+                'provider': broadcast.provider,
+                'template_id': broadcast.template_id,
+                'message_text': broadcast.message_text,
+                'total_recipients': broadcast.total_recipients,
+                'sent_count': broadcast.sent_count,
+                'failed_count': broadcast.failed_count,
+                'status': broadcast.status,
+                'created_at': broadcast.created_at.isoformat() if broadcast.created_at else None,
+                'created_by': creator.name if creator else 'לא ידוע'
+            })
+        
+        return jsonify({
+            'campaigns': campaigns
+        }), 200
+        
+    except Exception as e:
+        log.error(f"Error fetching broadcasts: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'campaigns': []}), 500
+
+
+@whatsapp_bp.route('/broadcasts', methods=['POST'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def create_broadcast():
+    """
+    Create a new WhatsApp broadcast campaign
+    """
+    try:
+        from server.routes_crm import get_business_id
+        from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient, Lead
+        import json
+        
+        business_id = get_business_id()
+        user = session.get('al_user') or session.get('user', {})
+        user_id = user.get('id')
+        
+        # Parse form data
+        provider = request.form.get('provider', 'meta')
+        message_type = request.form.get('message_type', 'template')
+        template_id = request.form.get('template_id')
+        template_name = request.form.get('template_name')
+        message_text = request.form.get('message_text', '')
+        audience_source = request.form.get('audience_source', 'legacy')  # NEW: leads, import-list, csv, or legacy
+        statuses_json = request.form.get('statuses', '[]')
+        lead_ids_json = request.form.get('lead_ids', '[]')  # NEW: Direct lead IDs
+        import_list_id = request.form.get('import_list_id')  # NEW: Import list ID
+        
+        # Parse JSON parameters
+        try:
+            statuses = json.loads(statuses_json)
+        except:
+            statuses = []
+        
+        try:
+            lead_ids = json.loads(lead_ids_json)
+        except:
+            lead_ids = []
+        
+        # Get recipients based on audience source
+        recipients = []
+        
+        # NEW: Direct lead selection from system
+        if audience_source == 'leads' and lead_ids:
+            leads = Lead.query.filter(
+                Lead.tenant_id == business_id,
+                Lead.id.in_(lead_ids),
+                Lead.phone_e164.isnot(None)
+            ).all()
+            
+            for lead in leads:
+                if lead.phone_e164:
+                    recipients.append({
+                        'phone': lead.phone_e164,
+                        'lead_id': lead.id
+                    })
+        
+        # NEW: Import list selection
+        elif audience_source == 'import-list' and import_list_id:
+            leads = Lead.query.filter(
+                Lead.tenant_id == business_id,
+                Lead.outbound_list_id == int(import_list_id),
+                Lead.phone_e164.isnot(None)
+            ).all()
+            
+            for lead in leads:
+                if lead.phone_e164:
+                    recipients.append({
+                        'phone': lead.phone_e164,
+                        'lead_id': lead.id
+                    })
+        
+        # CSV file upload
+        elif audience_source == 'csv' or (not audience_source or audience_source == 'legacy'):
+            # Legacy: From CRM filters (statuses) - backward compatibility
+            if statuses:
+                leads = Lead.query.filter(
+                    Lead.tenant_id == business_id,
+                    Lead.status.in_(statuses),
+                    Lead.phone_e164.isnot(None)
+                ).all()
+                
+                for lead in leads:
+                    if lead.phone_e164:
+                        recipients.append({
+                            'phone': lead.phone_e164,
+                            'lead_id': lead.id
+                        })
+            
+            # From CSV file (with validation)
+            csv_file = request.files.get('csv_file')
+            if csv_file:
+                # Validate file size (max 5MB)
+                MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+                csv_file.seek(0, 2)  # Seek to end
+                file_size = csv_file.tell()
+                csv_file.seek(0)  # Seek back to start
+                
+                if file_size > MAX_FILE_SIZE:
+                    return jsonify({
+                        'success': False,
+                        'message': 'קובץ גדול מדי (מקסימום 5MB)'
+                    }), 400
+                
+                # Read and parse CSV with row limit
+                MAX_ROWS = 10000  # Max 10,000 recipients
+                try:
+                    stream = io.StringIO(csv_file.stream.read().decode("UTF8"), newline=None)
+                    csv_reader = csv.DictReader(stream)
+                    
+                    row_count = 0
+                    for row in csv_reader:
+                        row_count += 1
+                        if row_count > MAX_ROWS:
+                            log.warning(f"CSV row limit exceeded: {row_count} > {MAX_ROWS}")
+                            break
+                        
+                        phone = row.get('phone', '').strip()
+                        if phone:
+                            recipients.append({
+                                'phone': phone,
+                                'lead_id': None
+                            })
+                except Exception as csv_err:
+                    log.error(f"CSV parsing error: {csv_err}")
+                    return jsonify({
+                        'success': False,
+                        'message': 'שגיאה בקריאת קובץ CSV'
+                    }), 400
+        
+        if len(recipients) == 0:
+            return jsonify({
+                'success': False,
+                'message': 'לא נמצאו נמענים'
+            }), 400
+        
+        # Limit total recipients
+        MAX_RECIPIENTS = 10000
+        if len(recipients) > MAX_RECIPIENTS:
+            return jsonify({
+                'success': False,
+                'message': f'יותר מדי נמענים (מקסימום {MAX_RECIPIENTS})'
+            }), 400
+        
+        # Create broadcast campaign
+        broadcast = WhatsAppBroadcast()
+        broadcast.business_id = business_id
+        broadcast.provider = provider
+        broadcast.message_type = message_type
+        broadcast.template_id = template_id
+        broadcast.template_name = template_name
+        broadcast.message_text = message_text
+        broadcast.audience_filter = {'statuses': statuses}
+        broadcast.total_recipients = len(recipients)
+        broadcast.created_by = user_id
+        broadcast.status = 'pending'
+        
+        db.session.add(broadcast)
+        db.session.flush()  # Get the ID
+        
+        # Create recipient records
+        for recipient in recipients:
+            br = WhatsAppBroadcastRecipient()
+            br.broadcast_id = broadcast.id
+            br.business_id = business_id
+            br.phone = recipient['phone']
+            br.lead_id = recipient.get('lead_id')
+            br.status = 'queued'
+            db.session.add(br)
+        
+        db.session.commit()
+        
+        log.info(f"✅ Created broadcast campaign {broadcast.id} with {len(recipients)} recipients")
+        
+        # Trigger background worker to process the broadcast
+        try:
+            import threading
+            from server.services.broadcast_worker import process_broadcast
+            
+            # Run in background thread
+            thread = threading.Thread(
+                target=process_broadcast,
+                args=(broadcast.id,),
+                daemon=True
+            )
+            thread.start()
+            log.info(f"🚀 Started broadcast worker for campaign {broadcast.id}")
+        except Exception as worker_err:
+            log.error(f"Failed to start broadcast worker: {worker_err}")
+            # Don't fail the request - campaign is created, worker can be triggered manually
+        
+        return jsonify({
+            'success': True,
+            'broadcast_id': broadcast.id,
+            'message': f'תפוצה נוצרה עם {len(recipients)} נמענים'
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        log.error(f"Error creating broadcast: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+
+@whatsapp_bp.route('/broadcasts/<int:broadcast_id>', methods=['GET'])
+@csrf.exempt
+@require_api_auth(['system_admin', 'owner', 'admin'])
+def get_broadcast_status(broadcast_id):
+    """
+    Get real-time status of a broadcast campaign
+    """
+    try:
+        from server.routes_crm import get_business_id
+        from server.models_sql import WhatsAppBroadcast, WhatsAppBroadcastRecipient
+        
+        business_id = get_business_id()
+        
+        broadcast = WhatsAppBroadcast.query.filter_by(
+            id=broadcast_id,
+            business_id=business_id
+        ).first_or_404()
+        
+        # Get detailed recipient status
+        recipients = WhatsAppBroadcastRecipient.query.filter_by(
+            broadcast_id=broadcast_id
+        ).all()
+        
+        recipient_details = []
+        for r in recipients:
+            recipient_details.append({
+                'phone': r.phone,
+                'status': r.status,
+                'error': r.error_message,
+                'sent_at': r.sent_at.isoformat() if r.sent_at else None
+            })
+        
+        creator = User.query.get(broadcast.created_by) if broadcast.created_by else None
+        
+        return jsonify({
+            'id': broadcast.id,
+            'name': broadcast.name or f'תפוצה #{broadcast.id}',
+            'provider': broadcast.provider,
+            'status': broadcast.status,
+            'total_recipients': broadcast.total_recipients,
+            'sent_count': broadcast.sent_count,
+            'failed_count': broadcast.failed_count,
+            'created_at': broadcast.created_at.isoformat() if broadcast.created_at else None,
+            'created_by': creator.name if creator else 'לא ידוע',
+            'recipients': recipient_details
+        }), 200
+        
+    except Exception as e:
+        log.error(f"Error fetching broadcast status: {e}")
+        return jsonify({'error': str(e)}), 500

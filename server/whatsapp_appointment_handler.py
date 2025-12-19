@@ -206,7 +206,7 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
         appointment.start_time = meeting_time
         appointment.end_time = end_time
         appointment.status = 'scheduled'
-        appointment.appointment_type = 'viewing'
+        appointment.appointment_type = 'appointment'  # Generic type - business can customize
         appointment.priority = appointment_info['urgency']
         appointment.contact_name = customer.name
         appointment.contact_phone = customer_phone

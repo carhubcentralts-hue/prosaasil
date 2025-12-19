@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
@@ -7,6 +7,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { Input } from '../../shared/components/ui/Input';
+import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
 import { Lead, LeadActivity, LeadReminder, LeadCall, LeadAppointment } from './types';
 import { http } from '../../services/http';
 import { formatDate } from '../../shared/utils/format';
@@ -50,8 +51,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   
   // Status management - use shared hook for consistent statuses
   const { statuses, refreshStatuses } = useStatuses();
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const [statusSaving, setStatusSaving] = useState(false);
   
   // Data for each tab
   const [activities, setActivities] = useState<LeadActivity[]>([]);
@@ -79,8 +78,8 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       setLoading(false);
       
       // Fire calls and appointments fetches independently (each has its own error handling)
+      fetchCalls(id);
       if (response.phone_e164) {
-        fetchCalls(response.phone_e164);
         fetchAppointments(response.phone_e164);
       }
     } catch (err) {
@@ -90,20 +89,23 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     }
   };
 
-  const fetchCalls = async (phone: string) => {
+  const fetchCalls = async (leadId: string) => {
     try {
       setLoadingCalls(true);
-      const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?search=${encodeURIComponent(phone)}`);
+      // Use lead_id filter for more accurate results
+      const response = await http.get<{ success: boolean; calls: any[] }>(`/api/calls?lead_id=${leadId}`);
       if (response.success && response.calls) {
         const leadCalls: LeadCall[] = response.calls.map((call: any) => ({
-          id: call.call_sid || call.id,
-          lead_id: parseInt(id || '0'),
+          id: call.call_sid || call.sid || call.id,  // Use call_sid as primary id
+          call_sid: call.call_sid || call.sid,  // Store explicit call_sid
+          lead_id: parseInt(leadId),
           call_type: (call.direction === 'inbound' ? 'incoming' : 'outgoing') as 'incoming' | 'outgoing',
           duration: call.duration || 0,
           recording_url: call.recording_url,
-          notes: call.transcription || '',
+          // 🔥 FIX: Use final_transcript (high-quality Whisper) first, fallback to transcription (realtime)
+          notes: call.final_transcript || call.transcript || call.transcription || '',
           summary: call.summary || '',
-          created_at: call.created_at,
+          created_at: call.created_at || call.at,
           status: call.status
         }));
         setCalls(leadCalls);
@@ -193,18 +195,14 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
   const updateLeadStatus = async (newStatus: string) => {
     if (!lead) return;
     
-    setStatusSaving(true);
     try {
       await http.post(`/api/leads/${lead.id}/status`, { status: newStatus });
       setLead({ ...lead, status: newStatus });
-      setStatusDropdownOpen(false);
     } catch (err) {
       console.error('Failed to update status:', err);
-    } finally {
-      setStatusSaving(false);
+      throw err; // Re-throw so StatusDropdown can handle it
     }
   };
-
 
 
   if (loading) {
@@ -231,53 +229,6 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
     );
   }
 
-  const StatusDropdown = () => (
-    <div className="relative">
-      <button
-        onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-        disabled={statusSaving}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${getStatusColor(lead.status, statuses)} hover:opacity-80 transition-opacity`}
-        data-testid="status-dropdown-trigger"
-      >
-        {statusSaving ? (
-          <Loader2 className="w-3 h-3 animate-spin" />
-        ) : null}
-        {getStatusLabel(lead.status, statuses)}
-        <ChevronDown className="w-3 h-3" />
-      </button>
-      
-      {statusDropdownOpen && (
-        <>
-          <div 
-            className="fixed inset-0 z-10" 
-            onClick={() => setStatusDropdownOpen(false)}
-          />
-          <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20" data-testid="status-dropdown-menu">
-            {statuses.length > 0 ? (
-              statuses.map((status) => (
-                <button
-                  key={status.id}
-                  onClick={() => updateLeadStatus(status.name)}
-                  className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 flex items-center gap-2 ${
-                    status.name.toLowerCase() === lead.status.toLowerCase() ? 'bg-gray-50' : ''
-                  }`}
-                  data-testid={`status-option-${status.name}`}
-                >
-                  <span 
-                    className="w-3 h-3 rounded-full" 
-                    style={{ backgroundColor: status.color || '#gray' }}
-                  />
-                  {status.label}
-                </button>
-              ))
-            ) : (
-              <div className="px-4 py-2 text-sm text-gray-500">טוען סטטוסים...</div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -307,7 +258,12 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <StatusDropdown />
+              <StatusDropdown
+                currentStatus={lead.status}
+                statuses={statuses}
+                onStatusChange={updateLeadStatus}
+                data-testid="status-dropdown"
+              />
               <Button 
                 size="sm" 
                 onClick={() => window.location.href = `tel:${lead.phone_e164 || lead.phone || ''}`}
@@ -347,7 +303,13 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 חזור
               </Button>
-              <StatusDropdown />
+              <StatusDropdown
+                currentStatus={lead.status}
+                statuses={statuses}
+                onStatusChange={updateLeadStatus}
+                size="sm"
+                data-testid="status-dropdown-mobile"
+              />
             </div>
             <div className="text-center mb-4">
               <h1 className="text-lg font-semibold text-gray-900" data-testid="text-lead-name-mobile">
@@ -459,9 +421,9 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
           />
         )}
         {activeTab === 'conversation' && <ConversationTab lead={lead} onOpenWhatsApp={() => setWhatsappChatOpen(true)} />}
-        {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} />}
+        {activeTab === 'calls' && <CallsTab calls={calls} loading={loadingCalls} leadId={parseInt(id!)} onRefresh={fetchLead} />}
         {activeTab === 'appointments' && <AppointmentsTab appointments={appointments} loading={loadingAppointments} lead={lead} onRefresh={fetchLead} />}
-        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} />}
+        {activeTab === 'reminders' && <RemindersTab reminders={reminders} onOpenReminder={() => { setEditingReminder(null); setReminderModalOpen(true); }} onEditReminder={(reminder) => { setEditingReminder(reminder); setReminderModalOpen(true); }} leadId={parseInt(id!)} onRefresh={fetchLead} />}
         {activeTab === 'notes' && <NotesTab lead={lead} onUpdate={fetchLead} />}
       </div>
 
@@ -772,43 +734,329 @@ function ConversationTab({ lead, onOpenWhatsApp }: { lead: Lead; onOpenWhatsApp:
   );
 }
 
-function CallsTab({ calls, loading }: { calls: LeadCall[]; loading?: boolean }) {
+function CallsTab({ calls, loading, leadId, onRefresh }: { calls: LeadCall[]; loading?: boolean; leadId: number; onRefresh: () => void }) {
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [directionFilter, setDirectionFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');  // 🔥 NEW: Direction filter
+  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});  // 🔥 FIX: Store blob URLs for authenticated audio playback
+  const [loadingRecording, setLoadingRecording] = useState<string | null>(null);  // 🔥 FIX: Track which recording is loading
+  const recordingUrlsRef = useRef<Record<string, string>>({});  // 🔥 FIX: Track URLs for cleanup
+
+  // Helper to get consistent call identifier
+  const getCallId = (call: LeadCall) => call.call_sid || call.id;
+
+  const formatDuration = (seconds: number) => {
+    if (seconds < 60) return `${seconds} שניות`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')} דקות`;
+  };
+
+  // 🔥 FIX: Load recording as blob with authentication when call is expanded
+  const loadRecordingBlob = async (callId: string) => {
+    // Skip if already loaded or currently loading (check ref for source of truth)
+    if (recordingUrlsRef.current[callId] || loadingRecording === callId) return;
+    
+    setLoadingRecording(callId);
+    try {
+      const response = await fetch(`/api/calls/${callId}/download`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load recording');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      recordingUrlsRef.current[callId] = url;  // Track in ref for cleanup
+      setRecordingUrls(prev => ({ ...prev, [callId]: url }));
+    } catch (error) {
+      console.error('Error loading recording:', error);
+      // Don't set URL in ref on error - allow retry
+    } finally {
+      setLoadingRecording(null);
+    }
+  };
+
+  // 🔥 FIX: Cleanup blob URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      // Revoke all blob URLs to prevent memory leaks
+      Object.values(recordingUrlsRef.current).forEach(url => {
+        window.URL.revokeObjectURL(url);
+      });
+    };
+  }, []); // Only run on mount/unmount
+
+  // 🔥 FIX: Load recording when call is expanded
+  const handleToggleExpand = (callId: string, hasRecording: boolean) => {
+    const isExpanding = expandedCallId !== callId;
+    setExpandedCallId(isExpanding ? callId : null);
+    
+    // Load recording blob when expanding
+    if (isExpanding && hasRecording) {
+      loadRecordingBlob(callId);
+    }
+  };
+
+  // 🔥 NEW: Filter calls by direction
+  const filteredCalls = directionFilter === 'all' 
+    ? calls 
+    : calls.filter(call => call.call_type === directionFilter);
+
+  const handleDownload = async (callId: string) => {
+    try {
+      // Use the download endpoint with proper auth
+      const response = await fetch(`/api/calls/${callId}/download`, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to download recording');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `recording-${callId}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading recording:', error);
+      alert('שגיאה בהורדת ההקלטה');
+    }
+  };
+
+  const handleDeleteCall = async (callId: string) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק שיחה זו? פעולה זו תמחק גם את ההקלטה והתמליל.')) return;
+    
+    try {
+      setDeleting(callId);
+      await http.delete(`/api/calls/${callId}`);
+      onRefresh();
+      alert('השיחה נמחקה בהצלחה');
+    } catch (err) {
+      console.error('Failed to delete call:', err);
+      alert('שגיאה במחיקת השיחה');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   return (
     <Card className="p-4 sm:p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">היסטוריית שיחות טלפון</h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-medium text-gray-900">היסטוריית שיחות טלפון</h3>
+        
+        {/* 🔥 NEW: Direction Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">סנן לפי:</label>
+          <select
+            value={directionFilter}
+            onChange={(e) => setDirectionFilter(e.target.value as 'all' | 'incoming' | 'outgoing')}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            data-testid="filter-call-direction"
+          >
+            <option value="all">כל השיחות</option>
+            <option value="incoming">שיחות נכנסות</option>
+            <option value="outgoing">שיחות יוצאות</option>
+          </select>
+        </div>
+      </div>
+      
       {loading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
           <span className="text-sm text-gray-500 mr-2">טוען שיחות...</span>
         </div>
-      ) : calls.length === 0 ? (
-        <p className="text-sm text-gray-500">אין שיחות טלפון</p>
+      ) : filteredCalls.length === 0 ? (
+        <div className="text-center py-8">
+          <Phone className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-sm text-gray-500">
+            {directionFilter === 'all' 
+              ? 'אין שיחות טלפון עדיין'
+              : directionFilter === 'incoming'
+              ? 'אין שיחות נכנסות'
+              : 'אין שיחות יוצאות'
+            }
+          </p>
+        </div>
       ) : (
-        <div className="space-y-4">
-          {calls.map((call) => (
-            <div key={call.id} className="p-4 bg-gray-50 rounded-lg" data-testid={`call-${call.id}`}>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0 mb-3">
-                <div className="flex items-center space-x-3">
-                  <Phone className={`w-5 h-5 ${call.call_type === 'incoming' ? 'text-green-500' : 'text-blue-500'}`} />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">
-                      {call.call_type === 'incoming' ? 'שיחה נכנסת' : 'שיחה יוצאת'}
-                    </p>
-                    <p className="text-xs text-gray-500">{formatDate(call.created_at)}</p>
+        <div className="space-y-3">
+          {filteredCalls.map((call) => {
+            const callId = getCallId(call);
+            const isExpanded = expandedCallId === callId;
+            const hasRecording = Boolean(call.recording_url);
+            const hasTranscript = Boolean(call.notes?.trim());
+            const hasSummary = Boolean(call.summary?.trim());
+
+            return (
+              <div key={call.id} className="border border-gray-200 rounded-lg overflow-hidden" data-testid={`call-${call.id}`}>
+                {/* Call Header - Clickable */}
+                <div 
+                  className="p-4 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+                  onClick={() => handleToggleExpand(callId, hasRecording)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  aria-label={`שיחה ${call.call_type === 'incoming' ? 'נכנסת' : 'יוצאת'} מתאריך ${formatDate(call.created_at)}`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleToggleExpand(callId, hasRecording);
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className={`p-2 rounded-full ${call.call_type === 'incoming' ? 'bg-green-100' : 'bg-blue-100'}`}>
+                        <Phone className={`w-4 h-4 ${call.call_type === 'incoming' ? 'text-green-600' : 'text-blue-600'}`} />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">
+                          {call.call_type === 'incoming' ? 'שיחה נכנסת' : 'שיחה יוצאת'}
+                        </p>
+                        <p className="text-xs text-gray-500">{formatDate(call.created_at)}</p>
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-medium text-gray-700">{formatDuration(call.duration)}</p>
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${hasRecording ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                            🎧 הקלטה
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${hasTranscript ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-400'}`}>
+                            📝 תמליל
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${hasSummary ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                            📋 סיכום
+                          </span>
+                        </div>
+                        {(hasRecording || hasTranscript || hasSummary) && (
+                          <p className="text-xs text-blue-600 mt-1 font-medium">
+                            👆 לחץ להצגה
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCall(getCallId(call));
+                        }}
+                        disabled={deleting === getCallId(call)}
+                        className="p-2 hover:bg-red-100 rounded-full transition-colors touch-manipulation"
+                        data-testid={`button-delete-call-${call.id}`}
+                        title="מחק שיחה"
+                        aria-label="מחק שיחה"
+                      >
+                        {deleting === getCallId(call) ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleToggleExpand(callId, hasRecording)}
+                        className="p-2 sm:p-2.5 hover:bg-blue-100 active:bg-blue-200 rounded-full transition-colors touch-manipulation min-w-[40px] min-h-[40px] flex items-center justify-center"
+                        data-testid={`button-expand-call-${call.id}`}
+                        title={isExpanded ? 'סגור פרטים' : 'הצג הקלטה, תמליל וסיכום'}
+                        aria-label={isExpanded ? 'סגור פרטים' : 'הצג הקלטה, תמליל וסיכום'}
+                        aria-expanded={isExpanded}
+                      >
+                        <ChevronDown className={`w-5 h-5 sm:w-4 sm:h-4 text-blue-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right sm:text-left">
-                  <p className="text-sm text-gray-900">{call.duration} שניות</p>
-                </div>
+
+                {/* Expanded Details */}
+                {isExpanded && (
+                  <div className="p-4 space-y-4 bg-white border-t border-gray-200">
+                    {/* Recording Player */}
+                    {hasRecording ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-gray-700">הקלטת שיחה</p>
+                          <button
+                            onClick={() => handleDownload(getCallId(call))}
+                            className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            הורד
+                          </button>
+                        </div>
+                        {/* 🔥 FIX: Use blob URL with authentication for audio playback */}
+                        {loadingRecording === getCallId(call) ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                            <span className="text-sm text-gray-500 mr-2">טוען הקלטה...</span>
+                          </div>
+                        ) : recordingUrls[getCallId(call)] ? (
+                          <audio 
+                            controls 
+                            playsInline
+                            preload="none"
+                            className="w-full" 
+                            src={recordingUrls[getCallId(call)]}
+                          >
+                            הדפדפן שלך לא תומך בנגן אודיו
+                          </audio>
+                        ) : (
+                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <p className="text-sm text-yellow-800">שגיאה בטעינת ההקלטה</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-sm text-yellow-800">הקלטה לא זמינה</p>
+                      </div>
+                    )}
+
+                    {/* Summary - Always visible when expanded if exists */}
+                    {hasSummary ? (
+                      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-sm font-semibold text-blue-900 mb-2">סיכום שיחה</p>
+                        <p className="text-sm text-blue-800 whitespace-pre-wrap">{call.summary}</p>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <p className="text-sm text-gray-600">אין סיכום שיחה</p>
+                      </div>
+                    )}
+
+                    {/* Transcript - Always visible when expanded if exists */}
+                    {hasTranscript ? (
+                      <div>
+                        <details className="group" open>
+                          <summary className="cursor-pointer text-sm font-semibold text-gray-900 hover:text-gray-700 flex items-center gap-2 mb-2">
+                            <ChevronDown className="w-4 h-4 group-open:rotate-180 transition-transform" />
+                            תמליל מלא
+                          </summary>
+                          <div className="mt-2 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap">{call.notes}</p>
+                          </div>
+                        </details>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <p className="text-sm text-gray-600">אין תמליל</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              {call.summary && (
-                <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                  <p className="text-xs font-medium text-blue-800 mb-1">סיכום שיחה:</p>
-                  <p className="text-sm text-blue-900">{call.summary}</p>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Card>
@@ -1281,7 +1529,40 @@ function AppointmentsTab({ appointments, loading, lead, onRefresh }: { appointme
   );
 }
 
-function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders: LeadReminder[]; onOpenReminder: () => void; onEditReminder: (reminder: LeadReminder) => void }) {
+function RemindersTab({ reminders, onOpenReminder, onEditReminder, leadId, onRefresh }: { reminders: LeadReminder[]; onOpenReminder: () => void; onEditReminder: (reminder: LeadReminder) => void; leadId: number; onRefresh: () => void }) {
+  const [completing, setCompleting] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
+
+  const handleCompleteReminder = async (reminderId: number) => {
+    try {
+      setCompleting(reminderId);
+      await http.patch(`/api/leads/${leadId}/reminders/${reminderId}`, {
+        completed_at: new Date().toISOString()
+      });
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to complete reminder:', err);
+      alert('שגיאה בסימון התזכורת כהושלמה');
+    } finally {
+      setCompleting(null);
+    }
+  };
+
+  const handleDeleteReminder = async (reminderId: number) => {
+    if (!confirm('האם אתה בטוח שברצונך למחוק תזכורת זו?')) return;
+    
+    try {
+      setDeleting(reminderId);
+      await http.delete(`/api/leads/${leadId}/reminders/${reminderId}`);
+      onRefresh();
+    } catch (err) {
+      console.error('Failed to delete reminder:', err);
+      alert('שגיאה במחיקת התזכורת');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   return (
     <Card className="p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4">
@@ -1301,11 +1582,20 @@ function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders
         <div className="space-y-3">
           {reminders.map((reminder) => (
             <div key={reminder.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-              {reminder.completed_at ? (
-                <CheckCircle2 className="w-5 h-5 text-green-500" />
-              ) : (
-                <Circle className="w-5 h-5 text-gray-400" />
-              )}
+              <button
+                onClick={() => !reminder.completed_at && handleCompleteReminder(reminder.id)}
+                disabled={completing === reminder.id || !!reminder.completed_at}
+                className="flex-shrink-0"
+                data-testid={`button-complete-reminder-${reminder.id}`}
+              >
+                {completing === reminder.id ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                ) : reminder.completed_at ? (
+                  <CheckCircle2 className="w-5 h-5 text-green-500" />
+                ) : (
+                  <Circle className="w-5 h-5 text-gray-400 hover:text-green-500 transition-colors cursor-pointer" />
+                )}
+              </button>
               <div className="flex-1 min-w-0">
                 <p className={`text-sm ${reminder.completed_at ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                   {reminder.note}
@@ -1317,13 +1607,27 @@ function RemindersTab({ reminders, onOpenReminder, onEditReminder }: { reminders
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => onEditReminder(reminder)}
-                className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
-                data-testid={`button-edit-reminder-${reminder.id}`}
-              >
-                <Pencil className="w-4 h-4 text-gray-600" />
-              </button>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => onEditReminder(reminder)}
+                  className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
+                  data-testid={`button-edit-reminder-${reminder.id}`}
+                >
+                  <Pencil className="w-4 h-4 text-gray-600" />
+                </button>
+                <button
+                  onClick={() => handleDeleteReminder(reminder.id)}
+                  disabled={deleting === reminder.id}
+                  className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                  data-testid={`button-delete-reminder-${reminder.id}`}
+                >
+                  {deleting === reminder.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 text-red-500" />
+                  )}
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -1800,11 +2104,16 @@ interface NotesTabProps {
 }
 
 interface NoteAttachment {
-  id: string;
-  type: 'image' | 'file';
-  name: string;
-  url: string;
-  size?: number;
+  id: string | number;
+  filename?: string;  // For new API format
+  name?: string;      // Legacy format
+  content_type?: string;
+  size_bytes?: number;
+  size?: number;      // Legacy format
+  download_url?: string;
+  url?: string;       // Legacy format
+  type?: 'image' | 'file';
+  created_at?: string;
 }
 
 interface LeadNoteItem {
@@ -1824,6 +2133,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1845,16 +2155,55 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
   };
 
   const handleSaveNewNote = async () => {
-    if (!newNoteContent.trim()) return;
+    // 🔥 FIX: Allow saving if there's content OR files (not just content)
+    if (!newNoteContent.trim() && pendingFiles.length === 0) return;
     
     setSaving(true);
     try {
+      // First, create the note (use placeholder text if only files, no text)
+      const noteContent = newNoteContent.trim() || '📎 קבצים מצורפים';
       const response = await http.post<{ success: boolean; note: LeadNoteItem }>(`/api/leads/${lead.id}/notes`, {
-        content: newNoteContent.trim()
+        content: noteContent
       });
+      
       if (response.success) {
-        setNotes([response.note, ...notes]);
+        const newNote = response.note;
+        
+        // Then upload any pending files to the note
+        if (pendingFiles.length > 0) {
+          const uploadResults: { file: File; success: boolean }[] = [];
+          
+          for (const file of pendingFiles) {
+            try {
+              const fd = new FormData();
+              fd.append('file', file);
+              
+              await http.request<any>(`/api/leads/${lead.id}/notes/${newNote.id}/upload`, {
+                method: 'POST',
+                body: fd
+              });
+              uploadResults.push({ file, success: true });
+            } catch (error) {
+              console.error(`Failed to upload file ${file.name}:`, error);
+              uploadResults.push({ file, success: false });
+            }
+          }
+          
+          // Check for failed uploads
+          const failedUploads = uploadResults.filter(r => !r.success);
+          if (failedUploads.length > 0) {
+            const failedNames = failedUploads.map(r => r.file.name).join(', ');
+            alert(`שגיאה בהעלאת קבצים: ${failedNames}`);
+          }
+          
+          // Refresh notes to get updated attachments
+          await fetchNotes();
+        } else {
+          setNotes([newNote, ...notes]);
+        }
+        
         setNewNoteContent('');
+        setPendingFiles([]);
       }
     } catch (error) {
       console.error('Failed to save note:', error);
@@ -1894,7 +2243,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, noteId?: number) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -1906,22 +2255,23 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
       return;
     }
 
-    if (!noteId) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const attachment: NoteAttachment = {
-          id: `temp-${Date.now()}`,
-          type: file.type.startsWith('image/') ? 'image' : 'file',
-          name: file.name,
-          url: event.target?.result as string,
-          size: file.size
-        };
-        setNewNoteContent(prev => prev + `\n[קובץ מצורף: ${file.name}]`);
-      };
-      reader.readAsDataURL(file);
+    // Validate file name length and characters
+    const fileName = file.name;
+    if (fileName.length > 100) {
+      alert('שם הקובץ ארוך מדי (מקסימום 100 תווים)');
+      e.target.value = '';
+      return;
     }
+
+    // Add file to pending files (will be uploaded when note is saved)
+    setPendingFiles(prev => [...prev, file]);
     
+    // Clear the input
     e.target.value = '';
+  };
+  
+  const handleRemovePendingFile = (index: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   const startEditing = (note: LeadNoteItem) => {
@@ -1939,6 +2289,84 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getAttachmentUrl = (att: NoteAttachment) => {
+    return att.download_url || att.url || '';
+  };
+
+  const getAttachmentName = (att: NoteAttachment) => {
+    return att.filename || att.name || 'קובץ';
+  };
+
+  const getAttachmentSize = (att: NoteAttachment) => {
+    return att.size_bytes || att.size || 0;
+  };
+
+  const handleDownloadFile = async (url: string, filename: string, e?: React.MouseEvent) => {
+    // Prevent default link behavior
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    try {
+      // Fetch the file with proper auth
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to download file');
+      }
+      
+      // Create blob and download
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      alert('שגיאה בהורדת הקובץ');
+    }
+  };
+
+  const handleDeleteAttachment = async (attachmentId: string | number, noteId: number) => {
+    if (!confirm('האם למחוק את הקובץ?')) return;
+    
+    try {
+      // Use the correct endpoint for note attachments (supports UUID IDs)
+      await http.delete(`/api/leads/${lead.id}/notes/${noteId}/attachments/${attachmentId}`);
+      // Refresh notes to get updated attachments
+      await fetchNotes();
+      alert('הקובץ נמחק בהצלחה');
+    } catch (error) {
+      console.error('Failed to delete attachment:', error);
+      alert('שגיאה במחיקת הקובץ');
+    }
+  };
+
+  const getFileIcon = (contentType?: string) => {
+    if (!contentType) return File;
+    if (contentType.startsWith('image/')) return ImageIcon;
+    if (contentType.startsWith('audio/')) return FileText;
+    if (contentType.startsWith('video/')) return FileText;
+    if (contentType.includes('pdf')) return FileText;
+    return File;
+  };
+
+  const isAudioFile = (contentType?: string) => {
+    return contentType?.startsWith('audio/') || false;
+  };
+
+  const isImageFile = (contentType?: string) => {
+    return contentType?.startsWith('image/') || false;
   };
 
   return (
@@ -1960,6 +2388,29 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
           dir="rtl"
           data-testid="textarea-new-note"
         />
+        
+        {/* Show pending files */}
+        {pendingFiles.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {pendingFiles.map((file, index) => (
+              <div key={index} className="flex items-center justify-between bg-blue-50 p-2 rounded text-sm">
+                <div className="flex items-center gap-2">
+                  <File className="w-4 h-4 text-blue-600" />
+                  <span className="text-blue-900">{file.name}</span>
+                  <span className="text-blue-600 text-xs">({(file.size / 1024).toFixed(1)} KB)</span>
+                </div>
+                <button
+                  onClick={() => handleRemovePendingFile(index)}
+                  className="text-red-500 hover:text-red-700"
+                  title="הסר קובץ"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        
         <div className="flex items-center justify-between mt-3">
           <div className="flex items-center gap-2">
             <button
@@ -1974,7 +2425,7 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
           </div>
           <Button
             onClick={handleSaveNewNote}
-            disabled={saving || !newNoteContent.trim()}
+            disabled={saving || (!newNoteContent.trim() && pendingFiles.length === 0)}
             size="sm"
             data-testid="button-save-new-note"
           >
@@ -2069,20 +2520,167 @@ function NotesTab({ lead, onUpdate }: NotesTabProps) {
                   
                   {note.attachments && note.attachments.length > 0 && (
                     <div className="mt-3 pt-3 border-t">
-                      <div className="flex flex-wrap gap-2">
-                        {note.attachments.map((att) => (
-                          <a
-                            key={att.id}
-                            href={att.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded text-sm text-gray-600 hover:bg-gray-200"
-                          >
-                            <File className="w-3 h-3" />
-                            {att.name}
-                            {att.size && <span className="text-xs text-gray-400">({formatFileSize(att.size)})</span>}
-                          </a>
-                        ))}
+                      <p className="text-xs font-medium text-gray-500 mb-2">קבצים מצורפים:</p>
+                      <div className="flex flex-col gap-3">
+                        {note.attachments.map((att) => {
+                          const FileIconComponent = getFileIcon(att.content_type);
+                          const url = getAttachmentUrl(att);
+                          const name = getAttachmentName(att);
+                          const size = getAttachmentSize(att);
+                          
+                          // Render audio files with player
+                          if (isAudioFile(att.content_type)) {
+                            return (
+                              <div key={att.id} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <FileIconComponent className="w-4 h-4 text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">{name}</span>
+                                    {size > 0 && (
+                                      <span className="text-xs text-gray-400">({formatFileSize(size)})</span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteAttachment(att.id, note.id)}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                    title="מחק קובץ"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <audio 
+                                  controls 
+                                  className="w-full h-10"
+                                  preload="metadata"
+                                  aria-label={`הקלטה: ${name}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <source src={url} type={att.content_type} />
+                                  הדפדפן שלך אינו תומך בנגן שמע.
+                                </audio>
+                                <div className="flex gap-2 mt-2">
+                                  <button
+                                    onClick={(e) => handleDownloadFile(url, name, e)}
+                                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    הורד
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }
+                          
+                          // Render images with preview
+                          if (isImageFile(att.content_type)) {
+                            return (
+                              <div key={att.id} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <ImageIcon className="w-4 h-4 text-gray-500" />
+                                    <span className="text-sm font-medium text-gray-700">{name}</span>
+                                    {size > 0 && (
+                                      <span className="text-xs text-gray-400">({formatFileSize(size)})</span>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteAttachment(att.id, note.id)}
+                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                    title="מחק קובץ"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <div className="relative">
+                                  <img 
+                                    src={url} 
+                                    alt={name}
+                                    className="max-w-full h-auto rounded border border-gray-300 cursor-pointer"
+                                    style={{ maxHeight: '300px' }}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      window.open(url, '_blank', 'noopener,noreferrer');
+                                    }}
+                                  />
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        window.open(url, '_blank', 'noopener,noreferrer');
+                                      }}
+                                      className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 rounded"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                      </svg>
+                                      פתח
+                                    </button>
+                                    <button
+                                      onClick={(e) => handleDownloadFile(url, name, e)}
+                                      className="text-xs text-gray-600 hover:text-gray-700 flex items-center gap-1 px-2 py-1 bg-gray-50 hover:bg-gray-100 rounded"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                      </svg>
+                                      הורד
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
+                          
+                          // Render other files as download links
+                          return (
+                            <div
+                              key={att.id}
+                              className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg transition-colors group"
+                            >
+                              <div className="flex items-center gap-2 text-sm text-gray-700 flex-1">
+                                <FileIconComponent className="w-4 h-4 flex-shrink-0" />
+                                <span className="max-w-[150px] truncate">{name}</span>
+                                {size > 0 && (
+                                  <span className="text-xs text-gray-400">({formatFileSize(size)})</span>
+                                )}
+                              </div>
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    window.open(url, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                                  title="פתח קובץ"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={(e) => handleDownloadFile(url, name, e)}
+                                  className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded transition-colors"
+                                  title="הורד קובץ"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteAttachment(att.id, note.id)}
+                                  className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:text-red-700 transition-opacity"
+                                  title="מחק קובץ"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}

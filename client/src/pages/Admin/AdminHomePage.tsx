@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   Building2, 
   MessageCircle, 
@@ -19,11 +20,17 @@ import {
   Shield
 } from 'lucide-react';
 import { Card, StatCard, Badge } from '../../shared/components/ui/Card';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { QuickManagementActions } from '../../shared/components/ui/ManagementCard';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { cn } from '../../shared/utils/cn';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useAdminOverview, getDateRangeForFilter, usePhoneNumbers } from '../../features/admin/hooks';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useLeads, useLeadStats } from '../Leads/hooks/useLeads';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useNavigate } from 'react-router-dom';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Removed mock data - now using real API calls
 

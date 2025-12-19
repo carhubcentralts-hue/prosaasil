@@ -94,7 +94,7 @@ def create_receipt():
         data = request.get_json()
         lead_id = data.get('lead_id')
         amount = data.get('amount', 0)
-        description = data.get('description', 'שירותי תיווך')
+        description = data.get('description', 'שירותים מקצועיים')
         customer_name = data.get('customer_name', '')
         
         if not lead_id:
@@ -311,7 +311,7 @@ def create_contract():
         contract_types = {
             'sale': 'חוזה מכירה',
             'rent': 'חוזה שכירות', 
-            'mediation': 'חוזה תיווך',
+            'mediation': 'הסכם שירות',
             'custom': custom_title or 'חוזה מותאם אישית'
         }
         
@@ -534,7 +534,7 @@ def view_invoice(invoice_id):
             f"מע\"מ (18%): ₪{invoice.tax / 100:,.2f}",
             f"סכום כולל: ₪{invoice.total / 100:,.2f}",
             "",
-            f"תיאור: {payment.description or 'עמלת תיווך נדל״ן'}",
+            f"תיאור: {payment.description or 'שירותים מקצועיים'}",
             f"לקוח: {payment.customer_name or 'לא צוין'}",
             f"סטטוס: {payment.status or 'created'}",
             f"אמצעי תשלום: {payment.provider or 'ידני'}"
@@ -656,7 +656,7 @@ def download_invoice(invoice_id):
             f"מע\"מ (18%): ₪{invoice.tax / 100:,.2f}",
             f"סכום כולל: ₪{invoice.total / 100:,.2f}",
             "",
-            f"תיאור: {payment.description or 'עמלת תיווך נדל״ן'}",
+            f"תיאור: {payment.description or 'שירותים מקצועיים'}",
             f"לקוח: {payment.customer_name or 'לא צוין'}",
             f"סטטוס: {payment.status or 'created'}",
             f"אמצעי תשלום: {payment.provider or 'ידני'}"

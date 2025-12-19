@@ -70,15 +70,15 @@ def extract_area(text: str) -> str:
 
 
 # 🔥 BUILD 200: REMOVED extract_property_type() function
-# It contained hardcoded real estate terms (דירה, בית, משרד, דופלקס, פנטהאוז)
+# It contained hardcoded domain-specific field types
 # Field extraction is now 100% handled by AI prompts per business
 
 # 🔥 BUILD 200: REMOVED extract_budget() function  
-# It contained hardcoded budget patterns (מיליון, אלף, ש"ח)
-# Budget is a business-specific field - not all businesses need it
+# It contained hardcoded numeric patterns specific to one industry
+# Field requirements are business-specific - each defines their own
 
 # 🔥 BUILD 200: REMOVED parse_appointment_info() function
-# It returned property_type/budget which are real estate-specific
+# It returned industry-specific fields in hardcoded format
 # Each business defines their own required fields in AI prompts
 
 

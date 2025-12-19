@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { 
   Brain, 
   Phone, 
@@ -17,6 +18,7 @@ import {
   Activity
 } from 'lucide-react';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => (
@@ -431,7 +433,7 @@ export default function CustomerIntelligencePage() {
               <div className="space-y-4">
                 <p><strong>טלפון:</strong> {selectedCustomer.phone_e164}</p>
                 <p><strong>מקור:</strong> {selectedCustomer.source}</p>
-                <p><strong>נוצר:</strong> {new Date(selectedCustomer.created_at).toLocaleDateString('he-IL')}</p>
+                <p><strong>נוצר:</strong> {formatDateOnly(selectedCustomer.created_at)}</p>
                 
                 {selectedCustomer.latest_lead && (
                   <div>

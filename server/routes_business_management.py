@@ -738,7 +738,7 @@ def get_current_business():
             # 🔥 BUILD 163: Auto hang-up settings
             "auto_end_after_lead_capture": getattr(settings, 'auto_end_after_lead_capture', False) if settings else False,
             "auto_end_on_goodbye": getattr(settings, 'auto_end_on_goodbye', False) if settings else False,
-            # 🔥 BUILD 163: Bot speaks first
+            # 🔥 BUILD 163: Bot speaks first (🔥 DEPRECATED: Always True in runtime, kept for API compatibility)
             "bot_speaks_first": getattr(settings, 'bot_speaks_first', False) if settings else False,
             # 🔥 BUILD 186: Calendar scheduling toggle
             "enable_calendar_scheduling": getattr(settings, 'enable_calendar_scheduling', True) if settings else True,
@@ -849,7 +849,7 @@ def update_current_business_settings():
         if 'auto_end_on_goodbye' in data:
             settings.auto_end_on_goodbye = bool(data['auto_end_on_goodbye'])
         
-        # 🔥 BUILD 163: Bot speaks first setting
+        # 🔥 BUILD 163: Bot speaks first setting (🔥 DEPRECATED: Always True in runtime, kept for API compatibility)
         if 'bot_speaks_first' in data:
             settings.bot_speaks_first = bool(data['bot_speaks_first'])
         

@@ -55,6 +55,10 @@ class OpenAIRealtimeClient:
         self._last_voice = None
         self._session_update_count = 0
         
+        # 🔥 SESSION VALIDATION: Track pending config for validation
+        self._pending_session_config = None
+        self._session_config_retry_without_noise_reduction = False
+        
         if websockets is None:
             raise ImportError("websockets library is required. Install with: pip install websockets")
     
@@ -232,6 +236,67 @@ class OpenAIRealtimeClient:
             event["response_id"] = response_id
         await self.send_event(event)
     
+    async def wait_for_session_updated(self, timeout: float = 5.0) -> bool:
+        """
+        Wait for session.updated event after sending session.update
+        
+        CRITICAL: This validates that session configuration was applied successfully.
+        If session.update fails, the session uses default settings (PCM16 instead of G.711,
+        English instead of Hebrew, etc.) which causes audio noise and wrong language.
+        
+        Args:
+            timeout: Maximum time to wait for session.updated (default: 5 seconds)
+        
+        Returns:
+            True if session.updated received, False if timeout or error
+        """
+        if not self.ws:
+            raise RuntimeError("Not connected. Call connect() first.")
+        
+        import asyncio
+        import time as time_module
+        
+        start_time = time_module.time()
+        
+        try:
+            async for raw in self.ws:
+                try:
+                    event = json.loads(raw)
+                    event_type = event.get("type", "")
+                    
+                    # Check for session.updated (success)
+                    if event_type == "session.updated":
+                        logger.info("✅ [SESSION] session.updated received - configuration applied successfully")
+                        return True
+                    
+                    # Check for error (failure)
+                    if event_type == "error":
+                        error = event.get("error", {})
+                        error_code = error.get("code", "unknown")
+                        error_message = error.get("message", "Unknown error")
+                        logger.error(f"❌ [SESSION] Error from Realtime API: {error_code} - {error_message}")
+                        # Return False but don't raise - caller should handle
+                        return False
+                    
+                    # Check timeout
+                    elapsed = time_module.time() - start_time
+                    if elapsed > timeout:
+                        logger.error(f"❌ [SESSION] Timeout waiting for session.updated after {timeout}s")
+                        return False
+                        
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ Invalid JSON while waiting for session.updated: {e}")
+                    continue
+                    
+        except asyncio.TimeoutError:
+            logger.error(f"❌ [SESSION] Timeout waiting for session.updated")
+            return False
+        except Exception as e:
+            logger.error(f"❌ [SESSION] Error waiting for session.updated: {e}")
+            return False
+        
+        return False
+    
     async def send_user_message(self, text: str):
         """
         Send a user message (e.g., DTMF input) to the AI
@@ -292,11 +357,13 @@ class OpenAIRealtimeClient:
         voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
-        vad_threshold: float = 0.85,  # 🔥 BUILD 206: 0.85 - balanced for Hebrew telephony
-        silence_duration_ms: int = 450,  # 🔥 BUILD 206: 450ms - telephony sweet spot (300-500ms range)
+        vad_threshold: float = None,  # 🔥 BUILD 341: Default from config
+        silence_duration_ms: int = None,  # 🔥 BUILD 341: Default from config
+        prefix_padding_ms: int = None,  # 🔥 BUILD 341: Default from config
         temperature: float = 0.18,
         max_tokens: int = 300,
-        transcription_prompt: str = ""  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
+        transcription_prompt: str = "",  # 🔥 BUILD 202: Dynamic prompt for better Hebrew STT
+        force: bool = False  # 🔥 FIX 3: Force resend even if hash matches (for retry)
     ):
         """
         Configure Realtime API session
@@ -308,19 +375,43 @@ class OpenAIRealtimeClient:
             voice: Voice to use (coral, sage, verse, ash, ballad, alloy, shimmer, echo)
             input_audio_format: Audio format from Twilio (g711_ulaw, pcm16)
             output_audio_format: Audio format to Twilio (g711_ulaw, pcm16)
-            vad_threshold: Voice activity detection threshold (0-1)
-            silence_duration_ms: Silence duration to detect end of speech
+            vad_threshold: Voice activity detection threshold (0-1), defaults to SERVER_VAD_THRESHOLD from config
+            silence_duration_ms: Silence duration to detect end of speech, defaults to SERVER_VAD_SILENCE_MS from config
+            prefix_padding_ms: Audio padding before speech starts, defaults to SERVER_VAD_PREFIX_PADDING_MS from config
             temperature: AI temperature (0.18-0.25 for Agent 3 spec)
             max_tokens: Maximum tokens (280-320 for Agent 3 spec)
             transcription_prompt: Dynamic prompt with business-specific vocab for better Hebrew STT
+            force: Force resend even if hash matches (set to True during retry)
         """
-        # 🔥 BUILD 202: TRANSCRIPTION IMPROVEMENTS FOR HEBREW
+        # 🔥 BUILD 341: Use tuned defaults from config
+        if vad_threshold is None or silence_duration_ms is None or prefix_padding_ms is None:
+            try:
+                from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS, SERVER_VAD_PREFIX_PADDING_MS
+                if vad_threshold is None:
+                    vad_threshold = SERVER_VAD_THRESHOLD
+                if silence_duration_ms is None:
+                    silence_duration_ms = SERVER_VAD_SILENCE_MS
+                if prefix_padding_ms is None:
+                    prefix_padding_ms = SERVER_VAD_PREFIX_PADDING_MS
+                logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
+            except ImportError:
+                # Fallback if config not available
+                if vad_threshold is None:
+                    vad_threshold = 0.60
+                if silence_duration_ms is None:
+                    silence_duration_ms = 900
+                if prefix_padding_ms is None:
+                    prefix_padding_ms = 400
+                logger.warning(f"⚠️ [VAD CONFIG] Config import failed, using fallback: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
+        # 🔥 TRANSCRIPTION IMPROVEMENTS FOR HEBREW
+        # Per הנחיה: Use Realtime capabilities, no local noise-floor guards
         # - Use gpt-4o-transcribe model (better than whisper-1 for Hebrew)
         # - Add dynamic prompt with business vocabulary (names, cities, services)
         # - Explicit Hebrew language setting
+        # - Request logprobs for confidence scoring (if supported)
         transcription_config = {
-            "model": "gpt-4o-transcribe",  # 🔥 BUILD 202: Better Hebrew accuracy than whisper-1
-            "language": "he"  # 🔥 Explicit Hebrew - mandatory for accuracy!
+            "model": "gpt-4o-transcribe",  # Better Hebrew accuracy than whisper-1
+            "language": "he"  # Explicit Hebrew - mandatory for accuracy!
         }
         
         # Add transcription prompt if provided (business-specific vocabulary)
@@ -339,15 +430,28 @@ class OpenAIRealtimeClient:
             # ✅ MANDATORY: Internal transcription for audio comprehension
             # DO NOT remove this - AI will be completely silent without it!
             "input_audio_transcription": transcription_config,
-            # 🔥 BUILD 202: Removed prefix_padding_ms - not supported by SDK, caused crashes
+            # 🔥 STABLE VAD CONFIGURATION - Proper Realtime API turn detection
+            # Per הנחיה: server_vad + create_response + stable thresholds
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": vad_threshold,
-                "silence_duration_ms": silence_duration_ms
+                "prefix_padding_ms": prefix_padding_ms,
+                "silence_duration_ms": silence_duration_ms,
+                "create_response": True  # ✅ CRITICAL: Auto-create response on turn end
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
         }
+        
+        # 🔥 QUALITY IMPROVEMENT: Add noise reduction if available
+        # This uses OpenAI's server-side noise reduction (not local filters)
+        # CRITICAL: Must be an object with "type" field, not a string!
+        # Per OpenAI Realtime API spec: {"type": "near_field"} for phone calls
+        # NOTE: This is experimental and may not be supported by all models/versions
+        # We'll add it optimistically and fallback if it fails
+        use_noise_reduction = True  # Try with noise reduction first
+        session_config["input_audio_noise_reduction"] = {"type": "near_field"}
+        logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field (experimental)")
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
@@ -361,12 +465,16 @@ class OpenAIRealtimeClient:
         
         # 🔥 BUILD 318: INSTRUCTION CACHING - Skip if same instructions already sent
         # This prevents redundant session.update calls that cost $11+ in text input!
+        # 🔥 FIX 3: Bypass hash check when force=True (e.g., during retry)
         import hashlib
         instructions_hash = hashlib.md5(instructions.encode()).hexdigest()[:16]
         
-        if self._last_instructions_hash == instructions_hash and self._last_voice == voice:
+        if not force and self._last_instructions_hash == instructions_hash and self._last_voice == voice:
             logger.info(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
-            return
+            return True  # Return True to indicate session is configured (from cache)
+        
+        if force:
+            logger.info(f"🔄 [FORCE RESEND] Bypassing hash check - force retry requested")
         
         self._last_instructions_hash = instructions_hash
         self._last_voice = voice
@@ -378,8 +486,15 @@ class OpenAIRealtimeClient:
             print(f"⚠️ [BUILD 332] COST ALERT: session.update called {self._session_update_count} times (expected ≤2)")
         else:
             logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
+        
+        # Send session.update and store config for validation
+        self._pending_session_config = session_config.copy()  # Store for validation
         await self.send_event({
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session configured: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
+        logger.info(f"✅ Session update sent: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
+        
+        # Return True to indicate session.update was sent successfully
+        # Caller should wait for session.updated event before proceeding
+        return True

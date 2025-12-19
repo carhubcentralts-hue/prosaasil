@@ -222,7 +222,7 @@ def api_thread_messages(thread_id):
 @crm_bp.post("/api/crm/threads/<thread_id>/message")
 @require_api_auth(['system_admin', 'owner', 'admin', 'agent'])
 def api_send_thread_message(thread_id):
-    """Send a message to a WhatsApp thread - BUILD 170.1"""
+    """Send a message to a WhatsApp thread with optional media - BUILD 170.1 + MEDIA SUPPORT"""
     import logging
     log = logging.getLogger("crm")
     
@@ -233,12 +233,55 @@ def api_send_thread_message(thread_id):
         if not business_id:
             return jsonify({"success": False, "error": "no_business_id"}), 400
         
-        data = request.get_json()
-        text = data.get('text', '').strip()
-        provider = data.get('provider', 'baileys')
+        # Check if this is multipart (file upload) or JSON
+        is_multipart = request.content_type and 'multipart/form-data' in request.content_type
         
-        if not text:
-            return jsonify({"success": False, "error": "empty_message"}), 400
+        if is_multipart:
+            # Handle file upload
+            text = request.form.get('caption', '').strip()
+            provider = request.form.get('provider', 'baileys')
+            file = request.files.get('file')
+            
+            if not file:
+                return jsonify({"success": False, "error": "no_file"}), 400
+            
+            # Validate file
+            MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+            file.seek(0, 2)
+            file_size = file.tell()
+            file.seek(0)
+            
+            if file_size > MAX_FILE_SIZE:
+                return jsonify({"success": False, "error": "file_too_large"}), 400
+            
+            # Determine media type
+            content_type = file.content_type or ''
+            if content_type.startswith('image/'):
+                media_type = 'image'
+            elif content_type.startswith('video/'):
+                media_type = 'video'
+            elif content_type.startswith('audio/'):
+                media_type = 'audio'
+            elif content_type == 'application/pdf' or content_type.startswith('application/'):
+                media_type = 'document'
+            else:
+                media_type = 'document'  # Default
+            
+            # Read file data
+            file_data = file.read()
+            filename = file.filename or 'attachment'
+            
+        else:
+            # Handle JSON text message
+            data = request.get_json()
+            text = data.get('text', '').strip()
+            provider = data.get('provider', 'baileys')
+            file_data = None
+            media_type = None
+            filename = None
+            
+            if not text:
+                return jsonify({"success": False, "error": "empty_message"}), 400
         
         # Normalize phone number
         to_number = thread_id.replace("@s.whatsapp.net", "").replace("+", "").strip()
@@ -252,9 +295,30 @@ def api_send_thread_message(thread_id):
             log.error(f"[CRM-SEND] Failed to get WhatsApp service: {e}")
             return jsonify({"success": False, "error": f"whatsapp_service_unavailable"}), 503
         
-        # Send message
+        # Send message (with or without media)
         try:
-            send_result = wa_service.send_message(formatted_number, text, tenant_id=tenant_id)
+            if file_data:
+                # Send media message
+                import base64
+                
+                # Prepare media data
+                media_data = {
+                    'data': base64.b64encode(file_data).decode('utf-8'),
+                    'mimetype': file.content_type,
+                    'filename': filename
+                }
+                
+                # Send via Baileys (Meta media handling would be different)
+                send_result = wa_service.send_message(
+                    formatted_number,
+                    text or '',  # Caption
+                    tenant_id=tenant_id,
+                    media=media_data,
+                    media_type=media_type
+                )
+            else:
+                # Send text message
+                send_result = wa_service.send_message(formatted_number, text, tenant_id=tenant_id)
         except Exception as e:
             log.error(f"[CRM-SEND] Send message failed: {e}")
             return jsonify({"success": False, "error": f"send_failed: {str(e)}"}), 500
@@ -269,11 +333,16 @@ def api_send_thread_message(thread_id):
             wa_msg.business_id = business_id
             wa_msg.to_number = to_number
             wa_msg.body = text
-            wa_msg.message_type = 'text'
+            wa_msg.message_type = media_type or 'text'
             wa_msg.direction = 'out'
             wa_msg.provider = send_result.get('provider', provider)
             wa_msg.provider_message_id = send_result.get('sid')
             wa_msg.status = 'sent'
+            
+            # Store media metadata if applicable
+            if file_data:
+                wa_msg.media_url = send_result.get('media_url')
+                wa_msg.media_type = media_type
             
             db.session.add(wa_msg)
             db.session.commit()

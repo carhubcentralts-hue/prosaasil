@@ -134,6 +134,11 @@ export default function WhatsAppChat({ lead, isOpen, onClose }: WhatsAppChatProp
       // Clean phone number (remove +)
       const phoneNumber = lead.phone_e164?.replace('+', '') || '';
       
+      // 🔥 IMPORTANT: This endpoint should return ALL messages including:
+      // - 'in': Messages from customer
+      // - 'out': Messages from business owner/staff AND bot
+      // If business owner messages are not showing, check the backend API
+      // to ensure it includes messages sent by staff (not just bot messages)
       const response = await http.get<WhatsAppConversation>(`/api/whatsapp/conversation/${phoneNumber}`);
       
       setConversation(response);

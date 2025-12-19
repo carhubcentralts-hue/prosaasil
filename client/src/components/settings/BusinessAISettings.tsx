@@ -27,7 +27,7 @@ interface CallControlSettings {
   silence_timeout_sec: number;
   silence_max_warnings: number;
   smart_hangup_enabled: boolean;
-  bot_speaks_first: boolean;
+  // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
   auto_end_on_goodbye: boolean;
   // 🔥 BUILD 327: SIMPLIFIED - removed required_lead_fields and auto_end_after_lead_capture
   // AI follows the prompt instructions for what to collect
@@ -60,7 +60,7 @@ export function BusinessAISettings() {
     silence_timeout_sec: 15,
     silence_max_warnings: 2,
     smart_hangup_enabled: true,
-    bot_speaks_first: false,
+    // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
     auto_end_on_goodbye: false,
     // 🔥 BUILD 327: SIMPLIFIED - AI follows prompt for what to collect
     call_goal: 'lead_only',
@@ -81,7 +81,7 @@ export function BusinessAISettings() {
             silence_timeout_sec?: number;
             silence_max_warnings?: number;
             smart_hangup_enabled?: boolean;
-            bot_speaks_first?: boolean;
+            // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
             auto_end_on_goodbye?: boolean;
             enable_calendar_scheduling?: boolean;  // 🔥 BUILD 186
             // 🔥 BUILD 327: SIMPLIFIED settings
@@ -106,7 +106,7 @@ export function BusinessAISettings() {
           silence_timeout_sec: businessData.silence_timeout_sec ?? 15,
           silence_max_warnings: businessData.silence_max_warnings ?? 2,
           smart_hangup_enabled: businessData.smart_hangup_enabled ?? true,
-          bot_speaks_first: businessData.bot_speaks_first ?? false,
+          // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
           auto_end_on_goodbye: businessData.auto_end_on_goodbye ?? false,
           // 🔥 BUILD 327: SIMPLIFIED settings
           call_goal: derivedCallGoal,
@@ -180,7 +180,7 @@ export function BusinessAISettings() {
         silence_timeout_sec: callControl.silence_timeout_sec,
         silence_max_warnings: callControl.silence_max_warnings,
         smart_hangup_enabled: callControl.smart_hangup_enabled,
-        bot_speaks_first: callControl.bot_speaks_first,
+        // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
         auto_end_on_goodbye: callControl.auto_end_on_goodbye,
         enable_calendar_scheduling: enableCalendar,  // 🔥 BUILD 327: Derived from call_goal
         // 🔥 BUILD 327: SIMPLIFIED settings
@@ -428,25 +428,7 @@ export function BusinessAISettings() {
         </div>
 
         <div className="space-y-6">
-          {/* Bot Speaks First Toggle */}
-          <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <div>
-              <h4 className="font-medium text-slate-900">🎙️ ה-AI מדבר ראשון</h4>
-              <p className="text-sm text-slate-600 mt-1">
-                כאשר מופעל, ה-AI יפתח את השיחה עם הברכה ללא המתנה ללקוח. מומלץ לרוב העסקים.
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={callControl.bot_speaks_first}
-                onChange={(e) => setCallControl(prev => ({ ...prev, bot_speaks_first: e.target.checked }))}
-                className="sr-only peer"
-                data-testid="checkbox-bot-speaks-first"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-            </label>
-          </div>
+          {/* 🔥 MASTER FIX: Bot Speaks First toggle removed - always enabled (hardcoded in backend) */}
 
           {/* Auto-End On Goodbye - 🔥 BUILD 327: Simplified - removed auto_end_after_lead_capture */}
           <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">

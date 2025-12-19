@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly, formatLongDate } from '../../shared/utils/format';
 
 // Calendar components and types
 interface Appointment {
@@ -708,8 +709,8 @@ export function CalendarPage() {
               <h3 className="text-lg font-semibold text-slate-900">
                 {filterDateFrom || filterDateTo ? (
                   <>
-                    פגישות {filterDateFrom && `מ-${new Date(filterDateFrom).toLocaleDateString('he-IL')}`}
-                    {filterDateTo && ` עד ${new Date(filterDateTo).toLocaleDateString('he-IL')}`}
+                    פגישות {filterDateFrom && `מ-${formatDateOnly(filterDateFrom)}`}
+                    {filterDateTo && ` עד ${formatDateOnly(filterDateTo)}`}
                     {' '}({filteredAppointments.length})
                   </>
                 ) : selectedDate || filterDate ? (
@@ -792,7 +793,7 @@ export function CalendarPage() {
                       <div className="flex items-center gap-2">
                         <Clock className="h-4 w-4 flex-shrink-0" />
                         <span className="truncate">
-                          {new Date(appointment.start_time).toLocaleDateString('he-IL')} • 
+                          {formatDateOnly(appointment.start_time)} • 
                           {new Date(appointment.start_time).toLocaleTimeString('he-IL', { 
                             hour: '2-digit', 
                             minute: '2-digit' 

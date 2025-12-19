@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { CreditCard, FileText, Download, Eye, Plus, DollarSign, Calendar, AlertCircle, Clock, X, PenTool, MessageSquare } from 'lucide-react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { SignatureCanvas } from '../../components/SignatureCanvas';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -636,7 +640,7 @@ export function BillingPage() {
                         {formatCurrency(payment.amount)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(payment.due_date).toLocaleDateString('he-IL')}
+                        {formatDateOnly(payment.due_date)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Badge variant={getPaymentStatusColor(payment.status)}>
@@ -733,8 +737,8 @@ export function BillingPage() {
                   <div>
                     <label className="text-xs font-medium text-gray-500">תקופה</label>
                     <p className="text-sm text-gray-900">
-                      {new Date(contract.start_date).toLocaleDateString('he-IL')}
-                      {contract.end_date && ` - ${new Date(contract.end_date).toLocaleDateString('he-IL')}`}
+                      {formatDateOnly(contract.start_date)}
+                      {contract.end_date && ` - ${formatDateOnly(contract.end_date)}`}
                     </p>
                   </div>
                 </div>

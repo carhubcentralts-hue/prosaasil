@@ -82,12 +82,15 @@ class CallLog(db.Model):
     lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True, index=True)  # BUILD 174: Link to lead for outbound calls
     outbound_template_id = db.Column(db.Integer, db.ForeignKey("outbound_call_templates.id"), nullable=True)  # BUILD 174: Template used for outbound call
     call_sid = db.Column(db.String(64), unique=True, index=True)  # ✅ Unique constraint to prevent duplicates
+    parent_call_sid = db.Column(db.String(64), nullable=True, index=True)  # 🔥 Parent call SID for child legs
     from_number = db.Column(db.String(64), index=True)
     to_number = db.Column(db.String(64))  # ✅ BUILD 88: Added to_number field
-    direction = db.Column(db.String(16), default="inbound")  # ✅ BUILD 106: inbound/outbound
+    direction = db.Column(db.String(16), default="inbound")  # ✅ BUILD 106: inbound/outbound (normalized)
+    twilio_direction = db.Column(db.String(32), nullable=True)  # 🔥 Original Twilio direction (outbound-api, outbound-dial, etc.)
     duration = db.Column(db.Integer, default=0)  # ✅ BUILD 106: Call duration in seconds
     call_status = db.Column(db.String(32), default="in-progress")  # ✅ BUILD 90: Legacy field for production DB compatibility
     recording_url = db.Column(db.String(512))
+    recording_sid = db.Column(db.String(64), nullable=True)  # 🔥 BUILD 342: Twilio Recording SID
     transcription = db.Column(db.Text)
     summary = db.Column(db.Text)  # ✨ סיכום חכם קצר של השיחה (80-150 מילים) - BUILD 106
     status = db.Column(db.String(32), default="received")
@@ -97,6 +100,11 @@ class CallLog(db.Model):
     extracted_service = db.Column(db.String(255), nullable=True)  # Service type extracted from transcript
     extracted_city = db.Column(db.String(255), nullable=True)  # City extracted from transcript
     extraction_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
+    
+    # 🔥 BUILD 342: Recording Quality Metadata - Verify actual recording transcription
+    audio_bytes_len = db.Column(db.Integer, nullable=True)  # Recording file size in bytes (>0 = valid download)
+    audio_duration_sec = db.Column(db.Float, nullable=True)  # Recording duration in seconds from metadata
+    transcript_source = db.Column(db.String(32), nullable=True)  # "recording"/"realtime" - source of final_transcript
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -150,10 +158,10 @@ class BusinessSettings(db.Model):
     
     # 🔥 BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture = db.Column(db.Boolean, default=False)  # Hang up after all lead details collected
-    auto_end_on_goodbye = db.Column(db.Boolean, default=False)  # Hang up when customer says goodbye
+    auto_end_on_goodbye = db.Column(db.Boolean, default=True)  # Hang up when customer says goodbye - NOW ENABLED BY DEFAULT
     
-    # 🔥 BUILD 163: Bot speaks first setting
-    bot_speaks_first = db.Column(db.Boolean, default=False)  # Bot plays greeting before listening
+    # 🔥 BUILD 163: Bot speaks first setting (🔥 DEPRECATED: Always True in runtime, kept for DB compatibility)
+    bot_speaks_first = db.Column(db.Boolean, default=False)  # Bot plays greeting before listening (DEPRECATED: Ignored in runtime)
     
     # 🔥 BUILD 186: Calendar scheduling toggle - when enabled, AI will try to schedule appointments
     enable_calendar_scheduling = db.Column(db.Boolean, default=True)  # AI schedules appointments during inbound calls
@@ -370,6 +378,10 @@ class Lead(db.Model):
     whatsapp_last_summary = db.Column(db.Text)  # Latest WhatsApp conversation summary
     whatsapp_last_summary_at = db.Column(db.DateTime)  # When summary was created
     
+    # Call direction tracking for filtering (inbound/outbound)
+    # 🔒 IMPORTANT: Set ONCE on first interaction, never overridden by subsequent calls
+    last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - set on first call only
+    
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -486,6 +498,27 @@ class LeadNote(db.Model):
     
     __table_args__ = (
         db.Index('idx_lead_notes_lead', 'lead_id', 'created_at'),
+    )
+
+class LeadAttachment(db.Model):
+    """File attachments for leads - secure file storage with tenant isolation"""
+    __tablename__ = "lead_attachments"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id", ondelete="CASCADE"), nullable=False, index=True)
+    note_id = db.Column(db.Integer, db.ForeignKey("lead_notes.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    filename = db.Column(db.String(255), nullable=False)
+    content_type = db.Column(db.String(128), nullable=False)
+    size_bytes = db.Column(db.Integer, nullable=False)
+    storage_key = db.Column(db.String(512), nullable=False)  # Path in storage (local or S3)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    
+    __table_args__ = (
+        db.Index('idx_lead_attachments_tenant_lead', 'tenant_id', 'lead_id'),
     )
 
 class LeadMergeCandidate(db.Model):
@@ -628,7 +661,7 @@ class Appointment(db.Model):
     
     # Status and type
     status = db.Column(db.String(32), default="scheduled")  # scheduled/confirmed/completed/cancelled/no_show
-    appointment_type = db.Column(db.String(64), default="viewing")  # viewing/meeting/signing/call_followup
+    appointment_type = db.Column(db.String(64), default="appointment")  # Generic: appointment/meeting/consultation/service
     priority = db.Column(db.String(16), default="medium")  # low/medium/high/urgent
     
     # Contact info (for cases without customer record)
@@ -767,3 +800,120 @@ class AgentTrace(db.Model):
     
     def __repr__(self):
         return f"<AgentTrace {self.id} - {self.agent_type} - {self.tool_count} tools>"
+
+
+class OutboundCallRun(db.Model):
+    """Bulk outbound calling campaign/run tracking"""
+    __tablename__ = "outbound_call_runs"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    outbound_list_id = db.Column(db.Integer, db.ForeignKey("outbound_lead_lists.id"), nullable=True)
+    
+    # Configuration
+    concurrency = db.Column(db.Integer, default=3)
+    total_leads = db.Column(db.Integer, default=0)
+    
+    # Progress tracking
+    queued_count = db.Column(db.Integer, default=0)
+    in_progress_count = db.Column(db.Integer, default=0)
+    completed_count = db.Column(db.Integer, default=0)
+    failed_count = db.Column(db.Integer, default=0)
+    
+    # Status
+    status = db.Column(db.String(32), default="running")  # running|completed|failed|cancelled
+    last_error = db.Column(db.Text)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+
+
+class OutboundCallJob(db.Model):
+    """Individual call job within a bulk run"""
+    __tablename__ = "outbound_call_jobs"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    run_id = db.Column(db.Integer, db.ForeignKey("outbound_call_runs.id"), nullable=False, index=True)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=False, index=True)
+    call_log_id = db.Column(db.Integer, db.ForeignKey("call_log.id"), nullable=True)
+    
+    # Status
+    status = db.Column(db.String(32), default="queued", index=True)  # queued|calling|completed|failed
+    error_message = db.Column(db.Text)
+    
+    # Call details
+    call_sid = db.Column(db.String(64))
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    run = db.relationship("OutboundCallRun", backref="jobs")
+    lead = db.relationship("Lead")
+
+
+class WhatsAppBroadcast(db.Model):
+    """WhatsApp Broadcast Campaign"""
+    __tablename__ = "whatsapp_broadcasts"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Campaign details
+    name = db.Column(db.String(255))
+    provider = db.Column(db.String(32))  # meta|baileys
+    message_type = db.Column(db.String(32))  # template|freetext
+    template_id = db.Column(db.String(255))
+    template_name = db.Column(db.String(255))
+    message_text = db.Column(db.Text)
+    
+    # Audience
+    audience_filter = db.Column(db.JSON)  # Statuses, tags, etc.
+    
+    # Status and progress
+    status = db.Column(db.String(32), default="pending", index=True)  # pending|running|completed|failed|paused
+    total_recipients = db.Column(db.Integer, default=0)
+    sent_count = db.Column(db.Integer, default=0)
+    failed_count = db.Column(db.Integer, default=0)
+    
+    # Metadata
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    business = db.relationship("Business")
+    creator = db.relationship("User")
+
+
+class WhatsAppBroadcastRecipient(db.Model):
+    """Individual recipient in a broadcast campaign"""
+    __tablename__ = "whatsapp_broadcast_recipients"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    broadcast_id = db.Column(db.Integer, db.ForeignKey("whatsapp_broadcasts.id"), nullable=False, index=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Recipient details
+    phone = db.Column(db.String(64), nullable=False)
+    lead_id = db.Column(db.Integer, db.ForeignKey("leads.id"), nullable=True)
+    
+    # Status
+    status = db.Column(db.String(32), default="queued", index=True)  # queued|sent|failed
+    error_message = db.Column(db.Text)
+    
+    # Message details
+    message_id = db.Column(db.String(255))
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_at = db.Column(db.DateTime)
+    
+    # Relationships
+    broadcast = db.relationship("WhatsAppBroadcast", backref="recipients")
+    lead = db.relationship("Lead")

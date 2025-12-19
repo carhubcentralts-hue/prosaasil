@@ -1,20 +1,39 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useNavigate } from 'react-router-dom';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Plus, Search, Filter, MessageSquare, Edit, Phone, Trash2, Settings, User, CheckSquare, Receipt, Calendar, X, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Button } from '../../shared/components/ui/Button';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Input } from '../../shared/components/ui/Input';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Card } from '../../shared/components/ui/Card';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Badge } from '../../shared/components/Badge';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Checkbox } from '../../shared/components/ui/Checkbox';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../../shared/components/ui/Table';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Select, SelectOption } from '../../shared/components/ui/Select';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
+import { StatusDropdown } from '../../shared/components/ui/StatusDropdown';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import LeadCreateModal from './components/LeadCreateModal';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import StatusManagementModal from './components/StatusManagementModal';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useLeads } from './hooks/useLeads';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Lead, LeadStatus, LeadSource } from './types';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useStatuses } from '../../features/statuses/hooks';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { getStatusColor, getStatusLabel, getStatusDotColor } from '../../shared/utils/status';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Safe value helper function as per guidelines
 const safe = (val: any, dash: string = '—'): string => {
@@ -28,10 +47,12 @@ export default function LeadsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<LeadStatus | 'all'>('all');
   const [selectedSource, setSelectedSource] = useState<LeadSource | 'all'>('all');
+  const [selectedDirection, setSelectedDirection] = useState<'all' | 'inbound' | 'outbound'>('all');
+  const [selectedOutboundList, setSelectedOutboundList] = useState<string>('all');
+  const [outboundLists, setOutboundLists] = useState<Array<{ id: number; name: string }>>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'status'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [editingStatus, setEditingStatus] = useState<number | null>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
@@ -55,22 +76,39 @@ export default function LeadsPage() {
   useEffect(() => {
     refreshStatuses();
   }, [refreshStatuses]);
+  
+  // Load outbound lists for filter
+  useEffect(() => {
+    const loadOutboundLists = async () => {
+      try {
+        const response = await http.get('/api/outbound/import-lists');
+        if (response && (response as any).lists) {
+          setOutboundLists((response as any).lists);
+        }
+      } catch (error) {
+        console.error('Error loading outbound lists:', error);
+      }
+    };
+    loadOutboundLists();
+  }, []);
 
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedSearch, selectedStatus, selectedSource, dateFrom, dateTo]);
+  }, [debouncedSearch, selectedStatus, selectedSource, selectedDirection, selectedOutboundList, dateFrom, dateTo]);
 
   // Memoize filters using debounced search to prevent excessive API calls
   const filters = useMemo(() => ({
     search: debouncedSearch,
     status: selectedStatus === 'all' ? undefined : selectedStatus,
     source: selectedSource === 'all' ? undefined : selectedSource,
+    direction: selectedDirection === 'all' ? undefined : selectedDirection,
+    outbound_list_id: selectedOutboundList === 'all' ? undefined : selectedOutboundList,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     page: currentPage,
     pageSize: PAGE_SIZE,
-  }), [debouncedSearch, selectedStatus, selectedSource, dateFrom, dateTo, currentPage]);
+  }), [debouncedSearch, selectedStatus, selectedSource, selectedDirection, selectedOutboundList, dateFrom, dateTo, currentPage]);
 
   const {
     leads,
@@ -173,7 +211,13 @@ export default function LeadsPage() {
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
     // ✅ BUILD 170: Optimistic update - immediately update UI without waiting for server
-    setEditingStatus(null);
+    // ✅ FIX BUG #1: Ensure newStatus is always a string (status name), never a number
+    
+    if (typeof newStatus !== 'string') {
+      console.error('❌ Invalid status type:', typeof newStatus, newStatus);
+      alert('שגיאה: סטטוס לא תקין');
+      return;
+    }
     
     // Find the old status for potential rollback
     const oldLead = leads.find(l => l.id === leadId);
@@ -185,6 +229,8 @@ export default function LeadsPage() {
         lead.id === leadId ? { ...lead, status: newStatus } : lead
       )
     );
+    
+    console.log('🔵 Status update:', { leadId, from: oldStatus, to: newStatus, type: typeof newStatus });
     
     try {
       // Send update to server in background
@@ -390,6 +436,33 @@ export default function LeadsPage() {
               <SelectOption value="whatsapp">ווצאפ</SelectOption>
             </Select>
             
+            <Select
+              value={selectedDirection}
+              onChange={(e) => setSelectedDirection(e.target.value as 'all' | 'inbound' | 'outbound')}
+              data-testid="select-direction-filter"
+              className="w-full sm:w-auto min-w-[140px]"
+            >
+              <SelectOption value="all">כל השיחות</SelectOption>
+              <SelectOption value="inbound">נכנסות</SelectOption>
+              <SelectOption value="outbound">יוצאות</SelectOption>
+            </Select>
+            
+            {outboundLists.length > 0 && (
+              <Select
+                value={selectedOutboundList}
+                onChange={(e) => setSelectedOutboundList(e.target.value)}
+                data-testid="select-outbound-list-filter"
+                className="w-full sm:w-auto min-w-[150px]"
+              >
+                <SelectOption value="all">כל רשימות היבוא</SelectOption>
+                {outboundLists.map(list => (
+                  <SelectOption key={list.id} value={list.id.toString()}>
+                    {list.name}
+                  </SelectOption>
+                ))}
+              </Select>
+            )}
+            
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-gray-400" />
               <input
@@ -398,6 +471,7 @@ export default function LeadsPage() {
                 onChange={(e) => setDateFrom(e.target.value)}
                 className="border rounded-lg px-3 py-2 text-sm w-32"
                 data-testid="input-date-from"
+                lang="en"
               />
               <span className="text-gray-500">עד</span>
               <input
@@ -406,6 +480,7 @@ export default function LeadsPage() {
                 onChange={(e) => setDateTo(e.target.value)}
                 className="border rounded-lg px-3 py-2 text-sm w-32"
                 data-testid="input-date-to"
+                lang="en"
               />
               {(dateFrom || dateTo) && (
                 <button
@@ -568,66 +643,15 @@ export default function LeadsPage() {
                   </TableCell>
                   
                   <TableCell data-testid={`text-status-${lead.id}`} className="min-w-[130px]">
-                    {editingStatus === lead.id ? (
-                      <div onClick={(e) => e.stopPropagation()} className="relative">
-                        {/* Overlay to close dropdown when clicking outside */}
-                        <div 
-                          className="fixed inset-0 z-10" 
-                          onClick={() => setEditingStatus(null)}
-                        />
-                        {/* Custom dropdown with colored dots - same as LeadDetailPage */}
-                        <div className="absolute top-0 right-0 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20" data-testid={`dropdown-status-${lead.id}`}>
-                          {statuses.length > 0 ? (
-                            statuses.map((status) => (
-                              <button
-                                key={status.id}
-                                onClick={() => handleStatusChange(lead.id, status.name as LeadStatus)}
-                                className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 flex items-center gap-2 ${
-                                  status.name.toLowerCase() === lead.status.toLowerCase() ? 'bg-blue-50' : ''
-                                }`}
-                                data-testid={`status-option-${status.name}`}
-                              >
-                                <span 
-                                  className="w-3 h-3 rounded-full flex-shrink-0" 
-                                  style={{ backgroundColor: getStatusDotColor(status.color) }}
-                                />
-                                <span className="flex-1">{status.label}</span>
-                                {status.name.toLowerCase() === lead.status.toLowerCase() && (
-                                  <span className="text-blue-600">✓</span>
-                                )}
-                              </button>
-                            ))
-                          ) : (
-                            <div className="px-4 py-2 text-sm text-gray-500">טוען סטטוסים...</div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="relative group flex items-center gap-2">
-                        <div 
-                          className={`${getStatusColor(lead.status, statuses)} cursor-pointer hover:opacity-80 hover:scale-105 text-xs px-3 py-1.5 transition-all duration-200 hover:ring-2 hover:ring-blue-400 hover:shadow-md rounded-full inline-flex items-center gap-1.5 font-medium`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            console.log('Status badge clicked for lead', lead.id);
-                            setEditingStatus(lead.id);
-                          }}
-                          data-testid={`badge-status-${lead.id}`}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          <span 
-                            className="w-2 h-2 rounded-full flex-shrink-0" 
-                            style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status, statuses)) }}
-                          />
-                          {getStatusLabel(lead.status, statuses)}
-                          <Edit className="w-3 h-3 opacity-70" />
-                        </div>
-                        <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1.5 bg-gray-900 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10 whitespace-nowrap pointer-events-none shadow-lg">
-                          לחץ לשינוי סטטוס
-                        </div>
-                      </div>
-                    )}
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <StatusDropdown
+                        currentStatus={lead.status}
+                        statuses={statuses}
+                        onStatusChange={(newStatus) => handleStatusChange(lead.id, newStatus as LeadStatus)}
+                        size="sm"
+                        data-testid={`status-dropdown-${lead.id}`}
+                      />
+                    </div>
                   </TableCell>
                   
                   <TableCell data-testid={`text-source-${lead.id}`} className="min-w-[90px]">
@@ -642,7 +666,7 @@ export default function LeadsPage() {
                   
                   <TableCell data-testid={`text-created-${lead.id}`} className="min-w-[100px]">
                     <div className="text-sm text-gray-600 dark:text-gray-400">
-                      {new Date(lead.created_at).toLocaleDateString('he-IL')}
+                      {formatDateOnly(lead.created_at)}
                     </div>
                   </TableCell>
                   
@@ -870,7 +894,7 @@ export default function LeadsPage() {
                 className={`cursor-pointer hover:shadow-md transition-shadow ${selectedLeadIds.has(lead.id) ? 'ring-2 ring-blue-500' : ''}`}
                 onClick={(e) => {
                   // Only navigate if we're not clicking on status badge, checkbox, or action buttons
-                  if (!e.defaultPrevented && editingStatus !== lead.id) {
+                  if (!e.defaultPrevented) {
                     navigate(`/app/leads/${lead.id}`);
                   }
                 }}
@@ -907,65 +931,13 @@ export default function LeadsPage() {
                   </div>
                   <div className="flex-shrink-0">
                     <div onClick={(e) => e.stopPropagation()}>
-                      {editingStatus === lead.id ? (
-                        <div className="relative">
-                          {/* Overlay to close dropdown when clicking outside */}
-                          <div 
-                            className="fixed inset-0 z-10" 
-                            onClick={() => setEditingStatus(null)}
-                          />
-                          {/* Custom dropdown with colored dots - same as desktop */}
-                          <div className="absolute top-0 left-0 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20" data-testid={`dropdown-status-mobile-${lead.id}`}>
-                            {statuses.length > 0 ? (
-                              statuses.map((status) => (
-                                <button
-                                  key={status.id}
-                                  onClick={() => handleStatusChange(lead.id, status.name as LeadStatus)}
-                                  className={`w-full px-4 py-2 text-sm text-right hover:bg-gray-50 flex items-center gap-2 ${
-                                    status.name.toLowerCase() === lead.status.toLowerCase() ? 'bg-blue-50' : ''
-                                  }`}
-                                  data-testid={`status-option-mobile-${status.name}`}
-                                >
-                                  <span 
-                                    className="w-3 h-3 rounded-full flex-shrink-0" 
-                                    style={{ backgroundColor: getStatusDotColor(status.color) }}
-                                  />
-                                  <span className="flex-1">{status.label}</span>
-                                  {status.name.toLowerCase() === lead.status.toLowerCase() && (
-                                    <span className="text-blue-600">✓</span>
-                                  )}
-                                </button>
-                              ))
-                            ) : (
-                              <div className="px-4 py-2 text-sm text-gray-500">טוען סטטוסים...</div>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="relative group">
-                          <div className="flex items-center gap-2">
-                            <div 
-                              className={`${getStatusColor(lead.status, statuses)} cursor-pointer hover:opacity-80 text-xs px-3 py-2 transition-all duration-200 rounded-full inline-flex items-center gap-1.5 font-medium`}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                console.log('Mobile status badge clicked for lead', lead.id);
-                                setEditingStatus(lead.id);
-                              }}
-                              data-testid={`badge-status-mobile-${lead.id}`}
-                              role="button"
-                              tabIndex={0}
-                            >
-                              <span 
-                                className="w-2 h-2 rounded-full flex-shrink-0" 
-                                style={{ backgroundColor: getStatusDotColor(getStatusColor(lead.status, statuses)) }}
-                              />
-                              {getStatusLabel(lead.status, statuses)}
-                            </div>
-                            <span className="text-xs text-gray-400">לחץ לעריכה</span>
-                          </div>
-                        </div>
-                      )}
+                      <StatusDropdown
+                        currentStatus={lead.status}
+                        statuses={statuses}
+                        onStatusChange={(newStatus) => handleStatusChange(lead.id, newStatus as LeadStatus)}
+                        size="sm"
+                        data-testid={`status-dropdown-mobile-${lead.id}`}
+                      />
                     </div>
                   </div>
                 </div>
@@ -985,7 +957,7 @@ export default function LeadsPage() {
                       {safe(lead.source) === 'whatsapp' ? 'ווצאפ' : 'טלפון'}
                     </span>
                     <span data-testid={`text-created-mobile-${lead.id}`}>
-                      {new Date(lead.created_at).toLocaleDateString('he-IL')}
+                      {formatDateOnly(lead.created_at)}
                     </span>
                   </div>
                 </div>

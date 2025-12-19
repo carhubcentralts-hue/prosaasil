@@ -18,7 +18,8 @@ import {
   Bell,
   User,
   Bot,
-  Clock
+  Clock,
+  Send
 } from 'lucide-react';
 import { useAuth } from '../../features/auth/hooks';
 import { useImpersonation } from '../../features/businesses/hooks/useImpersonation';
@@ -48,8 +49,14 @@ const menuItems = [
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
   { 
+    icon: Send, 
+    label: 'תפוצה WhatsApp',
+    to: '/app/whatsapp-broadcast',
+    roles: ['system_admin', 'owner', 'admin']
+  },
+  { 
     icon: Phone, 
-    label: 'שיחות',
+    label: 'שיחות נכנסות',
     to: '/app/calls',
     roles: ['system_admin', 'owner', 'admin', 'agent']
   },
@@ -259,6 +266,21 @@ export function MainLayout() {
     };
   }, [userMenuOpen]);
 
+  // Keyboard shortcut for search (Ctrl+K / Cmd+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchModalOpen(true);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   // Removed handleExitImpersonation - now handled by ImpersonationBanner component
 
   return (
@@ -415,16 +437,19 @@ export function MainLayout() {
 
               {/* Right side - Action buttons + User */}
               <div className="flex items-center space-x-reverse space-x-2">
-                {/* Quick Search - Temporarily hidden - Search API needs to be implemented
+                {/* Global Search - Quick access button */}
                 <button
-                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative"
+                  className="p-2.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors relative group"
                   onClick={() => setSearchModalOpen(true)}
                   data-testid="button-search"
-                  title="חיפוש מהיר"
+                  title="חיפוש גלובלי - לחץ כאן או Ctrl+K"
                 >
                   <Search className="h-5 w-5" />
+                  {/* Keyboard shortcut hint */}
+                  <span className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                    Ctrl+K
+                  </span>
                 </button>
-                */}
 
                 {/* Notifications */}
                 <button
@@ -612,11 +637,11 @@ export function MainLayout() {
         />
       )}
 
-      {/* Search Modal - Temporarily disabled until API is implemented */}
-      {/* <SearchModal
+      {/* Search Modal - Now enabled with working API */}
+      <SearchModal
         isOpen={searchModalOpen}
         onClose={() => setSearchModalOpen(false)}
-      /> */}
+      />
       </div>
     </div>
   );

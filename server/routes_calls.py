@@ -2,7 +2,7 @@
 Calls API Routes - מסלולי API לשיחות
 Includes call listing, details, transcript, and secure recording download
 """
-from flask import Blueprint, request, jsonify, send_file, current_app, session, g
+from flask import Blueprint, request, jsonify, send_file, current_app, session, g, Response, make_response
 from server.auth_api import require_api_auth
 from server.routes_crm import get_business_id
 from server.extensions import csrf
@@ -23,12 +23,19 @@ calls_bp = Blueprint("calls", __name__)
 @calls_bp.route("/api/calls", methods=["GET"])
 @require_api_auth()
 def list_calls():
-    """רשימת שיחות עם מסננים וחיפוש"""
+    """
+    רשימת שיחות עם מסננים וחיפוש
+    
+    NEW: Filters out parent calls by default to prevent duplicates
+    Shows only child legs or standalone calls
+    """
     try:
         # Get filters from query params
         search = request.args.get('search', '').strip()
         status = request.args.get('status', 'all')
         direction = request.args.get('direction', 'all')
+        lead_id = request.args.get('lead_id', '').strip()
+        show_all = request.args.get('show_all', 'false').lower() == 'true'  # 🔥 NEW: Show parent calls
         limit = min(int(request.args.get('limit', 50)), 100)  # Max 100
         offset = int(request.args.get('offset', 0))
         
@@ -42,7 +49,50 @@ def list_calls():
         # Build query
         query = Call.query.filter(Call.business_id == business_id)
         
+        # 🔥 NEW: Filter out parent calls by default (prevent duplicates)
+        # Parent calls are typically short (1 second) and get replaced by child leg
+        # Only show calls that either:
+        # 1. Don't have a parent_call_sid (standalone/child calls)
+        # 2. Have duration > 1 and status = completed (actual calls)
+        # 3. show_all=true (admin debugging)
+        if not show_all:
+            # Smart filter: prefer child legs over parent calls
+            # Hide parent calls that have corresponding child legs
+            # Also hide very short cancelled/failed calls (< 2 seconds)
+            from sqlalchemy import and_, not_, exists
+            
+            # Subquery to find call_sids that are parent_call_sid in other records
+            parent_exists = exists().where(
+                and_(
+                    Call.parent_call_sid == Call.call_sid,
+                    Call.business_id == business_id
+                )
+            )
+            
+            # Filter logic:
+            # Include calls where:
+            # 1. No parent_call_sid exists (standalone calls) OR
+            # 2. Has parent_call_sid (is a child leg) OR
+            # 3. Duration > 1 (actual conversation happened)
+            # Exclude parent calls with duration <= 1 that have child legs
+            query = query.filter(
+                or_(
+                    Call.parent_call_sid.isnot(None),  # Is a child leg
+                    and_(
+                        Call.parent_call_sid.is_(None),  # Has no parent
+                        or_(
+                            not_(parent_exists),  # And is not itself a parent of another call
+                            Call.duration > 1  # Or has significant duration
+                        )
+                    )
+                )
+            )
+        
         # Apply filters
+        if lead_id:
+            # Filter by lead_id if provided
+            query = query.filter(Call.lead_id == int(lead_id))
+        
         if search:
             # ✅ Search in both final_transcript (offline) and transcription (realtime)
             search_conditions = [
@@ -58,9 +108,9 @@ def list_calls():
         if status != 'all':
             query = query.filter(Call.status == status)
             
-        # Direction filter commented out as field doesn't exist in current CallLog model
-        # if direction != 'all':
-        #     query = query.filter(Call.direction == direction)
+        # ✅ Direction filter - CallLog model has direction field
+        if direction != 'all':
+            query = query.filter(Call.direction == direction)
         
         # Order by creation time desc
         query = query.order_by(Call.created_at.desc())
@@ -82,6 +132,7 @@ def list_calls():
             
             calls_data.append({
                 "sid": call.call_sid,
+                "call_sid": call.call_sid,  # 🔥 NEW: Add explicit call_sid field
                 "lead_id": getattr(call, 'lead_id', None),
                 "lead_name": getattr(call, 'lead_name', None),
                 "from_e164": call.from_number,
@@ -89,10 +140,14 @@ def list_calls():
                 "duration": getattr(call, 'duration', 0),
                 "status": call.status,
                 "direction": getattr(call, 'direction', 'inbound'),
+                "twilio_direction": getattr(call, 'twilio_direction', None),  # 🔥 NEW: Original Twilio direction
+                "parent_call_sid": getattr(call, 'parent_call_sid', None),  # 🔥 NEW: Parent call SID
                 "at": call.created_at.isoformat() if call.created_at else None,
                 "created_at": call.created_at.isoformat() if call.created_at else None,
                 "recording_url": call.recording_url,
                 "transcription": best_transcript,
+                "transcript": best_transcript,  # Alias for compatibility
+                "final_transcript": getattr(call, 'final_transcript', None),  # 🔥 FIX: Add explicit final_transcript field
                 "summary": call.summary if hasattr(call, 'summary') else None,
                 "hasRecording": bool(call.recording_url),
                 "hasTranscript": bool(best_transcript),
@@ -167,7 +222,7 @@ def get_call_details(call_sid):
 @calls_bp.route("/api/calls/<call_sid>/download", methods=["GET"])
 @require_api_auth()
 def download_recording(call_sid):
-    """הורדה מאובטחת של הקלטה דרך השרת - using unified recording service"""
+    """הורדה מאובטחת של הקלטה דרך השרת - with Range support for iOS"""
     try:
         business_id = get_business_id()
         if not business_id:
@@ -192,12 +247,78 @@ def download_recording(call_sid):
         if not audio_path:
             return jsonify({"success": False, "error": "Recording not available"}), 404
         
-        # Serve the file directly
-        return send_file(
-            audio_path,
-            mimetype="audio/mpeg",
-            as_attachment=False,
-        )
+        # 🎯 iOS FIX: Support Range requests for audio streaming
+        # Get file size for Content-Length and Range calculations
+        file_size = os.path.getsize(audio_path)
+        
+        # Check if Range header is present (iOS requires this)
+        range_header = request.headers.get('Range', None)
+        
+        if range_header:
+            # Parse Range header (format: "bytes=start-end")
+            byte_range = range_header.replace('bytes=', '').split('-')
+            start = int(byte_range[0]) if byte_range[0] else 0
+            end = int(byte_range[1]) if len(byte_range) > 1 and byte_range[1] else file_size - 1
+            
+            # Ensure valid range
+            if start >= file_size:
+                return Response(status=416)  # Range Not Satisfiable
+            
+            end = min(end, file_size - 1)
+            length = end - start + 1
+            
+            # Read partial content
+            with open(audio_path, 'rb') as f:
+                f.seek(start)
+                data = f.read(length)
+            
+            # Return 206 Partial Content with proper headers
+            rv = Response(
+                data,
+                206,
+                mimetype='audio/mpeg',
+                direct_passthrough=True
+            )
+            rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
+            rv.headers.add('Accept-Ranges', 'bytes')
+            rv.headers.add('Content-Length', str(length))
+            # 🎯 FIX: Content-Disposition inline for browser playback (required for iOS/Chrome)
+            rv.headers.add('Content-Disposition', 'inline')
+            # 🎯 FIX: CORS headers for cross-origin requests (if frontend on different domain)
+            # Security: Use specific origin from request header, NOT wildcard with credentials
+            origin = request.headers.get('Origin')
+            if origin:
+                rv.headers.add('Access-Control-Allow-Origin', origin)
+                rv.headers.add('Access-Control-Allow-Credentials', 'true')
+                # 🎯 FIX: Vary header for proper caching with multiple origins
+                rv.headers.add('Vary', 'Origin')
+                # 🎯 FIX: Expose headers so UI can read them during Range requests
+                rv.headers.add('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges, Content-Length, Content-Type')
+            return rv
+        else:
+            # No Range header - serve entire file with Accept-Ranges header
+            response = make_response(send_file(
+                audio_path,
+                mimetype="audio/mpeg",
+                as_attachment=False,
+                conditional=True,  # Enable conditional requests
+                max_age=3600  # Cache for 1 hour
+            ))
+            # 🎯 FIX: Add required headers for audio streaming (iOS/Android compatibility)
+            response.headers['Accept-Ranges'] = 'bytes'
+            response.headers['Content-Disposition'] = 'inline'
+            response.headers['Content-Length'] = str(file_size)
+            # 🎯 FIX: CORS headers for cross-origin requests
+            # Security: Use specific origin from request header, NOT wildcard with credentials
+            origin = request.headers.get('Origin')
+            if origin:
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                # 🎯 FIX: Vary header for proper caching with multiple origins
+                response.headers['Vary'] = 'Origin'
+                # 🎯 FIX: Expose headers so UI can read them during Range requests
+                response.headers['Access-Control-Expose-Headers'] = 'Content-Range, Accept-Ranges, Content-Length, Content-Type'
+            return response
         
     except Exception as e:
         log.error(f"Error downloading recording: {e}")

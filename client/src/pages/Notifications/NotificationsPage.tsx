@@ -5,6 +5,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { Card } from '../../shared/components/ui/Card';
 import { Badge } from '../../shared/components/Badge';
 import { http } from '../../services/http';
+import { formatRelativeTime, formatDate, formatDateOnly } from '../../shared/utils/format';
 
 interface Reminder {
   id: number;
@@ -84,22 +85,8 @@ export function NotificationsPage() {
     }
   };
 
-  const formatTimeAgo = (dateString: string) => {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffMs = now.getTime() - date.getTime();
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMinutes / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMinutes < 60) {
-      return `לפני ${diffMinutes} דקות`;
-    } else if (diffHours < 24) {
-      return `לפני ${diffHours} שעות`;
-    } else {
-      return `לפני ${diffDays} ימים`;
-    }
-  };
+  // 🎯 REMOVED: Use centralized formatRelativeTime from utils with timezone fix
+  // const formatTimeAgo = (dateString: string) => { ... }
 
   const getChannelIcon = (channel: string) => {
     switch (channel) {
@@ -266,7 +253,7 @@ export function NotificationsPage() {
                           {getChannelLabel(reminder.channel)}
                         </div>
                         {reminder.due_at && (
-                          <span>תוזמן ל-{formatTimeAgo(reminder.due_at)}</span>
+                          <span>תוזמן ל-{formatRelativeTime(reminder.due_at)}</span>
                         )}
                       </div>
                     </div>

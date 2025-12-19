@@ -1,30 +1,85 @@
 """
 Background Recording Processing - תמלול והקלטות ברקע
+
+DB RESILIENCE: Recording worker handles DB outages gracefully and continues processing
 """
 import os
 import requests
 import logging
 import queue
+import wave
+import contextlib
 from threading import Thread
 from datetime import datetime
 from typing import Optional
+from sqlalchemy.exc import OperationalError, DisconnectionError
+
+# 🔒 Import Lead model at top level for efficient access
+from server.models_sql import CallLog, Business, Lead
 
 log = logging.getLogger("tasks.recording")
+
+# 🔥 BUILD 342: Transcript source constants
+TRANSCRIPT_SOURCE_RECORDING = "recording"  # Transcribed from recording file
+TRANSCRIPT_SOURCE_REALTIME = "realtime"    # Using realtime transcript
+TRANSCRIPT_SOURCE_FAILED = "failed"        # Transcription attempt failed
 
 # ✅ Global queue for recording jobs - single shared instance
 RECORDING_QUEUE = queue.Queue()
 
-def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number=""):
-    """Enqueue recording job for background processing"""
+def normalize_call_direction(twilio_direction):
+    """
+    Normalize Twilio's direction values to simple inbound/outbound/unknown.
+    
+    Twilio Direction values:
+    - 'inbound' -> 'inbound'
+    - 'outbound-api' -> 'outbound' (parent call)
+    - 'outbound-dial' -> 'outbound' (actual outbound call to customer)
+    - anything else -> 'unknown'
+    
+    Args:
+        twilio_direction: Original direction from Twilio webhook
+    
+    Returns:
+        Normalized direction: 'inbound', 'outbound', or 'unknown'
+    """
+    if not twilio_direction:
+        return "unknown"
+    
+    twilio_dir_lower = str(twilio_direction).lower()
+    
+    if twilio_dir_lower.startswith("outbound"):
+        return "outbound"
+    elif twilio_dir_lower.startswith("inbound"):
+        return "inbound"
+    else:
+        return "unknown"
+
+def enqueue_recording_job(call_sid, recording_url, business_id, from_number="", to_number="", retry_count=0):
+    """Enqueue recording job for background processing
+    
+    Args:
+        call_sid: Twilio call SID
+        recording_url: URL to recording file
+        business_id: Business ID for the call
+        from_number: Caller phone number
+        to_number: Called phone number
+        retry_count: Current retry attempt (0-2 allowed, max 3 attempts total)
+    """
     RECORDING_QUEUE.put({
         "call_sid": call_sid,
         "recording_url": recording_url,
         "business_id": business_id,
         "from_number": from_number,
         "to_number": to_number,
+        "retry_count": retry_count  # Track retry attempts
     })
-    print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid}")
-    log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
+    if retry_count == 0:
+        print(f"✅ [OFFLINE_STT] Job enqueued for {call_sid}")
+        log.info(f"[OFFLINE_STT] Recording job enqueued: {call_sid}")
+    else:
+        print(f"🔁 [OFFLINE_STT] Job re-enqueued for {call_sid} (retry {retry_count}/2)")
+        log.info(f"[OFFLINE_STT] Recording job retry {retry_count}: {call_sid}")
 
 def enqueue_recording(form_data):
     """Legacy wrapper - converts form_data to new queue format"""
@@ -49,9 +104,25 @@ def enqueue_recording(form_data):
     enqueue_recording_job(call_sid, recording_url, business_id, from_number, to_number)
 
 def start_recording_worker(app):
-    """Background worker loop - processes recording jobs from queue"""
+    """
+    Background worker loop - processes recording jobs from queue.
+    
+    DB RESILIENCE: This worker continues processing even if DB is temporarily unavailable.
+    Jobs that fail due to DB errors are logged but don't crash the worker.
+    
+    RETRY LOGIC: If recording isn't ready yet, retries with exponential backoff:
+    - Attempt 1: Immediate (0s delay)
+    - Attempt 2: After 10s delay
+    - Attempt 3: After 30s delay  
+    - Attempt 4: After 90s delay (final attempt)
+    Max 3 retries = 4 total attempts
+    """
     print("✅ [OFFLINE_STT] Recording worker loop started")
     log.info("[OFFLINE_STT] Recording worker thread initialized")
+    
+    # Retry backoff delays in seconds (0s, 10s, 30s, 90s)
+    RETRY_DELAYS = [0, 10, 30, 90]
+    MAX_RETRIES = 2  # 0-indexed, so 0, 1, 2 = 3 total attempts
     
     with app.app_context():
         while True:
@@ -64,9 +135,10 @@ def start_recording_worker(app):
                 business_id = job.get("business_id")
                 from_number = job.get("from_number", "")
                 to_number = job.get("to_number", "")
+                retry_count = job.get("retry_count", 0)
                 
-                print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid}")
-                log.info(f"[OFFLINE_STT] Processing recording: {call_sid}")
+                print(f"🎧 [OFFLINE_STT] Starting offline transcription for {call_sid} (attempt {retry_count + 1})")
+                log.info(f"[OFFLINE_STT] Processing recording: {call_sid} (attempt {retry_count + 1})")
                 
                 # Build form_data for legacy processing function
                 form_data = {
@@ -77,20 +149,74 @@ def start_recording_worker(app):
                 }
                 
                 # Process the recording
-                process_recording_async(form_data)
+                success = process_recording_async(form_data)
                 
-                print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
-                log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
+                # Check if recording was actually processed (audio file existed)
+                # If audio_file was None, we should retry
+                if success is False and retry_count < MAX_RETRIES:
+                    # Recording not ready yet - schedule retry with backoff
+                    import time
+                    import threading
+                    
+                    delay = RETRY_DELAYS[retry_count + 1] if retry_count + 1 < len(RETRY_DELAYS) else RETRY_DELAYS[-1]
+                    print(f"⏰ [OFFLINE_STT] Recording not ready for {call_sid}, retrying in {delay}s")
+                    log.info(f"[OFFLINE_STT] Scheduling retry {retry_count + 1} for {call_sid} with {delay}s delay")
+                    
+                    # Schedule retry in background thread
+                    def delayed_retry():
+                        time.sleep(delay)
+                        enqueue_recording_job(
+                            call_sid=call_sid,
+                            recording_url=recording_url,
+                            business_id=business_id,
+                            from_number=from_number,
+                            to_number=to_number,
+                            retry_count=retry_count + 1
+                        )
+                    
+                    retry_thread = threading.Thread(target=delayed_retry, daemon=True)
+                    retry_thread.start()
+                elif retry_count >= MAX_RETRIES and not success:
+                    print(f"❌ [OFFLINE_STT] Max retries reached for {call_sid} - giving up")
+                    log.error(f"[OFFLINE_STT] Max retries ({MAX_RETRIES}) exceeded for {call_sid}")
+                else:
+                    print(f"✅ [OFFLINE_STT] Completed processing for {call_sid}")
+                    log.info(f"[OFFLINE_STT] Recording processed successfully: {call_sid}")
+                
+            except (OperationalError, DisconnectionError) as e:
+                # 🔥 DB RESILIENCE: DB error - log and continue with next job
+                from server.utils.db_health import log_db_error
+                log_db_error(e, context="recording_worker")
+                print(f"🔴 [OFFLINE_STT] DB error processing {job.get('call_sid', 'unknown')} - skipping")
+                
+                # Rollback to clean up session
+                try:
+                    from server.db import db
+                    db.session.rollback()
+                    db.session.close()
+                except Exception:
+                    pass
+                
+                # Do NOT crash worker - continue with next job
                 
             except Exception as e:
+                # 🔥 DB RESILIENCE: Any other error - log and continue
                 log.error(f"[OFFLINE_STT] Worker error: {e}")
+                print(f"❌ [OFFLINE_STT] Error processing {job.get('call_sid', 'unknown')}: {e}")
                 import traceback
                 traceback.print_exc()
+                
+                # Do NOT crash worker - continue with next job
+                
             finally:
                 RECORDING_QUEUE.task_done()
 
 def process_recording_async(form_data):
-    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION"""
+    """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION
+    
+    Returns:
+        bool: True if processing succeeded (audio file existed), False if recording not ready (should retry)
+    """
     try:
         recording_url = form_data.get("RecordingUrl")
         call_sid = form_data.get("CallSid")
@@ -105,6 +231,7 @@ def process_recording_async(form_data):
         
         # Get CallLog to access recording_url (single source of truth)
         audio_file = None
+        call_log = None
         try:
             app = get_process_app()
             with app.app_context():
@@ -112,6 +239,12 @@ def process_recording_async(form_data):
                 call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                 
                 if call_log:
+                    # 🔥 CRITICAL: Skip if already processed (prevent duplicate transcription)
+                    if call_log.final_transcript and len(call_log.final_transcript.strip()) > 50:
+                        print(f"✅ [OFFLINE_STT] Call {call_sid} already has final_transcript ({len(call_log.final_transcript)} chars) - skipping reprocessing")
+                        log.info(f"[OFFLINE_STT] Skipping {call_sid} - already processed with final_transcript")
+                        return True  # Already processed successfully
+                    
                     # ✅ Use the EXACT same recording that UI plays
                     audio_file = get_recording_file_for_call(call_log)
                 else:
@@ -120,10 +253,17 @@ def process_recording_async(form_data):
         except Exception as e:
             log.error(f"[OFFLINE_STT] Error getting recording from service: {e}")
             print(f"❌ [OFFLINE_STT] Error getting recording: {e}")
+            # 🔥 CRITICAL FIX: Rollback on DB errors
+            try:
+                from server.db import db
+                db.session.rollback()
+            except Exception:
+                pass
         
         if not audio_file:
-            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline processing")
+            print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - need retry")
             log.warning(f"[OFFLINE_STT] Audio file not available for {call_sid}")
+            return False  # Signal that retry is needed
         
         # 2. תמלול עברית (Google STT v2 + Whisper fallback) - for summary
         # transcribe_hebrew handles None gracefully and returns ""
@@ -136,8 +276,32 @@ def process_recording_async(form_data):
         extracted_city = None
         extraction_confidence = None
         
+        # 🔥 BUILD 342: Track recording metadata to verify actual transcription from file
+        audio_bytes_len = None
+        audio_duration_sec = None
+        transcript_source = None
+        
         if audio_file and os.path.exists(audio_file):
             try:
+                # 🔥 BUILD 342: Get audio file metadata
+                audio_bytes_len = os.path.getsize(audio_file)
+                log.info(f"[OFFLINE_STT] Recording file size: {audio_bytes_len} bytes")
+                
+                # Try to get duration from audio file
+                try:
+                    with contextlib.closing(wave.open(audio_file, 'r')) as f:
+                        frames = f.getnframes()
+                        rate = f.getframerate()
+                        audio_duration_sec = frames / float(rate)
+                        log.info(f"[OFFLINE_STT] Audio duration: {audio_duration_sec:.2f} seconds")
+                except Exception as duration_error:
+                    # WAV parsing failed, try alternative method or skip duration
+                    log.warning(f"[OFFLINE_STT] Could not determine audio duration: {duration_error}")
+                    # Set approximate duration based on call_log.duration if available
+                    if call_log and call_log.duration:
+                        audio_duration_sec = float(call_log.duration)
+                        log.info(f"[OFFLINE_STT] Using call duration as fallback: {audio_duration_sec}s")
+                
                 from server.services.lead_extraction_service import transcribe_recording_with_whisper, extract_lead_from_transcript
                 
                 # Get full offline transcript (higher quality than realtime)
@@ -151,10 +315,12 @@ def process_recording_async(form_data):
                     print(f"⚠️ [OFFLINE_STT] Empty or invalid transcript for {call_sid} - NOT updating call_log.final_transcript")
                     log.warning(f"[OFFLINE_STT] Transcription returned empty/invalid result: {len(final_transcript or '')} chars")
                     final_transcript = None  # Set to None so we don't save empty string
+                    transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed transcription
                 else:
                     # Success - we have a valid transcript!
                     print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
                     log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
+                    transcript_source = TRANSCRIPT_SOURCE_RECORDING  # 🔥 BUILD 342: Mark as recording-based
                     
                     # 🔥 NOTE: City/Service extraction moved to AFTER summary generation
                     # We extract from the summary, not from raw transcript (more accurate!)
@@ -169,9 +335,12 @@ def process_recording_async(form_data):
                 extracted_service = None
                 extracted_city = None
                 extraction_confidence = None
+                transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed
         else:
             print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - skipping offline transcription")
             log.warning(f"[OFFLINE_STT] Audio file not available: {audio_file}")
+            # 🔥 BUILD 342: If no audio file, will use realtime transcript as fallback
+            transcript_source = None  # Will be set to TRANSCRIPT_SOURCE_REALTIME later if we use realtime transcript
         
         # 3. ✨ BUILD 143: סיכום חכם ודינמי GPT - מותאם לסוג העסק!
         # 🔥 CRITICAL: Use final_transcript (high-quality Whisper) if available, fallback to realtime transcription
@@ -204,6 +373,12 @@ def process_recording_async(form_data):
                         log.info(f"📊 Using business context: {business_name} ({business_type})")
             except Exception as e:
                 log.warning(f"⚠️ Could not get business context for summary: {e}")
+                # 🔥 CRITICAL FIX: Rollback on DB errors
+                try:
+                    from server.db import db
+                    db.session.rollback()
+                except Exception:
+                    pass
             
             summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
             log.info(f"✅ Dynamic summary generated from {transcript_source}: {summary[:50]}...")
@@ -234,6 +409,12 @@ def process_recording_async(form_data):
             except Exception as e:
                 print(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
                 log.warning(f"[OFFLINE_EXTRACT] Could not check existing extraction: {e}")
+                # 🔥 CRITICAL FIX: Rollback on DB errors
+                try:
+                    from server.db import db
+                    db.session.rollback()
+                except Exception:
+                    pass
         
         if not skip_extraction:
             # 🔥 SMART FALLBACK: Choose best text for extraction
@@ -297,7 +478,11 @@ def process_recording_async(form_data):
             final_transcript=final_transcript,
             extracted_service=extracted_service,
             extracted_city=extracted_city,
-            extraction_confidence=extraction_confidence
+            extraction_confidence=extraction_confidence,
+            # 🔥 BUILD 342: Pass recording metadata
+            audio_bytes_len=audio_bytes_len,
+            audio_duration_sec=audio_duration_sec,
+            transcript_source=transcript_source
         )
         
         log.info("✅ Recording processed successfully: CallSid=%s", call_sid)
@@ -342,7 +527,8 @@ def process_recording_async(form_data):
                             agent_name=business.name or "Assistant",
                             direction=direction,
                             city=extracted_city,
-                            service_category=extracted_service
+                            service_category=extracted_service,
+                            recording_url=call_log.recording_url  # 🔥 FIX: Always include recording URL
                         )
                         
                         if webhook_sent:
@@ -359,10 +545,14 @@ def process_recording_async(form_data):
             import traceback
             traceback.print_exc()
         
+        # Return success
+        return True
+        
     except Exception as e:
         log.error("❌ Recording processing failed: %s", e)
         import traceback
         traceback.print_exc()
+        return False  # Processing failed, may need retry
 
 def download_recording(recording_url: str, call_sid: str) -> Optional[str]:
     """
@@ -394,7 +584,8 @@ def transcribe_hebrew(audio_file):
         return ""
 
 def save_call_to_db(call_sid, from_number, recording_url, transcription, to_number=None, summary=None,
-                   final_transcript=None, extracted_service=None, extracted_city=None, extraction_confidence=None):
+                   final_transcript=None, extracted_service=None, extracted_city=None, extraction_confidence=None,
+                   audio_bytes_len=None, audio_duration_sec=None, transcript_source=None):
     """✨ שמור שיחה + תמלול + סיכום + 🆕 POST-CALL EXTRACTION ל-DB + יצירת לקוח/ליד אוטומטית"""
     try:
         # ✅ Use PostgreSQL + SQLAlchemy instead of SQLite
@@ -427,6 +618,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     call_log.extracted_service = extracted_service
                     call_log.extracted_city = extracted_city
                     call_log.extraction_confidence = extraction_confidence
+                    # 🔥 BUILD 342: Recording quality metadata
+                    call_log.audio_bytes_len = audio_bytes_len
+                    call_log.audio_duration_sec = audio_duration_sec
+                    call_log.transcript_source = transcript_source
                     call_log.status = "processed"
                     call_log.created_at = datetime.utcnow()
                     
@@ -440,6 +635,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         log.warning(f"Call log already exists (race condition): {call_sid}")
                         call_log = CallLog.query.filter_by(call_sid=call_sid).first()
                     else:
+                        db.session.rollback()
                         raise
             else:
                 # עדכן תמלול וסיכום לCall קיים
@@ -447,13 +643,32 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 if recording_url and not call_log.recording_url:
                     call_log.recording_url = recording_url
                     log.info(f"✅ Updated recording_url for existing call: {call_sid}")
-                call_log.transcription = transcription
-                call_log.summary = summary  # ✨ סיכום חכם
-                # 🆕 POST-CALL EXTRACTION fields
-                call_log.final_transcript = final_transcript
-                call_log.extracted_service = extracted_service
-                call_log.extracted_city = extracted_city
-                call_log.extraction_confidence = extraction_confidence
+                
+                # 🎯 FIX: UPSERT protection - only update if new value is not NULL/empty
+                # Don't overwrite existing good data with empty values
+                if transcription and len(transcription.strip()) > 0:
+                    call_log.transcription = transcription
+                if summary and len(summary.strip()) > 0:
+                    call_log.summary = summary
+                
+                # 🆕 POST-CALL EXTRACTION fields - only update if non-empty
+                if final_transcript and len(final_transcript.strip()) > 0:
+                    call_log.final_transcript = final_transcript
+                if extracted_service and len(extracted_service.strip()) > 0:
+                    call_log.extracted_service = extracted_service
+                if extracted_city and len(extracted_city.strip()) > 0:
+                    call_log.extracted_city = extracted_city
+                if extraction_confidence is not None:
+                    call_log.extraction_confidence = extraction_confidence
+                
+                # 🔥 BUILD 342: Recording quality metadata - only update if valid
+                if audio_bytes_len and audio_bytes_len > 0:
+                    call_log.audio_bytes_len = audio_bytes_len
+                if audio_duration_sec and audio_duration_sec > 0:
+                    call_log.audio_duration_sec = audio_duration_sec
+                if transcript_source and len(transcript_source.strip()) > 0:
+                    call_log.transcript_source = transcript_source
+                
                 call_log.status = "processed"
                 call_log.updated_at = datetime.utcnow()
             
@@ -466,6 +681,14 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             else:
                 print(f"[OFFLINE_STT] ℹ️ No offline transcript saved for {call_sid} (empty or failed)")
             
+            # 🔥 BUILD 342: Log recording quality metadata for verification
+            if audio_bytes_len and audio_bytes_len > 0:
+                print(f"[BUILD 342] ✅ Recording metadata: bytes={audio_bytes_len}, duration={audio_duration_sec:.2f}s, source={transcript_source}")
+                log.info(f"[BUILD 342] Recording quality: bytes={audio_bytes_len}, duration={audio_duration_sec}, source={transcript_source}")
+            else:
+                print(f"[BUILD 342] ⚠️ No recording file downloaded (audio_bytes_len={audio_bytes_len})")
+                log.warning(f"[BUILD 342] No valid recording file for {call_sid}")
+            
             if extracted_service or extracted_city:
                 print(f"[OFFLINE_STT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence}")
             else:
@@ -474,7 +697,21 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             log.info(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
             
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
-            if from_number and call_log and call_log.business_id:
+            # 🔒 CRITICAL: Use lead_id FROM CallLog (locked at call start), NOT phone lookup
+            lead = None
+            if call_log.lead_id:
+                # ✅ Use the locked lead_id from CallLog (imported at top level)
+                lead = Lead.query.filter_by(id=call_log.lead_id).first()
+                if lead:
+                    print(f"✅ [LEAD_ID_LOCK] Using locked lead_id={lead.id} from CallLog for updates")
+                    log.info(f"[LEAD_ID_LOCK] Using locked lead {lead.id} for call {call_sid}")
+                else:
+                    print(f"⚠️ [LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found!")
+                    log.warning(f"[LEAD_ID_LOCK] CallLog has lead_id={call_log.lead_id} but lead not found")
+            
+            # If no lead_id on CallLog, fall back to creating/finding by phone (legacy behavior)
+            if not lead and from_number and call_log and call_log.business_id:
+                print(f"⚠️ [LEAD_ID_LOCK] No lead_id on CallLog, falling back to phone lookup")
                 ci = CustomerIntelligence(call_log.business_id)
                 
                 # זיהוי/יצירת לקוח וליד
@@ -482,9 +719,14 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     from_number, call_sid, transcription
                 )
                 
-                # עדכון CallLog עם customer_id
+                # עדכון CallLog עם customer_id ו-lead_id
                 if customer:
                     call_log.customer_id = customer.id
+                
+                # 🔥 CRITICAL FIX: Link call to lead
+                if lead:
+                    call_log.lead_id = lead.id
+                    log.info(f"✅ Linked call {call_sid} to lead {lead.id}")
                 
                 # 🆕 POST-CALL: Update Lead with extracted service/city (if extraction succeeded)
                 if lead and (extracted_service or extracted_city):
@@ -519,16 +761,80 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # 3. ✨ סיכום חכם של השיחה (שימוש בסיכום שכבר יצרנו!)
                 conversation_summary = ci.generate_conversation_summary(transcription)
                 
-                # 4. ✨ עדכון סטטוס אוטומטי
-                new_status = ci.auto_update_lead_status(lead, conversation_summary)
+                # 4. ✨ עדכון סטטוס אוטומטי - שימוש בשירות החדש
+                # Get call direction from call_log
+                call_direction = call_log.direction if call_log else "inbound"
                 
-                # 5. ✨ שמירת הסיכום בליד (summary מה-GPT + notes עם פרטים)
+                # Use new auto-status service
+                from server.services.lead_auto_status_service import suggest_lead_status_from_call
+                suggested_status = suggest_lead_status_from_call(
+                    tenant_id=call_log.business_id,
+                    lead_id=lead.id,
+                    call_direction=call_direction,
+                    call_summary=summary,  # AI-generated summary
+                    call_transcript=final_transcript or transcription
+                )
+                
+                # Apply status change with validation
+                old_status = lead.status
+                if suggested_status:
+                    # Extra safety: validate status exists for this business
+                    from server.models_sql import LeadStatus
+                    valid_status = LeadStatus.query.filter_by(
+                        business_id=call_log.business_id,
+                        name=suggested_status,
+                        is_active=True
+                    ).first()
+                    
+                    if valid_status:
+                        lead.status = suggested_status
+                        
+                        # Create activity for auto status change
+                        from server.models_sql import LeadActivity
+                        activity = LeadActivity()
+                        activity.lead_id = lead.id
+                        activity.type = "status_change"
+                        activity.payload = {
+                            "from": old_status,
+                            "to": suggested_status,
+                            "source": f"auto_{call_direction}",
+                            "call_sid": call_sid
+                        }
+                        activity.at = datetime.utcnow()
+                        db.session.add(activity)
+                        
+                        log.info(f"[AutoStatus] ✅ Updated lead {lead.id} status: {old_status} → {suggested_status} (source: {call_direction})")
+                    else:
+                        log.warning(f"[AutoStatus] ⚠️ Suggested status '{suggested_status}' not valid for business {call_log.business_id} - skipping status change")
+                else:
+                    log.info(f"[AutoStatus] ℹ️ No confident status match for lead {lead.id} - keeping status as '{old_status}'")
+                
+                # 5. ✨ שמירת הסיכום בליד + עדכון last_contact_at + last_call_direction
                 lead.summary = summary  # סיכום קצר (10-30 מילים)
+                lead.last_contact_at = datetime.utcnow()  # Update last contact time
+                
+                # 🔒 CRITICAL: Set last_call_direction ONCE on first interaction, NEVER override
+                # 
+                # GOLDEN RULE (חוק זהב):
+                # last_call_direction is determined ONLY by the FIRST call to/from the lead.
+                # Once set, it NEVER changes, regardless of subsequent call directions.
+                # 
+                # Examples:
+                # - Outbound call → Lead answers → Later calls back: Lead remains OUTBOUND
+                # - Customer calls in → Later we call them: Lead remains INBOUND
+                # 
+                # This ensures proper classification for filtering and reporting in the UI.
+                if lead.last_call_direction is None:
+                    lead.last_call_direction = call_direction
+                    log.info(f"🎯 Set lead {lead.id} direction to '{call_direction}' (first interaction)")
+                else:
+                    log.info(f"ℹ️ Lead {lead.id} direction already set to '{lead.last_call_direction}' (not overriding with '{call_direction}')")
+                
                 lead.notes = f"סיכום: {conversation_summary.get('summary', '')}\n" + (lead.notes or "")
                 
                 db.session.commit()
                 
-                log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Lead status: {new_status}")
+                log.info(f"🎯 Call processed with AI: Customer {customer.name} ({'NEW' if was_created else 'EXISTING'}), Final status: {lead.status}")
                 log.info(f"📋 Summary: {conversation_summary.get('summary', 'N/A')}")
                 log.info(f"🎭 Intent: {conversation_summary.get('intent', 'N/A')}")
                 log.info(f"⚡ Next action: {conversation_summary.get('next_action', 'N/A')}")
@@ -537,9 +843,19 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
         
     except Exception as e:
         log.error("DB save + AI processing failed: %s", e)
+        # 🔥 CRITICAL FIX: Rollback on DB errors to prevent InFailedSqlTransaction
+        try:
+            from server.db import db
+            db.session.rollback()
+        except Exception:
+            pass
 
 def _identify_business_for_call(to_number, from_number):
-    """זהה עסק לפי מספרי הטלפון בשיחה - חכם"""
+    """זהה עסק לפי מספרי הטלפון בשיחה - חכם
+    
+    🔥 CRITICAL FIX: Use phone_e164 column (not phone_number property) for ilike queries.
+    phone_number is a Python @property that wraps phone_e164, not a database column.
+    """
     from server.models_sql import Business
     from sqlalchemy import or_
     
@@ -548,12 +864,10 @@ def _identify_business_for_call(to_number, from_number):
         # נקה את המספר מסימנים מיוחדים
         clean_to = to_number.replace('+', '').replace('-', '').replace(' ', '')
         
+        # 🔥 FIX: Use phone_e164 (DB column), not phone_number (Python property)
         # חפש עסק שהמספר שלו תואם למספר הנכנס
         business = Business.query.filter(
-            or_(
-                Business.phone_number.ilike(f'%{clean_to[-10:]}%'),  # 10 ספרות אחרונות
-                Business.phone_e164.ilike(f'%{clean_to[-10:]}%')
-            )
+            Business.phone_e164.ilike(f'%{clean_to[-10:]}%')  # 10 ספרות אחרונות
         ).first()
         
         if business:
@@ -564,11 +878,9 @@ def _identify_business_for_call(to_number, from_number):
     if from_number:
         clean_from = from_number.replace('+', '').replace('-', '').replace(' ', '')
         
+        # 🔥 FIX: Use phone_e164 (DB column), not phone_number (Python property)
         business = Business.query.filter(
-            or_(
-                Business.phone_number.ilike(f'%{clean_from[-10:]}%'),
-                Business.phone_e164.ilike(f'%{clean_from[-10:]}%')
-            )
+            Business.phone_e164.ilike(f'%{clean_from[-10:]}%')
         ).first()
         
         if business:
@@ -584,37 +896,111 @@ def _identify_business_for_call(to_number, from_number):
     print("❌ לא נמצא עסק פעיל במערכת - recording יישמר ללא שיוך עסק")
     return None
 
-def save_call_status(call_sid, status, duration=0, direction="inbound"):
-    """שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout - BUILD 106"""
-    thread = Thread(target=save_call_status_async, args=(call_sid, status, duration, direction))
+def save_call_status(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
+    """
+    שלח עדכון סטטוס שיחה לעיבוד ברקע (Thread) למנוע timeout - BUILD 106
+    
+    Args:
+        call_sid: Twilio Call SID
+        status: Call status
+        duration: Call duration in seconds
+        direction: Normalized direction (inbound/outbound) - for backward compatibility
+        twilio_direction: Original Twilio direction value
+        parent_call_sid: Parent call SID if this is a child leg
+    """
+    thread = Thread(target=save_call_status_async, 
+                   args=(call_sid, status, duration, direction, twilio_direction, parent_call_sid))
     thread.daemon = True
     thread.start()
-    log.info("Call status queued for update: %s -> %s (duration=%s)", call_sid, status, duration)
+    log.info("Call status queued for update: %s -> %s (duration=%s, twilio_direction=%s)", 
+            call_sid, status, duration, twilio_direction)
 
-def save_call_status_async(call_sid, status, duration=0, direction="inbound"):
-    """עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן - BUILD 106"""
+def save_call_status_async(call_sid, status, duration=0, direction="inbound", twilio_direction=None, parent_call_sid=None):
+    """
+    עדכון סטטוס שיחה אסינכרוני מלא - PostgreSQL מתוקן - BUILD 106
+    
+    UPSERT logic: Updates if call_sid exists, creates if not.
+    Prevents duplicate call logs from multiple webhook calls.
+    
+    Args:
+        call_sid: Twilio Call SID
+        status: Call status
+        duration: Call duration in seconds
+        direction: Normalized direction (inbound/outbound)
+        twilio_direction: Original Twilio direction value
+        parent_call_sid: Parent call SID if this is a child leg
+    """
     try:
         # שימוש ב-PostgreSQL דרך SQLAlchemy במקום SQLite
         from server.app_factory import get_process_app
         from server.db import db
-        from server.models_sql import CallLog
+        from server.models_sql import CallLog, OutboundCallJob, OutboundCallRun
         
         app = get_process_app()
         with app.app_context():
-            # עדכון מהיר ישירות ב-PostgreSQL 
+            # 🔥 UPSERT: Query for existing call_log
             call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+            
             if call_log:
+                # UPDATE: Call log already exists
                 call_log.call_status = status
-                # ✅ BUILD 106: Only update duration/direction if provided (avoid overwriting with 0)
-                if duration > 0:
+                
+                # ✅ Only update duration if provided and greater than current
+                if duration > 0 and duration > (call_log.duration or 0):
                     call_log.duration = duration
-                if direction:
+                
+                # 🔥 CRITICAL: Smart direction update logic
+                # Allow upgrading from "unknown" to real value, but never overwrite real value with None
+                if twilio_direction:
+                    # We have a real Twilio direction value
+                    if not call_log.twilio_direction or call_log.direction == "unknown":
+                        # Update if: (1) never set, OR (2) currently "unknown"
+                        call_log.twilio_direction = twilio_direction
+                        call_log.direction = normalize_call_direction(twilio_direction)
+                elif direction and (not call_log.direction or call_log.direction == "unknown"):
+                    # Fallback: use normalized direction if twilio_direction not available
+                    # Only update if not set or currently "unknown"
                     call_log.direction = direction
+                
+                # 🔥 Store parent_call_sid ONLY if provided and not already set
+                if parent_call_sid and not call_log.parent_call_sid:
+                    call_log.parent_call_sid = parent_call_sid
+                
                 call_log.updated_at = db.func.now()
                 db.session.commit()
-                log.info("PostgreSQL call status updated: %s -> %s (duration=%s)", call_sid, status, duration)
+                log.info("PostgreSQL call status UPDATED: %s -> %s (duration=%s, direction=%s)", 
+                        call_sid, status, duration, call_log.direction)
             else:
-                log.warning("Call SID not found for status update: %s", call_sid)
+                # Call log doesn't exist, but this is just a status update webhook
+                # Log warning - call log should have been created in incoming_call or outbound_call
+                log.warning("Call SID not found for status update: %s (status=%s). Call log should exist.", 
+                           call_sid, status)
+                
+            # ✅ Update OutboundCallJob if this is part of a bulk run
+            # 🔥 GUARD: Protect against missing outbound_call_jobs table
+            if status in ["completed", "busy", "no-answer", "failed", "canceled"]:
+                try:
+                    job = OutboundCallJob.query.filter_by(call_sid=call_sid).first()
+                    if job:
+                        job.status = "completed" if status == "completed" else "failed"
+                        job.completed_at = datetime.utcnow()
+                        
+                        # Update run counts
+                        run = OutboundCallRun.query.get(job.run_id)
+                        if run:
+                            run.in_progress_count = max(0, run.in_progress_count - 1)
+                            if job.status == "completed":
+                                run.completed_count += 1
+                            else:
+                                run.failed_count += 1
+                                if job.error_message:
+                                    run.last_error = job.error_message[:500]
+                        
+                        db.session.commit()
+                        log.info(f"[BulkCall] Updated job {job.id} status: {job.status}")
+                except Exception as outbound_err:
+                    # 🔥 GUARD: If outbound_call_jobs table doesn't exist, log and continue
+                    log.warning(f"[BulkCall] Could not update OutboundCallJob (table may not exist): {outbound_err}")
         
     except Exception as e:
         log.error("Failed to update call status (PostgreSQL): %s", e)

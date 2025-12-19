@@ -927,7 +927,7 @@ def admin_support_phones():
             "whatsapp_enabled": bool(biz.whatsapp_enabled),
             "calls_enabled": bool(biz.phone_number),
             "working_hours": biz.working_hours or "08:00-18:00",
-            "voice_message": biz.voice_message or "שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל\"ן. אנחנו כאן לעזור לכם."
+            "voice_message": biz.voice_message or "שלום, הגעתם למערכת השירות האוטומטית. אנחנו כאן לעזור לכם."
         })
     data = request.get_json(silent=True) or {}
     if "phone_e164" in data:
@@ -948,7 +948,7 @@ def admin_support_phones():
         "whatsapp_enabled": bool(biz.whatsapp_enabled),
         "calls_enabled": bool(biz.phone_number),
         "working_hours": biz.working_hours or "08:00-18:00",
-        "voice_message": biz.voice_message or "שלום, הגעתם לתמיכה הטכנית של מערכת ניהול הנדל\"ן. אנחנו כאן לעזור לכם."
+        "voice_message": biz.voice_message or "שלום, הגעתם למערכת השירות האוטומטית. אנחנו כאן לעזור לכם."
     })
 
 

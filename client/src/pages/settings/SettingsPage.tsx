@@ -67,8 +67,7 @@ interface BusinessSettings {
   // BUILD 163: Auto hang-up settings
   auto_end_after_lead_capture?: boolean;
   auto_end_on_goodbye?: boolean;
-  // BUILD 163: Bot speaks first
-  bot_speaks_first?: boolean;
+  // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
   // BUILD 186: Calendar scheduling toggle
   enable_calendar_scheduling?: boolean;
 }
@@ -141,8 +140,7 @@ export function SettingsPage() {
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture: false,
     auto_end_on_goodbye: false,
-    // BUILD 163: Bot speaks first
-    bot_speaks_first: false,
+    // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
     // BUILD 186: Calendar scheduling toggle
     enable_calendar_scheduling: true
   });
@@ -218,8 +216,7 @@ export function SettingsPage() {
     // BUILD 163: Auto hang-up settings
     auto_end_after_lead_capture?: boolean;
     auto_end_on_goodbye?: boolean;
-    // BUILD 163: Bot speaks first
-    bot_speaks_first?: boolean;
+    // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
     // BUILD 186: Calendar scheduling toggle
     enable_calendar_scheduling?: boolean;
   }>({
@@ -240,8 +237,7 @@ export function SettingsPage() {
         // BUILD 163: Auto hang-up settings
         auto_end_after_lead_capture: businessData.auto_end_after_lead_capture || false,
         auto_end_on_goodbye: businessData.auto_end_on_goodbye || false,
-        // BUILD 163: Bot speaks first
-        bot_speaks_first: businessData.bot_speaks_first || false,
+        // 🔥 MASTER FIX: bot_speaks_first removed - always True (hardcoded in backend)
         // BUILD 186: Calendar scheduling toggle (default true)
         enable_calendar_scheduling: businessData.enable_calendar_scheduling !== false
       });

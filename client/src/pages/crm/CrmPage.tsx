@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { Plus, Users, Bell, Calendar, CheckCircle, Circle, Clock, X, Edit2, AlertCircle, Trash2, Loader2 } from 'lucide-react';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { useNotifications } from '../../shared/contexts/NotificationContext';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 import { http } from '../../services/http';
+import { formatDate, formatDateOnly, formatTimeOnly, formatRelativeTime } from '../../shared/utils/format';
 
 // Temporary UI components
 const Card = ({ children, className = "" }: any) => (
@@ -325,7 +329,7 @@ export function CrmPage() {
                         <span>{task.lead_name || 'כללי'}</span>
                         <div className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
-                          {new Date(task.due_at).toLocaleString('he-IL')}
+                          {formatDate(task.due_at)}
                         </div>
                       </div>
 
@@ -391,7 +395,7 @@ export function CrmPage() {
                         <span>{task.lead_name || 'כללי'}</span>
                         <div className="flex items-center gap-1 text-red-600">
                           <AlertCircle className="w-3 h-3" />
-                          {new Date(task.due_at).toLocaleString('he-IL')}
+                          {formatDate(task.due_at)}
                         </div>
                       </div>
 

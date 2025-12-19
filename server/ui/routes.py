@@ -2,9 +2,12 @@
 # Based on exact specification from attached_assets
 from flask import Blueprint, request, session, g, redirect, url_for, jsonify, send_file
 import os
+import logging
 from functools import wraps
 from datetime import datetime
 from server.security_audit import audit_action
+
+logger = logging.getLogger(__name__)
 
 ui_bp = Blueprint('ui', __name__)
 
@@ -220,7 +223,7 @@ def ui_admin_tenants_new():
                         <label class="block text-sm font-medium text-gray-700 mb-2">שם העסק</label>
                         <input type="text" name="name" required 
                                class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
-                               placeholder="למשל: שי דירות ומשרדים">
+                               placeholder="למשל: העסק המקצועי שלך">
                     </div>
                     
                     <div>
@@ -521,7 +524,7 @@ def ui_whatsapp_threads():
             <div class="flex items-center justify-between">
                 <div>
                     <h4 class="font-medium text-gray-900">יעל כהן</h4>
-                    <p class="text-sm text-gray-600">שאלה על דירות 3 חדרים...</p>
+                    <p class="text-sm text-gray-600">שאלה על השירות שאני צריך...</p>
                 </div>
                 <div class="text-left">
                     <span class="text-xs text-gray-500">14:30</span>

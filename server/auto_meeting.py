@@ -197,7 +197,7 @@ def create_auto_appointment_from_call(call_sid: str, lead_info: dict, conversati
         appointment.start_time = meeting_time
         appointment.end_time = end_time
         appointment.status = 'scheduled'  # נקבעה אבל צריך אישור
-        appointment.appointment_type = 'viewing'
+        appointment.appointment_type = 'appointment'  # Generic type - business can customize
         appointment.priority = 'high'  # פגישה מטלפון בעדיפות גבוהה
         appointment.contact_name = customer_name or f"לקוח {phone_number[-4:] if phone_number else 'לא ידוע'}"
         appointment.contact_phone = phone_number

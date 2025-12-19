@@ -11,35 +11,69 @@ Database migrations - additive only, with strict data protection
 from server.db import db
 from datetime import datetime
 import logging
+import sys
 
+# Configure logging with explicit format
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    stream=sys.stderr,
+    force=True  # Override any existing configuration
+)
 log = logging.getLogger(__name__)
 
+# Explicit checkpoint logging
+def checkpoint(message):
+    """Log checkpoint that always prints to stderr"""
+    msg = f"🔧 MIGRATION CHECKPOINT: {message}"
+    log.info(msg)
+    print(msg, file=sys.stderr, flush=True)
+    sys.stderr.flush()
+
 def check_column_exists(table_name, column_name):
-    """Check if column exists in table"""
+    """Check if column exists in table using independent connection"""
     from sqlalchemy import text
-    result = db.session.execute(text("""
-        SELECT column_name FROM information_schema.columns 
-        WHERE table_name = :table_name AND column_name = :column_name
-    """), {"table_name": table_name, "column_name": column_name})
-    return result.fetchone() is not None
+    try:
+        # Use engine.connect() instead of db.session to avoid polluting the main transaction
+        with db.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = 'public' AND table_name = :table_name AND column_name = :column_name
+            """), {"table_name": table_name, "column_name": column_name})
+            return result.fetchone() is not None
+    except Exception as e:
+        log.warning(f"Error checking if column {column_name} exists in {table_name}: {e}")
+        return False
 
 def check_table_exists(table_name):
-    """Check if table exists"""
+    """Check if table exists using independent connection"""
     from sqlalchemy import text
-    result = db.session.execute(text("""
-        SELECT table_name FROM information_schema.tables 
-        WHERE table_name = :table_name
-    """), {"table_name": table_name})
-    return result.fetchone() is not None
+    try:
+        # Use engine.connect() instead of db.session to avoid polluting the main transaction
+        with db.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' AND table_name = :table_name
+            """), {"table_name": table_name})
+            return result.fetchone() is not None
+    except Exception as e:
+        log.warning(f"Error checking if table {table_name} exists: {e}")
+        return False
 
 def check_index_exists(index_name):
-    """Check if index exists"""
+    """Check if index exists using independent connection"""
     from sqlalchemy import text
-    result = db.session.execute(text("""
-        SELECT indexname FROM pg_indexes 
-        WHERE indexname = :index_name
-    """), {"index_name": index_name})
-    return result.fetchone() is not None
+    try:
+        # Use engine.connect() instead of db.session to avoid polluting the main transaction
+        with db.engine.connect() as conn:
+            result = conn.execute(text("""
+                SELECT indexname FROM pg_indexes 
+                WHERE schemaname = 'public' AND indexname = :index_name
+            """), {"index_name": index_name})
+            return result.fetchone() is not None
+    except Exception as e:
+        log.warning(f"Error checking if index {index_name} exists: {e}")
+        return False
 
 def apply_migrations():
     """
@@ -48,37 +82,73 @@ def apply_migrations():
     🔒 DATA PROTECTION: This function ONLY adds new tables/columns/indexes.
     It NEVER deletes user data. All existing FAQs, leads, messages, etc. are preserved.
     """
+    checkpoint("Starting apply_migrations()")
     migrations_applied = []
+    
+    checkpoint("Checking if database is completely empty...")
+    # Check if database is empty and create all tables if needed
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    existing_tables = inspector.get_table_names()
+    checkpoint(f"Found {len(existing_tables)} existing tables: {existing_tables[:5]}...")
+    
+    if len(existing_tables) == 0:
+        checkpoint("Database is empty - creating all tables from SQLAlchemy metadata")
+        try:
+            db.create_all()
+            checkpoint("✅ All tables created successfully from metadata")
+            migrations_applied.append("create_all_tables_from_metadata")
+        except Exception as e:
+            checkpoint(f"❌ Failed to create tables: {e}")
+            raise
     
     # 🔒 BUILD 111: TRIPLE LAYER DATA PROTECTION
     # Layer 1: Count FAQs BEFORE migrations
     # Layer 2: Run migrations inside TRY block
     # Layer 3: Count FAQs AFTER migrations and ROLLBACK if decreased
+    checkpoint("Starting data protection layer 1 - counting existing data")
     faq_count_before = 0
     lead_count_before = 0
     msg_count_before = 0
     try:
         from sqlalchemy import text
+        
+        # 🔥 CRITICAL FIX: Check table existence BEFORE counting to prevent UndefinedTable exceptions
         if check_table_exists('faqs'):
             faq_count_before = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
-            log.info(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs exist")
-            print(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs in database")
+            checkpoint(f"🔒 LAYER 1 (BEFORE): {faq_count_before} FAQs exist")
+        else:
+            checkpoint(f"🔒 LAYER 1 (BEFORE): faqs table does not exist yet")
+            
         if check_table_exists('leads'):
             lead_count_before = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
-            log.info(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads exist")
-            print(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads in database")
+            checkpoint(f"🔒 LAYER 1 (BEFORE): {lead_count_before} leads exist")
+        else:
+            checkpoint(f"🔒 LAYER 1 (BEFORE): leads table does not exist yet")
+            
         if check_table_exists('messages'):
             msg_count_before = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
-            log.info(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
+            checkpoint(f"🔒 LAYER 1 (BEFORE): {msg_count_before} messages exist")
+        else:
+            checkpoint(f"🔒 LAYER 1 (BEFORE): messages table does not exist yet")
     except Exception as e:
+        # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+        db.session.rollback()
         log.warning(f"Could not check data counts (database may be new): {e}")
+        checkpoint(f"Could not check data counts (database may be new): {e}")
     
     # Migration 1: Add transcript column to CallLog
-    if check_table_exists('call_log') and not check_column_exists('call_log', 'transcript'):
+    if check_table_exists('call_log'):
         from sqlalchemy import text
-        db.session.execute(text("ALTER TABLE call_log ADD COLUMN transcript TEXT"))
-        migrations_applied.append("add_call_log_transcript")
-        log.info("Applied migration: add_call_log_transcript")
+        try:
+            # 🔒 IDEMPOTENT: Use IF NOT EXISTS to prevent DuplicateColumn errors
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN IF NOT EXISTS transcript TEXT"))
+            migrations_applied.append("add_call_log_transcript")
+            log.info("Applied migration: add_call_log_transcript")
+        except Exception as e:
+            # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+            db.session.rollback()
+            log.warning(f"Could not add transcript column (may already exist): {e}")
     
     # Migration 2: Create CallTurn table
     if not check_table_exists('call_turn'):
@@ -182,6 +252,8 @@ def apply_migrations():
             migrations_applied.append("add_unique_provider_msg_id")
             log.info("Applied migration: add_unique_provider_msg_id")
         except Exception as e:
+            # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+            db.session.rollback()
             log.warning(f"Could not create unique index (may already exist): {e}")
     
     # Migration 7: Create leads table for CRM system
@@ -338,6 +410,8 @@ def apply_migrations():
             migrations_applied.append("add_unique_call_sid")
             log.info("Applied migration: add_unique_call_sid")
         except Exception as e:
+            # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+            db.session.rollback()
             log.warning(f"Could not create unique index on call_sid (may already exist): {e}")
     
     # Migration 13: Create business_settings table for AI prompt management
@@ -483,6 +557,8 @@ def apply_migrations():
             migrations_applied.append("fix_deal_customer_fkey")
             log.info("Applied migration: fix_deal_customer_fkey - Now points to customer.id with CASCADE")
         except Exception as e:
+            # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+            db.session.rollback()
             log.warning(f"Could not fix deal foreign key (may already be correct): {e}")
     
     # Migration 19: Add Policy Engine fields to business_settings
@@ -834,14 +910,267 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 36: BUILD 350 - Add last_call_direction to leads for inbound/outbound filtering
+    # 🔒 IDEMPOTENT: Uses PostgreSQL DO block to safely add column + index + backfill
+    if check_table_exists('leads'):
+        from sqlalchemy import text
+        
+        try:
+            # Use DO block to add column, index, and backfill in one transaction
+            db.session.execute(text("""
+                DO $$
+                BEGIN
+                    -- Add last_call_direction column if it doesn't exist
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'leads' AND column_name = 'last_call_direction'
+                    ) THEN
+                        ALTER TABLE leads ADD COLUMN last_call_direction VARCHAR(16);
+                        RAISE NOTICE 'Added leads.last_call_direction';
+                    END IF;
+                END;
+                $$;
+            """))
+            
+            # Create index for performance (idempotent)
+            db.session.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_leads_last_call_direction 
+                ON leads(last_call_direction)
+            """))
+            
+            # Backfill last_call_direction from call_log table
+            # 🔒 CRITICAL: Use FIRST call's direction (ASC), not latest (DESC)
+            # This determines the lead's origin (inbound vs outbound)
+            # ⚠️ PERFORMANCE: For very large datasets (>100K calls), this may take time
+            # but it's a one-time operation and uses indexed columns (lead_id, created_at)
+            checkpoint("Backfilling last_call_direction from call_log...")
+            if check_table_exists('call_log'):
+                backfill_result = db.session.execute(text("""
+                    WITH first_calls AS (
+                        SELECT DISTINCT ON (cl.lead_id) 
+                            cl.lead_id,
+                            cl.direction,
+                            cl.created_at
+                        FROM call_log cl
+                        WHERE cl.lead_id IS NOT NULL 
+                          AND cl.direction IS NOT NULL
+                          AND cl.direction IN ('inbound', 'outbound')
+                        ORDER BY cl.lead_id, cl.created_at ASC
+                    )
+                    UPDATE leads l
+                    SET last_call_direction = fc.direction
+                    FROM first_calls fc
+                    WHERE l.id = fc.lead_id
+                      AND l.last_call_direction IS NULL
+                """))
+                rows_updated = backfill_result.rowcount
+                checkpoint(f"✅ Backfilled last_call_direction for {rows_updated} leads (using FIRST call direction)")
+            
+            migrations_applied.append("add_leads_last_call_direction")
+            log.info("✅ Applied migration 36: add_leads_last_call_direction - Inbound/outbound filtering support")
+        except Exception as e:
+            log.error(f"❌ Migration 36 failed: {e}")
+            db.session.rollback()
+            raise
+    
+    # Migration 37: Lead Attachments - Production-ready file uploads for leads
+    if not check_table_exists('lead_attachments'):
+        checkpoint("Migration 37: Creating lead_attachments table for secure file storage")
+        try:
+            db.session.execute(text("""
+                CREATE TABLE lead_attachments (
+                    id SERIAL PRIMARY KEY,
+                    tenant_id INTEGER NOT NULL REFERENCES business(id),
+                    lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+                    note_id INTEGER REFERENCES lead_notes(id) ON DELETE SET NULL,
+                    filename VARCHAR(255) NOT NULL,
+                    content_type VARCHAR(128) NOT NULL,
+                    size_bytes INTEGER NOT NULL,
+                    storage_key VARCHAR(512) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by INTEGER REFERENCES users(id)
+                )
+            """))
+            
+            # Create indexes for performance
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_tenant_lead ON lead_attachments(tenant_id, lead_id)"))
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_lead_id ON lead_attachments(lead_id)"))
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_note_id ON lead_attachments(note_id)"))
+            db.session.execute(text("CREATE INDEX idx_lead_attachments_created_at ON lead_attachments(created_at)"))
+            
+            migrations_applied.append('create_lead_attachments_table')
+            log.info("✅ Applied migration 37: create_lead_attachments_table - Secure file upload support")
+        except Exception as e:
+            log.error(f"❌ Migration 37 failed: {e}")
+            db.session.rollback()
+            raise
+    
+    # Migration 38: BUILD 342 - Add recording_sid to call_log for Twilio recording tracking
+    # 🔒 CRITICAL FIX: This column is referenced in code but missing from DB
+    if check_table_exists('call_log') and not check_column_exists('call_log', 'recording_sid'):
+        checkpoint("Migration 38: Adding recording_sid column to call_log table")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("ALTER TABLE call_log ADD COLUMN recording_sid VARCHAR(64)"))
+            migrations_applied.append('add_call_log_recording_sid')
+            log.info("✅ Applied migration 38: add_call_log_recording_sid - Fix post-call pipeline crash")
+        except Exception as e:
+            log.error(f"❌ Migration 38 failed: {e}")
+            db.session.rollback()
+            raise
+    
+    # Migration 39: CRITICAL HOTFIX - Add missing columns to call_log for post-call pipeline
+    # 🔒 IDEMPOTENT: These columns are referenced in code but missing from production DB
+    # Fixes: psycopg2.errors.UndefinedColumn: column call_log.audio_bytes_len does not exist
+    if check_table_exists('call_log'):
+        checkpoint("Migration 39: Adding missing audio/transcript columns to call_log table")
+        try:
+            from sqlalchemy import text
+            
+            # Add audio_bytes_len column if missing
+            if not check_column_exists('call_log', 'audio_bytes_len'):
+                db.session.execute(text("ALTER TABLE call_log ADD COLUMN audio_bytes_len BIGINT"))
+                migrations_applied.append('add_call_log_audio_bytes_len')
+                log.info("✅ Applied migration 39a: add_call_log_audio_bytes_len")
+            
+            # Add audio_duration_sec column if missing
+            if not check_column_exists('call_log', 'audio_duration_sec'):
+                db.session.execute(text("ALTER TABLE call_log ADD COLUMN audio_duration_sec DOUBLE PRECISION"))
+                migrations_applied.append('add_call_log_audio_duration_sec')
+                log.info("✅ Applied migration 39b: add_call_log_audio_duration_sec")
+            
+            # Add transcript_source column if missing
+            if not check_column_exists('call_log', 'transcript_source'):
+                db.session.execute(text("ALTER TABLE call_log ADD COLUMN transcript_source VARCHAR(32)"))
+                migrations_applied.append('add_call_log_transcript_source')
+                log.info("✅ Applied migration 39c: add_call_log_transcript_source")
+            
+            checkpoint("✅ Migration 39 completed - all missing columns added")
+        except Exception as e:
+            log.error(f"❌ Migration 39 failed: {e}")
+            db.session.rollback()
+            raise
+    
+    # Migration 40: Outbound Call Management - Bulk calling infrastructure
+    # 🔒 CRITICAL: These tables are referenced in routes_outbound.py and tasks_recording.py
+    # Creates: outbound_call_runs (campaigns) and outbound_call_jobs (individual calls)
+    if not check_table_exists('outbound_call_runs'):
+        checkpoint("Migration 40a: Creating outbound_call_runs table for bulk calling campaigns")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                CREATE TABLE outbound_call_runs (
+                    id SERIAL PRIMARY KEY,
+                    business_id INTEGER NOT NULL REFERENCES business(id),
+                    outbound_list_id INTEGER REFERENCES outbound_lead_lists(id),
+                    concurrency INTEGER DEFAULT 3,
+                    total_leads INTEGER DEFAULT 0,
+                    queued_count INTEGER DEFAULT 0,
+                    in_progress_count INTEGER DEFAULT 0,
+                    completed_count INTEGER DEFAULT 0,
+                    failed_count INTEGER DEFAULT 0,
+                    status VARCHAR(32) DEFAULT 'running',
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
+                )
+            """))
+            
+            # Create indexes for performance
+            db.session.execute(text("CREATE INDEX idx_outbound_call_runs_business_id ON outbound_call_runs(business_id)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_runs_status ON outbound_call_runs(status)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_runs_created_at ON outbound_call_runs(created_at)"))
+            
+            migrations_applied.append('create_outbound_call_runs_table')
+            log.info("✅ Applied migration 40a: create_outbound_call_runs_table - Bulk calling campaign tracking")
+        except Exception as e:
+            log.error(f"❌ Migration 40a failed: {e}")
+            db.session.rollback()
+            raise
+    
+    if not check_table_exists('outbound_call_jobs'):
+        checkpoint("Migration 40b: Creating outbound_call_jobs table for individual call tracking")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                CREATE TABLE outbound_call_jobs (
+                    id SERIAL PRIMARY KEY,
+                    run_id INTEGER NOT NULL REFERENCES outbound_call_runs(id),
+                    lead_id INTEGER NOT NULL REFERENCES leads(id),
+                    call_log_id INTEGER REFERENCES call_log(id),
+                    status VARCHAR(32) DEFAULT 'queued',
+                    error_message TEXT,
+                    call_sid VARCHAR(64),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP
+                )
+            """))
+            
+            # Create indexes for performance
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_run_id ON outbound_call_jobs(run_id)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_lead_id ON outbound_call_jobs(lead_id)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_status ON outbound_call_jobs(status)"))
+            db.session.execute(text("CREATE INDEX idx_outbound_call_jobs_call_sid ON outbound_call_jobs(call_sid)"))
+            
+            migrations_applied.append('create_outbound_call_jobs_table')
+            log.info("✅ Applied migration 40b: create_outbound_call_jobs_table - Individual call job tracking")
+        except Exception as e:
+            log.error(f"❌ Migration 40b failed: {e}")
+            db.session.rollback()
+            raise
+    
+    # Migration 41: Add parent_call_sid and twilio_direction to call_log
+    # 🔥 FIX: Prevents duplicate call logs and tracks original Twilio direction
+    if not check_column_exists('call_log', 'parent_call_sid'):
+        checkpoint("Migration 41a: Adding parent_call_sid to call_log for tracking parent/child call relationships")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                ALTER TABLE call_log 
+                ADD COLUMN parent_call_sid VARCHAR(64)
+            """))
+            
+            # Create index for performance
+            db.session.execute(text("CREATE INDEX idx_call_log_parent_call_sid ON call_log(parent_call_sid)"))
+            
+            migrations_applied.append('add_parent_call_sid_to_call_log')
+            log.info("✅ Applied migration 41a: add_parent_call_sid_to_call_log - Track parent/child call legs")
+        except Exception as e:
+            log.error(f"❌ Migration 41a failed: {e}")
+            db.session.rollback()
+            raise
+    
+    if not check_column_exists('call_log', 'twilio_direction'):
+        checkpoint("Migration 41b: Adding twilio_direction to call_log for storing original Twilio direction")
+        try:
+            from sqlalchemy import text
+            db.session.execute(text("""
+                ALTER TABLE call_log 
+                ADD COLUMN twilio_direction VARCHAR(32)
+            """))
+            
+            # Create index for performance
+            db.session.execute(text("CREATE INDEX idx_call_log_twilio_direction ON call_log(twilio_direction)"))
+            
+            migrations_applied.append('add_twilio_direction_to_call_log')
+            log.info("✅ Applied migration 41b: add_twilio_direction_to_call_log - Store original Twilio direction values")
+        except Exception as e:
+            log.error(f"❌ Migration 41b failed: {e}")
+            db.session.rollback()
+            raise
+    
+    checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()
-        log.info(f"Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied)}")
+        checkpoint(f"✅ Applied {len(migrations_applied)} migrations: {', '.join(migrations_applied[:3])}...")
     else:
-        log.info("No migrations needed - database is up to date")
+        checkpoint("No migrations needed - database is up to date")
     
     # 🔒 DATA PROTECTION CHECK: Verify data counts AFTER migrations - CRITICAL!
     # If FAQs or leads are deleted, ROLLBACK and FAIL the migration
+    checkpoint("Starting data protection layer 3 - verifying no data loss")
     try:
         from sqlalchemy import text
         data_loss_detected = False
@@ -850,30 +1179,25 @@ def apply_migrations():
             faq_count_after = db.session.execute(text("SELECT COUNT(*) FROM faqs")).scalar() or 0
             faq_delta = faq_count_after - faq_count_before
             if faq_delta < 0:
-                log.error(f"❌ DATA LOSS DETECTED: {abs(faq_delta)} FAQs were DELETED during migrations!")
-                print(f"❌ CRITICAL: {abs(faq_delta)} FAQs DELETED! Before: {faq_count_before}, After: {faq_count_after}")
+                checkpoint(f"❌ DATA LOSS DETECTED: {abs(faq_delta)} FAQs were DELETED during migrations!")
                 data_loss_detected = True
             else:
-                log.info(f"✅ DATA PROTECTION (AFTER): {faq_count_after} FAQs preserved (delta: +{faq_delta})")
-                print(f"✅ DATA PROTECTION: {faq_count_after} FAQs preserved (no deletions)")
+                checkpoint(f"✅ DATA PROTECTION (AFTER): {faq_count_after} FAQs preserved (delta: +{faq_delta})")
         
         if check_table_exists('leads'):
             lead_count_after = db.session.execute(text("SELECT COUNT(*) FROM leads")).scalar() or 0
             lead_delta = lead_count_after - lead_count_before
             if lead_delta < 0:
-                log.error(f"❌ DATA LOSS DETECTED: {abs(lead_delta)} leads were DELETED during migrations!")
-                print(f"❌ CRITICAL: {abs(lead_delta)} leads DELETED! Before: {lead_count_before}, After: {lead_count_after}")
+                checkpoint(f"❌ DATA LOSS DETECTED: {abs(lead_delta)} leads were DELETED during migrations!")
                 data_loss_detected = True
             else:
-                log.info(f"✅ DATA PROTECTION (AFTER): {lead_count_after} leads preserved (delta: +{lead_delta})")
-                print(f"✅ DATA PROTECTION: {lead_count_after} leads preserved (no deletions)")
+                checkpoint(f"✅ DATA PROTECTION (AFTER): {lead_count_after} leads preserved (delta: +{lead_delta})")
         
         # 🛑 ENFORCE DATA PROTECTION: Rollback and fail if FAQs or leads were deleted
         if data_loss_detected:
             db.session.rollback()
             error_msg = "❌ MIGRATION FAILED: Data loss detected. Rolling back changes."
-            log.error(error_msg)
-            print(error_msg)
+            checkpoint(error_msg)
             raise Exception("Data protection violation: FAQs or leads were deleted during migration")
         
         # Messages can decrease (deduplication is expected and documented)
@@ -881,13 +1205,65 @@ def apply_migrations():
             msg_count_after = db.session.execute(text("SELECT COUNT(*) FROM messages")).scalar() or 0
             msg_delta = msg_count_after - msg_count_before
             if msg_delta < 0:
-                log.warning(f"⚠️ Messages decreased by {abs(msg_delta)} (deduplication cleanup - expected)")
-                print(f"⚠️ {abs(msg_delta)} duplicate messages removed (data cleanup)")
+                checkpoint(f"⚠️ Messages decreased by {abs(msg_delta)} (deduplication cleanup - expected)")
             else:
-                log.info(f"✅ DATA PROTECTION (AFTER): {msg_count_after} messages (delta: +{msg_delta})")
+                checkpoint(f"✅ DATA PROTECTION (AFTER): {msg_count_after} messages (delta: +{msg_delta})")
     except Exception as e:
         if "Data protection violation" in str(e):
             raise  # Re-raise data protection violations
-        log.warning(f"Could not verify data counts after migrations: {e}")
+        
+        # 🔥 CRITICAL FIX: ROLLBACK immediately to prevent InFailedSqlTransaction
+        db.session.rollback()
+        checkpoint(f"Could not verify data counts after migrations: {e}")
     
+    checkpoint("✅ Migration completed successfully!")
     return migrations_applied
+
+
+if __name__ == '__main__':
+    """
+    Standalone execution: python -m server.db_migrate
+    
+    Runs migrations without eventlet or background workers.
+    """
+    import sys
+    
+    # Set migration mode
+    import os
+    os.environ['MIGRATION_MODE'] = '1'
+    os.environ['ASYNC_LOG_QUEUE'] = '0'
+    
+    checkpoint("=" * 80)
+    checkpoint("DATABASE MIGRATION RUNNER - Standalone Mode")
+    checkpoint("=" * 80)
+    
+    # Validate DATABASE_URL
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        checkpoint("❌ DATABASE_URL environment variable is not set!")
+        sys.exit(1)
+    
+    checkpoint(f"Database: {database_url.split('@')[0] if '@' in database_url else 'sqlite'}@***")
+    
+    try:
+        # Create minimal app and run migrations
+        checkpoint("Creating minimal Flask app context...")
+        from server.app_factory import create_minimal_app
+        app = create_minimal_app()
+        
+        checkpoint("Running migrations within app context...")
+        with app.app_context():
+            migrations = apply_migrations()
+        
+        checkpoint("=" * 80)
+        checkpoint(f"✅ SUCCESS - Applied {len(migrations)} migrations")
+        checkpoint("=" * 80)
+        sys.exit(0)
+        
+    except Exception as e:
+        checkpoint("=" * 80)
+        checkpoint(f"❌ MIGRATION FAILED: {e}")
+        checkpoint("=" * 80)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        sys.exit(1)

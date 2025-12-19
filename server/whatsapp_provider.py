@@ -307,6 +307,71 @@ class BaileysProvider(Provider):
                 "status": "error",
                 "error": str(e)
             }
+    
+    def send_media_message(self, to: str, caption: str, media: Dict, media_type: str, tenant_id: str = None) -> Dict[str, Any]:
+        """Send media message with base64 data via Baileys HTTP API (MULTI-TENANT)"""
+        if not tenant_id:
+            logger.error(f"[BAILEYS-ERR] send_media_message: tenant_id required")
+            return {
+                "provider": "baileys",
+                "status": "error",
+                "error": "tenant_id required"
+            }
+        
+        try:
+            if not self._check_health():
+                return {
+                    "provider": "baileys",
+                    "status": "error",
+                    "error": "Baileys service unavailable"
+                }
+            
+            # Generate idempotency key
+            idempotency_key = str(uuid.uuid4())
+            
+            # Prepare payload with base64 media data
+            payload = {
+                "to": to.replace("whatsapp:", "").replace("+", ""),
+                "type": media_type,  # image/video/audio/document
+                "media": media,  # Contains: data (base64), mimetype, filename
+                "caption": caption,
+                "idempotencyKey": idempotency_key,
+                "tenantId": tenant_id
+            }
+            
+            logger.info(f"⚡ Sending {media_type} to {to[:15]}...")
+            
+            response = self._session.post(
+                f"{self.outbound_url}/send",
+                json=payload,
+                timeout=15  # Longer timeout for media
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"✅ {media_type} sent successfully to {to[:15]}...")
+                return {
+                    "provider": "baileys",
+                    "status": "sent",
+                    "sid": result.get("messageId", idempotency_key),
+                    "media_url": result.get("mediaUrl")
+                }
+            else:
+                logger.error(f"❌ Baileys media send failed: {response.status_code}")
+                return {
+                    "provider": "baileys",
+                    "status": "error",
+                    "error": f"HTTP {response.status_code}"
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Baileys media send exception: {e}")
+            return {
+                "provider": "baileys",
+                "status": "error",
+                "error": str(e)
+            }
+
 
 class TwilioProvider(Provider):
     """Twilio WhatsApp Business API provider"""
@@ -543,14 +608,33 @@ class WhatsAppService:
             return self.provider.send_typing(jid, is_typing, tenant_id=effective_tenant)
         return {"status": "unsupported"}
         
-    def send_message(self, to: str, message: str, tenant_id: str = None) -> Dict[str, Any]:
-        """Send text message via provider (MULTI-TENANT)"""
+    def send_message(self, to: str, message: str, tenant_id: str = None, media: Dict = None, media_type: str = None) -> Dict[str, Any]:
+        """Send text or media message via provider (MULTI-TENANT)"""
         # 🔥 HARDENING: Require explicit tenant - fallback only to stored tenant_id
         effective_tenant = tenant_id or self.tenant_id
         if not effective_tenant:
             logger.error(f"[WA-SERVICE-ERR] send_message: no tenant_id available")
             return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
-        return self.provider.send_text(to, message, tenant_id=effective_tenant)
+        
+        # If media provided, send media message
+        if media and media_type:
+            return self.send_media_message(to, message, media, media_type, tenant_id=effective_tenant)
+        else:
+            return self.provider.send_text(to, message, tenant_id=effective_tenant)
+    
+    def send_media_message(self, to: str, caption: str, media: Dict, media_type: str, tenant_id: str = None) -> Dict[str, Any]:
+        """Send media message (image/video/audio/document) via provider"""
+        effective_tenant = tenant_id or self.tenant_id
+        if not effective_tenant:
+            logger.error(f"[WA-SERVICE-ERR] send_media_message: no tenant_id available")
+            return {"provider": "unknown", "status": "error", "error": "tenant_id required"}
+        
+        # Use provider's send_media_message method if available
+        if hasattr(self.provider, 'send_media_message'):
+            return self.provider.send_media_message(to, caption, media, media_type, tenant_id=effective_tenant)
+        else:
+            logger.error(f"Provider {type(self.provider).__name__} doesn't support media messages")
+            return {"provider": type(self.provider).__name__, "status": "error", "error": "media_not_supported"}
         
     def send_media(self, to: str, media_url: str, caption: str = "", tenant_id: str = None) -> Dict[str, Any]:
         """Send media message via provider (MULTI-TENANT)"""
