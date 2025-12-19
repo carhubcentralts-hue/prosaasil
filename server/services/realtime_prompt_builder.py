@@ -214,23 +214,35 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
             else:
                 ai_prompt_text = raw_prompt
         
-        # 🔥 COMPACT: Keep first contact fast + clean (Realtime is sensitive to heavy formatting)
+        # 🔥 COMPACT: Keep first contact fast + clean (Realtime is sensitive to heavy/dirty instructions)
         if ai_prompt_text:
             # Replace placeholders
             ai_prompt_text = ai_prompt_text.replace("{{business_name}}", business_name)
             ai_prompt_text = ai_prompt_text.replace("{{BUSINESS_NAME}}", business_name)
             
-            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=2000)
+            # 1) Sanitize FIRST (remove \\n/markdown/icons/separators), then 2) cut 300–400 chars
+            ai_prompt_text = sanitize_realtime_instructions(ai_prompt_text, max_chars=5000)
 
-            # Take first ~450 chars, try to end at sentence boundary
-            if len(ai_prompt_text) > 450:
-                # Find good cut point (end of sentence)
-                cut_point = 450
-                for delimiter in ['. ', '? ', '! ', ' ']:
-                    last_pos = ai_prompt_text[:520].rfind(delimiter)
-                    if last_pos > 260:
-                        cut_point = last_pos + len(delimiter)
+            # Take first 300–400 chars (assume business opening is at start of business prompt)
+            excerpt_max = 390
+            excerpt_window = 440  # small lookahead for clean cut
+            if len(ai_prompt_text) > excerpt_max:
+                window = ai_prompt_text[: min(len(ai_prompt_text), excerpt_window)]
+
+                # Prefer sentence boundary, else fallback to last space (never cut mid-word)
+                cut_point = -1
+                for delimiter in (". ", "? ", "! "):
+                    pos = window.rfind(delimiter)
+                    if pos != -1 and pos >= 220:
+                        cut_point = pos + len(delimiter)
                         break
+
+                if cut_point == -1:
+                    # Last space within max region
+                    cut_point = ai_prompt_text[:excerpt_max].rfind(" ")
+                    if cut_point < 220:
+                        cut_point = excerpt_max
+
                 compact_context = ai_prompt_text[:cut_point].strip()
             else:
                 compact_context = ai_prompt_text.strip()
@@ -244,16 +256,19 @@ def build_compact_greeting_prompt(business_id: int, call_direction: str = "inbou
                 f"[PROMPT FALLBACK] missing business prompt business_id={business_id} direction={call_direction}"
             )
         
-        # 🔥 Add minimal realtime-safe system rules + direction (keep <=1000 chars total)
+        # 🔥 COMPACT = short system + tone + business opening excerpt (and nothing more)
         direction = "INBOUND" if call_direction == "inbound" else "OUTBOUND"
         system_rules = _build_universal_system_prompt()
+        tone = "Tone: warm, calm, human, concise. Speak Hebrew."
 
         final_prompt = (
             f"{system_rules} "
+            f"{tone} "
             f"Call type: {direction}. "
-            f"Business context (excerpt): {compact_context}"
+            f"Business opening (use this to start the call): {compact_context}"
         )
-        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=950)
+        # Hard cap for Realtime instructions
+        final_prompt = sanitize_realtime_instructions(final_prompt, max_chars=1000)
 
         logger.info(f"📦 [COMPACT] Final compact prompt: {len(final_prompt)} chars for {call_direction}")
         
