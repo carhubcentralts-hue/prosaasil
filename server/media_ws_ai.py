@@ -4650,15 +4650,15 @@ class MediaStreamHandler:
                         if bound_id and done_resp_id and done_resp_id == bound_id:
                             self.greeting_lock_active = False
                             _orig_print(
-                                f"🔓 [GREETING_LOCK] released on response.audio.done (response_id={done_resp_id[:20]}...)",
+                                f"[GREETING_LOCK] released (audio.done) response_id={done_resp_id[:20]}...",
                                 flush=True,
                             )
-                            logger.info("[GREETING_LOCK] released")
+                            logger.info("[GREETING_LOCK] released (audio.done)")
                         elif bound_id is None and getattr(self, "greeting_mode_active", False) and not getattr(self, "greeting_completed", False):
                             await asyncio.sleep(0.4)
                             self.greeting_lock_active = False
-                            _orig_print("🔓 [GREETING_LOCK] released (fallback after response.audio.done)", flush=True)
-                            logger.info("[GREETING_LOCK] released (fallback)")
+                            _orig_print("[GREETING_LOCK] released (audio.done) fallback=true", flush=True)
+                            logger.info("[GREETING_LOCK] released (audio.done) fallback=true")
 
                     # 🎯 FIX A: Complete greeting mode after FIRST response only
                     if self.greeting_mode_active and not self.greeting_completed:
@@ -4743,7 +4743,18 @@ class MediaStreamHandler:
                                 f"⏭️ [HANGUP FLOW] response.audio.done ignored "
                                 f"(pending_response_id={pending_id[:20]}..., got={done_resp_id[:20]}...)"
                             )
-                            continue
+                            # Do NOT return/continue; still run normal cleanup for this audio.done.
+
+                        # Cancel fallback timer (if any) now that we got the matched audio.done.
+                        try:
+                            t = getattr(self, "_pending_hangup_fallback_task", None)
+                            if t and not t.done():
+                                t.cancel()
+                        except Exception:
+                            pass
+
+                        print("[POLITE_HANGUP] audio.done matched -> hanging up")
+                        logger.info("[POLITE_HANGUP] audio.done matched -> hanging up")
 
                         print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
                         # Wait for audio to fully play before disconnecting
@@ -4818,6 +4829,7 @@ class MediaStreamHandler:
                                     try:
                                         from server.services.twilio_call_control import hangup_call
                                         await asyncio.to_thread(hangup_call, call_sid)
+                                        force_print(f"[HANGUP] success call_sid={call_sid}")
                                     except Exception as e:
                                         force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
                                         logger.exception("[HANGUP] error call_sid=%s", call_sid)
@@ -8219,20 +8231,27 @@ class MediaStreamHandler:
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
-                        # 🔥 FIX ISSUE 4: Allow audio forwarding to OpenAI during greeting
-                        # Still forward mic audio to OpenAI (for VAD + transcription)
-                        # But prevent early barge-in/cancel during the first part of greeting
-                        # This allows "caller can speak immediately" while protecting greeting from premature cancel
-                        
-                        # Note: The actual barge-in protection during greeting happens in speech_started handler
-                        # where we check for _greeting_start_ts and prevent cancel for the first 500ms
-                        # This block only logs but no longer blocks audio enqueue
-                        if self.is_playing_greeting and not self.user_has_spoken:
-                            # Log once for diagnostics but DON'T block audio
-                            if not hasattr(self, '_greeting_audio_allowed_logged'):
-                                print(f"🎤 [GREETING PROTECT] Allowing audio forward to OpenAI during greeting (for VAD)")
-                                self._greeting_audio_allowed_logged = True
-                            # Don't continue - allow audio to flow through
+                        # 🔴 GREETING_LOCK (HARD):
+                        # While greeting is playing, the bot must NOT "hear" the caller at all:
+                        # - do NOT buffer input_audio
+                        # - do NOT produce STT
+                        # - do NOT trigger VAD speech_started
+                        # - do NOT allow barge-in cancel paths
+                        #
+                        # Therefore: DROP inbound audio frames before enqueue to OpenAI.
+                        if getattr(self, "greeting_lock_active", False):
+                            # Rate-limit logs to avoid flooding (about once per second @ 50fps)
+                            if not hasattr(self, "_greeting_lock_drop_frames"):
+                                self._greeting_lock_drop_frames = 0
+                            self._greeting_lock_drop_frames += 1
+                            if self._greeting_lock_drop_frames % 50 == 1:
+                                logger.info("[GREETING_LOCK] dropping inbound audio frame")
+                                print("🔒 [GREETING_LOCK] dropping inbound audio frame")
+                            try:
+                                self._stats_audio_blocked += 1
+                            except Exception:
+                                pass
+                            continue
                         
                         if not self.barge_in_enabled_after_greeting:
                             # 🔥 P0-4: Skip echo gate in SIMPLE_MODE (passthrough only)
@@ -10975,6 +10994,69 @@ class MediaStreamHandler:
                 self.pending_hangup_reason = reason
                 self.pending_hangup_source = source
                 self.pending_hangup_response_id = bound_response_id
+
+            # Fallback: if we never get response.audio.done for this response_id (mismatch/cancel/missed event),
+            # don't get stuck pending forever. Fire after ~1.2s.
+            try:
+                # Cancel previous fallback timer (if any)
+                prev = getattr(self, "_pending_hangup_fallback_task", None)
+                if prev and not prev.done():
+                    prev.cancel()
+            except Exception:
+                pass
+
+            try:
+                self._pending_hangup_set_mono = time.monotonic()
+            except Exception:
+                self._pending_hangup_set_mono = None
+
+            async def _polite_hangup_fallback_timer(expected_response_id: Optional[str], expected_call_sid: Optional[str]):
+                try:
+                    await asyncio.sleep(1.2)
+                    # Only fire if still pending and still for the same response_id (one-shot)
+                    if getattr(self, "hangup_triggered", False):
+                        return
+                    if not getattr(self, "pending_hangup", False):
+                        return
+                    if expected_response_id and getattr(self, "pending_hangup_response_id", None) != expected_response_id:
+                        return
+
+                    logger.info("[POLITE_HANGUP] fallback timer fired")
+                    print("[POLITE_HANGUP] fallback timer fired")
+
+                    call_sid_local = expected_call_sid or getattr(self, "call_sid", None)
+                    if not call_sid_local:
+                        force_print("[HANGUP] error missing_call_sid")
+                        return
+
+                    # Trigger hangup now (best-effort). We intentionally skip queue-drain here because
+                    # we are already in a missing-audio.done scenario.
+                    self.hangup_triggered = True
+                    self.call_state = CallState.ENDED
+                    try:
+                        self.pending_hangup = False
+                    except Exception:
+                        pass
+                    force_print(
+                        f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
+                        f"response_id={expected_response_id} call_sid={call_sid_local}"
+                    )
+                    try:
+                        from server.services.twilio_call_control import hangup_call
+                        await asyncio.to_thread(hangup_call, call_sid_local)
+                        force_print(f"[HANGUP] success call_sid={call_sid_local}")
+                    except Exception as e:
+                        force_print(f"[HANGUP] error call_sid={call_sid_local} err={type(e).__name__}:{str(e)[:200]}")
+                        logger.exception("[HANGUP] error call_sid=%s", call_sid_local)
+                except asyncio.CancelledError:
+                    return
+                except Exception:
+                    # Never crash realtime loop due to fallback timer
+                    logger.exception("[POLITE_HANGUP] fallback timer error")
+
+            self._pending_hangup_fallback_task = asyncio.create_task(
+                _polite_hangup_fallback_timer(bound_response_id, call_sid)
+            )
 
             # Ensure we don't re-send a goodbye during hangup flows.
             if reason == "bot_goodbye":
