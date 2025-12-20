@@ -19,7 +19,26 @@ from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_openai_client: Optional[AsyncOpenAI] = None
+
+
+def _get_openai_client() -> AsyncOpenAI:
+    """
+    Lazily construct the OpenAI client.
+
+    IMPORTANT: Never instantiate clients at import-time because it breaks pre-deploy
+    import smoke tests and can crash the server if env vars aren't set yet.
+    """
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    _openai_client = AsyncOpenAI(api_key=api_key)
+    return _openai_client
 
 
 def _extract_phone_from_text(text: str) -> Optional[str]:
@@ -122,6 +141,7 @@ async def extract_appointment_request(conversation_history: list, business_id: i
         # Compact prompt
         system_prompt = _build_compact_prompt(today_str, weekday_hebrew, tomorrow_str)
         
+        client = _get_openai_client()
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[

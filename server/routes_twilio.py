@@ -27,6 +27,8 @@ from server.services.customer_intelligence import CustomerIntelligence
 logger = logging.getLogger(__name__)
 
 twilio_bp = Blueprint("twilio", __name__)
+# Backwards-compatible alias used by pre-deploy smoke checks / older imports.
+routes_twilio_bp = twilio_bp
 
 def _twiml(vr: VoiceResponse) -> Response:
     """
