@@ -1945,6 +1945,9 @@ class MediaStreamHandler:
         self.pending_hangup_reason = None
         self.pending_hangup_source = None
         self.pending_hangup_response_id = None
+        # 🎯 Polite hangup fallback (prevents stuck pending state)
+        self._pending_hangup_set_mono = None
+        self._pending_hangup_fallback_task = None
         self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
