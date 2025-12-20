@@ -4207,7 +4207,9 @@ class MediaStreamHandler:
                     # Per הנחיה: Check active_response_id AND (ai_response_active OR is_ai_speaking)
                     has_active_response = bool(self.active_response_id)
                     # 🔴 FINAL CRITICAL FIX #3: cancel only if active_response_id exists AND ai_response_active==True AND greeting_lock_active==False
-                    ai_can_be_cancelled = bool(getattr(self, "ai_response_active", False))
+                    ai_can_be_cancelled = bool(getattr(self, "ai_response_active", False)) or (
+                        hasattr(self, "is_ai_speaking_event") and self.is_ai_speaking_event.is_set()
+                    )
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     barge_in_allowed_now = bool(
                         ENABLE_BARGE_IN
@@ -4763,84 +4765,84 @@ class MediaStreamHandler:
                             print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
                             # Wait for audio to fully play before disconnecting
                             async def delayed_hangup():
-                            print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
-                            
-                            # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
-                            for i in range(50):  # 50 * 100ms = 5 seconds max
-                                q1_size = self.realtime_audio_out_queue.qsize()
-                                if q1_size == 0:
-                                    print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms")
-                                    break
-                                await asyncio.sleep(0.1)
-                            
-                            # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
-                            # 🔥 FIX #4: Add drain watchdog to detect stuck queue
-                            # Each frame is 20ms, so 500 frames = 10 seconds of audio
-                            last_tx_size = self.tx_q.qsize()
-                            stuck_iterations = 0
-                            STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
-                            
-                            for i in range(100):  # 100 * 100ms = 10 seconds max
-                                tx_size = self.tx_q.qsize()
-                                if tx_size == 0:
-                                    print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
-                                    break
+                                print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
                                 
-                                # 🔥 FIX #4: Detect if queue is stuck (not draining)
-                                if tx_size == last_tx_size:
-                                    stuck_iterations += 1
-                                    if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
-                                        print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
-                                        # Queue is stuck - check if tx_running is False
-                                        if not getattr(self, 'tx_running', False):
-                                            print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
-                                            # Clear the stuck queue
-                                            while not self.tx_q.empty():
-                                                try:
-                                                    self.tx_q.get_nowait()
-                                                except queue.Empty:
-                                                    break
-                                            print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
-                                            break
-                                else:
-                                    stuck_iterations = 0  # Reset on progress
+                                # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
+                                for i in range(50):  # 50 * 100ms = 5 seconds max
+                                    q1_size = self.realtime_audio_out_queue.qsize()
+                                    if q1_size == 0:
+                                        print(f"✅ [POLITE HANGUP] OpenAI queue empty after {i*100}ms")
+                                        break
+                                    await asyncio.sleep(0.1)
                                 
-                                last_tx_size = tx_size
+                                # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
+                                # 🔥 FIX #4: Add drain watchdog to detect stuck queue
+                                # Each frame is 20ms, so 500 frames = 10 seconds of audio
+                                last_tx_size = self.tx_q.qsize()
+                                stuck_iterations = 0
+                                STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
                                 
-                                if i % 10 == 0:  # Log every second
-                                    print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
-                                await asyncio.sleep(0.1)
-                            
-                            # STEP 3: Extra buffer for network latency
-                            # Audio still needs to travel from Twilio servers to phone
-                            print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
-                            await asyncio.sleep(2.0)
-                            
-                            if not self.hangup_triggered:
-                                # Execute REAL hangup via Twilio REST ONLY (no cancel/clear/flush).
-                                call_sid = getattr(self, "call_sid", None)
-                                self.hangup_triggered = True
-                                self.call_state = CallState.ENDED
-                                try:
-                                    self.pending_hangup = False
-                                except Exception:
-                                    pass
-                                force_print(
-                                    f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
-                                    f"response_id={pending_id or done_resp_id} call_sid={call_sid}"
-                                )
-                                if call_sid:
+                                for i in range(100):  # 100 * 100ms = 10 seconds max
+                                    tx_size = self.tx_q.qsize()
+                                    if tx_size == 0:
+                                        print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
+                                        break
+                                    
+                                    # 🔥 FIX #4: Detect if queue is stuck (not draining)
+                                    if tx_size == last_tx_size:
+                                        stuck_iterations += 1
+                                        if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
+                                            print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
+                                            # Queue is stuck - check if tx_running is False
+                                            if not getattr(self, 'tx_running', False):
+                                                print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
+                                                # Clear the stuck queue
+                                                while not self.tx_q.empty():
+                                                    try:
+                                                        self.tx_q.get_nowait()
+                                                    except queue.Empty:
+                                                        break
+                                                print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
+                                                break
+                                    else:
+                                        stuck_iterations = 0  # Reset on progress
+                                    
+                                    last_tx_size = tx_size
+                                    
+                                    if i % 10 == 0:  # Log every second
+                                        print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
+                                    await asyncio.sleep(0.1)
+                                
+                                # STEP 3: Extra buffer for network latency
+                                # Audio still needs to travel from Twilio servers to phone
+                                print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
+                                await asyncio.sleep(2.0)
+                                
+                                if not self.hangup_triggered:
+                                    # Execute REAL hangup via Twilio REST ONLY (no cancel/clear/flush).
+                                    call_sid = getattr(self, "call_sid", None)
+                                    self.hangup_triggered = True
+                                    self.call_state = CallState.ENDED
                                     try:
-                                        from server.services.twilio_call_control import hangup_call
-                                        await asyncio.to_thread(hangup_call, call_sid)
-                                        force_print(f"[HANGUP] success call_sid={call_sid}")
-                                    except Exception as e:
-                                        force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
-                                        logger.exception("[HANGUP] error call_sid=%s", call_sid)
+                                        self.pending_hangup = False
+                                    except Exception:
+                                        pass
+                                    force_print(
+                                        f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
+                                        f"response_id={pending_id or done_resp_id} call_sid={call_sid}"
+                                    )
+                                    if call_sid:
+                                        try:
+                                            from server.services.twilio_call_control import hangup_call
+                                            await asyncio.to_thread(hangup_call, call_sid)
+                                            force_print(f"[HANGUP] success call_sid={call_sid}")
+                                        except Exception as e:
+                                            force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+                                            logger.exception("[HANGUP] error call_sid=%s", call_sid)
+                                    else:
+                                        force_print("[HANGUP] error missing_call_sid")
                                 else:
-                                    force_print("[HANGUP] error missing_call_sid")
-                            else:
-                                print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
+                                    print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
 
                             asyncio.create_task(delayed_hangup())
                 
@@ -6577,7 +6579,13 @@ class MediaStreamHandler:
         # 1) Cancel OpenAI current response
         cancelled_id = None
         try:
-            if getattr(self, "active_response_id", None) and getattr(self, "realtime_client", None):
+            ai_speaking = bool(getattr(self, "is_ai_speaking_event", None) and self.is_ai_speaking_event.is_set())
+            if (
+                getattr(self, "active_response_id", None)
+                and getattr(self, "realtime_client", None)
+                and ai_speaking
+                and self._should_send_cancel(self.active_response_id)
+            ):
                 # Create event loop if needed (reuse pattern from _handle_realtime_barge_in)
                 try:
                     loop = asyncio.get_event_loop()
