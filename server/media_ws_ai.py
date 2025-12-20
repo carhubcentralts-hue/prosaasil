@@ -3,7 +3,7 @@ WebSocket Media Stream Handler - AI Mode with Hebrew TTS
 ADVANCED VERSION WITH TURN-TAKING, BARGE-IN, AND LOOP PREVENTION
 🚫 Google STT/TTS DISABLED for production stability
 """
-import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re
+import os, json, time, base64, audioop, math, threading, queue, random, zlib, asyncio, re, unicodedata
 import builtins
 from dataclasses import dataclass
 from typing import Optional
@@ -1220,6 +1220,116 @@ CLEAR_GOODBYE_WORDS = [
     "ביי יום טוב"  # "bye, good day"
 ]
 
+# 🔴 CRITICAL — Real Hangup (transcript-only, closing-sentence only)
+# -----------------------------------------------------------------------------
+# Goal: When user/bot ends the call for real, do REAL hangup (Twilio REST),
+# not just "say bye".
+#
+# Rules:
+# - Decision is based ONLY on transcript text (STT final / input_text / audio transcript).
+# - Trigger ONLY if the utterance is a closing sentence (no extra content).
+# - Anti-accidental rule: "ביי ... רגע" / "ביי אבל ..." → do NOT hangup, ask clarification once.
+REAL_HANGUP_USER_PHRASES = [
+    "ביי",
+    "ביי ביי",
+    "להתראות",
+    "יאללה ביי",
+    "סיימנו",
+    "תודה ביי",
+    "אין צורך",
+    "ניתוק",
+    "סגור",
+]
+
+REAL_HANGUP_BOT_PHRASES = [
+    "ביי",
+    "להתראות",
+    "תודה ביי",
+    "תודה להתראות",
+    "יום טוב ביי",
+    "בסדר גמור להתראות",
+]
+
+REAL_HANGUP_CONTINUATION_MARKERS = {"אבל", "רגע"}
+_REAL_HANGUP_NIKUD_RE = re.compile(r"[\u0591-\u05C7]")
+_REAL_HANGUP_PUNCT_RE = re.compile(r"[\"'“”‘’`´~!?.…,;:\(\)\[\]\{\}\-–—_/\\|]+")
+
+
+def _normalize_for_real_hangup(text: str) -> str:
+    """
+    Normalize text for hangup intent matching:
+    - NFKC normalize
+    - Remove Hebrew diacritics (nikud)
+    - Strip punctuation into spaces
+    - Collapse whitespace
+    """
+    if not text:
+        return ""
+    t = unicodedata.normalize("NFKC", text)
+    t = _REAL_HANGUP_NIKUD_RE.sub("", t)
+    t = _REAL_HANGUP_PUNCT_RE.sub(" ", t)
+    t = " ".join(t.split())
+    return t.strip()
+
+
+def _compile_phrase_tuples(phrases: list[str]) -> list[tuple[str, ...]]:
+    tuples: list[tuple[str, ...]] = []
+    for p in phrases:
+        w = tuple(_normalize_for_real_hangup(p).split())
+        if w:
+            tuples.append(w)
+    # Prefer longest matches first (e.g., "ביי ביי" before "ביי")
+    tuples.sort(key=len, reverse=True)
+    return tuples
+
+
+_REAL_HANGUP_USER_TUPLES = _compile_phrase_tuples(REAL_HANGUP_USER_PHRASES)
+_REAL_HANGUP_BOT_TUPLES = _compile_phrase_tuples(REAL_HANGUP_BOT_PHRASES)
+
+
+def _is_closing_sentence_only(text: str, phrase_tuples: list[tuple[str, ...]]) -> bool:
+    """
+    True only if the utterance consists solely of 1+ allowed phrases (optionally combined),
+    e.g. "ביי", "ביי להתראות", "תודה ביי להתראות".
+    """
+    norm = _normalize_for_real_hangup(text)
+    if not norm:
+        return False
+    words = norm.split()
+    i = 0
+    matched_any = False
+    while i < len(words):
+        matched = False
+        for phrase in phrase_tuples:
+            n = len(phrase)
+            if n and i + n <= len(words) and tuple(words[i : i + n]) == phrase:
+                matched_any = True
+                i += n
+                matched = True
+                break
+        if not matched:
+            return False
+    return matched_any
+
+
+def _is_ambiguous_goodbye(text: str) -> bool:
+    """
+    Detect "goodbye but continuing" patterns like:
+    - "ביי אבל רגע"
+    - "ביי... רגע"
+    """
+    norm = _normalize_for_real_hangup(text)
+    if not norm:
+        return False
+    words = norm.split()
+    if not words:
+        return False
+    starts_with_goodbye = words[0] in {"ביי", "להתראות"}
+    if not starts_with_goodbye:
+        return False
+    # If there's a continuation marker anywhere after the goodbye opener, treat as ambiguous.
+    return any(w in REAL_HANGUP_CONTINUATION_MARKERS for w in words[1:])
+
 # 🔧 GOODBYE DETECTION: Thresholds for polite ending detection
 # Short utterances (≤3 words) with polite phrases are likely goodbyes (e.g., "תודה רבה")
 # Longer utterances require phrase to be ≥50% of content to avoid false positives
@@ -1762,6 +1872,10 @@ class MediaStreamHandler:
         self.goodbye_message_sent = False  # Track if we sent a proper goodbye
         self.user_said_goodbye = False  # Track if USER said goodbye (separate from AI polite closing)
         self.last_user_goodbye_at = None  # Timestamp in milliseconds when user said goodbye (time.time() * 1000)
+
+        # 🔴 CRITICAL: Real hangup duplicate guard + clarification guard (one-shot)
+        self.hangup_requested = False  # One-shot: once True, never request hangup again
+        self.hangup_clarification_asked = False  # One-shot: ask "רצית לסיים?" only once
         
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
@@ -4680,6 +4794,13 @@ class MediaStreamHandler:
                     transcript = event.get("transcript", "")
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
+
+                        # 🔴 CRITICAL — Real Hangup (BOT): transcript-only + closing-sentence only
+                        # If bot's transcript IS a closing sentence → hangup for real immediately.
+                        bot_intent = self._classify_real_hangup_intent(transcript, "bot")
+                        if bot_intent == "hangup":
+                            await self._request_real_hangup("bot_goodbye", transcript, "bot")
+                            continue
                         
                         # ⭐ BUILD 350: SIMPLE KEYWORD-BASED APPOINTMENT DETECTION
                         # Only if appointments are enabled in business settings
@@ -5172,8 +5293,8 @@ class MediaStreamHandler:
                                 print(f"🛡️ [PROTECTION] Ignoring AI goodbye - only {elapsed_ms:.0f}ms since greeting")
                         # Note: If greeting_completed_at is None (no greeting), allow goodbye detection normally
                         
-                        # 🔥 FIX: Also detect polite closing phrases (not just "ביי")
-                        ai_polite_closing_detected = self._check_goodbye_phrases(transcript) or self._check_polite_closing(transcript)
+                        # 🔴 CRITICAL — Real Hangup (BOT): trigger only on allowed closing-sentence phrases
+                        ai_polite_closing_detected = self._classify_real_hangup_intent(transcript, "bot") == "hangup"
                         
                         # 🛡️ SAFETY: Don't allow hangup too early in the call (prevent premature disconnect)
                         # Wait at least 5 seconds after greeting before allowing smart ending
@@ -6149,35 +6270,22 @@ class MediaStreamHandler:
                                 print(f"🔍 [LEGACY DEBUG] Calling NLP after user transcript: '{transcript[:50]}...'")
                                 self._check_appointment_confirmation(transcript)
                         
-                        # 🎯 BUILD 170.5: ALWAYS detect goodbye phrases in user transcript
-                        # User saying goodbye should ALWAYS allow call to end
-                        # 🔥 PROTECTION: Only detect goodbye if enough time passed since greeting
-                        can_detect_goodbye = True
-                        if self.greeting_completed_at is not None:
-                            elapsed_ms = (time.time() - self.greeting_completed_at) * 1000
-                            if elapsed_ms < self.min_call_duration_after_greeting_ms:
-                                can_detect_goodbye = False
-                                print(f"🛡️ [PROTECTION] Ignoring user goodbye - only {elapsed_ms:.0f}ms since greeting")
-                        
-                        # 🔥 BUILD 170.5: ALWAYS set goodbye_detected when user says bye (no setting gate!)
-                        if not self.pending_hangup and can_detect_goodbye:
-                            if self._check_goodbye_phrases(transcript):
-                                print(f"👋 [BUILD 170.5] User said goodbye - setting goodbye_detected=True")
-                                self.goodbye_detected = True
-                                
-                                # 🔥 BUILD 172: Transition to CLOSING state when auto_end_on_goodbye is enabled
-                                if self.auto_end_on_goodbye and self.call_state == CallState.ACTIVE:
-                                    self.call_state = CallState.CLOSING
-                                    print(f"📞 [STATE] Transitioning ACTIVE → CLOSING (user_goodbye, auto_end=True)")
-                                
-                                # If auto_end_on_goodbye is ON, send explicit instruction to AI
-                                if self.auto_end_on_goodbye:
+                        # 🔴 CRITICAL — Real Hangup (USER): transcript-only + closing-sentence only
+                        # Trigger hangup ONLY if the user utterance is purely a closing sentence
+                        # based on the explicit list (no VAD/noise decisions).
+                        if not self.pending_hangup and not getattr(self, "hangup_requested", False):
+                            user_intent = self._classify_real_hangup_intent(transcript, "user")
+                            if user_intent == "hangup":
+                                await self._request_real_hangup("user_goodbye", transcript, "user")
+                                continue
+                            elif user_intent == "clarify":
+                                # ❗Rule against accidental hangup:
+                                # "ביי... רגע" / "ביי אבל..." → ask once, do not hang up.
+                                if not getattr(self, "hangup_clarification_asked", False):
+                                    self.hangup_clarification_asked = True
                                     asyncio.create_task(self._send_server_event_to_ai(
-                                        "[SERVER] הלקוח אמר שלום! סיים בצורה מנומסת - אמור 'תודה שהתקשרת, יום נפלא!' או משהו דומה."
+                                        "לפני שאני מנתק—רצית לסיים את השיחה?"
                                     ))
-                                
-                                # 🔥 FALLBACK: If AI doesn't say closing phrase within 10s, disconnect anyway
-                                asyncio.create_task(self._fallback_hangup_after_timeout(10, "user_goodbye"))
                         
                         # 🎯 BUILD 163: Check if all lead info is captured
                         # 🔥 BUILD 172 FIX: Only close after customer CONFIRMS the details!
@@ -10224,30 +10332,12 @@ class MediaStreamHandler:
             return
         
         try:
-            import os
-            from twilio.rest import Client
-            
-            account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
-            auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
-            
-            if not account_sid or not auth_token:
-                print(f"❌ [BUILD 163] Missing Twilio credentials - cannot hang up")
-                return
-            
-            print(f"📞 [TWILIO API] Calling Twilio to disconnect call {self.call_sid[:8]}...")
-            client = Client(account_sid, auth_token)
-            
-            print(f"📞 [TWILIO API] Sending update: status='completed' to call {self.call_sid[:8]}...")
-            client.calls(self.call_sid).update(status='completed')
-            print(f"📞 [TWILIO API] ✅ Twilio API call successful - call disconnected!")
-            
-            print(f"✅ [BUILD 163] Call {self.call_sid[:8]}... hung up successfully: {reason}")
-            logger.info(f"[BUILD 163] Auto hang-up: call={self.call_sid[:8]}, reason={reason}")
-            
+            # Centralized Twilio hangup (REST)
+            from server.services.twilio_call_control import hangup_call
+            hangup_call(self.call_sid)
         except Exception as e:
-            print(f"❌ [BUILD 163] Failed to hang up call: {e}")
-            import traceback
-            traceback.print_exc()
+            force_print(f"[HANGUP] error call_sid={self.call_sid} err={type(e).__name__}:{str(e)[:200]}")
+            logger.exception("[HANGUP] error call_sid=%s", self.call_sid)
     
     # 🔥 MASTER FIX: Greeting SLA validation
     def _validate_greeting_sla(self):
@@ -10734,6 +10824,131 @@ class MediaStreamHandler:
         except Exception as e:
             print(f"❌ [AI] Failed to send text: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # 🔴 CRITICAL — Real Hangup (transcript-only)
+    # ──────────────────────────────────────────────────────────────────────────
+    def _classify_real_hangup_intent(self, transcript_text: str, speaker: str) -> Optional[str]:
+        """
+        Returns:
+        - "hangup": real hangup should be executed now
+        - "clarify": ambiguous goodbye ("ביי אבל רגע") → ask clarification once
+        - None: no real hangup intent
+        """
+        if not transcript_text or not transcript_text.strip():
+            return None
+
+        tuples = _REAL_HANGUP_USER_TUPLES if speaker == "user" else _REAL_HANGUP_BOT_TUPLES
+        if _is_closing_sentence_only(transcript_text, tuples):
+            return "hangup"
+
+        if speaker == "user" and _is_ambiguous_goodbye(transcript_text):
+            return "clarify"
+
+        return None
+
+    async def _request_real_hangup(self, trigger: str, transcript_text: str, speaker: str):
+        """
+        Execute REAL hangup flow (Realtime + Twilio):
+        (A) Stop AI immediately: response.cancel + output_audio_buffer.clear + Twilio clear
+        (B) Hang up via Twilio REST (hangup_call(call_sid))
+
+        Duplicate-guarded by self.hangup_requested (silent if already requested).
+        """
+        if getattr(self, "hangup_requested", False):
+            return
+
+        # One-shot guard
+        self.hangup_requested = True
+
+        # Minimal required identifiers
+        call_sid = getattr(self, "call_sid", None)
+        stream_sid = getattr(self, "stream_sid", None)
+
+        # Log acceptance markers (must be visible even when DEBUG=0)
+        msg_preview = (transcript_text or "").strip().replace("\n", " ")[:120]
+        force_print(f"[HANGUP_REQUEST] {trigger} speaker={speaker} call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'")
+        logger.info(f"[HANGUP_REQUEST] {trigger} speaker={speaker} call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'")
+
+        if not call_sid:
+            force_print("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
+            logger.error("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
+            return
+        if not stream_sid:
+            # Not fatal (we can still hangup via REST), but required by spec to log briefly.
+            force_print(f"[HANGUP_REQUEST] error missing_streamSid call_sid={call_sid}")
+            logger.error("[HANGUP_REQUEST] error missing_streamSid call_sid=%s", call_sid)
+
+        # Mark call as ending to stop other loops/tasks ASAP
+        try:
+            self.pending_hangup = False
+            self.goodbye_detected = True
+            self.hangup_triggered = True
+            self.call_state = CallState.ENDED
+        except Exception:
+            pass
+
+        # (A) Stop AI immediately
+        try:
+            # 1) Cancel active response (if any)
+            if getattr(self, "active_response_id", None) and getattr(self, "realtime_client", None):
+                resp_id = self.active_response_id
+                if hasattr(self, "_should_send_cancel") and self._should_send_cancel(resp_id):
+                    try:
+                        await self.realtime_client.cancel_response(resp_id)
+                    except Exception as e:
+                        logger.debug(f"[HANGUP_REQUEST] cancel_error (ignored): {e}")
+            elif getattr(self, "realtime_client", None) and (
+                getattr(self, "ai_response_active", False) or self.is_ai_speaking_event.is_set()
+            ):
+                # Best-effort: cancel without response_id if we're speaking but missed ID.
+                try:
+                    await self.realtime_client.cancel_response()
+                except Exception as e:
+                    logger.debug(f"[HANGUP_REQUEST] cancel_no_id_error (ignored): {e}")
+
+            # 2) Clear OpenAI output audio buffer (best-effort)
+            if getattr(self, "realtime_client", None):
+                try:
+                    await self.realtime_client.send_event({"type": "output_audio_buffer.clear"})
+                except Exception as e:
+                    logger.debug(f"[HANGUP_REQUEST] output_audio_buffer.clear error (ignored): {e}")
+
+            # 3) Clear Twilio buffered audio (best-effort)
+            if stream_sid:
+                try:
+                    self._ws_send(json.dumps({"event": "clear", "streamSid": stream_sid}))
+                except Exception as e:
+                    logger.debug(f"[HANGUP_REQUEST] twilio_clear error (ignored): {e}")
+
+            # 4) Clear local queues so no more audio is sent
+            try:
+                self._flush_tx_queue()
+            except Exception:
+                pass
+
+            # 5) Reset local speech state
+            try:
+                self.is_ai_speaking_event.clear()
+                self.active_response_id = None
+                if hasattr(self, "ai_response_active"):
+                    self.ai_response_active = False
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"[HANGUP_REQUEST] stop_ai_error (ignored): {e}")
+
+        # (B) Real hangup via Twilio REST (non-blocking)
+        try:
+            from server.services.twilio_call_control import hangup_call
+
+            def _do_hangup():
+                hangup_call(call_sid)
+
+            threading.Thread(target=_do_hangup, daemon=True).start()
+        except Exception as e:
+            force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+            logger.exception("[HANGUP] error call_sid=%s", call_sid)
+
     def _looks_like_user_goodbye(self, text: str) -> bool:
         """
         🔧 FIX: Detect USER goodbye phrases (separate from AI polite closing)
@@ -10751,52 +10966,8 @@ class MediaStreamHandler:
         Returns:
             True if user is ending the call
         """
-        text_lower = text.lower().strip()
-        
-        # Skip very short utterances (noise)
-        if len(text_lower) < 3:
-            return False
-        
-        # 🛡️ IGNORE LIST: Phrases that sound like goodbye but aren't!
-        for ignore in GOODBYE_IGNORE_PHRASES:
-            if ignore in text_lower:
-                return False
-        
-        # 🛡️ FILTER: Exclude greetings that sound like goodbye
-        for greeting in GOODBYE_GREETING_WORDS:
-            if greeting in text_lower and "ביי" not in text_lower and "להתראות" not in text_lower:
-                return False
-        
-        # ✅ CLEAR goodbye words - use shared constant
-        for word in CLEAR_GOODBYE_WORDS:
-            if word in text_lower:
-                print(f"[USER GOODBYE] Clear goodbye: '{word}' in '{text_lower[:30]}...'")
-                return True
-        
-        # ✅ Polite endings that indicate user wants to end call
-        # These should only count as goodbye if they're the main content of the utterance
-        polite_endings = [
-            "תודה רבה", "אין צורך", "לא צריך", "אפשר לסיים",
-            "תודה וביי", "תודה להתראות", "תודה רבה וביי", "תודה רבה להתראות"
-        ]
-        
-        # Check if any polite ending is present and is a significant portion of the text
-        words_in_text = text_lower.split()
-        text_length = len(words_in_text)
-        
-        for phrase in polite_endings:
-            if phrase in text_lower:
-                phrase_words = phrase.split()
-                phrase_length = len(phrase_words)
-                
-                # Use configurable constants for threshold logic
-                # Short utterances with polite phrases are likely goodbyes
-                # Longer utterances require phrase to be significant portion to avoid false positives
-                if text_length <= GOODBYE_SHORT_UTTERANCE_MAX_WORDS or phrase_length >= text_length * GOODBYE_PHRASE_MIN_PERCENTAGE:
-                    print(f"[USER GOODBYE] Polite ending: '{phrase}' in '{text_lower[:30]}...'")
-                    return True
-        
-        return False
+        intent = self._classify_real_hangup_intent(text, "user")
+        return intent in ("hangup", "clarify")
     
     def _check_goodbye_phrases(self, text: str) -> bool:
         """
