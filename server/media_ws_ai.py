@@ -1708,7 +1708,9 @@ class MediaStreamHandler:
         # 🚀 REALTIME API: Thread-safe queues and state for OpenAI Realtime mode
         # ✅ Use imported queue module (at top of file) - NOT queue_module alias
         import queue as _queue_module  # Local import to avoid shadowing
-        self.realtime_audio_in_queue = _queue_module.Queue(maxsize=1000)  # Twilio → Realtime
+        # 🔥 STABILITY: Avoid audio drops on jitter / temporary gating.
+        # 50fps nominal; 3000 frames ≈ 60 seconds of buffering headroom.
+        self.realtime_audio_in_queue = _queue_module.Queue(maxsize=3000)  # Twilio → Realtime
         self.realtime_audio_out_queue = _queue_module.Queue(maxsize=1000)  # Realtime → Twilio
         self.realtime_text_input_queue = _queue_module.Queue(maxsize=10)  # DTMF/text → Realtime
         self.realtime_greeting_queue = _queue_module.Queue(maxsize=1)  # Greeting → Realtime
@@ -1881,6 +1883,7 @@ class MediaStreamHandler:
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
         self._stats_audio_blocked = 0  # Total audio chunks blocked (greeting, etc.)
+        self._stats_audio_dropped = 0  # Total audio chunks dropped (should be 0 in SIMPLE_MODE)
         self._stats_last_log_ts = 0  # Last time we logged pipeline status
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
         
@@ -1941,6 +1944,14 @@ class MediaStreamHandler:
         self.goodbye_detected = False  # Runtime state: tracks if goodbye phrase detected
         self.pending_hangup = False  # Runtime state: signals that call should end after current TTS
         self.hangup_triggered = False  # Runtime state: prevents multiple hangup attempts
+        # 🎯 POLITE BOT GOODBYE (pending-only): when bot_goodbye is detected from transcript,
+        # we mark hangup as pending and ONLY execute hangup after audio playback completes.
+        # IMPORTANT: bot_goodbye path must NOT flush queues / cancel response / send Twilio clear.
+        self._pending_hangup_reason = None
+        self._pending_hangup_source = None
+        self._pending_hangup_text = None
+        self._pending_hangup_speaker = None
+        self._pending_hangup_response_id = None
         self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
@@ -2314,7 +2325,7 @@ class MediaStreamHandler:
         4. Stream audio bidirectionally
         """
         from server.services.openai_realtime_client import OpenAIRealtimeClient
-        from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
+        from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS, SERVER_VAD_PREFIX_PADDING_MS
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
@@ -2356,7 +2367,8 @@ class MediaStreamHandler:
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
                 vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
-                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
+                prefix_padding_ms=SERVER_VAD_PREFIX_PADDING_MS,
+                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (450–500ms) - stable for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
                 transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש.",  # ✅ QA: Simple Hebrew transcription guidance
@@ -3098,8 +3110,7 @@ class MediaStreamHandler:
                         print("🔒 [GREETING_LOCK] Buffering user audio locally (not sending to OpenAI) - greeting in progress")
                         _greeting_block_logged = True
                     self._greeting_input_audio_buffer.append(audio_chunk)
-                    self._stats_audio_blocked += 1
-                    _frames_dropped += 1  # counted as "withheld" during lock
+                    # NOTE: This is NOT a dropped frame; it will be flushed after greeting ends.
                     continue
 
                 # If greeting just ended, flush buffered audio first (in-order)
@@ -4071,9 +4082,12 @@ class MediaStreamHandler:
                     # 🔥 FIX: Handle None transcription safely - use or {} to prevent crash
                     transcription = session_data.get("input_audio_transcription") or {}
                     turn_detection = session_data.get("turn_detection", {})
+                    turn_type = (turn_detection or {}).get("type")
                     
                     _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
                     _orig_print(f"✅ [SESSION] Modalities: {modalities}, transcription: model={transcription.get('model')}, lang={transcription.get('language')}", flush=True)
+                    _orig_print(f"✅ [SESSION] Turn detection: type={turn_type}, config={turn_detection}", flush=True)
+                    _orig_print(f"✅ [SESSION] Instructions length: {len((instructions or '').strip())}", flush=True)
                     
                     # 🚨 CRITICAL VALIDATION: Verify all critical settings
                     validation_failed = False
@@ -4722,9 +4736,30 @@ class MediaStreamHandler:
                     # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
                     # This ensures AI finishes speaking before we disconnect
                     if self.pending_hangup and not self.hangup_triggered:
+                        done_response_id = event.get("response_id")
+                        pending_reason = getattr(self, "_pending_hangup_reason", None)
+                        pending_resp_id = getattr(self, "_pending_hangup_response_id", None)
+
+                        # If we have a response_id for the pending hangup, only trigger hangup
+                        # after the matching response.audio.done arrives (prevents early hangup
+                        # on a different response's done event).
+                        if (
+                            pending_reason == "bot_goodbye"
+                            and pending_resp_id
+                            and done_response_id
+                            and pending_resp_id != done_response_id
+                        ):
+                            print(
+                                f"⏭️ [HANGUP FLOW] pending bot_goodbye waiting for matching response_id "
+                                f"(pending={pending_resp_id}, done={done_response_id})"
+                            )
+                            # Do not start delayed_hangup yet.
+                            continue
+
                         print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
                         # Wait for audio to fully play before disconnecting
                         async def delayed_hangup():
+                            _pending_reason = getattr(self, "_pending_hangup_reason", None)
                             print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
                             
                             # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
@@ -4735,59 +4770,103 @@ class MediaStreamHandler:
                                     break
                                 await asyncio.sleep(0.1)
                             
-                            # STEP 2: Wait for Twilio TX queue to drain (max 10 seconds)
-                            # 🔥 FIX #4: Add drain watchdog to detect stuck queue
-                            # Each frame is 20ms, so 500 frames = 10 seconds of audio
-                            last_tx_size = self.tx_q.qsize()
-                            stuck_iterations = 0
-                            STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
-                            
-                            for i in range(100):  # 100 * 100ms = 10 seconds max
-                                tx_size = self.tx_q.qsize()
-                                if tx_size == 0:
-                                    print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
-                                    break
-                                
-                                # 🔥 FIX #4: Detect if queue is stuck (not draining)
-                                if tx_size == last_tx_size:
-                                    stuck_iterations += 1
-                                    if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
-                                        print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
-                                        # Queue is stuck - check if tx_running is False
-                                        if not getattr(self, 'tx_running', False):
-                                            print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
-                                            # Clear the stuck queue
-                                            while not self.tx_q.empty():
-                                                try:
-                                                    self.tx_q.get_nowait()
-                                                except queue.Empty:
-                                                    break
-                                            print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
-                                            break
-                                else:
-                                    stuck_iterations = 0  # Reset on progress
-                                
-                                last_tx_size = tx_size
-                                
-                                if i % 10 == 0:  # Log every second
-                                    print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
-                                await asyncio.sleep(0.1)
-                            
-                            # STEP 3: Extra buffer for network latency
-                            # Audio still needs to travel from Twilio servers to phone
-                            print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
-                            await asyncio.sleep(2.0)
-                            
-                            if not self.hangup_triggered:
-                                print(f"📞 [HANGUP FLOW] ✅ Audio playback complete - CALLING _trigger_auto_hangup() NOW")
-                                import threading
-                                threading.Thread(
-                                    target=self._trigger_auto_hangup,
-                                    args=("AI finished speaking politely",),
-                                    daemon=True
-                                ).start()
+                            # STEP 2: Wait for Twilio TX queue to drain
+                            # For bot_goodbye: NEVER flush/clear/cancel. Just wait for drain,
+                            # and if we can't observe tx_queue==0 reliably, do a short fallback delay.
+                            if _pending_reason == "bot_goodbye":
+                                max_wait_sec = 5.0
+                                started = time.time()
+                                while (time.time() - started) < max_wait_sec:
+                                    tx_size = self.tx_q.qsize()
+                                    if tx_size == 0:
+                                        print(f"✅ [POLITE HANGUP] tx_queue=0 (bot_goodbye)")
+                                        break
+                                    # Log once per second
+                                    if int((time.time() - started) * 10) % 10 == 0:
+                                        print(f"⏳ [POLITE HANGUP] Waiting for tx_queue to drain (tx_queue={tx_size})")
+                                    await asyncio.sleep(0.1)
+
+                                tx_size_final = self.tx_q.qsize()
+                                if tx_size_final > 0:
+                                    print(
+                                        f"⚠️ [POLITE HANGUP] tx_queue still not empty (tx_queue={tx_size_final}) "
+                                        f"after {max_wait_sec:.1f}s - fallback delay then hangup (no flush)"
+                                    )
+
+                                # Fallback buffer after response.audio.done (per spec 0.6–1.0s)
+                                await asyncio.sleep(0.8)
                             else:
+                                # Non-bot hangups may still use the old watchdog (best-effort).
+                                # Each frame is 20ms, so 500 frames = 10 seconds of audio
+                                last_tx_size = self.tx_q.qsize()
+                                stuck_iterations = 0
+                                STUCK_THRESHOLD = 3  # 3 seconds without progress = stuck
+                                
+                                for i in range(100):  # 100 * 100ms = 10 seconds max
+                                    tx_size = self.tx_q.qsize()
+                                    if tx_size == 0:
+                                        print(f"✅ [POLITE HANGUP] Twilio TX queue empty after {i*100}ms")
+                                        break
+                                    
+                                    # 🔥 FIX #4: Detect if queue is stuck (not draining)
+                                    if tx_size == last_tx_size:
+                                        stuck_iterations += 1
+                                        if stuck_iterations >= STUCK_THRESHOLD * 10:  # 3s = 30 iterations
+                                            print(f"⚠️ [POLITE HANGUP] TX queue stuck at {tx_size} frames for {stuck_iterations/10:.1f}s - sender may be dead")
+                                            # Queue is stuck - check if tx_running is False
+                                            if not getattr(self, 'tx_running', False):
+                                                print(f"❌ [POLITE HANGUP] TX loop stopped but queue has {tx_size} frames - force cleanup")
+                                                # Clear the stuck queue (legacy behavior; NOT used for bot_goodbye)
+                                                while not self.tx_q.empty():
+                                                    try:
+                                                        self.tx_q.get_nowait()
+                                                    except queue.Empty:
+                                                        break
+                                                print(f"🧹 [POLITE HANGUP] Cleared {tx_size} stuck frames from TX queue")
+                                                break
+                                    else:
+                                        stuck_iterations = 0  # Reset on progress
+                                    
+                                    last_tx_size = tx_size
+                                    
+                                    if i % 10 == 0:  # Log every second
+                                        print(f"⏳ [POLITE HANGUP] TX queue still has {tx_size} frames...")
+                                    await asyncio.sleep(0.1)
+                                
+                                # STEP 3: Extra buffer for network latency
+                                # Audio still needs to travel from Twilio servers to phone
+                                print(f"⏳ [POLITE HANGUP] Queues empty, waiting 2s for network...")
+                                await asyncio.sleep(2.0)
+                            
+                            if self.hangup_triggered:
                                 print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
+                                return
+
+                            # ✅ Execute hangup
+                            if _pending_reason == "bot_goodbye":
+                                # IMPORTANT: For bot_goodbye, do NOT flush/cancel/clear.
+                                # We hang up only after audio.done + queue drain (or fallback delay above).
+                                self.hangup_triggered = True
+                                self.call_state = CallState.ENDED
+                                call_sid = getattr(self, "call_sid", None)
+                                try:
+                                    from server.services.twilio_call_control import hangup_call
+                                    await asyncio.to_thread(hangup_call, call_sid)
+                                except Exception as e:
+                                    force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+                                    try:
+                                        logger.exception("[HANGUP] error call_sid=%s", call_sid)
+                                    except Exception:
+                                        pass
+                                return
+
+                            print(f"📞 [HANGUP FLOW] ✅ Audio playback complete - CALLING _trigger_auto_hangup() NOW")
+                            import threading
+                            threading.Thread(
+                                target=self._trigger_auto_hangup,
+                                args=("AI finished speaking politely",),
+                                daemon=True
+                            ).start()
                         
                         asyncio.create_task(delayed_hangup())
                 
@@ -4796,7 +4875,11 @@ class MediaStreamHandler:
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
 
-                        # 🔴 FIX (BOT): Hang up ONLY on response.audio_transcript.done (audio bot)
+                        # 🔴 FIX (BOT): Detect goodbye on transcript, but DO NOT hang up yet.
+                        # response.audio_transcript.done is TEXT-only and does NOT guarantee audio playback finished.
+                        # Instead: set pending_hangup and execute the actual hangup only after:
+                        # - response.audio.done for the SAME response_id (if available)
+                        # - AND tx_queue drained to 0 (or short fallback delay)
                         # Match on the transcript text itself (not output_text), with a simple include/equal rule.
                         # Disconnect if transcript includes/equals one of:
                         # - "ביי"
@@ -4810,7 +4893,28 @@ class MediaStreamHandler:
                             _targets = ["ביי", "להתראות", "תודה, להתראות", "תודה ולהתראות"]
                             _targets_norm = [" ".join(re.sub(r"""[.,;:!?"'()\[\]{}<>״“”‘’\-–—]""", " ", p).split()) for p in _targets]
                             if any(p in _t_raw for p in _targets) or any(p in _t_norm for p in _targets_norm):
-                                await self.request_hangup("bot_goodbye", "response.audio_transcript.done", _t_raw, "bot")
+                                # Mark hangup as pending, store metadata for later correlation/logging.
+                                self.goodbye_detected = True
+                                self.pending_hangup = True
+                                self._pending_hangup_reason = "bot_goodbye"
+                                self._pending_hangup_source = "response.audio_transcript.done"
+                                self._pending_hangup_text = _t_raw
+                                self._pending_hangup_speaker = "bot"
+                                self._pending_hangup_response_id = event.get("response_id")
+
+                                # Log in the same acceptance marker shape, but this is PENDING only.
+                                call_sid = getattr(self, "call_sid", None)
+                                stream_sid = getattr(self, "stream_sid", None)
+                                msg_preview = (_t_raw or "").strip().replace("\n", " ")[:120]
+                                pending_line = (
+                                    f"[HANGUP_REQUEST] bot_goodbye source=response.audio_transcript.done speaker=bot "
+                                    f"call_sid={call_sid} streamSid={stream_sid} pending=true text='{msg_preview}'"
+                                )
+                                force_print(pending_line)
+                                try:
+                                    logger.info(pending_line)
+                                except Exception:
+                                    pass
                                 continue
                         except Exception:
                             # Never break the realtime loop due to hangup matching errors.
@@ -5534,15 +5638,20 @@ class MediaStreamHandler:
                     user_has_spoken_before = self.user_has_spoken
                     
                     # Run enhanced validation with all new parameters
-                    accept_utterance = should_accept_realtime_utterance(
-                        stt_text=text,
-                        utterance_ms=utterance_duration_ms,
-                        rms_snapshot=0.0,
-                        noise_floor=0.0,
-                        ai_speaking=ai_speaking,
-                        last_ai_audio_start_ms=time_since_ai_audio_start_ms,
-                        last_hallucination=self._last_hallucination
-                    )
+                    # SIMPLE_MODE: Accept all transcripts as input (no RMS/noise_floor gating).
+                    # Only drop if it's truly empty.
+                    if SIMPLE_MODE:
+                        accept_utterance = bool(text.strip())
+                    else:
+                        accept_utterance = should_accept_realtime_utterance(
+                            stt_text=text,
+                            utterance_ms=utterance_duration_ms,
+                            rms_snapshot=0.0,
+                            noise_floor=0.0,
+                            ai_speaking=ai_speaking,
+                            last_ai_audio_start_ms=time_since_ai_audio_start_ms,
+                            last_hallucination=self._last_hallucination
+                        )
                     
                     if not accept_utterance:
                         # 🚫 Utterance failed validation - save as hallucination and ignore
@@ -8343,8 +8452,21 @@ class MediaStreamHandler:
                                     print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
                                     print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
-                                self.realtime_audio_in_queue.put_nowait(b64)
-                            except queue.Full:
+                                # ✅ Realtime-only mode: do not drop audio frames.
+                                # Block briefly to absorb jitter; queue is large enough to avoid sustained blocking.
+                                try:
+                                    self.realtime_audio_in_queue.put(b64, timeout=0.2)
+                                except queue.Full:
+                                    # Extremely rare: sender is stalled for >~60s (queue maxsize).
+                                    # Count as a true drop (should remain 0 in healthy calls).
+                                    self._stats_audio_dropped += 1
+                                    if self._stats_audio_dropped % 50 == 0:
+                                        print(
+                                            f"🚨 [AUDIO_DROP] realtime_audio_in_queue full - dropped frames={self._stats_audio_dropped} "
+                                            f"(maxsize={getattr(self.realtime_audio_in_queue, 'maxsize', 'n/a')})"
+                                        )
+                            except Exception:
+                                # Never crash the call on enqueue issues.
                                 pass
                         else:
                             # 🔥 BUILD 171: Enhanced logging for debugging
@@ -10868,7 +10990,7 @@ class MediaStreamHandler:
     async def request_hangup(self, reason: str, source: str, transcript_text: str = "", speaker: str = ""):
         """
         Execute REAL hangup flow (Realtime + Twilio):
-        (A) Stop AI immediately: response.cancel + output_audio_buffer.clear + Twilio clear
+        (A) Stop AI immediately: response.cancel + Twilio clear
         (B) Hang up via Twilio REST (hangup_call(call_sid))
 
         Anti-duplicates / race:
@@ -10939,27 +11061,20 @@ class MediaStreamHandler:
                 except Exception as e:
                     logger.debug(f"[HANGUP_REQUEST] cancel_no_id_error (ignored): {e}")
 
-            # 2) Clear OpenAI output audio buffer (best-effort)
-            if getattr(self, "realtime_client", None):
-                try:
-                    await self.realtime_client.send_event({"type": "output_audio_buffer.clear"})
-                except Exception as e:
-                    logger.debug(f"[HANGUP_REQUEST] output_audio_buffer.clear error (ignored): {e}")
-
-            # 3) Clear Twilio buffered audio (best-effort)
+            # 2) Clear Twilio buffered audio (best-effort)
             if stream_sid:
                 try:
                     self._ws_send(json.dumps({"event": "clear", "streamSid": stream_sid}))
                 except Exception as e:
                     logger.debug(f"[HANGUP_REQUEST] twilio_clear error (ignored): {e}")
 
-            # 4) Clear local queues so no more audio is sent
+            # 3) Clear local queues so no more audio is sent
             try:
                 self._flush_tx_queue()
             except Exception:
                 pass
 
-            # 5) Reset local speech state
+            # 4) Reset local speech state
             try:
                 self.is_ai_speaking_event.clear()
                 self.active_response_id = None
@@ -13243,7 +13358,8 @@ class MediaStreamHandler:
             # 🎯 TASK 6.1: AUDIO PIPELINE METRICS
             frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
             frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
-            frames_dropped_by_filters = getattr(self, '_stats_audio_blocked', 0)
+            # Only count TRUE drops (queue overflow / explicit drops). Buffered frames are not drops.
+            frames_dropped_by_filters = getattr(self, '_stats_audio_dropped', 0)
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
             if SIMPLE_MODE and frames_dropped_by_filters > 0:
