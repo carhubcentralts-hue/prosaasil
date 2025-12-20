@@ -4079,9 +4079,12 @@ class MediaStreamHandler:
                     # 🔥 FIX: Handle None transcription safely - use or {} to prevent crash
                     transcription = session_data.get("input_audio_transcription") or {}
                     turn_detection = session_data.get("turn_detection", {})
+                    turn_type = (turn_detection or {}).get("type")
                     
                     _orig_print(f"✅ [SESSION] Confirmed settings: input={input_format}, output={output_format}, voice={voice}", flush=True)
                     _orig_print(f"✅ [SESSION] Modalities: {modalities}, transcription: model={transcription.get('model')}, lang={transcription.get('language')}", flush=True)
+                    _orig_print(f"✅ [SESSION] Turn detection: type={turn_type}, config={turn_detection}", flush=True)
+                    _orig_print(f"✅ [SESSION] Instructions length: {len((instructions or '').strip())}", flush=True)
                     
                     # 🚨 CRITICAL VALIDATION: Verify all critical settings
                     validation_failed = False
