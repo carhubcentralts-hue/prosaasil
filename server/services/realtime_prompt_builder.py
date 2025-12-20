@@ -423,6 +423,8 @@ def build_realtime_system_prompt(business_id: int, db_session=None, call_directi
             logger.info(f"📞 [PROMPT_ROUTER] Building INBOUND prompt for business {business_id}")
             call_control_settings_dict = {
                 "enable_calendar_scheduling": settings.enable_calendar_scheduling if (settings and hasattr(settings, 'enable_calendar_scheduling')) else True,
+                # 🔥 CRITICAL: pass call_goal so appointment flow rules are actually injected
+                "call_goal": getattr(settings, "call_goal", "lead_only") if settings else "lead_only",
                 "auto_end_after_lead_capture": settings.auto_end_after_lead_capture if (settings and hasattr(settings, 'auto_end_after_lead_capture')) else False,
                 "auto_end_on_goodbye": settings.auto_end_on_goodbye if (settings and hasattr(settings, 'auto_end_on_goodbye')) else False,
                 "smart_hangup_enabled": settings.smart_hangup_enabled if (settings and hasattr(settings, 'smart_hangup_enabled')) else True,
@@ -637,12 +639,16 @@ def build_inbound_system_prompt(
             weekday_name = weekday_names[today.weekday()]
             
             appointment_instructions = (
-                f"\n\nAPPOINTMENT SCHEDULING (technical): Today is {weekday_name} {today_date}. "
+                f"\n\nAPPOINTMENT SCHEDULING (STRICT, technical): Today is {weekday_name} {today_date}. "
                 f"Slot size: {policy.slot_size_min}min. "
-                "Collect: (1) customer name, (2) preferred date+time. "
-                "Call schedule_appointment once after collecting both. "
-                "Do not ask for phone (already in metadata). "
-                "Only confirm booking if server returns success=true; otherwise offer alternatives."
+                "Never skip steps. Required before booking: (1) customer name, (2) full date (must include weekday), (3) time. "
+                "If anything is missing, ask ONLY for the missing field (one question at a time). "
+                "Understanding time/date: the customer may say 'היום/מחר/ראשון/שני' and a time like 'שלוש' - do NOT repeat 'היום/מחר' to the customer. "
+                "Always restate as a weekday + full date + HH:MM confirmation question. "
+                "Availability: you MUST call check_availability before claiming a slot is available. "
+                "Booking: ONLY call schedule_appointment after availability indicates the requested time is available. "
+                "Never say 'קבעתי/נקבע' unless schedule_appointment returned success=true AND includes appointment_id. "
+                "If not available, propose up to 2 alternative times provided by the server."
             )
         
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

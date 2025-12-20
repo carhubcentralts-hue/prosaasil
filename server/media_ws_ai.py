@@ -2055,17 +2055,17 @@ class MediaStreamHandler:
                     availability_tool = {
                         "type": "function",
                         "name": "check_availability",
-                        "description": "Check available appointment slots for a specific date. MUST be called before offering times to customer.",
+                        "description": "Check available appointment slots for a specific date (server-side). MUST be called before claiming availability or offering times.",
                         "parameters": {
                             "type": "object",
                             "properties": {
                                 "date": {
                                     "type": "string",
-                                    "description": "Date to check in YYYY-MM-DD format (e.g., '2025-12-20')"
+                                    "description": "Date to check. Accepts YYYY-MM-DD OR Hebrew like 'היום'/'מחר'/'ראשון'/'שני' (server will normalize to a full date + weekday)."
                                 },
                                 "preferred_time": {
                                     "type": "string",
-                                    "description": "Customer's preferred time in HH:MM format (e.g., '14:00'). System will return slots near this time."
+                                    "description": "Optional preferred time. Accepts HH:MM or Hebrew like 'שלוש'/'שלוש וחצי'. Server will normalize and return slots near that time."
                                 },
                                 "service_type": {
                                     "type": "string",
@@ -2080,7 +2080,7 @@ class MediaStreamHandler:
                     appointment_tool = {
                         "type": "function",
                         "name": "schedule_appointment",
-                        "description": "Schedule an appointment ONLY after checking availability with check_availability. MUST be called to confirm booking.",
+                        "description": "Create an appointment ONLY after a real availability check. Server will normalize Hebrew date/time and will refuse to book if slot is not available.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -2090,11 +2090,11 @@ class MediaStreamHandler:
                                 },
                                 "appointment_date": {
                                     "type": "string",
-                                    "description": "Appointment date in YYYY-MM-DD format"
+                                    "description": "Appointment date. Accepts YYYY-MM-DD OR Hebrew like 'היום'/'מחר'/'ראשון'."
                                 },
                                 "appointment_time": {
                                     "type": "string",
-                                    "description": "Appointment time in HH:MM format (24-hour)"
+                                    "description": "Appointment time. Accepts HH:MM or Hebrew like 'שלוש'/'שלוש וחצי'."
                                 },
                                 "service_type": {
                                     "type": "string",
@@ -5344,10 +5344,42 @@ class MediaStreamHandler:
                                 # LEGACY: Trigger NLP immediately to try to create the appointment
                                 print(f"🔥 [LEGACY GUARD] Triggering immediate NLP check to create appointment...")
                                 self._check_appointment_confirmation(transcript)
-                            # Send immediate correction event
-                            asyncio.create_task(self._send_server_event_to_ai(
-                                "⚠️ Appointment not yet confirmed by system"
-                            ))
+                            
+                            # 🔥 CRITICAL: _send_server_event_to_ai is deprecated (no-op).
+                            # Inject a SYSTEM correction and trigger an immediate AI response to avoid a stuck call.
+                            if not getattr(self, "_appointment_guard_system_msg_sent", False):
+                                self._appointment_guard_system_msg_sent = True
+                                
+                                async def _inject_and_recover():
+                                    try:
+                                        await client.send_event(
+                                            {
+                                                "type": "conversation.item.create",
+                                                "item": {
+                                                    "type": "message",
+                                                    "role": "system",
+                                                    "content": [
+                                                        {
+                                                            "type": "input_text",
+                                                            "text": (
+                                                                "SERVER OVERRIDE: You told the caller the appointment is booked, "
+                                                                "but the server has NOT created an appointment (no appointment_id). "
+                                                                "Immediately correct yourself in Hebrew: apologize, say you are checking availability now, "
+                                                                "then continue the appointment flow strictly: collect missing fields (name, full date+weekday, time), "
+                                                                "call check_availability, and only then call schedule_appointment. "
+                                                                "Never say 'קבעתי/נקבע' unless schedule_appointment returned success=true and includes appointment_id."
+                                                            ),
+                                                        }
+                                                    ],
+                                                },
+                                            }
+                                        )
+                                        # Prompt the model to speak a corrective message immediately.
+                                        await client.send_event({"type": "response.create"})
+                                    except Exception as _e:
+                                        logger.error(f"[GUARD] Failed to inject correction system message: {_e}")
+                                
+                                asyncio.create_task(_inject_and_recover())
                         
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
@@ -11404,12 +11436,12 @@ class MediaStreamHandler:
                     await client.send_event({"type": "response.create"})
                     return
                 
-                # Extract parameters
-                date_str = args.get("date", "").strip()
-                preferred_time = args.get("preferred_time", "").strip()
+                # Extract parameters (may be Hebrew, server will normalize)
+                date_str_raw = args.get("date", "").strip()
+                preferred_time_raw = args.get("preferred_time", "").strip()
                 service_type = args.get("service_type", "").strip()
                 
-                if not date_str:
+                if not date_str_raw:
                     print(f"❌ [CHECK_AVAIL] Missing date")
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -11429,17 +11461,54 @@ class MediaStreamHandler:
                 try:
                     from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
                     from server.policy.business_policy import get_business_policy
+                    import pytz
+                    from server.services.hebrew_datetime import (
+                        resolve_hebrew_date,
+                        resolve_hebrew_time,
+                        pick_best_time_candidate,
+                    )
                     
                     # Get policy to determine duration
                     policy = get_business_policy(business_id)
                     duration_min = policy.slot_size_min  # Use business slot size
+                    business_tz = pytz.timezone(policy.tz)
                     
-                    print(f"📅 [CHECK_AVAIL] Checking {date_str} with preferred_time={preferred_time}, duration={duration_min}min")
-                    logger.info(f"[CHECK_AVAIL] business_id={business_id}, date={date_str}, preferred_time={preferred_time}")
+                    # Normalize date (accepts "היום/מחר/ראשון" etc.)
+                    date_res = resolve_hebrew_date(date_str_raw, business_tz)
+                    if not date_res:
+                        print(f"❌ [CHECK_AVAIL] Invalid date input: '{date_str_raw}'")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error": "תאריך לא תקין. בקש תאריך אחר.",
+                                    "error_code": "invalid_date"
+                                }, ensure_ascii=False)
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
+                    
+                    normalized_date_iso = date_res.date_iso
+                    weekday_he = date_res.weekday_he
+                    date_display_he = date_res.date_display_he
+                    
+                    # Normalize preferred time (optional)
+                    preferred_time = None
+                    if preferred_time_raw:
+                        time_res = resolve_hebrew_time(preferred_time_raw)
+                        if time_res and time_res.candidates_hhmm:
+                            preferred_time = pick_best_time_candidate(time_res.candidates_hhmm)
+                    
+                    print(f"📅 [CHECK_AVAIL] Checking {normalized_date_iso} ({date_display_he}) preferred_time={preferred_time or '-'} duration={duration_min}min")
+                    logger.info(f"[CHECK_AVAIL] business_id={business_id}, date={normalized_date_iso}, preferred_time={preferred_time}")
                     
                     input_data = FindSlotsInput(
                         business_id=business_id,
-                        date_iso=date_str,
+                        date_iso=normalized_date_iso,
                         duration_min=duration_min,
                         preferred_time=preferred_time if preferred_time else None
                     )
@@ -11450,7 +11519,26 @@ class MediaStreamHandler:
                     if result.slots and len(result.slots) > 0:
                         slots_display = [slot.start_display for slot in result.slots[:3]]  # Max 3 slots
                         print(f"✅ [CHECK_AVAIL] CAL_AVAIL_OK - Found {len(result.slots)} slots: {slots_display}")
-                        logger.info(f"✅ CAL_AVAIL_OK business_id={business_id} date={date_str} slots_found={len(result.slots)} slots={slots_display}")
+                        logger.info(f"✅ CAL_AVAIL_OK business_id={business_id} date={normalized_date_iso} slots_found={len(result.slots)} slots={slots_display}")
+                        
+                        # Persist availability context for later booking enforcement
+                        try:
+                            self._last_availability = {
+                                "date_iso": normalized_date_iso,
+                                "weekday_he": weekday_he,
+                                "date_display_he": date_display_he,
+                                "slots": slots_display,
+                                "ts": time.time(),
+                            }
+                            crm_context = getattr(self, "crm_context", None)
+                            if crm_context:
+                                crm_context.pending_slot = {
+                                    "date": normalized_date_iso,
+                                    "time": preferred_time or "",
+                                    "available": True,
+                                }
+                        except Exception:
+                            pass
                         
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -11459,15 +11547,18 @@ class MediaStreamHandler:
                                 "call_id": call_id,
                                 "output": json.dumps({
                                     "success": True,
+                                    "normalized_date": normalized_date_iso,
+                                    "weekday_he": weekday_he,
+                                    "date_display_he": date_display_he,
                                     "slots": slots_display,
                                     "business_hours": result.business_hours,
-                                    "message": f"יש {len(result.slots)} זמנים פנויים ב-{date_str}"
+                                    "message": f"יש זמנים פנויים ב-{date_display_he}"
                                 }, ensure_ascii=False)
                             }
                         })
                     else:
-                        print(f"⚠️ [CHECK_AVAIL] No slots available for {date_str}")
-                        logger.warning(f"[CHECK_AVAIL] No slots found for business_id={business_id} date={date_str}")
+                        print(f"⚠️ [CHECK_AVAIL] No slots available for {normalized_date_iso}")
+                        logger.warning(f"[CHECK_AVAIL] No slots found for business_id={business_id} date={normalized_date_iso}")
                         
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -11476,7 +11567,10 @@ class MediaStreamHandler:
                                 "call_id": call_id,
                                 "output": json.dumps({
                                     "success": False,
-                                    "error": f"אין זמנים פנויים ב-{date_str}. הצע תאריכים אחרים."
+                                    "normalized_date": normalized_date_iso,
+                                    "weekday_he": weekday_he,
+                                    "date_display_he": date_display_he,
+                                    "error": f"אין זמנים פנויים ב-{date_display_he}. הצע תאריך אחר."
                                 }, ensure_ascii=False)
                             }
                         })
@@ -11577,8 +11671,8 @@ class MediaStreamHandler:
                 
                 # 🔥 STEP 2: Extract and validate fields
                 customer_name = args.get("customer_name", "").strip()
-                appointment_date = args.get("appointment_date", "").strip()  # YYYY-MM-DD
-                appointment_time = args.get("appointment_time", "").strip()  # HH:MM
+                appointment_date_raw = args.get("appointment_date", "").strip()  # YYYY-MM-DD OR Hebrew
+                appointment_time_raw = args.get("appointment_time", "").strip()  # HH:MM OR Hebrew
                 service_type = args.get("service_type", "").strip()
                 
                 # 🔥 STEP 3: Use customer_phone from call context
@@ -11616,7 +11710,7 @@ class MediaStreamHandler:
                     await client.send_event({"type": "response.create"})
                     return
                 
-                if not appointment_date or not appointment_time:
+                if not appointment_date_raw or not appointment_time_raw:
                     print(f"❌ [APPOINTMENT] Missing date or time")
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -11632,21 +11726,121 @@ class MediaStreamHandler:
                     await client.send_event({"type": "response.create"})
                     return
                 
-                print(f"📅 [APPOINTMENT] Validated: name={customer_name}, phone={customer_phone}, date={appointment_date}, time={appointment_time}")
+                print(f"📅 [APPOINTMENT] Inputs: name={customer_name}, phone={customer_phone}, date='{appointment_date_raw}', time='{appointment_time_raw}'")
                 
                 # 🔥 STEP 4: Create appointment using unified implementation
                 try:
                     from datetime import datetime, timedelta
                     import pytz
-                    from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
+                    from server.agent_tools.tools_calendar import (
+                        CreateAppointmentInput,
+                        _calendar_create_appointment_impl,
+                        FindSlotsInput,
+                        _calendar_find_slots_impl,
+                    )
                     from server.policy.business_policy import get_business_policy
+                    from server.services.hebrew_datetime import (
+                        resolve_hebrew_date,
+                        resolve_hebrew_time,
+                    )
                     
                     # Get policy and timezone
                     policy = get_business_policy(business_id)
                     tz = pytz.timezone(policy.tz)
                     
+                    # Normalize date/time (server-side; do not rely on the model)
+                    date_res = resolve_hebrew_date(appointment_date_raw, tz)
+                    if not date_res:
+                        print(f"❌ [APPOINTMENT] Invalid date input: '{appointment_date_raw}'")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "invalid_date",
+                                    "message": "תאריך לא תקין. בקש תאריך אחר."
+                                }, ensure_ascii=False)
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
+                    
+                    time_res = resolve_hebrew_time(appointment_time_raw)
+                    if not time_res or not time_res.candidates_hhmm:
+                        print(f"❌ [APPOINTMENT] Invalid time input: '{appointment_time_raw}'")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "invalid_time",
+                                    "message": "שעה לא תקינה. בקש שעה בפורמט HH:MM או שעה ברורה."
+                                }, ensure_ascii=False)
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
+                    
+                    normalized_date_iso = date_res.date_iso
+                    weekday_he = date_res.weekday_he
+                    date_display_he = date_res.date_display_he
+                    
+                    # 🔥 HARD RULE: availability check BEFORE creating appointment
+                    duration_min = policy.slot_size_min
+                    chosen_time = None
+                    alternatives: list[str] = []
+                    for cand in time_res.candidates_hhmm:
+                        try:
+                            slots_result = _calendar_find_slots_impl(
+                                FindSlotsInput(
+                                    business_id=business_id,
+                                    date_iso=normalized_date_iso,
+                                    duration_min=duration_min,
+                                    preferred_time=cand,
+                                )
+                            )
+                            alternatives = [s.start_display for s in (slots_result.slots or [])][:2]
+                            if slots_result.slots and any(s.start_display == cand for s in slots_result.slots):
+                                chosen_time = cand
+                                break
+                        except Exception:
+                            continue
+                    
+                    if not chosen_time:
+                        print(f"⚠️ [APPOINTMENT] Slot not available: date={normalized_date_iso} time_candidates={time_res.candidates_hhmm} alternatives={alternatives}")
+                        crm_context = getattr(self, "crm_context", None)
+                        if crm_context:
+                            crm_context.pending_slot = {
+                                "date": normalized_date_iso,
+                                "time": appointment_time_raw,
+                                "available": False,
+                            }
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "slot_unavailable",
+                                    "normalized_date": normalized_date_iso,
+                                    "weekday_he": weekday_he,
+                                    "date_display_he": date_display_he,
+                                    "requested_time_raw": appointment_time_raw,
+                                    "alternative_times": alternatives,
+                                    "message": "השעה שביקשת לא פנויה. הצע חלופות מהשרת."
+                                }, ensure_ascii=False)
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
+                    
                     # Parse and localize datetime
-                    datetime_str = f"{appointment_date} {appointment_time}"
+                    datetime_str = f"{normalized_date_iso} {chosen_time}"
                     requested_dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M")
                     requested_dt = tz.localize(requested_dt)
                     
@@ -11654,7 +11848,7 @@ class MediaStreamHandler:
                     slot_duration = timedelta(minutes=policy.slot_size_min)
                     end_dt = requested_dt + slot_duration
                     
-                    print(f"📅 [APPOINTMENT] Creating: {requested_dt.isoformat()} -> {end_dt.isoformat()}")
+                    print(f"📅 [APPOINTMENT] Creating: {date_display_he} {chosen_time} ({requested_dt.isoformat()} -> {end_dt.isoformat()})")
                     
                     # Build context for _calendar_create_appointment_impl
                     context = {
@@ -11682,10 +11876,20 @@ class MediaStreamHandler:
                         # Success - CreateAppointmentOutput
                         appt_id = result.appointment_id
                         print(f"✅ [APPOINTMENT] CAL_CREATE_OK event_id={appt_id}, status={result.status}")
-                        logger.info(f"✅ CAL_CREATE_OK business_id={business_id} event_id={appt_id} customer={customer_name} date={appointment_date} time={appointment_time} service={service_type}")
+                        logger.info(f"✅ CAL_CREATE_OK business_id={business_id} event_id={appt_id} customer={customer_name} date={normalized_date_iso} time={chosen_time} service={service_type}")
+                        logger.info(f"APPOINTMENT_CREATED appointment_id={appt_id} business_id={business_id} date={normalized_date_iso} time={chosen_time}")
                         
                         # Mark as created to prevent duplicates
                         self._appointment_created_this_session = True
+                        crm_context = getattr(self, "crm_context", None)
+                        if crm_context:
+                            crm_context.has_appointment_created = True
+                            crm_context.last_appointment_id = appt_id
+                            crm_context.pending_slot = {
+                                "date": normalized_date_iso,
+                                "time": chosen_time,
+                                "available": True,
+                            }
                         
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -11695,10 +11899,14 @@ class MediaStreamHandler:
                                 "output": json.dumps({
                                     "success": True,
                                     "appointment_id": appt_id,
+                                    "normalized_date": normalized_date_iso,
+                                    "weekday_he": weekday_he,
+                                    "date_display_he": date_display_he,
+                                    "time_hhmm": chosen_time,
                                     "start_time": requested_dt.isoformat(),
                                     "end_time": end_dt.isoformat(),
                                     "customer_name": customer_name
-                                })
+                                }, ensure_ascii=False)
                             }
                         })
                         await client.send_event({"type": "response.create"})
@@ -11708,9 +11916,14 @@ class MediaStreamHandler:
                         if result.get("ok") or result.get("success"):
                             appt_id = result.get("appointment_id")
                             print(f"✅ [APPOINTMENT] SUCCESS (dict)! ID={appt_id}")
+                            logger.info(f"APPOINTMENT_CREATED appointment_id={appt_id} business_id={business_id} date={normalized_date_iso} time={chosen_time}")
                             
                             # Mark as created
                             self._appointment_created_this_session = True
+                            crm_context = getattr(self, "crm_context", None)
+                            if crm_context and appt_id:
+                                crm_context.has_appointment_created = True
+                                crm_context.last_appointment_id = appt_id
                             
                             await client.send_event({
                                 "type": "conversation.item.create",
@@ -11720,10 +11933,14 @@ class MediaStreamHandler:
                                     "output": json.dumps({
                                         "success": True,
                                         "appointment_id": appt_id,
+                                        "normalized_date": normalized_date_iso,
+                                        "weekday_he": weekday_he,
+                                        "date_display_he": date_display_he,
+                                        "time_hhmm": chosen_time,
                                         "start_time": requested_dt.isoformat(),
                                         "end_time": end_dt.isoformat(),
                                         "customer_name": customer_name
-                                    })
+                                    }, ensure_ascii=False)
                                 }
                             })
                             await client.send_event({"type": "response.create"})
@@ -11732,7 +11949,7 @@ class MediaStreamHandler:
                             error_code = result.get("error", "unknown_error")
                             error_msg = result.get("message", "שגיאה ביצירת פגישה")
                             print(f"❌ [APPOINTMENT] CAL_CREATE_FAILED: {error_code} - {error_msg}")
-                            logger.error(f"❌ CAL_CREATE_FAILED business_id={business_id} error={error_code} message={error_msg} date={appointment_date} time={appointment_time}")
+                            logger.error(f"❌ CAL_CREATE_FAILED business_id={business_id} error={error_code} message={error_msg} date={normalized_date_iso} time={chosen_time}")
                             await client.send_event({
                                 "type": "conversation.item.create",
                                 "item": {
@@ -11741,7 +11958,12 @@ class MediaStreamHandler:
                                     "output": json.dumps({
                                         "success": False,
                                         "error_code": error_code,
-                                        "message": error_msg
+                                        "message": error_msg,
+                                        "normalized_date": normalized_date_iso,
+                                        "weekday_he": weekday_he,
+                                        "date_display_he": date_display_he,
+                                        "alternative_times": alternatives,
+                                        "suggestion": "הצע עד 2 חלופות מהשרת."
                                     }, ensure_ascii=False)
                                 }
                             })
