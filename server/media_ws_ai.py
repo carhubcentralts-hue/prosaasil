@@ -1941,6 +1941,10 @@ class MediaStreamHandler:
         self.goodbye_detected = False  # Runtime state: tracks if goodbye phrase detected
         self.pending_hangup = False  # Runtime state: signals that call should end after current TTS
         self.hangup_triggered = False  # Runtime state: prevents multiple hangup attempts
+        # 🎯 Polite hangup metadata (execute only after response.audio.done)
+        self.pending_hangup_reason = None
+        self.pending_hangup_source = None
+        self.pending_hangup_response_id = None
         self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
@@ -3030,8 +3034,9 @@ class MediaStreamHandler:
         # 🛡️ BUILD 168.5: Track if we've logged the greeting block message
         _greeting_block_logged = False
         _greeting_resumed_logged = False
-        # 🔴 FINAL CRITICAL FIX #1: Local buffer for Twilio→OpenAI audio during greeting lock
-        # Requirement: Do NOT send input_audio to OpenAI at all during greeting.
+        # 🔴 GREETING_LOCK (HARD): Do NOT send/commit or buffer user audio during greeting.
+        # Requirement (NO-BARGE-IN on greeting): user speech during greeting must be ignored and NOT
+        # leak into transcription after greeting ends.
         if not hasattr(self, "_greeting_input_audio_buffer"):
             self._greeting_input_audio_buffer = []
         
@@ -3090,28 +3095,27 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count incoming frames
                 _frames_in += 1
                 
-                # 🔴 FINAL CRITICAL FIX #1:
-                # During greeting_lock_active, do NOT send any input_audio to OpenAI.
-                # Buffer locally and flush AFTER greeting is done.
+                # 🔴 GREETING_LOCK (HARD):
+                # During greeting_lock_active, do NOT send any input_audio to OpenAI and do NOT buffer it.
+                # We explicitly DROP user audio so it can't be transcribed/answered after greeting ends.
                 if getattr(self, "greeting_lock_active", False):
                     if not _greeting_block_logged:
-                        print("🔒 [GREETING_LOCK] Buffering user audio locally (not sending to OpenAI) - greeting in progress")
+                        print("🔒 [GREETING_LOCK] Ignoring user audio during greeting (not sending, not buffering)")
+                        # Safety: clear any stale buffered frames (should normally be empty).
+                        try:
+                            self._greeting_input_audio_buffer.clear()
+                        except Exception:
+                            pass
                         _greeting_block_logged = True
-                    self._greeting_input_audio_buffer.append(audio_chunk)
                     self._stats_audio_blocked += 1
                     _frames_dropped += 1  # counted as "withheld" during lock
                     continue
 
-                # If greeting just ended, flush buffered audio first (in-order)
+                # If greeting just ended, discard any buffered audio (should be empty) and resume live audio.
                 if _greeting_block_logged and not _greeting_resumed_logged:
                     buffered = getattr(self, "_greeting_input_audio_buffer", [])
                     if buffered:
-                        print(f"🔓 [GREETING_LOCK] Flushing buffered user audio to OpenAI: frames={len(buffered)}")
-                        for b in buffered:
-                            await client.send_audio_chunk(b)
-                            _frames_sent += 1
-                            self.realtime_audio_in_chunks += 1
-                            self._stats_audio_sent += 1
+                        print(f"🗑️ [GREETING_LOCK] Discarding buffered user audio (frames={len(buffered)})")
                         buffered.clear()
                     print("✅ [GREETING_LOCK] Greeting done - resuming live audio to OpenAI")
                     _greeting_resumed_logged = True
@@ -3658,14 +3662,8 @@ class MediaStreamHandler:
                         status_details = response.get("status_details", {})
                         resp_id = response.get("id", "?")
 
-                        # 🔴 FINAL CRITICAL FIX #1: Release greeting lock ONLY on response.done of greeting response_id
-                        if (
-                            getattr(self, "greeting_lock_active", False)
-                            and resp_id
-                            and resp_id == getattr(self, "_greeting_lock_response_id", None)
-                        ):
-                            self.greeting_lock_active = False
-                            _orig_print(f"🔓 [GREETING_LOCK] released on response.done (response_id={resp_id[:20]}...)", flush=True)
+                        # NOTE: greeting_lock must be released only after response.audio.done (playback-end),
+                        # not on response.done (generation-end).
                         if DEBUG:
                             _orig_print(
                                 f"🔊 [REALTIME] response.done: status={status}, output_count={len(output)}, details={status_details}",
@@ -4164,17 +4162,12 @@ class MediaStreamHandler:
                     
                     print(f"🎤 [SPEECH_STARTED] User started speaking")
 
-                    # 🔴 FINAL CRITICAL FIX #1:
-                    # While greeting_lock_active, ignore ALL local barge-in / turn-taking triggers.
-                    # Do NOT cancel, do NOT clear/flush, do NOT set user_speaking here.
-                    # Only enable passthrough so OpenAI receives the user's audio.
+                    # 🔴 GREETING_LOCK (HARD):
+                    # While greeting_lock_active, ignore ALL user speech during greeting.
+                    # Do NOT cancel, do NOT clear/flush, and do NOT mark utterance metadata.
                     if getattr(self, "greeting_lock_active", False):
-                        print("🔒 [GREETING_LOCK] speech_started ignored during greeting (no cancel/clear/turn-taking)")
-                        self._candidate_user_speaking = True
-                        self._utterance_start_ts = time.time()
-                        self._realtime_speech_active = True
-                        self._realtime_speech_started_ts = time.time()
-                        print("🎤 [SPEECH_ACTIVE] (greeting_lock) sending all audio to OpenAI")
+                        logger.info("[GREETING_LOCK] ignoring user speech during greeting")
+                        print("🔒 [GREETING_LOCK] ignoring user speech during greeting")
                         continue
                     
                     # Track utterance start for validation
@@ -4646,6 +4639,24 @@ class MediaStreamHandler:
                 
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
+                    # 🔴 GREETING_LOCK: Release ONLY after greeting audio is done (not on response.done).
+                    # Prefer strict response_id match; fallback to a small delay if we couldn't bind an id.
+                    if event_type == "response.audio.done" and getattr(self, "greeting_lock_active", False):
+                        done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                        bound_id = getattr(self, "_greeting_lock_response_id", None)
+                        if bound_id and done_resp_id and done_resp_id == bound_id:
+                            self.greeting_lock_active = False
+                            _orig_print(
+                                f"🔓 [GREETING_LOCK] released on response.audio.done (response_id={done_resp_id[:20]}...)",
+                                flush=True,
+                            )
+                            logger.info("[GREETING_LOCK] released")
+                        elif bound_id is None and getattr(self, "greeting_mode_active", False) and not getattr(self, "greeting_completed", False):
+                            await asyncio.sleep(0.4)
+                            self.greeting_lock_active = False
+                            _orig_print("🔓 [GREETING_LOCK] released (fallback after response.audio.done)", flush=True)
+                            logger.info("[GREETING_LOCK] released (fallback)")
+
                     # 🎯 FIX A: Complete greeting mode after FIRST response only
                     if self.greeting_mode_active and not self.greeting_completed:
                         greeting_end_ts = time.time()
@@ -4721,7 +4732,16 @@ class MediaStreamHandler:
                     
                     # 🎯 BUILD 163: Check for polite hangup AFTER audio finishes
                     # This ensures AI finishes speaking before we disconnect
-                    if self.pending_hangup and not self.hangup_triggered:
+                    if event_type == "response.audio.done" and self.pending_hangup and not self.hangup_triggered:
+                        pending_id = getattr(self, "pending_hangup_response_id", None)
+                        done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                        if pending_id and done_resp_id and pending_id != done_resp_id:
+                            print(
+                                f"⏭️ [HANGUP FLOW] response.audio.done ignored "
+                                f"(pending_response_id={pending_id[:20]}..., got={done_resp_id[:20]}...)"
+                            )
+                            continue
+
                         print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
                         # Wait for audio to fully play before disconnecting
                         async def delayed_hangup():
@@ -4779,13 +4799,27 @@ class MediaStreamHandler:
                             await asyncio.sleep(2.0)
                             
                             if not self.hangup_triggered:
-                                print(f"📞 [HANGUP FLOW] ✅ Audio playback complete - CALLING _trigger_auto_hangup() NOW")
-                                import threading
-                                threading.Thread(
-                                    target=self._trigger_auto_hangup,
-                                    args=("AI finished speaking politely",),
-                                    daemon=True
-                                ).start()
+                                # Execute REAL hangup via Twilio REST ONLY (no cancel/clear/flush).
+                                call_sid = getattr(self, "call_sid", None)
+                                self.hangup_triggered = True
+                                self.call_state = CallState.ENDED
+                                try:
+                                    self.pending_hangup = False
+                                except Exception:
+                                    pass
+                                force_print(
+                                    f"[HANGUP] executing reason={getattr(self, 'pending_hangup_reason', 'unknown')} "
+                                    f"response_id={pending_id or done_resp_id} call_sid={call_sid}"
+                                )
+                                if call_sid:
+                                    try:
+                                        from server.services.twilio_call_control import hangup_call
+                                        await asyncio.to_thread(hangup_call, call_sid)
+                                    except Exception as e:
+                                        force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
+                                        logger.exception("[HANGUP] error call_sid=%s", call_sid)
+                                else:
+                                    force_print("[HANGUP] error missing_call_sid")
                             else:
                                 print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
                         
@@ -4810,7 +4844,13 @@ class MediaStreamHandler:
                             _targets = ["ביי", "להתראות", "תודה, להתראות", "תודה ולהתראות"]
                             _targets_norm = [" ".join(re.sub(r"""[.,;:!?"'()\[\]{}<>״“”‘’\-–—]""", " ", p).split()) for p in _targets]
                             if any(p in _t_raw for p in _targets) or any(p in _t_norm for p in _targets_norm):
-                                await self.request_hangup("bot_goodbye", "response.audio_transcript.done", _t_raw, "bot")
+                                await self.request_hangup(
+                                    "bot_goodbye",
+                                    "response.audio_transcript.done",
+                                    _t_raw,
+                                    "bot",
+                                    response_id=event.get("response_id"),
+                                )
                                 continue
                         except Exception:
                             # Never break the realtime loop due to hangup matching errors.
@@ -5480,6 +5520,10 @@ class MediaStreamHandler:
                         if should_hangup:
                             self.goodbye_detected = True
                             self.pending_hangup = True
+                            self.pending_hangup_reason = hangup_reason
+                            self.pending_hangup_source = "ai_transcript"
+                            # Bind hangup to THIS response so we disconnect only after its audio is done.
+                            self.pending_hangup_response_id = event.get("response_id") or getattr(self, "active_response_id", None)
                             # 🔥 FIX: Mark that AI already said goodbye naturally - prevents duplicate goodbye in _trigger_auto_hangup
                             self.goodbye_message_sent = True
                             # 🔥 BUILD 172: Transition to CLOSING state
@@ -6500,6 +6544,12 @@ class MediaStreamHandler:
         
         Rule: Use response.cancel, never drop audio deltas.
         """
+        # 🛡️ GREETING_LOCK (HARD) - Never cancel/flush during greeting!
+        if getattr(self, "greeting_lock_active", False):
+            logger.info("[GREETING_LOCK] ignoring barge-in during greeting")
+            print("🔒 [GREETING_LOCK] ignoring barge-in during greeting")
+            return
+
         # 🛡️ PROTECT GREETING - Never cancel during greeting playback!
         if hasattr(self, 'is_playing_greeting') and self.is_playing_greeting:
             print(f"🛡️ [BARGE_IN] Ignoring - greeting still playing")
@@ -10865,40 +10915,42 @@ class MediaStreamHandler:
 
         return None
 
-    async def request_hangup(self, reason: str, source: str, transcript_text: str = "", speaker: str = ""):
+    async def request_hangup(
+        self,
+        reason: str,
+        source: str,
+        transcript_text: str = "",
+        speaker: str = "",
+        response_id: Optional[str] = None,
+    ):
         """
-        Execute REAL hangup flow (Realtime + Twilio):
-        (A) Stop AI immediately: response.cancel + output_audio_buffer.clear + Twilio clear
-        (B) Hang up via Twilio REST (hangup_call(call_sid))
+        Polite hangup request (NO immediate cancel/clear/flush/hangup).
 
-        Anti-duplicates / race:
-        - Atomic one-shot: sets hangup_requested=True under lock BEFORE any I/O.
-        - If already requested → return immediately (no cancel/clear/hangup again).
+        Requirement:
+        - Mark pending_hangup=True and hang up ONLY after the bot audio ends
+          (response.audio.done, ideally matching response_id).
         """
+        # One-shot (pending): do not block other fallback hangup paths by setting hangup_requested here.
         lock = getattr(self, "_hangup_request_lock", None)
         if lock:
             with lock:
-                if getattr(self, "hangup_requested", False):
+                if getattr(self, "hangup_triggered", False) or getattr(self, "pending_hangup", False):
                     return
-                # MUST be set before any I/O (logs/cancel/clear/rest)
-                self.hangup_requested = True
         else:
-            if getattr(self, "hangup_requested", False):
+            if getattr(self, "hangup_triggered", False) or getattr(self, "pending_hangup", False):
                 return
-            self.hangup_requested = True
 
-        # Minimal required identifiers
         call_sid = getattr(self, "call_sid", None)
         stream_sid = getattr(self, "stream_sid", None)
+        bound_response_id = response_id or getattr(self, "active_response_id", None)
 
-        # Log acceptance markers (must be visible even when DEBUG=0)
         msg_preview = (transcript_text or "").strip().replace("\n", " ")[:120]
         force_print(
-            f"[HANGUP_REQUEST] {reason} source={source} speaker={speaker} "
+            f"[HANGUP_REQUEST] {reason} pending=true response_id={bound_response_id} "
             f"call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'"
         )
         logger.info(
-            f"[HANGUP_REQUEST] {reason} source={source} speaker={speaker} "
+            f"[HANGUP_REQUEST] {reason} pending=true response_id={bound_response_id} "
             f"call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'"
         )
 
@@ -10906,83 +10958,28 @@ class MediaStreamHandler:
             force_print("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
             logger.error("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
             return
-        if not stream_sid:
-            # Not fatal (we can still hangup via REST), but required by spec to log briefly.
-            force_print(f"[HANGUP_REQUEST] error missing_streamSid call_sid={call_sid}")
-            logger.error("[HANGUP_REQUEST] error missing_streamSid call_sid=%s", call_sid)
 
-        # Mark call as ending to stop other loops/tasks ASAP
+        # Mark pending; actual hangup happens in response.audio.done handler after queues drain.
         try:
-            self.pending_hangup = False
-            self.goodbye_detected = True
-            self.hangup_triggered = True
-            self.call_state = CallState.ENDED
+            if lock:
+                with lock:
+                    self.pending_hangup = True
+                    self.pending_hangup_reason = reason
+                    self.pending_hangup_source = source
+                    self.pending_hangup_response_id = bound_response_id
+            else:
+                self.pending_hangup = True
+                self.pending_hangup_reason = reason
+                self.pending_hangup_source = source
+                self.pending_hangup_response_id = bound_response_id
+
+            # Ensure we don't re-send a goodbye during hangup flows.
+            if reason == "bot_goodbye":
+                self.goodbye_message_sent = True
+            if self.call_state == CallState.ACTIVE:
+                self.call_state = CallState.CLOSING
         except Exception:
             pass
-
-        # (A) Stop AI immediately
-        try:
-            # 1) Cancel active response (if any)
-            if getattr(self, "active_response_id", None) and getattr(self, "realtime_client", None):
-                resp_id = self.active_response_id
-                if hasattr(self, "_should_send_cancel") and self._should_send_cancel(resp_id):
-                    try:
-                        await self.realtime_client.cancel_response(resp_id)
-                    except Exception as e:
-                        logger.debug(f"[HANGUP_REQUEST] cancel_error (ignored): {e}")
-            elif getattr(self, "realtime_client", None) and (
-                getattr(self, "ai_response_active", False) or self.is_ai_speaking_event.is_set()
-            ):
-                # Best-effort: cancel without response_id if we're speaking but missed ID.
-                try:
-                    await self.realtime_client.cancel_response()
-                except Exception as e:
-                    logger.debug(f"[HANGUP_REQUEST] cancel_no_id_error (ignored): {e}")
-
-            # 2) Clear OpenAI output audio buffer (best-effort)
-            if getattr(self, "realtime_client", None):
-                try:
-                    await self.realtime_client.send_event({"type": "output_audio_buffer.clear"})
-                except Exception as e:
-                    logger.debug(f"[HANGUP_REQUEST] output_audio_buffer.clear error (ignored): {e}")
-
-            # 3) Clear Twilio buffered audio (best-effort)
-            if stream_sid:
-                try:
-                    self._ws_send(json.dumps({"event": "clear", "streamSid": stream_sid}))
-                except Exception as e:
-                    logger.debug(f"[HANGUP_REQUEST] twilio_clear error (ignored): {e}")
-
-            # 4) Clear local queues so no more audio is sent
-            try:
-                self._flush_tx_queue()
-            except Exception:
-                pass
-
-            # 5) Reset local speech state
-            try:
-                self.is_ai_speaking_event.clear()
-                self.active_response_id = None
-                if hasattr(self, "ai_response_active"):
-                    self.ai_response_active = False
-            except Exception:
-                pass
-        except Exception as e:
-            logger.debug(f"[HANGUP_REQUEST] stop_ai_error (ignored): {e}")
-
-        # (B) Real hangup via Twilio REST (non-blocking)
-        try:
-            from server.services.twilio_call_control import hangup_call
-            # Execute hangup via worker thread (avoid blocking event loop),
-            # but await the result so we can emit a single acceptance log line.
-            success = await asyncio.to_thread(hangup_call, call_sid)
-            transcript_for_log = (msg_preview or "").replace('"', '\\"')
-            line = f'[HANGUP] {reason} transcript="{transcript_for_log}" success={success}'
-            force_print(line)
-            logger.info(line)
-        except Exception as e:
-            force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
-            logger.exception("[HANGUP] error call_sid=%s", call_sid)
 
     def _looks_like_user_goodbye(self, text: str) -> bool:
         """
