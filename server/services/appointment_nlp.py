@@ -94,11 +94,12 @@ Action Detection Rules:
 
 Entity Extraction Rules:
 1. Search entire conversation for: date, time, name, phone
-2. Date mapping: "מחר"={tomorrow_str}
-3. Time mapping: "בשש"=18:00, "בשבע וחצי"=19:30, "בשמונה"=20:00
-4. Name: Generic names (לקוח/אדון/גברת) = null (wait for actual name)
-5. Phone: Extract Israeli format (05X... or +972-5X...)
-6. Confidence: >80% if all required fields present
+2. Date mapping: "היום"={today_str}, "מחר"={tomorrow_str}
+3. Date mapping (weekday words): if customer says "ראשון/שני/שלישי/רביעי/חמישי/שישי/שבת" return the nearest upcoming date for that weekday (relative to Today).
+4. Time mapping: "בשש"=18:00, "בשבע וחצי"=19:30, "בשמונה"=20:00
+5. Name: Generic names (לקוח/אדון/גברת) = null (wait for actual name)
+6. Phone: Extract Israeli format (05X... or +972-5X...)
+7. Confidence: >80% if all required fields present
 
 CRITICAL: This is pure extraction. Never guess if confidence <80%."""
 
