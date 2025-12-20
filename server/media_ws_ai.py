@@ -1876,6 +1876,7 @@ class MediaStreamHandler:
         # 🔴 CRITICAL: Real hangup duplicate guard + clarification guard (one-shot)
         self.hangup_requested = False  # One-shot: once True, never request hangup again
         self.hangup_clarification_asked = False  # One-shot: ask "רצית לסיים?" only once
+        self._hangup_request_lock = threading.Lock()  # Atomic guard across async/tasks/threads
         
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
@@ -4799,7 +4800,7 @@ class MediaStreamHandler:
                         # If bot's transcript IS a closing sentence → hangup for real immediately.
                         bot_intent = self._classify_real_hangup_intent(transcript, "bot")
                         if bot_intent == "hangup":
-                            await self._request_real_hangup("bot_goodbye", transcript, "bot")
+                            await self.request_hangup("bot_goodbye", "transcript", transcript, "bot")
                             continue
                         
                         # ⭐ BUILD 350: SIMPLE KEYWORD-BASED APPOINTMENT DETECTION
@@ -6276,7 +6277,7 @@ class MediaStreamHandler:
                         if not self.pending_hangup and not getattr(self, "hangup_requested", False):
                             user_intent = self._classify_real_hangup_intent(transcript, "user")
                             if user_intent == "hangup":
-                                await self._request_real_hangup("user_goodbye", transcript, "user")
+                                await self.request_hangup("user_goodbye", "transcript", transcript, "user")
                                 continue
                             elif user_intent == "clarify":
                                 # ❗Rule against accidental hangup:
@@ -10846,19 +10847,27 @@ class MediaStreamHandler:
 
         return None
 
-    async def _request_real_hangup(self, trigger: str, transcript_text: str, speaker: str):
+    async def request_hangup(self, reason: str, source: str, transcript_text: str = "", speaker: str = ""):
         """
         Execute REAL hangup flow (Realtime + Twilio):
         (A) Stop AI immediately: response.cancel + output_audio_buffer.clear + Twilio clear
         (B) Hang up via Twilio REST (hangup_call(call_sid))
 
-        Duplicate-guarded by self.hangup_requested (silent if already requested).
+        Anti-duplicates / race:
+        - Atomic one-shot: sets hangup_requested=True under lock BEFORE any I/O.
+        - If already requested → return immediately (no cancel/clear/hangup again).
         """
-        if getattr(self, "hangup_requested", False):
-            return
-
-        # One-shot guard
-        self.hangup_requested = True
+        lock = getattr(self, "_hangup_request_lock", None)
+        if lock:
+            with lock:
+                if getattr(self, "hangup_requested", False):
+                    return
+                # MUST be set before any I/O (logs/cancel/clear/rest)
+                self.hangup_requested = True
+        else:
+            if getattr(self, "hangup_requested", False):
+                return
+            self.hangup_requested = True
 
         # Minimal required identifiers
         call_sid = getattr(self, "call_sid", None)
@@ -10866,8 +10875,14 @@ class MediaStreamHandler:
 
         # Log acceptance markers (must be visible even when DEBUG=0)
         msg_preview = (transcript_text or "").strip().replace("\n", " ")[:120]
-        force_print(f"[HANGUP_REQUEST] {trigger} speaker={speaker} call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'")
-        logger.info(f"[HANGUP_REQUEST] {trigger} speaker={speaker} call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'")
+        force_print(
+            f"[HANGUP_REQUEST] {reason} source={source} speaker={speaker} "
+            f"call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'"
+        )
+        logger.info(
+            f"[HANGUP_REQUEST] {reason} source={source} speaker={speaker} "
+            f"call_sid={call_sid} streamSid={stream_sid} text='{msg_preview}'"
+        )
 
         if not call_sid:
             force_print("[HANGUP_REQUEST] error missing_call_sid (cannot hangup)")
