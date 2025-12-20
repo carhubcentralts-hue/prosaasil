@@ -1708,7 +1708,9 @@ class MediaStreamHandler:
         # 🚀 REALTIME API: Thread-safe queues and state for OpenAI Realtime mode
         # ✅ Use imported queue module (at top of file) - NOT queue_module alias
         import queue as _queue_module  # Local import to avoid shadowing
-        self.realtime_audio_in_queue = _queue_module.Queue(maxsize=1000)  # Twilio → Realtime
+        # 🔥 STABILITY: Avoid audio drops on jitter / temporary gating.
+        # 50fps nominal; 3000 frames ≈ 60 seconds of buffering headroom.
+        self.realtime_audio_in_queue = _queue_module.Queue(maxsize=3000)  # Twilio → Realtime
         self.realtime_audio_out_queue = _queue_module.Queue(maxsize=1000)  # Realtime → Twilio
         self.realtime_text_input_queue = _queue_module.Queue(maxsize=10)  # DTMF/text → Realtime
         self.realtime_greeting_queue = _queue_module.Queue(maxsize=1)  # Greeting → Realtime
@@ -1881,6 +1883,7 @@ class MediaStreamHandler:
         # 🔥 BUILD 200: SINGLE PIPELINE LOCKDOWN - Stats for monitoring
         self._stats_audio_sent = 0  # Total audio chunks sent to OpenAI
         self._stats_audio_blocked = 0  # Total audio chunks blocked (greeting, etc.)
+        self._stats_audio_dropped = 0  # Total audio chunks dropped (should be 0 in SIMPLE_MODE)
         self._stats_last_log_ts = 0  # Last time we logged pipeline status
         self._stats_log_interval_sec = 3.0  # Log every 3 seconds
         
@@ -2322,7 +2325,7 @@ class MediaStreamHandler:
         4. Stream audio bidirectionally
         """
         from server.services.openai_realtime_client import OpenAIRealtimeClient
-        from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS
+        from server.config.calls import SERVER_VAD_THRESHOLD, SERVER_VAD_SILENCE_MS, SERVER_VAD_PREFIX_PADDING_MS
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
@@ -2364,7 +2367,8 @@ class MediaStreamHandler:
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
                 vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
-                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
+                prefix_padding_ms=SERVER_VAD_PREFIX_PADDING_MS,
+                silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (450–500ms) - stable for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
                 transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש.",  # ✅ QA: Simple Hebrew transcription guidance
@@ -3106,8 +3110,7 @@ class MediaStreamHandler:
                         print("🔒 [GREETING_LOCK] Buffering user audio locally (not sending to OpenAI) - greeting in progress")
                         _greeting_block_logged = True
                     self._greeting_input_audio_buffer.append(audio_chunk)
-                    self._stats_audio_blocked += 1
-                    _frames_dropped += 1  # counted as "withheld" during lock
+                    # NOTE: This is NOT a dropped frame; it will be flushed after greeting ends.
                     continue
 
                 # If greeting just ended, flush buffered audio first (in-order)
@@ -5635,15 +5638,20 @@ class MediaStreamHandler:
                     user_has_spoken_before = self.user_has_spoken
                     
                     # Run enhanced validation with all new parameters
-                    accept_utterance = should_accept_realtime_utterance(
-                        stt_text=text,
-                        utterance_ms=utterance_duration_ms,
-                        rms_snapshot=0.0,
-                        noise_floor=0.0,
-                        ai_speaking=ai_speaking,
-                        last_ai_audio_start_ms=time_since_ai_audio_start_ms,
-                        last_hallucination=self._last_hallucination
-                    )
+                    # SIMPLE_MODE: Accept all transcripts as input (no RMS/noise_floor gating).
+                    # Only drop if it's truly empty.
+                    if SIMPLE_MODE:
+                        accept_utterance = bool(text.strip())
+                    else:
+                        accept_utterance = should_accept_realtime_utterance(
+                            stt_text=text,
+                            utterance_ms=utterance_duration_ms,
+                            rms_snapshot=0.0,
+                            noise_floor=0.0,
+                            ai_speaking=ai_speaking,
+                            last_ai_audio_start_ms=time_since_ai_audio_start_ms,
+                            last_hallucination=self._last_hallucination
+                        )
                     
                     if not accept_utterance:
                         # 🚫 Utterance failed validation - save as hallucination and ignore
@@ -8444,8 +8452,21 @@ class MediaStreamHandler:
                                     print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
                                     print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
-                                self.realtime_audio_in_queue.put_nowait(b64)
-                            except queue.Full:
+                                # ✅ Realtime-only mode: do not drop audio frames.
+                                # Block briefly to absorb jitter; queue is large enough to avoid sustained blocking.
+                                try:
+                                    self.realtime_audio_in_queue.put(b64, timeout=0.2)
+                                except queue.Full:
+                                    # Extremely rare: sender is stalled for >~60s (queue maxsize).
+                                    # Count as a true drop (should remain 0 in healthy calls).
+                                    self._stats_audio_dropped += 1
+                                    if self._stats_audio_dropped % 50 == 0:
+                                        print(
+                                            f"🚨 [AUDIO_DROP] realtime_audio_in_queue full - dropped frames={self._stats_audio_dropped} "
+                                            f"(maxsize={getattr(self.realtime_audio_in_queue, 'maxsize', 'n/a')})"
+                                        )
+                            except Exception:
+                                # Never crash the call on enqueue issues.
                                 pass
                         else:
                             # 🔥 BUILD 171: Enhanced logging for debugging
@@ -13337,7 +13358,8 @@ class MediaStreamHandler:
             # 🎯 TASK 6.1: AUDIO PIPELINE METRICS
             frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
             frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
-            frames_dropped_by_filters = getattr(self, '_stats_audio_blocked', 0)
+            # Only count TRUE drops (queue overflow / explicit drops). Buffered frames are not drops.
+            frames_dropped_by_filters = getattr(self, '_stats_audio_dropped', 0)
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
             if SIMPLE_MODE and frames_dropped_by_filters > 0:
