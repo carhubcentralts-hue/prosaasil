@@ -111,9 +111,9 @@ def resolve_hebrew_date(text: str, tz: pytz.BaseTzInfo, now: Optional[datetime] 
     if now.tzinfo is None:
         now = tz.localize(now)
 
-    # Remove common prefixes
-    s_norm = s
-    s_norm = s_norm.replace("ביום", "").replace("יום", "")
+    # Remove common prefixes ONLY when they are standalone words.
+    # IMPORTANT: Do NOT strip "יום" from "היום".
+    s_norm = re.sub(r"^(ביום|יום)\s+", "", s)
     s_norm = _clean(s_norm)
 
     # ISO date
