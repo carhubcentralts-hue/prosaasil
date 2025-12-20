@@ -4741,27 +4741,28 @@ class MediaStreamHandler:
                     if event_type == "response.audio.done" and self.pending_hangup and not self.hangup_triggered:
                         pending_id = getattr(self, "pending_hangup_response_id", None)
                         done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                        # STRICT: Only hang up after audio.done for the SAME response_id we bound.
+                        # If we don't have a bound id (should be rare), allow first audio.done to release.
                         if pending_id and done_resp_id and pending_id != done_resp_id:
                             print(
                                 f"⏭️ [HANGUP FLOW] response.audio.done ignored "
                                 f"(pending_response_id={pending_id[:20]}..., got={done_resp_id[:20]}...)"
                             )
-                            # Do NOT return/continue; still run normal cleanup for this audio.done.
+                        else:
+                            # Cancel fallback timer (if any) now that we got the matched audio.done.
+                            try:
+                                t = getattr(self, "_pending_hangup_fallback_task", None)
+                                if t and not t.done():
+                                    t.cancel()
+                            except Exception:
+                                pass
 
-                        # Cancel fallback timer (if any) now that we got the matched audio.done.
-                        try:
-                            t = getattr(self, "_pending_hangup_fallback_task", None)
-                            if t and not t.done():
-                                t.cancel()
-                        except Exception:
-                            pass
+                            print("[POLITE_HANGUP] audio.done matched -> hanging up")
+                            logger.info("[POLITE_HANGUP] audio.done matched -> hanging up")
 
-                        print("[POLITE_HANGUP] audio.done matched -> hanging up")
-                        logger.info("[POLITE_HANGUP] audio.done matched -> hanging up")
-
-                        print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
-                        # Wait for audio to fully play before disconnecting
-                        async def delayed_hangup():
+                            print(f"🎯 [HANGUP FLOW] response.audio.done received + pending_hangup=True → Starting delayed_hangup()")
+                            # Wait for audio to fully play before disconnecting
+                            async def delayed_hangup():
                             print(f"⏳ [POLITE HANGUP] Starting wait for audio to finish...")
                             
                             # STEP 1: Wait for OpenAI queue to drain (max 5 seconds)
@@ -4840,8 +4841,8 @@ class MediaStreamHandler:
                                     force_print("[HANGUP] error missing_call_sid")
                             else:
                                 print(f"⚠️ [HANGUP FLOW] hangup_triggered already True - skipping duplicate hangup")
-                        
-                        asyncio.create_task(delayed_hangup())
+
+                            asyncio.create_task(delayed_hangup())
                 
                 elif event_type == "response.audio_transcript.done":
                     transcript = event.get("transcript", "")
@@ -10618,7 +10619,7 @@ class MediaStreamHandler:
                             if self.call_state == CallState.ACTIVE and not self.hangup_triggered and not getattr(self, 'pending_hangup', False):
                                 print(f"🔇 [IDLE_TIMEOUT] 30s+ no user speech - closing idle call")
                                 self.call_state = CallState.CLOSING
-                                self._trigger_auto_hangup("idle_timeout_no_user_speech")
+                                await self.request_hangup("idle_timeout_no_user_speech", "silence_monitor")
                             return
                     # Still waiting for user to speak - don't count silence
                     continue
@@ -10709,9 +10710,8 @@ class MediaStreamHandler:
                         else:
                             await self._send_text_to_ai("[SYSTEM] User silent too long. Say goodbye per your instructions.")
                         
-                        # Schedule hangup after TTS
-                        await asyncio.sleep(3.0)
-                        self._trigger_auto_hangup("silence_timeout")
+                        # Polite hangup: hang up only after bot audio ends (response.audio.done).
+                        await self.request_hangup("silence_timeout", "silence_monitor")
                         return  # Exit cleanly after hangup
                         
         except asyncio.CancelledError:
