@@ -1949,11 +1949,6 @@ class MediaStreamHandler:
         self._pending_hangup_text = None
         self._pending_hangup_speaker = None
         self._pending_hangup_response_id = None
-        # Some realtime servers reject output_audio_buffer.clear ("Invalid value ... supported values ...").
-        # Default OFF; can be enabled explicitly if/when supported.
-        self._supports_output_audio_buffer_clear = os.getenv(
-            "OPENAI_REALTIME_SUPPORTS_OUTPUT_AUDIO_BUFFER_CLEAR", "0"
-        ) == "1"
         self.greeting_completed_at = None  # Runtime state: timestamp when greeting finished
         self.min_call_duration_after_greeting_ms = 3000  # Fixed: don't hangup for 3s after greeting
         self.silence_timeout_sec = 15  # Default - overwritten by CallConfig
@@ -10971,7 +10966,7 @@ class MediaStreamHandler:
     async def request_hangup(self, reason: str, source: str, transcript_text: str = "", speaker: str = ""):
         """
         Execute REAL hangup flow (Realtime + Twilio):
-        (A) Stop AI immediately: response.cancel + output_audio_buffer.clear + Twilio clear
+        (A) Stop AI immediately: response.cancel + Twilio clear
         (B) Hang up via Twilio REST (hangup_call(call_sid))
 
         Anti-duplicates / race:
@@ -11042,29 +11037,20 @@ class MediaStreamHandler:
                 except Exception as e:
                     logger.debug(f"[HANGUP_REQUEST] cancel_no_id_error (ignored): {e}")
 
-            # 2) Clear OpenAI output audio buffer (best-effort)
-            # ⚠️ Some servers reject this event type (invalid_request_error).
-            # Default OFF; enable only if confirmed supported.
-            if getattr(self, "realtime_client", None) and getattr(self, "_supports_output_audio_buffer_clear", False):
-                try:
-                    await self.realtime_client.send_event({"type": "output_audio_buffer.clear"})
-                except Exception as e:
-                    logger.debug(f"[HANGUP_REQUEST] output_audio_buffer.clear error (ignored): {e}")
-
-            # 3) Clear Twilio buffered audio (best-effort)
+            # 2) Clear Twilio buffered audio (best-effort)
             if stream_sid:
                 try:
                     self._ws_send(json.dumps({"event": "clear", "streamSid": stream_sid}))
                 except Exception as e:
                     logger.debug(f"[HANGUP_REQUEST] twilio_clear error (ignored): {e}")
 
-            # 4) Clear local queues so no more audio is sent
+            # 3) Clear local queues so no more audio is sent
             try:
                 self._flush_tx_queue()
             except Exception:
                 pass
 
-            # 5) Reset local speech state
+            # 4) Reset local speech state
             try:
                 self.is_ai_speaking_event.clear()
                 self.active_response_id = None
