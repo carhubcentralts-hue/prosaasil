@@ -531,12 +531,15 @@ class OpenAIRealtimeClient:
             "max_response_output_tokens": max_tokens
         }
         
-        # 🔥 STABILITY FIRST: Server-side noise reduction can break session.update on some models/versions,
-        # which causes the session to fall back to DEFAULT settings (PCM16/English/no instructions).
-        # Keep it OFF by default; enable only when explicitly requested and confirmed supported.
-        if os.getenv("OPENAI_REALTIME_ENABLE_NOISE_REDUCTION", "0") == "1":
-            session_config["input_audio_noise_reduction"] = {"type": "near_field"}
-            logger.info("✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field")
+        # 🔥 QUALITY IMPROVEMENT: Add noise reduction if available
+        # This uses OpenAI's server-side noise reduction (not local filters)
+        # CRITICAL: Must be an object with "type" field, not a string!
+        # Per OpenAI Realtime API spec: {"type": "near_field"} for phone calls
+        # NOTE: This is experimental and may not be supported by all models/versions
+        # We'll add it optimistically and fallback if it fails
+        use_noise_reduction = True  # Try with noise reduction first
+        session_config["input_audio_noise_reduction"] = {"type": "near_field"}
+        logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field (experimental)")
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
         logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
