@@ -4643,10 +4643,18 @@ class MediaStreamHandler:
                 # ❌ IGNORE these audio events - they contain duplicate/complete audio buffers:
                 elif event_type in ("response.audio.done", "response.output_item.done"):
                     # 🔴 GREETING_LOCK: Release ONLY after greeting audio is done (not on response.done).
-                    # Prefer strict response_id match; fallback to a small delay if we couldn't bind an id.
+                    # Prefer strict response_id match. If we failed to bind earlier, bind from this event and release.
                     if event_type == "response.audio.done" and getattr(self, "greeting_lock_active", False):
                         done_resp_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
                         bound_id = getattr(self, "_greeting_lock_response_id", None)
+                        # If we missed the bind on response.created, bind here (still strict: release only on audio.done).
+                        if bound_id is None and done_resp_id:
+                            self._greeting_lock_response_id = done_resp_id
+                            bound_id = done_resp_id
+                            _orig_print(
+                                f"🔒 [GREETING_LOCK] late-bound greeting_response_id={done_resp_id[:20]}... (on audio.done)",
+                                flush=True,
+                            )
                         if bound_id and done_resp_id and done_resp_id == bound_id:
                             self.greeting_lock_active = False
                             _orig_print(
@@ -4654,11 +4662,6 @@ class MediaStreamHandler:
                                 flush=True,
                             )
                             logger.info("[GREETING_LOCK] released (audio.done)")
-                        elif bound_id is None and getattr(self, "greeting_mode_active", False) and not getattr(self, "greeting_completed", False):
-                            await asyncio.sleep(0.4)
-                            self.greeting_lock_active = False
-                            _orig_print("[GREETING_LOCK] released (audio.done) fallback=true", flush=True)
-                            logger.info("[GREETING_LOCK] released (audio.done) fallback=true")
 
                     # 🎯 FIX A: Complete greeting mode after FIRST response only
                     if self.greeting_mode_active and not self.greeting_completed:
@@ -8159,6 +8162,29 @@ class MediaStreamHandler:
 
                 if et == "media":
                     self.rx += 1
+                    # 🔴 GREETING_LOCK (HARD, earliest):
+                    # While greeting is playing, the bot must NOT "hear" the caller at all.
+                    # Drop inbound frames immediately (no decode/RMS/VAD/buffer/append/commit/barge-in paths).
+                    # We still touch activity timestamps so watchdogs don't misfire.
+                    if getattr(self, "greeting_lock_active", False):
+                        self.last_rx_ts = time.time()
+                        if self.call_sid:
+                            stream_registry.touch_media(self.call_sid)
+                        # Rate-limit logs (~1/sec @ 50fps)
+                        try:
+                            if not hasattr(self, "_greeting_lock_drop_frames"):
+                                self._greeting_lock_drop_frames = 0
+                            self._greeting_lock_drop_frames += 1
+                            if self._greeting_lock_drop_frames % 50 == 1:
+                                logger.info("[GREETING_LOCK] dropping inbound audio frame (earliest)")
+                                print("🔒 [GREETING_LOCK] dropping inbound audio frame (earliest)")
+                        except Exception:
+                            pass
+                        try:
+                            self._stats_audio_blocked += 1
+                        except Exception:
+                            pass
+                        continue
                     b64 = evt["media"]["payload"]
                     mulaw = base64.b64decode(b64)
                     # ⚡ SPEED: Fast μ-law decode using lookup table (~10-20x faster)
@@ -10996,7 +11022,7 @@ class MediaStreamHandler:
                 self.pending_hangup_response_id = bound_response_id
 
             # Fallback: if we never get response.audio.done for this response_id (mismatch/cancel/missed event),
-            # don't get stuck pending forever. Fire after ~1.2s.
+            # don't get stuck pending forever. Fire after >=6s (and do not cut bot audio if still playing).
             try:
                 # Cancel previous fallback timer (if any)
                 prev = getattr(self, "_pending_hangup_fallback_task", None)
@@ -11012,7 +11038,7 @@ class MediaStreamHandler:
 
             async def _polite_hangup_fallback_timer(expected_response_id: Optional[str], expected_call_sid: Optional[str]):
                 try:
-                    await asyncio.sleep(1.2)
+                    await asyncio.sleep(6.0)
                     # Only fire if still pending and still for the same response_id (one-shot)
                     if getattr(self, "hangup_triggered", False):
                         return
@@ -11020,6 +11046,39 @@ class MediaStreamHandler:
                         return
                     if expected_response_id and getattr(self, "pending_hangup_response_id", None) != expected_response_id:
                         return
+
+                    # Never cut bot audio: if AI is still speaking or queues are still draining, wait a bit longer.
+                    try:
+                        extra_deadline = time.monotonic() + 6.0  # additional grace window
+                        while time.monotonic() < extra_deadline:
+                            ai_speaking = False
+                            try:
+                                ev = getattr(self, "is_ai_speaking_event", None)
+                                ai_speaking = bool(ev and ev.is_set())
+                            except Exception:
+                                ai_speaking = False
+
+                            oai_q = 0
+                            tx_q = 0
+                            try:
+                                q1 = getattr(self, "realtime_audio_out_queue", None)
+                                if q1:
+                                    oai_q = q1.qsize()
+                            except Exception:
+                                oai_q = 0
+                            try:
+                                q2 = getattr(self, "tx_q", None)
+                                if q2:
+                                    tx_q = q2.qsize()
+                            except Exception:
+                                tx_q = 0
+
+                            if ai_speaking or oai_q > 0 or tx_q > 0:
+                                await asyncio.sleep(0.5)
+                                continue
+                            break
+                    except Exception:
+                        pass
 
                     logger.info("[POLITE_HANGUP] fallback timer fired")
                     print("[POLITE_HANGUP] fallback timer fired")
