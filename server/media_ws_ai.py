@@ -10238,6 +10238,11 @@ class MediaStreamHandler:
         Args:
             reason: Why the call is being hung up (for logging)
         """
+        # 🔴 CRITICAL: If a real hangup was already requested (one-shot),
+        # never attempt a second hangup path from the legacy auto-hangup flow.
+        if getattr(self, "hangup_requested", False):
+            return
+
         # 🔥 BUILD 178: Track retry count to prevent infinite loops
         if not hasattr(self, '_hangup_retry_count'):
             self._hangup_retry_count = 0
