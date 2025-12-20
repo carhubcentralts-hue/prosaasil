@@ -4796,12 +4796,25 @@ class MediaStreamHandler:
                     if transcript:
                         print(f"🤖 [REALTIME] AI said: {transcript}")
 
-                        # 🔴 CRITICAL — Real Hangup (BOT): transcript-only + closing-sentence only
-                        # If bot's transcript IS a closing sentence → hangup for real immediately.
-                        bot_intent = self._classify_real_hangup_intent(transcript, "bot")
-                        if bot_intent == "hangup":
-                            await self.request_hangup("bot_goodbye", "transcript", transcript, "bot")
-                            continue
+                        # 🔴 FIX (BOT): Hang up ONLY on response.audio_transcript.done (audio bot)
+                        # Match on the transcript text itself (not output_text), with a simple include/equal rule.
+                        # Disconnect if transcript includes/equals one of:
+                        # - "ביי"
+                        # - "להתראות"
+                        # - "תודה, להתראות"
+                        # - "תודה ולהתראות"
+                        try:
+                            _t_raw = (transcript or "").strip()
+                            _t_norm = re.sub(r"""[.,;:!?"'()\[\]{}<>״“”‘’\-–—]""", " ", _t_raw)
+                            _t_norm = " ".join(_t_norm.split())
+                            _targets = ["ביי", "להתראות", "תודה, להתראות", "תודה ולהתראות"]
+                            _targets_norm = [" ".join(re.sub(r"""[.,;:!?"'()\[\]{}<>״“”‘’\-–—]""", " ", p).split()) for p in _targets]
+                            if any(p in _t_raw for p in _targets) or any(p in _t_norm for p in _targets_norm):
+                                await self.request_hangup("bot_goodbye", "response.audio_transcript.done", _t_raw, "bot")
+                                continue
+                        except Exception:
+                            # Never break the realtime loop due to hangup matching errors.
+                            pass
                         
                         # ⭐ BUILD 350: SIMPLE KEYWORD-BASED APPOINTMENT DETECTION
                         # Only if appointments are enabled in business settings
@@ -10955,11 +10968,13 @@ class MediaStreamHandler:
         # (B) Real hangup via Twilio REST (non-blocking)
         try:
             from server.services.twilio_call_control import hangup_call
-
-            def _do_hangup():
-                hangup_call(call_sid)
-
-            threading.Thread(target=_do_hangup, daemon=True).start()
+            # Execute hangup via worker thread (avoid blocking event loop),
+            # but await the result so we can emit a single acceptance log line.
+            success = await asyncio.to_thread(hangup_call, call_sid)
+            transcript_for_log = (msg_preview or "").replace('"', '\\"')
+            line = f'[HANGUP] {reason} transcript="{transcript_for_log}" success={success}'
+            force_print(line)
+            logger.info(line)
         except Exception as e:
             force_print(f"[HANGUP] error call_sid={call_sid} err={type(e).__name__}:{str(e)[:200]}")
             logger.exception("[HANGUP] error call_sid=%s", call_sid)
