@@ -445,7 +445,7 @@ def import_outbound_leads():
     """
     BUILD 182: Import leads from CSV for outbound calls
     
-    Accepts CSV file with columns: name, phone, city (optional), notes (optional)
+    Accepts CSV/Excel/JSON and tries to auto-map columns. Only phone is required.
     Maximum 5000 leads per business total.
     
     Returns:
@@ -454,7 +454,8 @@ def import_outbound_leads():
         "list_id": 123,
         "imported_count": 50,
         "skipped_count": 2,
-        "errors": ["שורה 3: טלפון לא תקין"]
+        "errors_sample": ["שורה 3: טלפון לא תקין"],
+        "mapping": {"phone": "טלפון", "name": "שם", "method": "header|content|fallback"}
     }
     """
     import csv
@@ -462,6 +463,7 @@ def import_outbound_leads():
     from datetime import datetime
     from flask import session
     from server.models_sql import OutboundLeadList
+    from typing import Any
     
     tenant_id = g.get('tenant')
     
@@ -471,76 +473,347 @@ def import_outbound_leads():
             return jsonify({"error": "יש לבחור עסק לפני ייבוא לידים"}), 400
         return jsonify({"error": "אין גישה לעסק"}), 403
     
-    # Check file upload
-    if 'file' not in request.files:
-        return jsonify({"error": "לא נבחר קובץ"}), 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({"error": "לא נבחר קובץ"}), 400
-    
-    if not file.filename.endswith('.csv'):
-        return jsonify({"error": "יש להעלות קובץ CSV בלבד"}), 400
-    
     try:
         # Count existing imported leads for this business
         existing_count = Lead.query.filter_by(
             tenant_id=tenant_id,
             source="imported_outbound"
         ).count()
-        
-        # Read and parse CSV
-        content = file.read().decode('utf-8-sig')  # Handle BOM
-        reader = csv.DictReader(io.StringIO(content))
-        
-        # Normalize column names (support Hebrew and English)
-        column_map = {
-            'name': ['name', 'שם', 'full_name', 'שם מלא'],
-            'phone': ['phone', 'טלפון', 'phone_number', 'מספר טלפון', 'נייד'],
-            'city': ['city', 'עיר', 'address', 'כתובת'],
-            'notes': ['notes', 'הערות', 'comments', 'הערה']
+
+        # -----------------------------
+        # Forgiving parsing + auto-mapping
+        # -----------------------------
+        header_synonyms = {
+            "phone": [
+                "phone", "phone_number", "mobile", "cell", "tel", "telephone",
+                "טלפון", "נייד", "מספר", "מס טלפון", "מספר טלפון"
+            ],
+            "name": [
+                "name", "full_name", "full name", "customer", "client",
+                "שם", "שם מלא", "לקוח"
+            ],
+            "city": ["city", "address", "עיר", "כתובת"],
+            "notes": ["notes", "comment", "comments", "remark", "הערות", "הערה"],
         }
-        
-        def get_column_value(row, target_col):
-            """Get value for a column, checking various column name variants"""
-            for col_variant in column_map.get(target_col, [target_col]):
-                for key in row.keys():
-                    if key.strip().lower() == col_variant.lower():
-                        return row[key].strip() if row[key] else None
+
+        def _norm_header(h: str) -> str:
+            return re.sub(r"\s+", " ", (h or "").strip().lower())
+
+        def _looks_like_header_cell(cell: str) -> bool:
+            c = (cell or "").strip()
+            if not c:
+                return False
+            # headers are usually short and do not contain many digits
+            digits = sum(ch.isdigit() for ch in c)
+            letters = sum(ch.isalpha() for ch in c)
+            return digits == 0 and (letters > 0 or len(c) <= 20)
+
+        def _decode_bytes(raw: bytes) -> str:
+            for enc in ("utf-8-sig", "utf-8", "cp1255", "iso-8859-8"):
+                try:
+                    return raw.decode(enc)
+                except Exception:
+                    continue
+            # last resort
+            return raw.decode("utf-8", errors="replace")
+
+        def _strip_phone_chars(s: str) -> str:
+            return re.sub(r"[^\d+]", "", (s or "").strip())
+
+        def _normalize_phone_forgiving(raw_phone: str) -> str | None:
+            """
+            Forgiving phone normalization.
+            Returns E.164-like string (e.g. +9725XXXXXXXX) or None if invalid.
+            """
+            if not raw_phone:
+                return None
+
+            cleaned = _strip_phone_chars(raw_phone)
+            if not cleaned:
+                return None
+
+            # If starts with + and not Israeli, accept if it's plausibly E.164
+            if cleaned.startswith("+") and not cleaned.startswith("+972"):
+                digits_only = re.sub(r"\D", "", cleaned)
+                if 10 <= len(digits_only) <= 15:
+                    return cleaned  # keep as provided (+country...)
+                return None
+
+            digits = re.sub(r"\D", "", cleaned)
+
+            # Israeli: +972XXXXXXXXX / 972XXXXXXXXX
+            if digits.startswith("972"):
+                national = digits[3:]
+                # some exports include leading 0 after 972 -> strip it
+                if national.startswith("0"):
+                    national = national[1:]
+                if 8 <= len(national) <= 10:
+                    return "+972" + national
+                return None
+
+            # Israeli local: 0XXXXXXXX (landline 9) / 05XXXXXXXX (mobile 10)
+            if digits.startswith("0"):
+                national = digits[1:]
+                if 8 <= len(national) <= 9:
+                    return "+972" + national
+                return None
+
+            # Missing leading 0 (common in exports)
+            # Mobile without 0: 5XXXXXXXX (9 digits)
+            if len(digits) == 9 and digits.startswith("5"):
+                return "+972" + digits
+            # Landline without 0: 2/3/4/8/9 + 7 digits (8 digits total)
+            if len(digits) == 8 and digits[0] in "23489":
+                return "+972" + digits
+
             return None
-        
-        rows_to_import = []
-        errors = []
-        
-        for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
-            name = get_column_value(row, 'name')
-            phone = get_column_value(row, 'phone')
-            city = get_column_value(row, 'city')
-            notes = get_column_value(row, 'notes')
-            
-            # Validate required fields
-            if not name:
-                errors.append(f"שורה {row_num}: חסר שם")
+
+        def _is_phone_like(value: Any) -> bool:
+            if value is None:
+                return False
+            v = str(value).strip()
+            if not v:
+                return False
+            return _normalize_phone_forgiving(v) is not None
+
+        def _guess_phone_col(data_rows: list[list[str]]) -> int | None:
+            if not data_rows:
+                return None
+            col_count = max(len(r) for r in data_rows)
+            if col_count == 0:
+                return None
+            sample = data_rows[:200]
+            best_idx = None
+            best_ratio = 0.0
+            for i in range(col_count):
+                values = [r[i] if i < len(r) else "" for r in sample]
+                non_empty = [v for v in values if str(v).strip()]
+                if not non_empty:
+                    continue
+                phone_like = sum(1 for v in non_empty if _is_phone_like(v))
+                ratio = phone_like / max(1, len(non_empty))
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_idx = i
+            # Accept if at least half looks like phone OR it's the only plausible column
+            if best_idx is not None and best_ratio >= 0.35:
+                return best_idx
+            # fallback: if only 2 columns, pick the more phone-like one even if ratio is low
+            if col_count == 2:
+                scores = []
+                for i in range(2):
+                    values = [r[i] if i < len(r) else "" for r in sample]
+                    non_empty = [v for v in values if str(v).strip()]
+                    phone_like = sum(1 for v in non_empty if _is_phone_like(v))
+                    scores.append(phone_like)
+                return 0 if scores[0] >= scores[1] else 1
+            return best_idx
+
+        def _guess_name_col(data_rows: list[list[str]], phone_idx: int | None) -> int | None:
+            if not data_rows:
+                return None
+            col_count = max(len(r) for r in data_rows)
+            if col_count == 0:
+                return None
+            sample = data_rows[:200]
+            best_idx = None
+            best_score = -1.0
+            for i in range(col_count):
+                if phone_idx is not None and i == phone_idx:
+                    continue
+                values = [str(r[i]).strip() if i < len(r) and r[i] is not None else "" for r in sample]
+                non_empty = [v for v in values if v]
+                if not non_empty:
+                    continue
+                # "name-like": mostly letters/spaces, not phone-like, short-ish
+                name_like = 0
+                for v in non_empty:
+                    if _is_phone_like(v):
+                        continue
+                    if len(v) > 60:
+                        continue
+                    if any(ch.isalpha() for ch in v):
+                        name_like += 1
+                score = name_like / max(1, len(non_empty))
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+            # If only 2 cols and phone col exists, assume the other is name
+            if best_idx is None and col_count == 2 and phone_idx is not None:
+                return 1 - phone_idx
+            return best_idx
+
+        def _find_header_index(headers: list[str], target: str) -> int | None:
+            syns = {_norm_header(s) for s in header_synonyms.get(target, [])}
+            for i, h in enumerate(headers):
+                if _norm_header(h) in syns:
+                    return i
+            return None
+
+        def _auto_name_from_phone(normalized_phone: str) -> str:
+            digits_only = re.sub(r"\D", "", normalized_phone or "")
+            last4 = digits_only[-4:] if len(digits_only) >= 4 else ""
+            return f"ליד {last4}" if last4 else "ליד חדש"
+
+        def _parse_rows_from_request() -> tuple[list[list[str]], dict[str, Any]]:
+            """
+            Returns (table_rows, meta)
+            - table_rows: list of rows (each row is list of strings), including header row if present.
+            - meta: parsing metadata (filename, kind)
+            """
+            # JSON array support
+            if request.is_json:
+                payload = request.get_json(silent=True)
+                if isinstance(payload, dict) and isinstance(payload.get("rows"), list):
+                    payload_rows = payload.get("rows")
+                    meta = {"kind": "json", "filename": None, "list_name": payload.get("list_name")}
+                else:
+                    payload_rows = payload
+                    meta = {"kind": "json", "filename": None, "list_name": None}
+
+                if not isinstance(payload_rows, list):
+                    raise ValueError("JSON חייב להיות מערך של שורות (array) או אובייקט עם rows")
+
+                # If it's a list of dicts, convert to a table with headers
+                if payload_rows and isinstance(payload_rows[0], dict):
+                    keys: list[str] = []
+                    seen = set()
+                    for item in payload_rows[:1000]:
+                        if not isinstance(item, dict):
+                            continue
+                        for k in item.keys():
+                            if k not in seen:
+                                seen.add(k)
+                                keys.append(str(k))
+                    header = keys
+                    out: list[list[str]] = [header]
+                    for item in payload_rows:
+                        if not isinstance(item, dict):
+                            continue
+                        out.append([str(item.get(k, "")).strip() if item.get(k) is not None else "" for k in header])
+                    return out, meta
+
+                # If it's list-of-lists, assume it's already a table
+                out_rows: list[list[str]] = []
+                for item in payload_rows:
+                    if isinstance(item, list):
+                        out_rows.append([str(v).strip() if v is not None else "" for v in item])
+                    else:
+                        # scalar -> single-column
+                        out_rows.append([str(item).strip()])
+                return out_rows, meta
+
+            # Multipart file upload
+            if 'file' not in request.files:
+                raise ValueError("לא נבחר קובץ")
+
+            file = request.files['file']
+            if not file or file.filename == '':
+                raise ValueError("לא נבחר קובץ")
+
+            filename = file.filename or ""
+            lower = filename.lower()
+            raw = file.read()
+
+            if lower.endswith(".csv"):
+                content = _decode_bytes(raw)
+                reader = csv.reader(io.StringIO(content))
+                rows = [[(c or "").strip() for c in r] for r in reader]
+                return rows, {"kind": "csv", "filename": filename, "list_name": request.form.get('list_name')}
+
+            if lower.endswith(".xlsx"):
+                try:
+                    import openpyxl  # type: ignore
+                except Exception:
+                    raise ValueError("קובץ Excel (.xlsx) נתמך רק אם openpyxl מותקן בשרת")
+
+                wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+                ws = wb.active
+                rows = []
+                for r in ws.iter_rows(values_only=True):
+                    rows.append([str(v).strip() if v is not None else "" for v in r])
+                return rows, {"kind": "xlsx", "filename": filename, "list_name": request.form.get('list_name')}
+
+            raise ValueError("יש להעלות קובץ CSV או Excel (.xlsx) או לשלוח JSON")
+
+        table_rows, parse_meta = _parse_rows_from_request()
+        # Remove fully empty rows
+        table_rows = [r for r in table_rows if any((c or "").strip() for c in r)]
+        if not table_rows:
+            return jsonify({"error": "הקובץ ריק או לא מכיל שורות"}), 400
+
+        # Decide if first row is header
+        first_row = table_rows[0]
+        first_has_digits = any(any(ch.isdigit() for ch in (c or "")) for c in first_row)
+        has_header = False
+        if not first_has_digits:
+            # if it looks like header-ish text in most cells, treat as header
+            headerish = sum(1 for c in first_row if _looks_like_header_cell(c))
+            has_header = headerish >= max(1, int(len(first_row) * 0.5))
+
+        headers = first_row if has_header else [f"col_{i+1}" for i in range(max(len(r) for r in table_rows))]
+        data_rows = table_rows[1:] if has_header else table_rows
+
+        # Normalize row lengths
+        col_count = max(len(headers), *(len(r) for r in data_rows)) if data_rows else len(headers)
+        headers = (headers + [""] * col_count)[:col_count]
+        padded_rows: list[list[str]] = []
+        for r in data_rows:
+            rr = (r + [""] * col_count)[:col_count]
+            padded_rows.append(rr)
+
+        # Mapping: by header first, then content, then fallback
+        phone_idx = _find_header_index(headers, "phone") if has_header else None
+        name_idx = _find_header_index(headers, "name") if has_header else None
+        city_idx = _find_header_index(headers, "city") if has_header else None
+        notes_idx = _find_header_index(headers, "notes") if has_header else None
+
+        mapping_method = "header" if phone_idx is not None else "content"
+        if phone_idx is None:
+            phone_idx = _guess_phone_col(padded_rows)
+        if name_idx is None:
+            name_idx = _guess_name_col(padded_rows, phone_idx)
+
+        # Fallback for 2 columns: assume name+phone but still validate phone-like
+        if phone_idx is None and col_count == 2:
+            # pick the more phone-like one
+            phone_idx = _guess_phone_col(padded_rows)
+            name_idx = 1 - phone_idx if phone_idx is not None else 0
+            mapping_method = "fallback"
+
+        rows_to_import: list[dict[str, Any]] = []
+        errors: list[str] = []
+        errors_sample: list[str] = []
+
+        def _add_error(msg: str) -> None:
+            errors.append(msg)
+            if len(errors_sample) < 20:
+                errors_sample.append(msg)
+
+        # Row numbers: +1 for header line, +1 to make 1-based
+        base_row_number = 2 if has_header else 1
+        for idx, row in enumerate(padded_rows):
+            row_num = base_row_number + idx
+
+            raw_phone = row[phone_idx] if phone_idx is not None and phone_idx < len(row) else ""
+            normalized_phone = _normalize_phone_forgiving(raw_phone)
+            if not normalized_phone:
+                if str(raw_phone).strip():
+                    _add_error(f"שורה {row_num}: טלפון לא תקין - {raw_phone}")
+                else:
+                    _add_error(f"שורה {row_num}: חסר טלפון")
                 continue
-            
-            if not phone:
-                errors.append(f"שורה {row_num}: חסר טלפון")
-                continue
-            
-            # Normalize phone number
-            normalized_phone = normalize_israeli_phone(phone)
-            
-            # Basic phone validation
-            if not normalized_phone or len(normalized_phone) < 10:
-                errors.append(f"שורה {row_num}: טלפון לא תקין - {phone}")
-                continue
-            
+
+            raw_name = row[name_idx].strip() if name_idx is not None and name_idx < len(row) else ""
+            name = raw_name if raw_name else _auto_name_from_phone(normalized_phone)
+            city = row[city_idx].strip() if city_idx is not None and city_idx < len(row) else None
+            notes = row[notes_idx].strip() if notes_idx is not None and notes_idx < len(row) else None
+
             rows_to_import.append({
-                'name': name,
-                'phone': normalized_phone,
-                'city': city,
-                'notes': notes
+                "name": name,
+                "phone": normalized_phone,
+                "city": city,
+                "notes": notes,
             })
         
         # Check 5000 limit
@@ -551,18 +824,20 @@ def import_outbound_leads():
             }), 400
         
         if len(rows_to_import) == 0:
+            # Keep 400 only when we truly couldn't extract a single valid phone
             return jsonify({
-                "error": "לא נמצאו לידים תקינים לייבוא",
-                "errors": errors
+                "error": "לא נמצאו טלפונים תקינים לייבוא",
+                "errors_sample": errors_sample,
+                "errors": errors_sample,  # backwards-compat for existing UI
             }), 400
         
         # Create the import list
-        list_name = request.form.get('list_name') or f"ייבוא {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        list_name = (parse_meta or {}).get("list_name") or f"ייבוא {datetime.now().strftime('%d/%m/%Y %H:%M')}"
         
         outbound_list = OutboundLeadList()
         outbound_list.tenant_id = tenant_id
         outbound_list.name = list_name
-        outbound_list.file_name = file.filename
+        outbound_list.file_name = (parse_meta or {}).get("filename") or "import"
         outbound_list.total_leads = len(rows_to_import)
         db.session.add(outbound_list)
         db.session.flush()  # Get the list ID
@@ -597,7 +872,15 @@ def import_outbound_leads():
             "list_name": list_name,
             "imported_count": imported_count,
             "skipped_count": len(errors),
-            "errors": errors[:20]  # Limit error messages
+            "errors_sample": errors_sample,
+            "errors": errors_sample,  # keep existing UI contract
+            "mapping": {
+                "phone": headers[phone_idx] if phone_idx is not None and phone_idx < len(headers) else None,
+                "name": headers[name_idx] if name_idx is not None and name_idx < len(headers) else None,
+                "method": mapping_method,
+                "has_header": has_header,
+                "kind": (parse_meta or {}).get("kind"),
+            }
         })
         
     except Exception as e:
@@ -605,7 +888,11 @@ def import_outbound_leads():
         import traceback
         traceback.print_exc()
         db.session.rollback()
-        return jsonify({"error": f"שגיאה בייבוא הלידים: {str(e)}"}), 500
+        # Some parsing errors should be user-facing 400
+        msg = str(e) or "שגיאה בייבוא הלידים"
+        if any(s in msg for s in ["לא נבחר קובץ", "CSV", "Excel", "JSON", "ריק"]):
+            return jsonify({"error": msg}), 400
+        return jsonify({"error": f"שגיאה בייבוא הלידים: {msg}"}), 500
 
 
 @outbound_bp.route("/api/outbound/import-leads", methods=["GET"])
