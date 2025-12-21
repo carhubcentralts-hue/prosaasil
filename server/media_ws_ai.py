@@ -2695,6 +2695,27 @@ class MediaStreamHandler:
                 try:
                     from server.services.realtime_prompt_builder import build_global_system_prompt
                     system_prompt = build_global_system_prompt(call_direction=call_direction)
+
+                    # 🔥 FIX #3: Inject dynamic "today" context (helps prevent year/weekday hallucinations).
+                    # Keep it short and purely factual.
+                    try:
+                        import pytz
+                        from datetime import datetime
+                        from server.policy.business_policy import get_business_policy
+                        from server.services.hebrew_datetime import hebrew_weekday_name
+
+                        policy = get_business_policy(business_id_safe, prompt_text=None)
+                        tz = pytz.timezone(getattr(policy, "tz", "Asia/Jerusalem") or "Asia/Jerusalem")
+                        today = datetime.now(tz).date()
+                        system_prompt = (
+                            f"{system_prompt} "
+                            f"Context: TODAY_ISO={today.isoformat()}. "
+                            f"TODAY_WEEKDAY_HE={hebrew_weekday_name(today)}. "
+                            f"TIMEZONE={getattr(policy, 'tz', 'Asia/Jerusalem')}."
+                        )
+                    except Exception:
+                        pass
+
                     if system_prompt and system_prompt.strip():
                         await client.send_event(
                             {
@@ -5362,12 +5383,16 @@ class MediaStreamHandler:
                                                         {
                                                             "type": "input_text",
                                                             "text": (
-                                                                "SERVER OVERRIDE: You told the caller the appointment is booked, "
-                                                                "but the server has NOT created an appointment (no appointment_id). "
-                                                                "Immediately correct yourself in Hebrew: apologize, say you are checking availability now, "
-                                                                "then continue the appointment flow strictly: collect missing fields (name, full date+weekday, time), "
-                                                                "call check_availability, and only then call schedule_appointment. "
-                                                                "Never say 'קבעתי/נקבע' unless schedule_appointment returned success=true and includes appointment_id."
+                                                                "SERVER OVERRIDE: You must NEVER say the appointment is booked "
+                                                                "(קבעתי/נקבע/שריינתי/הפגישה נקבעה) unless the server returned "
+                                                                "schedule_appointment success=true AND includes appointment_id. "
+                                                                "DO NOT explain your mistake to the caller. "
+                                                                "Until appointment_id exists, you may only say short phrases like: "
+                                                                "\"אני בודקת זמינות ומאשרת מול המערכת\". "
+                                                                "NEXT STEP (no filler): "
+                                                                "If you already have customer_name + full date (weekday included) + time → call schedule_appointment NOW. "
+                                                                "If anything is missing → ask ONLY for the missing field (one question). "
+                                                                "If you are not sure the requested time is available → call check_availability first, then schedule_appointment."
                                                             ),
                                                         }
                                                     ],
@@ -11499,6 +11524,7 @@ class MediaStreamHandler:
                         resolve_hebrew_date,
                         resolve_hebrew_time,
                         pick_best_time_candidate,
+                        auto_correct_iso_year,
                     )
                     
                     # Get policy to determine duration
@@ -11529,6 +11555,26 @@ class MediaStreamHandler:
                     normalized_date_iso = date_res.date_iso
                     weekday_he = date_res.weekday_he
                     date_display_he = date_res.date_display_he
+
+                    # 🔥 FIX #1: Auto-correct suspicious ISO year BEFORE past-date guard.
+                    # LLMs sometimes send training-data years (e.g., 2023) even when user didn't specify a year.
+                    corrected_iso, corrected, reason = auto_correct_iso_year(
+                        normalized_date_iso,
+                        business_tz,
+                    )
+                    if corrected:
+                        print(
+                            f"🔧 [CHECK_AVAIL] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
+                            f"(reason={reason}) raw='{date_str_raw}'"
+                        )
+                        # Re-resolve display/weekday to match corrected date.
+                        corrected_res = resolve_hebrew_date(corrected_iso, business_tz)
+                        if corrected_res:
+                            normalized_date_iso = corrected_res.date_iso
+                            weekday_he = corrected_res.weekday_he
+                            date_display_he = corrected_res.date_display_he
+                        else:
+                            normalized_date_iso = corrected_iso
 
                     # 🛡️ SAFETY: If the resolved date is in the past, DO NOT query availability.
                     # Force the model to ask for a new date instead of looping on a past date.
@@ -11795,6 +11841,7 @@ class MediaStreamHandler:
                     from server.services.hebrew_datetime import (
                         resolve_hebrew_date,
                         resolve_hebrew_time,
+                        auto_correct_iso_year,
                     )
                     
                     # Get policy and timezone
@@ -11843,6 +11890,24 @@ class MediaStreamHandler:
                     normalized_date_iso = date_res.date_iso
                     weekday_he = date_res.weekday_he
                     date_display_he = date_res.date_display_he
+
+                    # 🔥 FIX #1: Auto-correct suspicious ISO year BEFORE past-date guard.
+                    corrected_iso, corrected, reason = auto_correct_iso_year(
+                        normalized_date_iso,
+                        tz,
+                    )
+                    if corrected:
+                        print(
+                            f"🔧 [APPOINTMENT] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
+                            f"(reason={reason}) raw='{appointment_date_raw}'"
+                        )
+                        corrected_res = resolve_hebrew_date(corrected_iso, tz)
+                        if corrected_res:
+                            normalized_date_iso = corrected_res.date_iso
+                            weekday_he = corrected_res.weekday_he
+                            date_display_he = corrected_res.date_display_he
+                        else:
+                            normalized_date_iso = corrected_iso
 
                     # 🛡️ SAFETY: Never attempt booking on a past date.
                     today_local = datetime.now(tz).date()

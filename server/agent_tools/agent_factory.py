@@ -266,7 +266,12 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             import pytz as _pytz
             from flask import g as _g
             from server.policy.business_policy import get_business_policy
-            from server.services.hebrew_datetime import resolve_hebrew_date, resolve_hebrew_time, pick_best_time_candidate
+            from server.services.hebrew_datetime import (
+                resolve_hebrew_date,
+                resolve_hebrew_time,
+                pick_best_time_candidate,
+                auto_correct_iso_year,
+            )
             from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
 
             tool_start = _time.time()
@@ -294,6 +299,17 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             normalized_date_iso = date_res.date_iso
             weekday_he = date_res.weekday_he
             date_display_he = date_res.date_display_he
+
+            # 🔥 FIX #1: Auto-correct suspicious ISO year BEFORE past-date guard.
+            corrected_iso, corrected, _reason = auto_correct_iso_year(normalized_date_iso, business_tz)
+            if corrected:
+                corrected_res = resolve_hebrew_date(corrected_iso, business_tz)
+                if corrected_res:
+                    normalized_date_iso = corrected_res.date_iso
+                    weekday_he = corrected_res.weekday_he
+                    date_display_he = corrected_res.date_display_he
+                else:
+                    normalized_date_iso = corrected_iso
 
             # Past date hard-stop
             today_local = _dt.now(business_tz).date()
@@ -385,7 +401,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             from flask import g as _g
 
             from server.policy.business_policy import get_business_policy
-            from server.services.hebrew_datetime import resolve_hebrew_date, resolve_hebrew_time
+            from server.services.hebrew_datetime import resolve_hebrew_date, resolve_hebrew_time, auto_correct_iso_year
             from server.agent_tools.tools_calendar import (
                 CreateAppointmentInput,
                 FindSlotsInput,
@@ -429,6 +445,17 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             normalized_date_iso = date_res.date_iso
             weekday_he = date_res.weekday_he
             date_display_he = date_res.date_display_he
+
+            # 🔥 FIX #1: Auto-correct suspicious ISO year BEFORE past-date guard.
+            corrected_iso, corrected, _reason = auto_correct_iso_year(normalized_date_iso, tz)
+            if corrected:
+                corrected_res = resolve_hebrew_date(corrected_iso, tz)
+                if corrected_res:
+                    normalized_date_iso = corrected_res.date_iso
+                    weekday_he = corrected_res.weekday_he
+                    date_display_he = corrected_res.date_display_he
+                else:
+                    normalized_date_iso = corrected_iso
 
             today_local = _dt.now(tz).date()
             try:
@@ -561,36 +588,19 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 print(f"   ⏱️  duration_min={duration_min}")
                 print(f"   🏢 business_id={business_id}")
                 
-                # 🔥 CRITICAL FIX: Agent often sends 2023 dates due to training data
-                # Force-correct any year <2025 to 2025 (or map relative dates)
+                # 🔥 FIX #1: Auto-correct suspicious ISO year (generic; no hardcoded year).
                 from datetime import datetime
                 import pytz
-                import re
-                
+                from server.services.hebrew_datetime import auto_correct_iso_year
+
                 corrected_date = date_iso
-                match = re.match(r'(\d{4})-(\d{2})-(\d{2})', date_iso)
-                if match:
-                    year, month, day = match.groups()
-                    year_int = int(year)
-                    
-                    if year_int < 2025:
-                        # Agent sent old year - recalculate based on TODAY
-                        now_israel = datetime.now(tz=pytz.timezone('Asia/Jerusalem'))
-                        
-                        # If month/day match tomorrow or day-after, use that
-                        tomorrow = now_israel + timedelta(days=1)
-                        day_after = now_israel + timedelta(days=2)
-                        
-                        if int(month) == tomorrow.month and int(day) == tomorrow.day:
-                            corrected_date = tomorrow.strftime('%Y-%m-%d')
-                            print(f"   🔧 CORRECTED 'tomorrow': {date_iso} → {corrected_date}")
-                        elif int(month) == day_after.month and int(day) == day_after.day:
-                            corrected_date = day_after.strftime('%Y-%m-%d')
-                            print(f"   🔧 CORRECTED 'day after': {date_iso} → {corrected_date}")
-                        else:
-                            # Just fix the year to 2025
-                            corrected_date = f"2025-{month}-{day}"
-                            print(f"   🔧 CORRECTED year: {date_iso} → {corrected_date}")
+                try:
+                    tz = pytz.timezone("Asia/Jerusalem")
+                    corrected_date, corrected, reason = auto_correct_iso_year(date_iso, tz, datetime.now(tz))
+                    if corrected:
+                        print(f"   🔧 CORRECTED year: {date_iso} → {corrected_date} (reason={reason})")
+                except Exception:
+                    pass
                 
                 print(f"   ✅ date_iso (CORRECTED)={corrected_date}")
                 logger.info(f"🔧 TOOL CALLED: calendar_find_slots_wrapped")
