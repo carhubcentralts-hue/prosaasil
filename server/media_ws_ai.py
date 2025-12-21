@@ -4297,21 +4297,20 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - Simple & Stable (per הנחיה)
+                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # Per requirements: Cancel only when active_response_id exists AND
-                    # (ai_response_active OR is_ai_speaking)
+                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
                     # 
-                    # No special greeting protection - greeting is just first response
+                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
+                    # - Don't wait for is_ai_speaking flag
+                    # - Don't wait for voice_frames counter
+                    # - Cancel immediately and flush audio queues
+                    # 
+                    # Exception: Still protect greeting_lock (hard lock during greeting)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ✅ Only trigger barge-in if there's an actual active response
-                    # Per הנחיה: Check active_response_id AND (ai_response_active OR is_ai_speaking)
+                    # ✅ NEW: Cancel on speech_started if ANY active_response_id exists
                     has_active_response = bool(self.active_response_id)
-                    # 🔴 FINAL CRITICAL FIX #3: cancel only if active_response_id exists AND ai_response_active==True AND greeting_lock_active==False
-                    ai_can_be_cancelled = bool(getattr(self, "ai_response_active", False)) or (
-                        hasattr(self, "is_ai_speaking_event") and self.is_ai_speaking_event.is_set()
-                    )
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     barge_in_allowed_now = bool(
                         ENABLE_BARGE_IN
@@ -4320,23 +4319,21 @@ class MediaStreamHandler:
                         and not is_greeting_now
                     )
                     
-                    # ✅ FINAL HARDENING: Barge-in ONLY after COMPACT greeting completes.
-                    # - If user speaks during greeting: do NOT cancel.
-                    # - If user speaks after greeting: cancel active response (normal behavior).
-                    if has_active_response and ai_can_be_cancelled and self.realtime_client and barge_in_allowed_now:
-                        # AI has active response that can be cancelled - user is interrupting
+                    # 🔥 GOLDEN RULE: If active_response_id exists, cancel it NOW
+                    # Don't check ai_response_active or is_ai_speaking - just cancel!
+                    if has_active_response and self.realtime_client and barge_in_allowed_now:
+                        # AI has active response - user is interrupting, cancel IMMEDIATELY
                         
-                        # Normal barge-in: Cancel, flush, and clear (no greeting special case)
                         # Step 1: Cancel active response (with duplicate guard)
                         if self._should_send_cancel(self.active_response_id):
                             try:
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                logger.info("[BARGE-IN] Cancelled active response due to user speech")
+                                logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
                             except Exception as e:
                                 error_str = str(e).lower()
-                                # Gracefully handle not_active errors (per הנחיה - should not happen now)
+                                # Gracefully handle not_active errors
                                 if ('not_active' in error_str or 'no active' in error_str or 
                                     'already_cancelled' in error_str or 'already_completed' in error_str):
                                     logger.debug("[BARGE-IN] response_cancel_not_active (already ended)")
@@ -4346,6 +4343,7 @@ class MediaStreamHandler:
                             logger.debug("[BARGE-IN] Skipped duplicate cancel")
                         
                         # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
+                        # 🔥 CRITICAL: Clear Twilio queue immediately to prevent AI audio from continuing
                         if self.stream_sid:
                             try:
                                 clear_event = {
@@ -4358,6 +4356,7 @@ class MediaStreamHandler:
                                 logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
                         
                         # Step 3: Flush TX queue (clear all pending audio frames)
+                        # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
                         self._flush_tx_queue()
                         
                         # Step 4: Reset state (ONLY after successful cancel + cleanup)
@@ -4369,10 +4368,11 @@ class MediaStreamHandler:
                         # Step 5: Set barge-in flag with timestamp
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
-                        logger.debug("[BARGE-IN] User interrupted AI - cancel+clear+flush complete")
-                    elif has_active_response and not ai_can_be_cancelled and DEBUG:
+                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                    elif has_active_response and DEBUG:
+                        # This should rarely happen now - we cancel on ANY active_response_id
                         _orig_print(
-                            f"⏭️ [BARGE-IN] Response exists but not yet cancellable (ai_response_active={getattr(self, 'ai_response_active', False)}, is_ai_speaking={self.is_ai_speaking_event.is_set()})",
+                            f"⚠️ [BARGE-IN] Response exists but barge-in blocked (greeting_lock={is_greeting_now}, enabled={barge_in_allowed_now})",
                             flush=True,
                         )
                     
