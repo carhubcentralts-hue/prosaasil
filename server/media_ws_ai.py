@@ -2848,10 +2848,6 @@ class MediaStreamHandler:
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
-            # 🔥 MASTER FIX: ALWAYS trigger greeting immediately - no flag checks!
-            # Bot speaks first is now HARDCODED behavior for all calls
-            logger.info(f"[REALTIME] ENFORCING bot_speaks_first=True (hardcoded)")
-            
             # 🔥 MASTER FIX: Store OpenAI connect metric
             from server.stream_state import stream_registry
             if hasattr(self, '_metrics_openai_connect_ms') and self.call_sid:
@@ -4871,13 +4867,23 @@ class MediaStreamHandler:
                     # 🔥 BUILD 172: Update speech time for silence detection
                     self._update_speech_time()
                     
-                    # 🔥🔥 CRITICAL FIX: Do NOT clear audio queue here!
-                    # The queue may still have audio chunks that need to be sent to Twilio.
-                    # Clearing prematurely causes greeting/response truncation!
-                    # Let the audio bridge naturally drain the queue.
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # 🔥 BARGE-IN TRUNCATION: Drop remaining frames when user interrupts
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # During barge-in: TRUNCATE immediately (flush queues)
+                    # Normal completion: Let audio drain naturally (no truncation)
                     queue_size = self.realtime_audio_out_queue.qsize()
                     if queue_size > 0:
-                        print(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (NO TRUNCATION)")
+                        if getattr(self, 'barge_in_active', False):
+                            # BARGE-IN: Truncate immediately
+                            logger.info(f"[BARGE_IN_TRUNCATE] Dropping {queue_size} remaining frames")
+                            print(f"✂️ [BARGE_IN_TRUNCATE] Dropping {queue_size} frames - user interrupted")
+                            # Flush remaining audio from queue
+                            self._flush_tx_queue()
+                        else:
+                            # NORMAL: Let audio finish playing
+                            logger.debug(f"[AUDIO] {queue_size} frames in queue - letting them play (normal completion)")
+                            print(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (normal completion)")
                     
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
@@ -8384,6 +8390,88 @@ class MediaStreamHandler:
                     else:
                         # EMA with alpha=0.3 for quick response
                         self._recent_audio_rms = 0.3 * rms + 0.7 * self._recent_audio_rms
+                    
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # 🔥 REAL-TIME BARGE-IN DETECTION - RMS-based trigger while AI is speaking
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # REQUIREMENT: Detect user speech IMMEDIATELY when AI is speaking, not just on EOU
+                    # 
+                    # How it works:
+                    # 1. Calculate barge-in threshold = max(noise_floor + 12, 35)
+                    #    - Lower than VAD threshold (noise_floor + 55)
+                    #    - Allows earlier detection of interruption
+                    # 2. Track consecutive frames above threshold (3-5 frames = 60-100ms)
+                    # 3. When is_ai_speaking && consecutive_frames >= N → trigger barge-in
+                    # 4. On trigger: cancel active response + flush all queues
+                    # 
+                    # This ensures barge-in happens BEFORE OpenAI sends speech_started event
+                    if ENABLE_BARGE_IN and USE_REALTIME_API:
+                        # Initialize barge-in detection state
+                        if not hasattr(self, '_barge_in_consec_frames'):
+                            self._barge_in_consec_frames = 0
+                        if not hasattr(self, '_barge_in_threshold'):
+                            # Separate threshold from VAD - lower for faster detection
+                            noise_floor_rms = getattr(self, 'noise_floor', 20.0)
+                            self._barge_in_threshold = max(noise_floor_rms + 12, 35)
+                        
+                        # Update barge-in threshold after calibration completes
+                        if getattr(self, 'is_calibrated', False) and hasattr(self, 'noise_floor'):
+                            self._barge_in_threshold = max(self.noise_floor + 12, 35)
+                        
+                        # Check if AI is currently speaking
+                        ai_is_speaking = (
+                            getattr(self, 'is_ai_speaking_event', None) and 
+                            self.is_ai_speaking_event.is_set()
+                        )
+                        
+                        # Track consecutive frames above barge-in threshold
+                        if ai_is_speaking and rms > self._barge_in_threshold:
+                            self._barge_in_consec_frames += 1
+                        else:
+                            # Reset counter if RMS drops or AI not speaking
+                            self._barge_in_consec_frames = 0
+                        
+                        # Trigger barge-in if we have enough consecutive frames (3-5 frames = 60-100ms)
+                        # Use same constant as config (BARGE_IN_VOICE_FRAMES = 4 frames = 80ms)
+                        MIN_BARGE_IN_FRAMES = max(3, BARGE_IN_VOICE_FRAMES)  # At least 3, default 4
+                        
+                        if (ai_is_speaking and 
+                            self._barge_in_consec_frames >= MIN_BARGE_IN_FRAMES and
+                            not getattr(self, 'barge_in_active', False)):
+                            
+                            # BARGE-IN DETECTED! User is interrupting AI
+                            logger.info(
+                                f"[BARGE_IN_RMS] Detected! rms={rms:.1f} > threshold={self._barge_in_threshold:.1f} "
+                                f"for {self._barge_in_consec_frames} frames ({self._barge_in_consec_frames * 20}ms)"
+                            )
+                            print(
+                                f"🎤 [BARGE-IN_RMS] User interrupting AI! "
+                                f"rms={rms:.1f}, threshold={self._barge_in_threshold:.1f}, "
+                                f"frames={self._barge_in_consec_frames}"
+                            )
+                            
+                            # Cancel active AI response
+                            active_response_id = getattr(self, 'active_response_id', None)
+                            if active_response_id:
+                                logger.info(f"[BARGE_IN_RMS] Cancelling response: {active_response_id[:20]}...")
+                                print(f"❌ [BARGE_IN_RMS] Cancelling AI response: {active_response_id[:20]}...")
+                                
+                                # Add to cancelled set to drop future audio.delta
+                                if not hasattr(self, '_cancelled_response_ids'):
+                                    self._cancelled_response_ids = set()
+                                self._cancelled_response_ids.add(active_response_id)
+                            
+                            # Set barge-in active flag
+                            self.barge_in_active = True
+                            if not hasattr(self, '_barge_in_event_count'):
+                                self._barge_in_event_count = 0
+                            self._barge_in_event_count += 1
+                            
+                            # Flush ALL audio queues immediately (true truncation!)
+                            self._flush_tx_queue()
+                            
+                            # Reset consecutive frames counter
+                            self._barge_in_consec_frames = 0
                     
                     # 🛡️ CRITICAL: Block pure noise BEFORE sending to OpenAI
                     # This prevents Whisper/Realtime from hallucinating on background noise
