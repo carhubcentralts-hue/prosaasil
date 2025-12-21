@@ -345,8 +345,6 @@ class TopicClassifier:
             "method": "embedding",
             "top_matches": top_matches
         }
-        """
-        Classify text into a topic using semantic similarity
     
     def rebuild_all_embeddings(self, business_id: int) -> Dict:
         """
