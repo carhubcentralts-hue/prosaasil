@@ -199,7 +199,20 @@ def test_post_call_classification():
     # Check that classification is called after save
     assert 'AI TOPIC CLASSIFICATION' in code, "❌ Topic classification section not found"
     assert 'topic_classifier.classify_text' in code, "❌ classify_text call not found"
-    assert 'detected_topic_source' in code, "❌ Idempotency check not found"
+    
+    # ✅ FIX: Verify correct skip logic - check detected_topic_id, not detected_topic_source
+    assert 'if call_log.detected_topic_id is not None:' in code, "❌ Correct idempotency check not found (should check detected_topic_id)"
+    assert 'if lead and lead.detected_topic_id is None:' in code, "❌ Correct lead idempotency check not found (should check detected_topic_id)"
+    
+    # Verify we're NOT checking detected_topic_source for skip logic
+    # (it should only be SET, not checked for skip)
+    lines = code.split('\n')
+    for i, line in enumerate(lines):
+        if 'if call_log.detected_topic_source' in line and 'Skipping' in code[code.find(line):code.find(line)+200]:
+            raise AssertionError(f"❌ OLD skip logic found at line {i}: checking detected_topic_source instead of detected_topic_id")
+        if 'if lead and not lead.detected_topic_source' in line and 'Idempotency' in code[max(0, code.find(line)-200):code.find(line)+200]:
+            raise AssertionError(f"❌ OLD lead skip logic found at line {i}: checking detected_topic_source instead of detected_topic_id")
+    
     assert 'final_transcript if (final_transcript' in code, "❌ final_transcript priority not found"
     
     # Check it's in save_call_to_db function
@@ -214,7 +227,7 @@ def test_post_call_classification():
     
     print("✅ Classification runs after call save")
     print("✅ Uses final_transcript (Whisper) if available")
-    print("✅ Idempotency protection implemented")
+    print("✅ Idempotency protection implemented CORRECTLY (checks detected_topic_id)")
     print("✅ Sets detected_topic_id, confidence, and source")
     print("✅ Updates both call_log and lead")
     

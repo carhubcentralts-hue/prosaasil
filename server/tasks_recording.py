@@ -682,9 +682,10 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 from server.services.topic_classifier import topic_classifier
                 
                 # Check if already classified (idempotency)
-                if call_log.detected_topic_source:
-                    print(f"[TOPIC_CLASSIFY] ⏭️ Call {call_sid} already classified (source={call_log.detected_topic_source}) - skipping")
-                    log.info(f"[TOPIC_CLASSIFY] Skipping - already classified")
+                # ✅ FIX: Check detected_topic_id (actual result), not detected_topic_source (which can remain from migration)
+                if call_log.detected_topic_id is not None:
+                    print(f"[TOPIC_CLASSIFY] ⏭️ Call {call_sid} already classified (topic_id={call_log.detected_topic_id}) - skipping")
+                    log.info(f"[TOPIC_CLASSIFY] Skipping - already classified with topic_id={call_log.detected_topic_id}")
                 else:
                     # Get AI settings to check if classification is enabled
                     ai_settings = BusinessAISettings.query.filter_by(business_id=call_log.business_id).first()
@@ -718,7 +719,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                 # Update lead if auto_tag_leads is enabled and lead exists
                                 if ai_settings.auto_tag_leads and call_log.lead_id:
                                     lead = Lead.query.get(call_log.lead_id)
-                                    if lead and not lead.detected_topic_source:  # Idempotency for lead too
+                                    # ✅ FIX: Check detected_topic_id (actual result), not detected_topic_source
+                                    if lead and lead.detected_topic_id is None:  # Idempotency for lead too
                                         lead.detected_topic_id = topic_id
                                         lead.detected_topic_confidence = confidence
                                         lead.detected_topic_source = method
