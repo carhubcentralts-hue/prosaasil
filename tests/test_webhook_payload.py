@@ -31,6 +31,7 @@ def test_webhook_payload_serialization():
         "direction": "inbound",
         "city": "תל אביב",
         "service_category": "חשמלאי",
+        "service_category_canonical": "מנעולן",  # Canonical value after normalization
         "customer_name": "יוסי כהן",
         "preferred_time": "בוקר"
     }
@@ -48,6 +49,9 @@ def test_webhook_payload_serialization():
         "city_autocorrected": bool(test_data.get("city_autocorrected")) if test_data.get("city_autocorrected") else False,
         "name_raw_attempts": list(test_data.get("name_raw_attempts")) if test_data.get("name_raw_attempts") else [],
         "service_category": str(test_data.get("service_category")) if test_data.get("service_category") else "",
+        # NEW: Canonical service fields
+        "service_category_2": str(test_data.get("service_category_canonical")) if test_data.get("service_category_canonical") else "",
+        "service_type_canonical": str(test_data.get("service_category_canonical")) if test_data.get("service_category_canonical") else "",
         "preferred_time": str(test_data.get("preferred_time")) if test_data.get("preferred_time") else "",
         "started_at": test_data["started_at"].isoformat() if test_data.get("started_at") else "",
         "ended_at": test_data["ended_at"].isoformat() if test_data.get("ended_at") else datetime.utcnow().isoformat(),
@@ -69,6 +73,8 @@ def test_webhook_payload_serialization():
     assert "phone" in data
     assert "city" in data
     assert "service_category" in data
+    assert "service_category_2" in data  # NEW: Canonical field
+    assert "service_type_canonical" in data  # NEW: Canonical field
     assert "service" in data  # Monday.com alias
     assert "call_direction" in data  # Monday.com alias
     assert "call_status" in data
@@ -90,6 +96,8 @@ def test_webhook_payload_serialization():
     assert data["phone"] == "+972501234567"
     assert data["city"] == "תל אביב"
     assert data["service"] == "חשמלאי"
+    assert data["service_category_2"] == "מנעולן"  # NEW: Canonical value
+    assert data["service_type_canonical"] == "מנעולן"  # NEW: Canonical value
     assert data["duration_sec"] == 330
     assert data["city_confidence"] == 0.0
     
@@ -109,6 +117,10 @@ def test_webhook_payload_serialization():
     # Test 5: Verify Monday.com aliases match primary fields
     assert data["service"] == data["service_category"]
     assert data["call_direction"] == data["direction"]
+    
+    # Test 6: Verify canonical fields are populated
+    assert data["service_category_2"] == "מנעולן"
+    assert data["service_type_canonical"] == "מנעולן"
     
     print("✅ All webhook payload tests passed!")
 

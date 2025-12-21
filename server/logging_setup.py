@@ -8,6 +8,11 @@ import os
 from datetime import datetime
 from flask import g, request
 
+# 🔥 Global DEBUG flag - Single source of truth
+# DEBUG=1 → Production (minimal logs)
+# DEBUG=0 → Development (full logs)
+DEBUG = os.getenv("DEBUG", "1") == "1"
+
 class JSONFormatter(logging.Formatter):
     """JSON formatter for structured logging"""
     
@@ -45,17 +50,40 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_entry, ensure_ascii=False)
 
 def setup_logging():
-    """Setup centralized logging with JSON format and file rotation"""
+    """Setup centralized logging with JSON format and file rotation
+    
+    🔥 PRODUCTION vs DEBUG MODE:
+    - DEBUG=1 (default) → PRODUCTION: Minimal logs (WARNING level), quiet mode
+    - DEBUG=0 → DEVELOPMENT: Full logs (DEBUG level), verbose mode
+    """
     
     # Create logs directory
     os.makedirs('logs', exist_ok=True)
     
     # Root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    
-    # Clear existing handlers
     root_logger.handlers.clear()
+    
+    if DEBUG:
+        # PRODUCTION MODE – minimal logs only (WARNING and above)
+        root_logger.setLevel(logging.WARNING)
+        
+        # External libraries: ERROR only in production
+        logging.getLogger("twilio").setLevel(logging.ERROR)
+        logging.getLogger("httpx").setLevel(logging.ERROR)
+        logging.getLogger("uvicorn").setLevel(logging.ERROR)
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        logging.getLogger("urllib3").setLevel(logging.ERROR)
+    else:
+        # DEBUG MODE – full logs (DEBUG and above)
+        root_logger.setLevel(logging.DEBUG)
+        
+        # External libraries: normal levels in debug mode
+        logging.getLogger("twilio").setLevel(logging.INFO)
+        logging.getLogger("httpx").setLevel(logging.INFO)
+        logging.getLogger("uvicorn").setLevel(logging.INFO)
+        logging.getLogger("werkzeug").setLevel(logging.INFO)
+        logging.getLogger("urllib3").setLevel(logging.INFO)
     
     # Console handler with JSON
     console_handler = logging.StreamHandler()
@@ -71,10 +99,6 @@ def setup_logging():
     file_handler.setFormatter(JSONFormatter())
     root_logger.addHandler(file_handler)
     
-    # Reduce noise from external libraries
-    logging.getLogger('werkzeug').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
-    
     return root_logger
 
 def set_request_context(call_sid=None, business_id=None):
@@ -83,3 +107,36 @@ def set_request_context(call_sid=None, business_id=None):
         g.call_sid = call_sid
     if business_id:
         g.business_id = business_id
+
+
+# 🔥 Log throttling helper to prevent spam in loops/frequent events
+_log_throttle_cache = {}
+_log_throttle_lock = __import__('threading').Lock()
+
+def log_every(logger, key, message, level=logging.INFO, seconds=5):
+    """
+    Log a message at most once every N seconds for the same key.
+    
+    Use this in loops or frequently called code to prevent log spam.
+    
+    Args:
+        logger: Logger instance
+        key: Unique key for this log message (e.g., "audio_tx_loop")
+        message: Message to log (can be a callable for lazy evaluation)
+        level: Log level (default: INFO)
+        seconds: Minimum seconds between logs for this key
+    
+    Example:
+        log_every(logger, "ws_frames", lambda: f"Processed {count} frames", seconds=5)
+    """
+    import time
+    
+    now = time.time()
+    with _log_throttle_lock:
+        last_time = _log_throttle_cache.get(key, 0)
+        if now - last_time >= seconds:
+            _log_throttle_cache[key] = now
+            msg = message() if callable(message) else message
+            logger.log(level, msg)
+            return True
+    return False

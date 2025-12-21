@@ -203,7 +203,8 @@ def send_call_completed_webhook(
     preferred_time: Optional[str] = None,
     customer_name: Optional[str] = None,
     recording_url: Optional[str] = None,
-    metadata: Optional[Dict] = None
+    metadata: Optional[Dict] = None,
+    service_category_canonical: Optional[str] = None  # 🔥 NEW: Canonical service from lead.service_type
 ) -> bool:
     """
     Send call.completed webhook with full call data
@@ -213,11 +214,13 @@ def send_call_completed_webhook(
     BUILD 185: Added city_raw_attempts, city_autocorrected, name_raw_attempts
               for STT accuracy tracking and majority voting
     FIX: Added recording_url to ensure Monday/n8n always get recording link
+    FIX: Added service_category_canonical for n8n to receive canonicalized service type
     
     Args:
         phone: Caller phone number (normalized E.164 format preferred)
         city: Canonical city name (e.g., "תל אביב")
-        service_category: Type of service/professional (e.g., "חשמלאי", "שיפוצים")
+        service_category: Type of service/professional (e.g., "חשמלאי", "שיפוצים") - RAW extracted value
+        service_category_canonical: Canonical service type from lead.service_type (e.g., "מנעולן") - after canonicalization
         raw_city: Raw city input from customer before normalization
         city_confidence: Fuzzy matching confidence score (0-100)
         city_raw_attempts: List of all raw STT attempts for city (for debugging)
@@ -227,7 +230,7 @@ def send_call_completed_webhook(
     """
     # 🔍 Enhanced logging: Show all key parameters for debugging
     logger.info(f"[WEBHOOK] send_call_completed_webhook called: call_id={call_id}, business_id={business_id}, direction={direction}")
-    logger.debug(f"[WEBHOOK] Details: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}")
+    logger.debug(f"[WEBHOOK] Details: phone={phone or 'N/A'}, city={city or 'N/A'}, service={service_category or 'N/A'}, canonical={service_category_canonical or 'N/A'}")
     logger.debug(f"[WEBHOOK] Content: duration={duration_sec}s, transcript={len(transcript or '')} chars, summary={len(summary or '')} chars")
     logger.debug(f"[WEBHOOK] Recording: {'Available' if recording_url else 'N/A'}")
     
@@ -245,6 +248,9 @@ def send_call_completed_webhook(
         "city_autocorrected": bool(city_autocorrected) if city_autocorrected else False,
         "name_raw_attempts": list(name_raw_attempts) if name_raw_attempts else [],
         "service_category": str(service_category) if service_category else "",
+        # 🔥 NEW: Canonical service fields for n8n compatibility
+        "service_category_2": str(service_category_canonical) if service_category_canonical else "",
+        "service_type_canonical": str(service_category_canonical) if service_category_canonical else "",
         "preferred_time": str(preferred_time) if preferred_time else "",
         "started_at": started_at.isoformat() if started_at else "",
         "ended_at": ended_at.isoformat() if ended_at else datetime.utcnow().isoformat(),
@@ -260,6 +266,11 @@ def send_call_completed_webhook(
         "call_status": "completed",  # Explicit status for filtering
         "call_direction": str(direction) if direction else "inbound"  # Alternative field name
     }
+    
+    # 🔥 CRITICAL LOGGING: Verify canonical values before webhook send
+    logger.info(f"[WEBHOOK_PAYLOAD] service_category={data.get('service_category')} "
+                f"service_category_2={data.get('service_category_2')} "
+                f"service_type_canonical={data.get('service_type_canonical')}")
     
     # 🔥 BUILD 183: Pass direction for webhook routing
     return send_generic_webhook(business_id, "call.completed", data, direction=direction)

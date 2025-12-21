@@ -27,6 +27,12 @@ TRANSCRIPT_SOURCE_FAILED = "failed"        # Transcription attempt failed
 # ✅ Global queue for recording jobs - single shared instance
 RECORDING_QUEUE = queue.Queue()
 
+# 🔥 Global DEBUG flag - matches logging_setup.py
+# DEBUG=1 → Production (minimal logs)
+# DEBUG=0 → Development (full logs)
+DEBUG = os.getenv("DEBUG", "1") == "1"
+
+
 def normalize_call_direction(twilio_direction):
     """
     Normalize Twilio's direction values to simple inbound/outbound/unknown.
@@ -305,7 +311,8 @@ def process_recording_async(form_data):
                 from server.services.lead_extraction_service import transcribe_recording_with_whisper, extract_lead_from_transcript
                 
                 # Get full offline transcript (higher quality than realtime)
-                print(f"[OFFLINE_STT] Starting Whisper transcription for {call_sid}")
+                if not DEBUG:
+                    log.debug(f"[OFFLINE_STT] Starting Whisper transcription for {call_sid}")
                 log.info(f"[OFFLINE_STT] Starting offline transcription for {call_sid}")
                 
                 final_transcript = transcribe_recording_with_whisper(audio_file, call_sid)
@@ -318,7 +325,8 @@ def process_recording_async(form_data):
                     transcript_source = TRANSCRIPT_SOURCE_FAILED  # 🔥 BUILD 342: Mark as failed transcription
                 else:
                     # Success - we have a valid transcript!
-                    print(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
+                    if not DEBUG:
+                        log.debug(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars for {call_sid}")
                     log.info(f"[OFFLINE_STT] ✅ Transcript obtained: {len(final_transcript)} chars")
                     transcript_source = TRANSCRIPT_SOURCE_RECORDING  # 🔥 BUILD 342: Mark as recording-based
                     
@@ -355,7 +363,8 @@ def process_recording_async(form_data):
             
             # Log which transcript we're using
             transcript_source = "final_transcript (Whisper)" if source_text_for_summary == final_transcript else "transcription (realtime)"
-            print(f"[SUMMARY] Using {transcript_source} for summary generation ({len(source_text_for_summary)} chars)")
+            if not DEBUG:
+                log.debug(f"[SUMMARY] Using {transcript_source} for summary generation ({len(source_text_for_summary)} chars)")
             log.info(f"[SUMMARY] Using {transcript_source} for summary generation")
             
             # Get business context for dynamic summarization (requires app context!)
@@ -381,10 +390,16 @@ def process_recording_async(form_data):
                     pass
             
             summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
-            log.info(f"✅ Dynamic summary generated from {transcript_source}: {summary[:50]}...")
+            # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
+            if not DEBUG:
+                if summary and len(summary.strip()) > 0:
+                    log.debug(f"✅ Summary generated: {len(summary)} chars from {transcript_source}")
+                else:
+                    log.debug(f"⚠️ Summary generation returned empty")
         else:
-            print(f"[SUMMARY] ⚠️ No valid transcript available for summary (final_transcript={len(final_transcript or '')} chars, transcription={len(transcription or '')} chars)")
-            log.warning(f"[SUMMARY] No valid transcript for summary")
+            # 🔥 DEBUG mode only: log details
+            if not DEBUG:
+                log.debug(f"[SUMMARY] No valid transcript (final={len(final_transcript or '')} chars, realtime={len(transcription or '')} chars)")
         
         # 🆕 3.5. חילוץ עיר ושירות - חכם עם FALLBACK!
         # עדיפות 1: סיכום (אם קיים ובאורך סביר)
@@ -404,7 +419,8 @@ def process_recording_async(form_data):
                         extracted_city = existing_call.extracted_city
                         extracted_service = existing_call.extracted_service
                         extraction_confidence = existing_call.extraction_confidence
-                        print(f"[OFFLINE_EXTRACT] ⏭️ Extraction already exists - skipping (city='{extracted_city}', service='{extracted_service}')")
+                        if not DEBUG:
+                            log.debug(f"[OFFLINE_EXTRACT] ⏭️ Extraction already exists - skipping (city='{extracted_city}', service='{extracted_service}')")
                         log.info(f"[OFFLINE_EXTRACT] Extraction already exists for {call_sid} - skipping duplicate processing")
             except Exception as e:
                 print(f"⚠️ [OFFLINE_EXTRACT] Could not check existing extraction: {e}")
@@ -437,7 +453,9 @@ def process_recording_async(form_data):
                 try:
                     from server.services.lead_extraction_service import extract_city_and_service_from_summary
                     
-                    print(f"[OFFLINE_EXTRACT] Using {extraction_source} for city/service extraction ({len(extraction_text)} chars)")
+                    if not DEBUG:
+                    
+                        log.debug(f"[OFFLINE_EXTRACT] Using {extraction_source} for city/service extraction ({len(extraction_text)} chars)")
                     log.info(f"[OFFLINE_EXTRACT] Starting extraction from {extraction_source}")
                     
                     extraction = extract_city_and_service_from_summary(extraction_text)
@@ -445,21 +463,26 @@ def process_recording_async(form_data):
                     # עדכן את המשתנים שיישמרו ב-DB
                     if extraction.get("city"):
                         extracted_city = extraction.get("city")
-                        print(f"[OFFLINE_EXTRACT] ✅ Extracted city from {extraction_source}: '{extracted_city}'")
+                        if not DEBUG:
+                            log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted city from {extraction_source}: '{extracted_city}'")
                     
                     if extraction.get("service_category"):
                         extracted_service = extraction.get("service_category")
-                        print(f"[OFFLINE_EXTRACT] ✅ Extracted service from {extraction_source}: '{extracted_service}'")
+                        if not DEBUG:
+                            log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted service from {extraction_source}: '{extracted_service}'")
                     
                     if extraction.get("confidence") is not None:
                         extraction_confidence = extraction.get("confidence")
-                        print(f"[OFFLINE_EXTRACT] ✅ Extraction confidence: {extraction_confidence:.2f}")
+                        if not DEBUG:
+                            log.debug(f"[OFFLINE_EXTRACT] ✅ Extraction confidence: {extraction_confidence:.2f}")
                     
                     # Log final extraction result
                     if extracted_city or extracted_service:
-                        print(f"[OFFLINE_EXTRACT] ✅ Extracted from {extraction_source}: city='{extracted_city}', service='{extracted_service}', conf={extraction_confidence}")
+                        if not DEBUG:
+                            log.debug(f"[OFFLINE_EXTRACT] ✅ Extracted from {extraction_source}: city='{extracted_city}', service='{extracted_service}', conf={extraction_confidence}")
                     else:
-                        print(f"[OFFLINE_EXTRACT] ⚠️ No city/service found in {extraction_source}")
+                        if not DEBUG:
+                            log.debug(f"[OFFLINE_EXTRACT] ⚠️ No city/service found in {extraction_source}")
                         
                 except Exception as e:
                     print(f"❌ [OFFLINE_EXTRACT] Failed to extract from {extraction_source}: {e}")
@@ -467,7 +490,8 @@ def process_recording_async(form_data):
                     import traceback
                     traceback.print_exc()
             else:
-                print(f"[OFFLINE_EXTRACT] ⚠️ No valid text for extraction (summary={len(summary or '')} chars, transcript={len(final_transcript or '')} chars)")
+                if not DEBUG:
+                    log.debug(f"[OFFLINE_EXTRACT] ⚠️ No valid text for extraction (summary={len(summary or '')} chars, transcript={len(final_transcript or '')} chars)")
                 log.warning(f"[OFFLINE_EXTRACT] No valid text for extraction")
         
         # 4. שמור לDB עם תמלול + סיכום + 🆕 POST-CALL DATA
@@ -510,8 +534,21 @@ def process_recording_async(form_data):
                         # Determine call direction
                         direction = call_log.direction or "inbound"
                         
-                        print(f"[WEBHOOK] Preparing call_completed webhook: call={call_sid}, business={business.id}, direction={direction}")
+                        if not DEBUG:
+                        
+                            log.debug(f"[WEBHOOK] Preparing call_completed webhook: call={call_sid}, business={business.id}, direction={direction}")
                         log.info(f"[WEBHOOK] Preparing webhook for call {call_sid}: direction={direction}, business={business.id}")
+                        
+                        # 🔥 FIX: Fetch canonical service_type from lead (after canonicalization)
+                        canonical_service_type = None
+                        if call_log.lead_id:
+                            try:
+                                lead = Lead.query.filter_by(id=call_log.lead_id).first()
+                                if lead and lead.service_type:
+                                    canonical_service_type = lead.service_type
+                                    log.info(f"[WEBHOOK] Using canonical service_type from lead {lead.id}: '{canonical_service_type}'")
+                            except Exception as e:
+                                log.warning(f"[WEBHOOK] Could not fetch lead for canonical service: {e}")
                         
                         # Build payload with all available data
                         webhook_sent = send_call_completed_webhook(
@@ -528,15 +565,20 @@ def process_recording_async(form_data):
                             direction=direction,
                             city=extracted_city,
                             service_category=extracted_service,
-                            recording_url=call_log.recording_url  # 🔥 FIX: Always include recording URL
+                            recording_url=call_log.recording_url,  # 🔥 FIX: Always include recording URL
+                            service_category_canonical=canonical_service_type  # 🔥 NEW: Canonical value from lead.service_type
                         )
                         
-                        if webhook_sent:
-                            print(f"[WEBHOOK] ✅ Webhook queued for call {call_sid} (direction={direction})")
-                            log.info(f"[WEBHOOK] Webhook queued successfully for {call_sid}")
-                        else:
-                            print(f"[WEBHOOK] ⚠️ Webhook not sent for call {call_sid} (no URL configured for direction={direction})")
-                            log.warning(f"[WEBHOOK] Webhook not sent - no URL configured for direction={direction}")
+                        # 🔥 Production (DEBUG=1): Only errors/warnings. Development (DEBUG=0): Full logs
+                        if not DEBUG:
+                            if webhook_sent:
+                                log.debug(f"[WEBHOOK] ✅ Webhook queued for call {call_sid} (direction={direction})")
+                            else:
+                                log.debug(f"[WEBHOOK] ⚠️ Webhook not sent for call {call_sid} (no URL configured for direction={direction})")
+                        
+                        # Warnings remain even in production
+                        if not webhook_sent:
+                            log.warning(f"[WEBHOOK] No URL configured for direction={direction}")
                             
         except Exception as webhook_err:
             # Don't fail the entire pipeline if webhook fails - just log it
@@ -684,14 +726,16 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 # Check if already classified (idempotency)
                 # ✅ FIX: Check detected_topic_id (actual result), not detected_topic_source (which can remain from migration)
                 if call_log.detected_topic_id is not None:
-                    print(f"[TOPIC_CLASSIFY] ⏭️ Call {call_sid} already classified (topic_id={call_log.detected_topic_id}) - skipping")
+                    if not DEBUG:
+                        log.debug(f"[TOPIC_CLASSIFY] ⏭️ Call {call_sid} already classified (topic_id={call_log.detected_topic_id}) - skipping")
                     log.info(f"[TOPIC_CLASSIFY] Skipping - already classified with topic_id={call_log.detected_topic_id}")
                 else:
                     # Get AI settings to check if classification is enabled
                     ai_settings = BusinessAISettings.query.filter_by(business_id=call_log.business_id).first()
                     
                     if ai_settings and ai_settings.embedding_enabled:
-                        print(f"[TOPIC_CLASSIFY] 🚀 enabled for business {call_log.business_id} | threshold={ai_settings.embedding_threshold} | top_k={ai_settings.embedding_top_k}")
+                        if not DEBUG:
+                            log.debug(f"[TOPIC_CLASSIFY] 🚀 enabled for business {call_log.business_id} | threshold={ai_settings.embedding_threshold} | top_k={ai_settings.embedding_top_k}")
                         log.info(f"[TOPIC_CLASSIFY] Classification enabled: threshold={ai_settings.embedding_threshold}, top_k={ai_settings.embedding_top_k}")
                         
                         # Use final_transcript if available, otherwise fall back to transcription
@@ -699,7 +743,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                         text_source = "final_transcript (from recording)" if (final_transcript and len(final_transcript.strip()) > 50) else "transcription (realtime)"
                         
                         if text_to_classify and len(text_to_classify.strip()) > 50:
-                            print(f"[TOPIC_CLASSIFY] Running classification for call {call_sid} | source={text_source} | length={len(text_to_classify)} chars")
+                            if not DEBUG:
+                                log.debug(f"[TOPIC_CLASSIFY] Running classification for call {call_sid} | source={text_source} | length={len(text_to_classify)} chars")
                             log.info(f"[TOPIC_CLASSIFY] Running classification for call {call_sid} using {text_source}")
                             
                             # Classify the text (2-layer: keyword + embeddings)
@@ -710,7 +755,9 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                 confidence = classification_result['score']
                                 method = classification_result.get('method', 'embedding')
                                 
-                                print(f"[TOPIC_CLASSIFY] ✅ Detected topic: '{classification_result['topic_name']}' (confidence={confidence:.3f}, method={method})")
+                                if not DEBUG:
+                                
+                                    log.debug(f"[TOPIC_CLASSIFY] ✅ Detected topic: '{classification_result['topic_name']}' (confidence={confidence:.3f}, method={method})")
                                 log.info(f"[TOPIC_CLASSIFY] Detected topic {topic_id} with confidence {confidence} via {method}")
                                 
                                 # Update call log if auto_tag_calls is enabled
@@ -718,7 +765,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                     call_log.detected_topic_id = topic_id
                                     call_log.detected_topic_confidence = confidence
                                     call_log.detected_topic_source = method  # 'keyword', 'synonym', 'multi_keyword', or 'embedding'
-                                    print(f"[TOPIC_CLASSIFY] ✅ Tagged call {call_sid} with topic {topic_id}")
+                                    if not DEBUG:
+                                        log.debug(f"[TOPIC_CLASSIFY] ✅ Tagged call {call_sid} with topic {topic_id}")
                                 
                                 # Update lead if auto_tag_leads is enabled and lead exists
                                 if ai_settings.auto_tag_leads and call_log.lead_id:
@@ -728,7 +776,8 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                         lead.detected_topic_id = topic_id
                                         lead.detected_topic_confidence = confidence
                                         lead.detected_topic_source = method
-                                        print(f"[TOPIC_CLASSIFY] ✅ Tagged lead {call_log.lead_id} with topic {topic_id}")
+                                        if not DEBUG:
+                                            log.debug(f"[TOPIC_CLASSIFY] ✅ Tagged lead {call_log.lead_id} with topic {topic_id}")
                                         
                                         # 🔥 NEW: Map topic to service_type if configured
                                         if ai_settings.map_topic_to_service_type and confidence >= ai_settings.service_type_min_confidence:
@@ -759,31 +808,40 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                                 
                                                 if should_override:
                                                     lead.service_type = topic.canonical_service_type
-                                                    print(f"[TOPIC→SERVICE] ✅ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=True old='{old_service_type}' new='{topic.canonical_service_type}' reason={override_reason}")
+                                                    if not DEBUG:
+                                                        log.debug(f"[TOPIC→SERVICE] ✅ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=True old='{old_service_type}' new='{topic.canonical_service_type}' reason={override_reason}")
                                                     log.info(f"[TOPIC→SERVICE] Mapped topic {topic_id} to service_type '{topic.canonical_service_type}' for lead {lead.id} (was: '{old_service_type}')")
                                                 else:
-                                                    print(f"[TOPIC→SERVICE] ℹ️ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=False old='{old_service_type}' reason={override_reason}")
+                                                    if not DEBUG:
+                                                        log.debug(f"[TOPIC→SERVICE] ℹ️ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=False old='{old_service_type}' reason={override_reason}")
                                                     log.info(f"[TOPIC→SERVICE] NOT overriding lead {lead.id} service_type '{lead.service_type}' - {override_reason}")
                                             else:
                                                 if not topic:
-                                                    print(f"[TOPIC→SERVICE] ⚠️ Topic {topic_id} not found in DB")
+                                                    if not DEBUG:
+                                                        log.debug(f"[TOPIC→SERVICE] ⚠️ Topic {topic_id} not found in DB")
                                                 else:
-                                                    print(f"[TOPIC→SERVICE] ℹ️ Topic {topic_id} ('{topic.name}') has no canonical_service_type mapping")
+                                                    if not DEBUG:
+                                                        log.debug(f"[TOPIC→SERVICE] ℹ️ Topic {topic_id} ('{topic.name}') has no canonical_service_type mapping")
                                         else:
                                             if not ai_settings.map_topic_to_service_type:
-                                                print(f"[TOPIC→SERVICE] ℹ️ Topic-to-service mapping disabled for business {call_log.business_id}")
+                                                if not DEBUG:
+                                                    log.debug(f"[TOPIC→SERVICE] ℹ️ Topic-to-service mapping disabled for business {call_log.business_id}")
                                             elif confidence < ai_settings.service_type_min_confidence:
-                                                print(f"[TOPIC→SERVICE] ℹ️ Confidence {confidence:.3f} below threshold {ai_settings.service_type_min_confidence} for service_type mapping")
+                                                if not DEBUG:
+                                                    log.debug(f"[TOPIC→SERVICE] ℹ️ Confidence {confidence:.3f} below threshold {ai_settings.service_type_min_confidence} for service_type mapping")
                                 
                                 db.session.commit()
                             else:
-                                print(f"[TOPIC_CLASSIFY] No topic matched threshold for call {call_sid}")
+                                if not DEBUG:
+                                    log.debug(f"[TOPIC_CLASSIFY] No topic matched threshold for call {call_sid}")
                                 log.info(f"[TOPIC_CLASSIFY] No topic matched for call {call_sid}")
                         else:
-                            print(f"[TOPIC_CLASSIFY] Text too short for classification ({len(text_to_classify or '')} chars)")
+                            if not DEBUG:
+                                log.debug(f"[TOPIC_CLASSIFY] Text too short for classification ({len(text_to_classify or '')} chars)")
                             log.info(f"[TOPIC_CLASSIFY] Skipping classification - text too short")
                     else:
-                        print(f"[TOPIC_CLASSIFY] Classification disabled for business {call_log.business_id}")
+                        if not DEBUG:
+                            log.debug(f"[TOPIC_CLASSIFY] Classification disabled for business {call_log.business_id}")
                         log.debug(f"[TOPIC_CLASSIFY] Classification disabled")
                     
             except Exception as topic_err:
@@ -799,26 +857,20 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 if call_log:
                     db.session.commit()
             
-            # ✅ Explicit confirmation logging
-            if final_transcript and len(final_transcript) > 0:
-                print(f"[OFFLINE_STT] ✅ Saved final_transcript ({len(final_transcript)} chars) for {call_sid}")
-            else:
-                print(f"[OFFLINE_STT] ℹ️ No offline transcript saved for {call_sid} (empty or failed)")
+            # 🔥 Production (DEBUG=1): No logs. Development (DEBUG=0): Full logs
+            if not DEBUG:
+                processing_summary = []
+                if final_transcript and len(final_transcript) > 0:
+                    processing_summary.append(f"transcript={len(final_transcript)}chars")
+                if audio_bytes_len and audio_bytes_len > 0:
+                    processing_summary.append(f"audio={audio_bytes_len}bytes/{audio_duration_sec:.1f}s")
+                if extracted_service or extracted_city:
+                    processing_summary.append(f"extract='{extracted_service or 'N/A'}/{extracted_city or 'N/A'}'")
+                
+                log.debug(f"[OFFLINE_STT] ✅ Completed {call_sid}: {', '.join(processing_summary) if processing_summary else 'no data'}")
             
-            # 🔥 BUILD 342: Log recording quality metadata for verification
-            if audio_bytes_len and audio_bytes_len > 0:
-                print(f"[BUILD 342] ✅ Recording metadata: bytes={audio_bytes_len}, duration={audio_duration_sec:.2f}s, source={transcript_source}")
-                log.info(f"[BUILD 342] Recording quality: bytes={audio_bytes_len}, duration={audio_duration_sec}, source={transcript_source}")
-            else:
-                print(f"[BUILD 342] ⚠️ No recording file downloaded (audio_bytes_len={audio_bytes_len})")
-                log.warning(f"[BUILD 342] No valid recording file for {call_sid}")
-            
-            if extracted_service or extracted_city:
-                print(f"[OFFLINE_STT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence}")
-            else:
-                print(f"[OFFLINE_STT] ℹ️ No extraction data for {call_sid} (service=None, city=None)")
-            
-            log.info(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
+            if not DEBUG:
+                log.debug(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
             
             # 2. ✨ יצירת לקוח/ליד אוטומטית עם Customer Intelligence
             # 🔒 CRITICAL: Use lead_id FROM CallLog (locked at call start), NOT phone lookup
