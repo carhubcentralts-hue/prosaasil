@@ -2076,12 +2076,30 @@ class MediaStreamHandler:
         self._stt_hallucinations_dropped = 0  # Count of STT hallucinations rejected by STT_GUARD
         self.connection_start_time = time.time()  # Track connection start for metrics
         
-        # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
+        # 🔥 REQUIREMENT: Detailed frame drop tracking for gap diagnosis
+        # Break down drops by category to identify root cause of 165+ frame drops
+        # INBOUND drops (should be 0 in SIMPLE_MODE):
         self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock (INBOUND)
         self._frames_dropped_by_filters = 0  # Frames dropped by audio filters (INBOUND)
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full (INBOUND)
-        # 🔥 REQUIREMENT (Hebrew issue): Track OUTBOUND frames cleared (allowed in SIMPLE_MODE)
+        
+        # OUTBOUND drops (allowed, but need tracking for gap diagnosis):
         self._outbound_frames_cleared_on_barge_in = 0  # AI audio cleared during barge-in (OUTBOUND - allowed)
+        self._frames_dropped_tx_barge_in = 0  # TX frames dropped due to barge-in (OUTBOUND)
+        self._frames_dropped_tx_stop = 0  # TX frames dropped during stop/cleanup (OUTBOUND)
+        self._frames_dropped_tx_late = 0  # TX frames dropped due to pacing issues (OUTBOUND)
+        self._frames_dropped_state = 0  # Frames dropped due to invalid state (OUTBOUND)
+        self._frames_dropped_unknown = 0  # Frames dropped for unknown reason (INVESTIGATE)
+        
+        # TX pacing metrics (for jitter/gap diagnosis):
+        self._tx_schedule_resets = 0  # Count of timing resyncs (indicates burst/pause pattern)
+        self._tx_late_frames = 0  # Frames sent after their deadline
+        self._tx_timing_deltas = []  # Track timing deltas for p95 calculation (limited to last 1000)
+        
+        # 🔥 REQUIREMENT: Audio flow diagnostics - track per response
+        # These help identify if issue is "no audio.delta from OpenAI" vs "dropped internally"
+        self._response_diagnostics = {}  # response_id -> {audio_deltas, transcript_deltas, enqueued, sent}
+        self._last_twilio_send_ts = None  # Last time we sent audio to Twilio (for stall detection)
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -2653,7 +2671,11 @@ class MediaStreamHandler:
             # Use compact for initial greeting (fast!)
             greeting_prompt_to_use = compact_prompt
             print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
-            logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
+            if DEBUG:
+                logger.debug(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
+            else:
+                # Production: Only log at startup, not per-call
+                pass
             
             # Store full BUSINESS prompt for post-greeting injection (NOT session.update.instructions)
             self._full_prompt_for_upgrade = full_prompt
@@ -2848,10 +2870,6 @@ class MediaStreamHandler:
             print(f"⏱️ [PHASE 1] Session configured in {config_ms:.0f}ms (total: {total_ms:.0f}ms)")
             print(f"✅ [REALTIME] FAST CONFIG: greeting prompt ready, voice={call_voice}")
             
-            # 🔥 MASTER FIX: ALWAYS trigger greeting immediately - no flag checks!
-            # Bot speaks first is now HARDCODED behavior for all calls
-            logger.info(f"[REALTIME] ENFORCING bot_speaks_first=True (hardcoded)")
-            
             # 🔥 MASTER FIX: Store OpenAI connect metric
             from server.stream_state import stream_registry
             if hasattr(self, '_metrics_openai_connect_ms') and self.call_sid:
@@ -2915,6 +2933,44 @@ class MediaStreamHandler:
 
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog (only when greeting triggered)
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REQUIREMENT: TX Watchdog - detect TX stalls
+            # ═══════════════════════════════════════════════════════════════════════
+            async def _tx_stall_watchdog():
+                """Monitor TX loop for stalls - alert if queue has frames but no sends."""
+                await asyncio.sleep(3.0)  # Wait 3s for startup
+                
+                while not self.realtime_stop_flag:
+                    try:
+                        # Check TX health every 1 second
+                        await asyncio.sleep(1.0)
+                        
+                        # Skip if not in active call
+                        if not hasattr(self, 'realtime_audio_out_queue'):
+                            continue
+                        
+                        queue_size = self.realtime_audio_out_queue.qsize()
+                        last_send = getattr(self, '_last_twilio_send_ts', None)
+                        tx_alive = getattr(self, 'tx_thread', None) and self.tx_thread.is_alive()
+                        stream_sid = getattr(self, 'stream_sid', None)
+                        stop_flag = getattr(self, 'realtime_stop_flag', False)
+                        
+                        # Alert if queue has frames but no recent send
+                        if queue_size > 0 and last_send:
+                            now = time.perf_counter()
+                            ms_since_send = (now - last_send) * 1000
+                            if ms_since_send > 300:  # >300ms stall
+                                _orig_print(
+                                    f"[TX_STALL] queue={queue_size} last_send_ms={ms_since_send:.0f} "
+                                    f"stream_sid={bool(stream_sid)} stop_flag={stop_flag} tx_alive={tx_alive}",
+                                    flush=True
+                                )
+                    except Exception as e:
+                        # Don't let watchdog crash
+                        pass
+            
+            asyncio.create_task(_tx_stall_watchdog())
+            
             # ═══════════════════════════════════════════════════════════════════════
             if triggered:
                 async def _greeting_audio_timeout_watchdog():
@@ -3606,6 +3662,12 @@ class MediaStreamHandler:
             print(f"⏸️ [RESPONSE GUARD] Hangup pending - blocking new responses ({reason})")
             return False
         
+        # 🔥 REQUIREMENT: Block new response.create when session is closing
+        # Prevents "audio after close" issue (response continues after WS_STOP)
+        if getattr(self, 'closed', False) or getattr(self, 'realtime_stop_flag', False):
+            print(f"🛑 [RESPONSE GUARD] Session closing/closed - blocking new responses ({reason})")
+            return False
+        
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
         # After user says "לא", city is cleared so AI will naturally ask for it again
         # No artificial delay - the city clearing is the main fix
@@ -3824,7 +3886,11 @@ class MediaStreamHandler:
                                     _orig_print(f"   - status: {status}", flush=True)
                                     _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
                             
-                            print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
+                            if DEBUG:
+                                logger.debug(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}")
+                            else:
+                                # Production: Only log critical metrics, not per-response details
+                                pass
                             # Cleanup
                             del self._response_tracking[resp_id]
                         
@@ -4035,7 +4101,11 @@ class MediaStreamHandler:
                             'frames_sent': 0,
                             'first_audio_ts': None
                         }
-                        print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
+                        if DEBUG:
+                            logger.debug(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}")
+                        else:
+                            # Production: Silence per-response logs
+                            pass
                     else:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
@@ -4539,6 +4609,17 @@ class MediaStreamHandler:
                         self._last_audio_chunk_ts = time.time()
                         self._openai_audio_chunks_received = 0
                         
+                        # 🔥 REQUIREMENT: Initialize diagnostic counters for this response
+                        if not hasattr(self, '_response_diagnostics'):
+                            self._response_diagnostics = {}
+                        self._response_diagnostics[response_id] = {
+                            'audio_deltas': 0,
+                            'transcript_deltas': 0,
+                            'enqueued': 0,
+                            'sent': 0,
+                            'created_ts': time.time()
+                        }
+                        
                         # 🔥 SILENCE FAILSAFE: Cancel any pending response timeout
                         # Response was created, so we're not stuck in silence
                         if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
@@ -4552,6 +4633,16 @@ class MediaStreamHandler:
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     response_id = event.get("response_id", "")
+                    
+                    # 🔥 REQUIREMENT: Track audio.delta count for diagnostics
+                    if response_id and hasattr(self, '_response_diagnostics'):
+                        if response_id not in self._response_diagnostics:
+                            self._response_diagnostics[response_id] = {
+                                'audio_deltas': 0, 'transcript_deltas': 0, 
+                                'enqueued': 0, 'sent': 0, 'created_ts': time.time()
+                            }
+                        self._response_diagnostics[response_id]['audio_deltas'] += 1
+                    
                     if audio_b64:
                         # ═══════════════════════════════════════════════════════════════
                         # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (DEBUG only)
@@ -4564,7 +4655,8 @@ class MediaStreamHandler:
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                         if self._loop_guard_engaged and not is_outbound:
-                            # Silently drop audio - don't even log each frame
+                            # Drop audio - log reason
+                            logger.debug(f"[DROP_AUDIO] reason=LOOP_GUARD response_id={response_id[:20] if response_id else '?'}...")
                             continue
                         
                         # ═══════════════════════════════════════════════════════════════
@@ -4574,7 +4666,7 @@ class MediaStreamHandler:
                         # This ensures NO buffering happens during user speech (true no-duplex)
                         if self.user_speaking:
                             response_id_display = response_id[:20] + '...' if response_id else 'None'
-                            logger.debug(f"[HARD_GATE] Dropping audio.delta - user_speaking=True (response_id={response_id_display})")
+                            logger.debug(f"[DROP_AUDIO] reason=USER_SPEAKING response_id={response_id_display}")
                             continue
                         
                         # ═══════════════════════════════════════════════════════════════
@@ -4769,6 +4861,13 @@ class MediaStreamHandler:
                         if not self.closed:
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
+                                
+                                # 🔥 REQUIREMENT: Track enqueue for diagnostics
+                                response_id = event.get("response_id")
+                                if response_id and hasattr(self, '_response_diagnostics'):
+                                    if response_id in self._response_diagnostics:
+                                        self._response_diagnostics[response_id]['enqueued'] += 1
+                                
                                 # 🎯 PROBE 4: Track enqueue for rate monitoring
                                 self._enq_counter += 1
                                 now_mono = time.monotonic()
@@ -4871,13 +4970,45 @@ class MediaStreamHandler:
                     # 🔥 BUILD 172: Update speech time for silence detection
                     self._update_speech_time()
                     
-                    # 🔥🔥 CRITICAL FIX: Do NOT clear audio queue here!
-                    # The queue may still have audio chunks that need to be sent to Twilio.
-                    # Clearing prematurely causes greeting/response truncation!
-                    # Let the audio bridge naturally drain the queue.
+                    # 🔥 REQUIREMENT: Print audio flow diagnostics for this response
+                    response_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                    if response_id and hasattr(self, '_response_diagnostics'):
+                        diag = self._response_diagnostics.get(response_id, {
+                            'audio_deltas': 0, 'transcript_deltas': 0, 
+                            'enqueued': 0, 'sent': 0, 'created_ts': 0
+                        })
+                        tx_ready = getattr(self, 'tx_running', False)
+                        stream_sid_present = bool(getattr(self, 'stream_sid', None))
+                        _orig_print(
+                            f"[AUDIO_DIAG] resp={response_id[:12]}... "
+                            f"audio_deltas={diag['audio_deltas']} "
+                            f"enqueued={diag['enqueued']} "
+                            f"sent={diag['sent']} "
+                            f"tx_ready={tx_ready} "
+                            f"stream_sid={stream_sid_present}",
+                            flush=True
+                        )
+                        # Cleanup old diagnostic entry
+                        if response_id in self._response_diagnostics:
+                            del self._response_diagnostics[response_id]
+                    
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # 🔥 BARGE-IN TRUNCATION: Drop remaining frames when user interrupts
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # During barge-in: TRUNCATE immediately (flush queues)
+                    # Normal completion: Let audio drain naturally (no truncation)
                     queue_size = self.realtime_audio_out_queue.qsize()
                     if queue_size > 0:
-                        print(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (NO TRUNCATION)")
+                        if getattr(self, 'barge_in_active', False):
+                            # BARGE-IN: Truncate immediately
+                            logger.info(f"[BARGE_IN_TRUNCATE] Dropping {queue_size} remaining frames")
+                            print(f"✂️ [BARGE_IN_TRUNCATE] Dropping {queue_size} frames - user interrupted")
+                            # Flush remaining audio from queue
+                            self._flush_tx_queue()
+                        else:
+                            # NORMAL: Let audio finish playing
+                            logger.debug(f"[AUDIO] {queue_size} frames in queue - letting them play (normal completion)")
+                            print(f"⏳ [AUDIO] {queue_size} frames still in queue - letting them play (normal completion)")
                     
                     self.has_pending_ai_response = False
                     self.active_response_id = None  # Clear response ID
@@ -7722,6 +7853,24 @@ class MediaStreamHandler:
             if not DEBUG:
                 _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
             try:
+                # 🔥 REQUIREMENT: Cancel active OpenAI response when Twilio closes
+                # This prevents "audio after close" issue (response.audio_transcript.delta after WS_STOP)
+                if hasattr(self, 'active_response_id') and self.active_response_id:
+                    _orig_print(f"   🛑 Cancelling active response: {self.active_response_id[:20]}...", flush=True)
+                    # Add to cancelled set to drop any late audio.delta
+                    if not hasattr(self, '_cancelled_response_ids'):
+                        self._cancelled_response_ids = set()
+                    self._cancelled_response_ids.add(self.active_response_id)
+                    
+                    # Send cancel event to OpenAI if realtime thread is still alive
+                    if hasattr(self, 'realtime_thread') and self.realtime_thread.is_alive():
+                        try:
+                            # Use trigger_response to send cancel (it handles the async event loop)
+                            # But we can't wait for it - just set the flag
+                            pass  # Cancel will happen via _cancelled_response_ids
+                        except:
+                            pass
+                
                 # Clear speaking state
                 if hasattr(self, 'is_ai_speaking_event'):
                     self.is_ai_speaking_event.clear()
@@ -8385,6 +8534,88 @@ class MediaStreamHandler:
                         # EMA with alpha=0.3 for quick response
                         self._recent_audio_rms = 0.3 * rms + 0.7 * self._recent_audio_rms
                     
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # 🔥 REAL-TIME BARGE-IN DETECTION - RMS-based trigger while AI is speaking
+                    # ═══════════════════════════════════════════════════════════════════════════════
+                    # REQUIREMENT: Detect user speech IMMEDIATELY when AI is speaking, not just on EOU
+                    # 
+                    # How it works:
+                    # 1. Calculate barge-in threshold = max(noise_floor + 12, 35)
+                    #    - Lower than VAD threshold (noise_floor + 55)
+                    #    - Allows earlier detection of interruption
+                    # 2. Track consecutive frames above threshold (3-5 frames = 60-100ms)
+                    # 3. When is_ai_speaking && consecutive_frames >= N → trigger barge-in
+                    # 4. On trigger: cancel active response + flush all queues
+                    # 
+                    # This ensures barge-in happens BEFORE OpenAI sends speech_started event
+                    if ENABLE_BARGE_IN and USE_REALTIME_API:
+                        # Initialize barge-in detection state
+                        if not hasattr(self, '_barge_in_consec_frames'):
+                            self._barge_in_consec_frames = 0
+                        if not hasattr(self, '_barge_in_threshold'):
+                            # Separate threshold from VAD - lower for faster detection
+                            noise_floor_rms = getattr(self, 'noise_floor', 20.0)
+                            self._barge_in_threshold = max(noise_floor_rms + 12, 35)
+                        
+                        # Update barge-in threshold after calibration completes
+                        if getattr(self, 'is_calibrated', False) and hasattr(self, 'noise_floor'):
+                            self._barge_in_threshold = max(self.noise_floor + 12, 35)
+                        
+                        # Check if AI is currently speaking
+                        ai_is_speaking = (
+                            getattr(self, 'is_ai_speaking_event', None) and 
+                            self.is_ai_speaking_event.is_set()
+                        )
+                        
+                        # Track consecutive frames above barge-in threshold
+                        if ai_is_speaking and rms > self._barge_in_threshold:
+                            self._barge_in_consec_frames += 1
+                        else:
+                            # Reset counter if RMS drops or AI not speaking
+                            self._barge_in_consec_frames = 0
+                        
+                        # Trigger barge-in if we have enough consecutive frames (3-5 frames = 60-100ms)
+                        # Use same constant as config (BARGE_IN_VOICE_FRAMES = 4 frames = 80ms)
+                        MIN_BARGE_IN_FRAMES = max(3, BARGE_IN_VOICE_FRAMES)  # At least 3, default 4
+                        
+                        if (ai_is_speaking and 
+                            self._barge_in_consec_frames >= MIN_BARGE_IN_FRAMES and
+                            not getattr(self, 'barge_in_active', False)):
+                            
+                            # BARGE-IN DETECTED! User is interrupting AI
+                            logger.info(
+                                f"[BARGE_IN_RMS] Detected! rms={rms:.1f} > threshold={self._barge_in_threshold:.1f} "
+                                f"for {self._barge_in_consec_frames} frames ({self._barge_in_consec_frames * 20}ms)"
+                            )
+                            print(
+                                f"🎤 [BARGE-IN_RMS] User interrupting AI! "
+                                f"rms={rms:.1f}, threshold={self._barge_in_threshold:.1f}, "
+                                f"frames={self._barge_in_consec_frames}"
+                            )
+                            
+                            # Cancel active AI response
+                            active_response_id = getattr(self, 'active_response_id', None)
+                            if active_response_id:
+                                logger.info(f"[BARGE_IN_RMS] Cancelling response: {active_response_id[:20]}...")
+                                print(f"❌ [BARGE_IN_RMS] Cancelling AI response: {active_response_id[:20]}...")
+                                
+                                # Add to cancelled set to drop future audio.delta
+                                if not hasattr(self, '_cancelled_response_ids'):
+                                    self._cancelled_response_ids = set()
+                                self._cancelled_response_ids.add(active_response_id)
+                            
+                            # Set barge-in active flag
+                            self.barge_in_active = True
+                            if not hasattr(self, '_barge_in_event_count'):
+                                self._barge_in_event_count = 0
+                            self._barge_in_event_count += 1
+                            
+                            # Flush ALL audio queues immediately (true truncation!)
+                            self._flush_tx_queue()
+                            
+                            # Reset consecutive frames counter
+                            self._barge_in_consec_frames = 0
+                    
                     # 🛡️ CRITICAL: Block pure noise BEFORE sending to OpenAI
                     # This prevents Whisper/Realtime from hallucinating on background noise
                     # 🔥 BUILD 166: BYPASS noise gate when OpenAI is actively processing speech
@@ -8434,6 +8665,16 @@ class MediaStreamHandler:
                                 logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
                                 print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
                             self.is_calibrated = True
+                            
+                            # 🔥 VERIFICATION LOG: Show encoding and barge-in threshold (one-time, DEBUG only)
+                            if DEBUG:
+                                barge_in_th = getattr(self, '_barge_in_threshold', max(self.noise_floor + 12, 35))
+                                logger.debug(
+                                    f"[BARGE_IN_INIT] encoding=pcm16 (from G.711 μ-law), "
+                                    f"noise_floor={self.noise_floor:.1f}, "
+                                    f"vad_threshold={self.vad_threshold:.1f}, "
+                                    f"barge_in_threshold={barge_in_th:.1f}"
+                                )
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
@@ -13753,13 +13994,16 @@ class MediaStreamHandler:
         
         NO LOGS, NO WATCHDOGS, NO STALL RECOVERY, NO FLUSH
         Only: get frame → send → sleep
+        
+        🔥 REQUIREMENT: Use perf_counter for stable pacing, track drops by category
         """
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
         # 🔥 PRODUCTION: Use logger.debug() to avoid spam
         logger.debug(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)")
         
         FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms
-        next_deadline = time.monotonic()
+        # 🔥 FIX: Use perf_counter for stable timing (monotonic, higher resolution)
+        next_send = time.perf_counter()
         frames_sent_total = 0
         _first_frame_sent = False
         
@@ -13777,6 +14021,7 @@ class MediaStreamHandler:
                     continue
                 
                 if item.get("type") == "end":
+                    self._frames_dropped_tx_stop += 1  # Track stop signal
                     break
                 
                 # Handle "clear" event - send to Twilio (NO LOGS)
@@ -13786,6 +14031,61 @@ class MediaStreamHandler:
                 
                 # Handle "media" event - send audio to Twilio (NO LOGS)
                 if item.get("type") == "media" or item.get("event") == "media":
+                    # 🔥 BARGE-IN FIX: Drop frames that were dequeued before flush if barge-in active
+                    # This handles the "frame already in hand" race condition
+                    # Note: barge_in_active is always initialized in __init__ (line 1806)
+                    if self.barge_in_active:
+                        # Drop this frame - user interrupted, don't send AI audio
+                        self._frames_dropped_tx_barge_in += 1
+                        continue
+                    
+                    # Check if connection is still valid
+                    if not self.stream_sid:
+                        # Drop frame - no stream_sid
+                        self._frames_dropped_state += 1
+                        if not hasattr(self, '_drop_no_sid_logged'):
+                            _orig_print(f"[DROP_AUDIO] reason=NO_STREAM_SID", flush=True)
+                            self._drop_no_sid_logged = True
+                        continue
+                    
+                    if getattr(self, 'closed', False):
+                        # Drop frame - connection closing
+                        self._frames_dropped_state += 1
+                        if not hasattr(self, '_drop_closed_logged'):
+                            _orig_print(f"[DROP_AUDIO] reason=WS_CLOSED", flush=True)
+                            self._drop_closed_logged = True
+                        continue
+                    
+                    if getattr(self, 'realtime_stop_flag', False):
+                        # Drop frame - stop flag set
+                        self._frames_dropped_tx_stop += 1
+                        if not hasattr(self, '_drop_stop_logged'):
+                            _orig_print(f"[DROP_AUDIO] reason=STOP_FLAG", flush=True)
+                            self._drop_stop_logged = True
+                        continue
+                    
+                    # 🔥 FIX: Check timing - if we're >100ms late, resync to avoid burst
+                    now = time.perf_counter()
+                    delay_until_send = next_send - now
+                    
+                    if delay_until_send < -0.1:  # More than 100ms late
+                        # We're way behind - resync to current time instead of bursting
+                        self._tx_schedule_resets += 1
+                        next_send = now
+                        delay_until_send = 0
+                    
+                    # Sleep until scheduled send time
+                    if delay_until_send > 0:
+                        time.sleep(delay_until_send)
+                    else:
+                        # Frame is late
+                        self._tx_late_frames += 1
+                    
+                    # Track actual timing delta for jitter calculation (limited buffer)
+                    actual_delta = time.perf_counter() - now
+                    if len(self._tx_timing_deltas) < 1000:
+                        self._tx_timing_deltas.append(actual_delta * 1000)  # Store as ms
+                    
                     # Send frame to Twilio WS (item already has correct format from enqueue)
                     if item.get("event") == "media" and "media" in item:
                         success = self._ws_send(json.dumps(item))
@@ -13797,18 +14097,16 @@ class MediaStreamHandler:
                     if success:
                         self.tx += 1
                         frames_sent_total += 1
+                        self._last_twilio_send_ts = time.perf_counter()  # Track for stall detection
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
-                    
-                    # ✅ Strict 20ms timing - advance deadline and sleep
-                    next_deadline += FRAME_INTERVAL
-                    delay = next_deadline - time.monotonic()
-                    if delay > 0:
-                        time.sleep(delay)
                     else:
-                        # Missed deadline - resync to prevent catch-up bursts
-                        next_deadline = time.monotonic()
+                        # Send failed - likely connection issue
+                        self._frames_dropped_state += 1
+                    
+                    # ✅ Advance to next frame deadline (always move forward)
+                    next_send += FRAME_INTERVAL
                     
                     # NO GAP LOGGING INSIDE LOOP - causes micro-blocks
                     continue
@@ -14338,15 +14636,38 @@ class MediaStreamHandler:
             # Count filler-only utterances
             stt_filler_only_count = getattr(self, '_stt_filler_only_count', 0)
             
-            # 🎯 TASK 6.1: AUDIO PIPELINE METRICS - Separate counters for drop diagnosis
+            # 🔥 REQUIREMENT: Detailed frame drop tracking for gap diagnosis
+            # Get all drop counters - break down by category to find root cause
             frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
             frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
-            frames_dropped_total = getattr(self, '_stats_audio_blocked', 0)
+            
+            # INBOUND drops (should be 0 in SIMPLE_MODE):
             frames_dropped_by_greeting_lock = getattr(self, '_frames_dropped_by_greeting_lock', 0)
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
-            # 🔥 REQUIREMENT (Hebrew issue): Track outbound frames cleared separately
+            
+            # OUTBOUND drops (allowed, tracked for gap diagnosis):
             outbound_frames_cleared = getattr(self, '_outbound_frames_cleared_on_barge_in', 0)
+            frames_dropped_tx_barge_in = getattr(self, '_frames_dropped_tx_barge_in', 0)
+            frames_dropped_tx_stop = getattr(self, '_frames_dropped_tx_stop', 0)
+            frames_dropped_tx_late = getattr(self, '_frames_dropped_tx_late', 0)
+            frames_dropped_state = getattr(self, '_frames_dropped_state', 0)
+            frames_dropped_unknown = getattr(self, '_frames_dropped_unknown', 0)
+            
+            # Calculate total drops
+            frames_dropped_total = getattr(self, '_stats_audio_blocked', 0)
+            
+            # TX pacing metrics:
+            tx_schedule_resets = getattr(self, '_tx_schedule_resets', 0)
+            tx_late_frames = getattr(self, '_tx_late_frames', 0)
+            tx_timing_deltas = getattr(self, '_tx_timing_deltas', [])
+            
+            # Calculate TX jitter p95 (95th percentile timing delta)
+            tx_jitter_p95_ms = 0
+            if tx_timing_deltas:
+                sorted_deltas = sorted(tx_timing_deltas)
+                p95_idx = int(len(sorted_deltas) * 0.95)
+                tx_jitter_p95_ms = sorted_deltas[p95_idx] if p95_idx < len(sorted_deltas) else 0
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn ONLY for INBOUND drops
             # 🔥 REQUIREMENT: Separate inbound_frames_dropped from outbound_frames_cleared
@@ -14354,6 +14675,12 @@ class MediaStreamHandler:
             # - inbound_frames_dropped MUST be 0 (greeting_lock + filters + queue_full)
             # - outbound_frames_cleared is ALLOWED (barge-in cuts)
             inbound_frames_dropped = frames_dropped_by_greeting_lock + frames_dropped_by_filters + frames_dropped_by_queue_full
+            
+            # 🔥 REQUIREMENT: Calculate OUTBOUND total for gap diagnosis
+            outbound_frames_dropped = (outbound_frames_cleared + frames_dropped_tx_barge_in + 
+                                      frames_dropped_tx_stop + frames_dropped_tx_late + 
+                                      frames_dropped_state + frames_dropped_unknown)
+            
             if SIMPLE_MODE and inbound_frames_dropped > 0:
                 logger.warning(
                     f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {inbound_frames_dropped} INBOUND frames dropped! "
@@ -14361,10 +14688,16 @@ class MediaStreamHandler:
                     f"filters={frames_dropped_by_filters}, "
                     f"queue_full={frames_dropped_by_queue_full}. "
                     f"In SIMPLE_MODE, no INBOUND frames should be dropped. "
-                    f"(outbound_frames_cleared={outbound_frames_cleared} is allowed for barge-in)"
+                    f"(outbound_frames_dropped={outbound_frames_dropped} is allowed)"
                 )
             
-            # Log comprehensive metrics
+            # 🔥 REQUIREMENT: Warn if we have unknown drops (need investigation)
+            if frames_dropped_unknown > 0:
+                logger.warning(
+                    f"[CALL_METRICS] ⚠️ UNKNOWN DROPS: {frames_dropped_unknown} frames dropped for unknown reason - INVESTIGATE!"
+                )
+            
+            # Log comprehensive metrics with detailed breakdown
             logger.info(
                 "[CALL_METRICS] greeting_ms=%(greeting_ms)d, "
                 "first_user_utterance_ms=%(first_user_utterance_ms)d, "
@@ -14380,10 +14713,19 @@ class MediaStreamHandler:
                 "frames_in=%(frames_in)d, "
                 "frames_forwarded=%(frames_forwarded)d, "
                 "frames_dropped_total=%(frames_dropped_total)d, "
-                "frames_dropped_greeting=%(frames_dropped_greeting)d, "
-                "frames_dropped_filters=%(frames_dropped_filters)d, "
-                "frames_dropped_queue=%(frames_dropped_queue)d, "
-                "outbound_frames_cleared=%(outbound_frames_cleared)d",
+                "drops_inbound=%(drops_inbound)d, "
+                "drops_outbound=%(drops_outbound)d, "
+                "drop_greeting=%(drop_greeting)d, "
+                "drop_filters=%(drop_filters)d, "
+                "drop_queue=%(drop_queue)d, "
+                "drop_tx_barge_in=%(drop_tx_barge_in)d, "
+                "drop_tx_stop=%(drop_tx_stop)d, "
+                "drop_tx_late=%(drop_tx_late)d, "
+                "drop_state=%(drop_state)d, "
+                "drop_unknown=%(drop_unknown)d, "
+                "tx_schedule_resets=%(tx_schedule_resets)d, "
+                "tx_late_frames=%(tx_late_frames)d, "
+                "tx_jitter_p95_ms=%(tx_jitter_p95_ms).1f",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -14399,14 +14741,23 @@ class MediaStreamHandler:
                     'frames_in': frames_in_from_twilio,
                     'frames_forwarded': frames_forwarded_to_realtime,
                     'frames_dropped_total': frames_dropped_total,
-                    'frames_dropped_greeting': frames_dropped_by_greeting_lock,
-                    'frames_dropped_filters': frames_dropped_by_filters,
-                    'frames_dropped_queue': frames_dropped_by_queue_full,
-                    'outbound_frames_cleared': outbound_frames_cleared
+                    'drops_inbound': inbound_frames_dropped,
+                    'drops_outbound': outbound_frames_dropped,
+                    'drop_greeting': frames_dropped_by_greeting_lock,
+                    'drop_filters': frames_dropped_by_filters,
+                    'drop_queue': frames_dropped_by_queue_full,
+                    'drop_tx_barge_in': frames_dropped_tx_barge_in,
+                    'drop_tx_stop': frames_dropped_tx_stop,
+                    'drop_tx_late': frames_dropped_tx_late,
+                    'drop_state': frames_dropped_state,
+                    'drop_unknown': frames_dropped_unknown,
+                    'tx_schedule_resets': tx_schedule_resets,
+                    'tx_late_frames': tx_late_frames,
+                    'tx_jitter_p95_ms': tx_jitter_p95_ms
                 }
             )
             
-            # Also print for visibility
+            # Also print for visibility with detailed breakdown
             print(f"📊 [CALL_METRICS] Call {self.call_sid[:16] if hasattr(self, 'call_sid') else 'N/A'}")
             print(f"   Greeting: {greeting_ms}ms")
             print(f"   First user utterance: {first_user_utterance_ms}ms")
@@ -14417,9 +14768,15 @@ class MediaStreamHandler:
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
             print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
-            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
-            if SIMPLE_MODE and frames_dropped_total > 0:
-                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
+            print(f"   🔍 DROP BREAKDOWN (total={frames_dropped_total}):")
+            print(f"      INBOUND: {inbound_frames_dropped} (greeting={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue={frames_dropped_by_queue_full})")
+            print(f"      OUTBOUND: {outbound_frames_dropped} (tx_barge_in={frames_dropped_tx_barge_in}, tx_stop={frames_dropped_tx_stop}, tx_late={frames_dropped_tx_late}, state={frames_dropped_state}, unknown={frames_dropped_unknown})")
+            print(f"   📡 TX METRICS: late_frames={tx_late_frames}, resyncs={tx_schedule_resets}, jitter_p95={tx_jitter_p95_ms:.1f}ms")
+            
+            if SIMPLE_MODE and inbound_frames_dropped > 0:
+                print(f"   ⚠️ SIMPLE_MODE VIOLATION: {inbound_frames_dropped} INBOUND frames dropped!")
+            if frames_dropped_unknown > 0:
+                print(f"   ⚠️ UNKNOWN DROPS: {frames_dropped_unknown} frames - INVESTIGATE!")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
