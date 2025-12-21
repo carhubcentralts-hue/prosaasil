@@ -1708,11 +1708,10 @@ class MediaStreamHandler:
         
         # TX Queue for smooth audio transmission
         # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
-        # ✅ P0 FIX + AUDIO BACKPRESSURE FIX: Increased queue size to prevent drops
-        # 400 frames = 8s buffer - prevents mid-sentence audio cutting
-        # OpenAI sends audio in bursts, larger queue prevents drops while TX catches up
-        # Combined with backpressure (blocking put), this eliminates speech cuts
-        self.tx_q = queue.Queue(maxsize=400)  # 400 frames = 8s buffer
+        # 🔥 REQUIREMENT (Hebrew issue): SMALL queues for fast cutoff (<200ms)
+        # 10 frames = 200ms buffer - ensures quick barge-in response
+        # Trade-off: Smaller buffer = faster cutoff, but needs good network
+        self.tx_q = queue.Queue(maxsize=10)  # 10 frames = 200ms buffer
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -1761,7 +1760,8 @@ class MediaStreamHandler:
         # ✅ Use imported queue module (at top of file) - NOT queue_module alias
         import queue as _queue_module  # Local import to avoid shadowing
         self.realtime_audio_in_queue = _queue_module.Queue(maxsize=1000)  # Twilio → Realtime
-        self.realtime_audio_out_queue = _queue_module.Queue(maxsize=1000)  # Realtime → Twilio
+        # 🔥 REQUIREMENT (Hebrew issue): SMALL queue for fast barge-in cutoff
+        self.realtime_audio_out_queue = _queue_module.Queue(maxsize=10)  # Realtime → Twilio (10 frames = 200ms)
         self.realtime_text_input_queue = _queue_module.Queue(maxsize=10)  # DTMF/text → Realtime
         self.realtime_greeting_queue = _queue_module.Queue(maxsize=1)  # Greeting → Realtime
         self.realtime_stop_flag = False  # Signal to stop Realtime threads
@@ -4325,29 +4325,23 @@ class MediaStreamHandler:
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
                     # ═══════════════════════════════════════════════════════════════════════
-                    # NEW REQUIREMENT: speech_started => cancel ALWAYS, regardless of other flags
+                    # REQUIREMENT (Hebrew issue): speech_started => cancel ALWAYS
                     # 
                     # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
                     # - Don't wait for is_ai_speaking flag
                     # - Don't wait for voice_frames counter
                     # - Cancel immediately and flush audio queues
+                    # - Hard gate: block ALL audio.delta during user_speaking
                     # 
                     # Exception: Still protect greeting_lock (hard lock during greeting)
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    # ✅ NEW: Cancel on speech_started if ANY active_response_id exists
-                    has_active_response = bool(self.active_response_id)
+                    # 🔥 FIX: Simplified condition - only check greeting_lock
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
-                    barge_in_allowed_now = bool(
-                        ENABLE_BARGE_IN
-                        and getattr(self, "barge_in_enabled", True)
-                        and getattr(self, "barge_in_enabled_after_greeting", False)
-                        and not is_greeting_now
-                    )
+                    has_active_response = bool(self.active_response_id)
                     
-                    # 🔥 GOLDEN RULE: If active_response_id exists, cancel it NOW
-                    # Don't check ai_response_active or is_ai_speaking - just cancel!
-                    if has_active_response and self.realtime_client and barge_in_allowed_now:
+                    # 🔥 ALWAYS cancel if active_response exists (unless in greeting_lock)
+                    if has_active_response and self.realtime_client and not is_greeting_now:
                         # AI has active response - user is interrupting, cancel IMMEDIATELY
                         
                         # Step 1: Cancel active response (with duplicate guard)
@@ -4356,7 +4350,7 @@ class MediaStreamHandler:
                                 await self.realtime_client.cancel_response(self.active_response_id)
                                 # Mark as cancelled locally to track state
                                 self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                logger.info(f"[BARGE-IN] ✅ GOLDEN RULE: Cancelled response {self.active_response_id} on speech_started")
+                                logger.info(f"[BARGE-IN] ✅ Cancelled response {self.active_response_id} on speech_started")
                             except Exception as e:
                                 error_str = str(e).lower()
                                 # Gracefully handle not_active errors
@@ -4395,12 +4389,6 @@ class MediaStreamHandler:
                         self.barge_in_active = True
                         self._barge_in_started_ts = time.time()
                         logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
-                    elif has_active_response and DEBUG:
-                        # This should rarely happen now - we cancel on ANY active_response_id
-                        _orig_print(
-                            f"⚠️ [BARGE-IN] Response exists but barge-in blocked (greeting_lock={is_greeting_now}, enabled={barge_in_allowed_now})",
-                            flush=True,
-                        )
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -4573,6 +4561,23 @@ class MediaStreamHandler:
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                         if self._loop_guard_engaged and not is_outbound:
                             # Silently drop audio - don't even log each frame
+                            continue
+                        
+                        # ═══════════════════════════════════════════════════════════════
+                        # 🔥 HARD GATE: Drop ALL audio.delta while user is speaking
+                        # ═══════════════════════════════════════════════════════════════
+                        # REQUIREMENT (Hebrew issue): No audio should be enqueued during user_speaking
+                        # This ensures NO buffering happens during user speech (true no-duplex)
+                        if self.user_speaking:
+                            logger.debug(f"[HARD_GATE] Dropping audio.delta - user_speaking=True (response_id={response_id[:20] if response_id else '?'}...)")
+                            continue
+                        
+                        # ═══════════════════════════════════════════════════════════════
+                        # 🔥 DROP audio.delta for cancelled responses (race condition)
+                        # ═══════════════════════════════════════════════════════════════
+                        # REQUIREMENT (Hebrew issue): Handle race where audio.delta arrives after cancel
+                        if response_id and response_id in self._cancelled_response_ids:
+                            logger.debug(f"[HARD_GATE] Dropping audio.delta for cancelled response {response_id[:20]}...")
                             continue
                         
                         # 🎯 FIX A: GREETING MODE - Only apply to FIRST response, not all responses!
@@ -7510,7 +7515,8 @@ class MediaStreamHandler:
         TWILIO_FRAME_SIZE = 160  # 20ms at 8kHz μ-law
         audio_buffer = b''  # Rolling buffer for incomplete frames
         
-        _orig_print(f"🔊 [AUDIO_OUT_LOOP] Started - waiting for OpenAI audio", flush=True)
+        # 🔥 PRODUCTION: Use logger.debug() to avoid spam
+        logger.debug(f"[AUDIO_OUT_LOOP] Started - waiting for OpenAI audio")
         
         # 🔥 FIX #1: Continue until queue is empty OR sentinel received
         # 🔥 SESSION LIFECYCLE: Also check self.closed to exit immediately on session close
@@ -8198,14 +8204,16 @@ class MediaStreamHandler:
                             try:
                                 from server.services.realtime_prompt_builder import build_full_business_prompt
                                 self._prebuilt_prompt = build_full_business_prompt(business_id_safe, call_direction=call_direction)
-                                print(f"✅ [PART D] Pre-built FULL BUSINESS prompt: {len(self._prebuilt_prompt)} chars")
+                                # 🔥 PRODUCTION: Use logger.debug() to avoid spam
+                                logger.debug(f"[PART D] Pre-built FULL BUSINESS prompt: {len(self._prebuilt_prompt)} chars")
                             except Exception as prompt_err:
-                                print(f"⚠️ [PART D] Failed to pre-build prompt: {prompt_err}")
+                                logger.debug(f"[PART D] Failed to pre-build prompt: {prompt_err}")
                                 self._prebuilt_prompt = None  # Async loop will build it as fallback
                             
                         t_biz_end = time.time()
-                        print(f"⚡ DB QUERY + PROMPT: business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
-                        logger.info(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        # 🔥 PRODUCTION: Use logger.debug() to avoid spam
+                        logger.debug(f"[DB QUERY + PROMPT] business_id={business_id} in {(t_biz_end-t_biz_start)*1000:.0f}ms")
+                        logger.debug(f"[CALL DEBUG] Business + prompt ready in {(t_biz_end-t_biz_start)*1000:.0f}ms")
                         
                         # 🔥 STEP 2: Now that business is validated, START OPENAI SESSION
                         # OpenAI connection happens ONLY AFTER business_id is confirmed
@@ -8602,12 +8610,13 @@ class MediaStreamHandler:
                                 self._twilio_audio_chunks_sent += 1
                                 
                                 # 🎯 TASK A.2: Log SIMPLE MODE bypass confirmation
+                                # 🔥 PRODUCTION: Use logger.debug() to avoid per-frame spam
                                 if self._twilio_audio_chunks_sent <= 3:
                                     first5_bytes = ' '.join([f'{b:02x}' for b in mulaw[:5]])
                                     mode_info = "SIMPLE_MODE" if SIMPLE_MODE else "FILTERED_MODE"
                                     guard_status = "BYPASSED" if (SIMPLE_MODE and not getattr(self, '_audio_guard_enabled', False)) else "ACTIVE"
-                                    print(f"🎤 [BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
-                                    print(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
+                                    logger.debug(f"[BUILD 166] Noise gate {guard_status} - sending ALL audio to OpenAI")
+                                    logger.debug(f"[REALTIME] sending audio TO OpenAI: chunk#{self._twilio_audio_chunks_sent}, μ-law bytes={len(mulaw)}, first5={first5_bytes}, rms={rms:.0f}, mode={mode_info}")
                                 
                                 self.realtime_audio_in_queue.put_nowait(b64)
                             except queue.Full:
@@ -13734,7 +13743,8 @@ class MediaStreamHandler:
         Only: get frame → send → sleep
         """
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
-        _orig_print(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)", flush=True)
+        # 🔥 PRODUCTION: Use logger.debug() to avoid spam
+        logger.debug(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)")
         
         FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms
         next_deadline = time.monotonic()
