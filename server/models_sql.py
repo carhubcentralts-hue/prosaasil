@@ -945,10 +945,10 @@ class BusinessTopic(db.Model):
     
     # Topic details
     name = db.Column(db.String(255), nullable=False)  # e.g., "פורץ מנעולים"
-    synonyms = db.Column(db.JSON, nullable=True)  # Optional list of synonyms for better matching
+    synonyms = db.Column(db.JSON, nullable=True)  # JSONB array of synonyms for better matching
     
-    # Embedding for semantic search
-    embedding = db.Column(db.Text, nullable=True)  # JSON-encoded vector
+    # Embedding for semantic search - stored as JSONB array of floats
+    embedding = db.Column(db.JSON, nullable=True)  # JSONB array [float, float, ...] - 1536 dimensions for text-embedding-3-small
     
     # Status
     is_active = db.Column(db.Boolean, default=True, index=True)
@@ -971,15 +971,15 @@ class BusinessAISettings(db.Model):
     
     business_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
     
-    # Embedding settings
+    # Embedding settings - NO API KEY stored here (use ENV vars)
     embedding_enabled = db.Column(db.Boolean, default=False)  # Enable topic classification
-    embedding_model = db.Column(db.String(100), default="text-embedding-3-small")  # OpenAI model
     embedding_threshold = db.Column(db.Float, default=0.78)  # Minimum confidence score (0.0-1.0)
     embedding_top_k = db.Column(db.Integer, default=3)  # Number of top matches to consider
     
     # Auto-tagging settings
     auto_tag_leads = db.Column(db.Boolean, default=True)  # Automatically tag leads with detected topic
     auto_tag_calls = db.Column(db.Boolean, default=True)  # Automatically tag calls with detected topic
+    auto_tag_whatsapp = db.Column(db.Boolean, default=False)  # Automatically tag WhatsApp conversations
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

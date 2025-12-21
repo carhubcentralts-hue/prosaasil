@@ -13,11 +13,11 @@ import { http } from '../../services/http';
 
 interface AISettings {
   embedding_enabled: boolean;
-  embedding_model: string;
   embedding_threshold: number;
   embedding_top_k: number;
   auto_tag_leads: boolean;
   auto_tag_calls: boolean;
+  auto_tag_whatsapp: boolean;
 }
 
 interface Topic {
@@ -35,11 +35,11 @@ export function TopicClassificationSection() {
   const [rebuilding, setRebuilding] = useState(false);
   const [settings, setSettings] = useState<AISettings>({
     embedding_enabled: false,
-    embedding_model: 'text-embedding-3-small',
     embedding_threshold: 0.78,
     embedding_top_k: 3,
     auto_tag_leads: true,
-    auto_tag_calls: true
+    auto_tag_calls: true,
+    auto_tag_whatsapp: false
   });
   const [topics, setTopics] = useState<Topic[]>([]);
   const [showTopicModal, setShowTopicModal] = useState(false);
@@ -289,6 +289,18 @@ export function TopicClassificationSection() {
               />
               <label htmlFor="auto_tag_leads" className="text-sm text-slate-700">
                 תייג לידים אוטומטית
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="auto_tag_whatsapp"
+                checked={settings.auto_tag_whatsapp}
+                onChange={(e) => setSettings(prev => ({ ...prev, auto_tag_whatsapp: e.target.checked }))}
+                className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+              />
+              <label htmlFor="auto_tag_whatsapp" className="text-sm text-slate-700">
+                תייג WhatsApp אוטומטית
               </label>
             </div>
           </div>

@@ -42,11 +42,11 @@ def get_ai_settings():
         
         return jsonify({
             "embedding_enabled": ai_settings.embedding_enabled,
-            "embedding_model": ai_settings.embedding_model,
             "embedding_threshold": ai_settings.embedding_threshold,
             "embedding_top_k": ai_settings.embedding_top_k,
             "auto_tag_leads": ai_settings.auto_tag_leads,
             "auto_tag_calls": ai_settings.auto_tag_calls,
+            "auto_tag_whatsapp": ai_settings.auto_tag_whatsapp,
             "created_at": ai_settings.created_at.isoformat() if ai_settings.created_at else None,
             "updated_at": ai_settings.updated_at.isoformat() if ai_settings.updated_at else None
         })
@@ -82,19 +82,16 @@ def update_ai_settings():
         if 'embedding_enabled' in data:
             ai_settings.embedding_enabled = bool(data['embedding_enabled'])
         
-        if 'embedding_model' in data:
-            ai_settings.embedding_model = data['embedding_model']
-        
         if 'embedding_threshold' in data:
             threshold = float(data['embedding_threshold'])
-            if not (0.0 <= threshold <= 1.0):
-                return jsonify({"error": "Threshold must be between 0.0 and 1.0"}), 400
+            if not (0.5 <= threshold <= 0.95):  # Match UI range
+                return jsonify({"error": "Threshold must be between 0.5 and 0.95"}), 400
             ai_settings.embedding_threshold = threshold
         
         if 'embedding_top_k' in data:
             top_k = int(data['embedding_top_k'])
-            if top_k < 1:
-                return jsonify({"error": "top_k must be at least 1"}), 400
+            if top_k < 1 or top_k > 10:
+                return jsonify({"error": "top_k must be between 1 and 10"}), 400
             ai_settings.embedding_top_k = top_k
         
         if 'auto_tag_leads' in data:
@@ -102,6 +99,9 @@ def update_ai_settings():
         
         if 'auto_tag_calls' in data:
             ai_settings.auto_tag_calls = bool(data['auto_tag_calls'])
+        
+        if 'auto_tag_whatsapp' in data:
+            ai_settings.auto_tag_whatsapp = bool(data['auto_tag_whatsapp'])
         
         db.session.commit()
         

@@ -1172,8 +1172,8 @@ def apply_migrations():
                     id SERIAL PRIMARY KEY,
                     business_id INTEGER NOT NULL REFERENCES business(id),
                     name VARCHAR(255) NOT NULL,
-                    synonyms JSON,
-                    embedding TEXT,
+                    synonyms JSONB,
+                    embedding JSONB,
                     is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -1190,11 +1190,11 @@ def apply_migrations():
                 CREATE TABLE business_ai_settings (
                     business_id INTEGER PRIMARY KEY REFERENCES business(id),
                     embedding_enabled BOOLEAN DEFAULT FALSE,
-                    embedding_model VARCHAR(100) DEFAULT 'text-embedding-3-small',
                     embedding_threshold FLOAT DEFAULT 0.78,
                     embedding_top_k INTEGER DEFAULT 3,
                     auto_tag_leads BOOLEAN DEFAULT TRUE,
                     auto_tag_calls BOOLEAN DEFAULT TRUE,
+                    auto_tag_whatsapp BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

@@ -1,15 +1,18 @@
 """
 Topic Classifier Service
 
-Semantic topic classification using OpenAI embeddings.
-Classifies transcripts into business-specific topics (e.g., "locksmith", "plumber", etc.)
+Semantic topic classification using OpenAI embeddings with 2-layer matching:
+1. Fast keyword/synonym match (free, instant)
+2. Embedding-based semantic matching (if no exact match)
 
 Features:
 - Per-business topic management (~200 topics)
+- Keyword/synonym pre-filtering for common cases
 - Embedding-based semantic matching (cosine similarity)
-- In-memory caching with TTL (10-30 minutes)
+- In-memory caching with TTL (30 minutes default)
 - Automatic embedding generation for new topics
 - Post-call classification (not real-time)
+- Idempotency protection
 """
 import os
 import time
@@ -22,7 +25,7 @@ from server.models_sql import BusinessTopic, BusinessAISettings, db
 
 # Configuration
 TOPIC_CACHE_TTL_SECONDS = int(os.getenv("TOPIC_CACHE_TTL_SEC", "1800"))  # 30 minutes default
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = "text-embedding-3-small"  # Fixed model, not configurable
 DEFAULT_THRESHOLD = 0.78
 DEFAULT_TOP_K = 3
 
@@ -31,7 +34,7 @@ class TopicCacheEntry:
     """Single business topic cache entry"""
     def __init__(self, business_id: int, topics: List[Dict], embeddings: np.ndarray):
         self.business_id = business_id
-        self.topics = topics  # List of {id, name, synonyms}
+        self.topics = topics  # List of {id, name, synonyms, keywords}
         self.embeddings = embeddings  # 2D numpy array [n_topics, embedding_dim]
         self.timestamp = time.time()
     
@@ -41,7 +44,7 @@ class TopicCacheEntry:
 
 
 class TopicClassifier:
-    """Thread-safe topic classifier with embeddings cache"""
+    """Thread-safe topic classifier with 2-layer matching and embeddings cache"""
     _instance = None
     _lock = threading.Lock()
     
@@ -55,20 +58,95 @@ class TopicClassifier:
                     cls._instance._client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         return cls._instance
     
-    def _generate_embeddings(self, texts: List[str], model: str = DEFAULT_EMBEDDING_MODEL) -> np.ndarray:
+    def _generate_embeddings(self, texts: List[str]) -> np.ndarray:
         """Generate embeddings for list of texts using OpenAI API"""
         if not texts:
             return np.array([])
         
         start = time.time()
         response = self._client.embeddings.create(
-            model=model,
+            model=EMBEDDING_MODEL,
             input=texts
         )
         embeddings = np.array([item.embedding for item in response.data])
         elapsed = (time.time() - start) * 1000
         print(f"🔢 Generated {len(texts)} topic embeddings in {elapsed:.0f}ms")
         return embeddings
+    
+    def _extract_keywords(self, text: str) -> set:
+        """Extract keywords from text (lowercase, split by whitespace)"""
+        # Remove common stop words
+        stop_words = {"של", "את", "עם", "על", "אל", "מה", "איך", "למה", "איפה", "מתי", "אני", "אתה", "הוא", "היא", "אנחנו", "אתם", "הם"}
+        words = text.lower().split()
+        return set(w for w in words if w not in stop_words and len(w) > 1)
+    
+    def _keyword_match(self, text: str, topics: List[Dict]) -> Optional[Dict]:
+        """
+        LAYER 1: Fast keyword/synonym matching (free, instant)
+        Returns topic with high confidence if exact match found
+        """
+        text_lower = text.lower()
+        text_keywords = self._extract_keywords(text)
+        
+        for topic in topics:
+            # Check exact name match
+            topic_name_lower = topic['name'].lower()
+            if topic_name_lower in text_lower:
+                print(f"🎯 KEYWORD MATCH (name): '{topic['name']}' found in text")
+                return {
+                    "topic_id": topic['id'],
+                    "topic_name": topic['name'],
+                    "score": 0.95,  # High confidence for exact match
+                    "method": "keyword",
+                    "top_matches": [{
+                        "topic_id": topic['id'],
+                        "topic_name": topic['name'],
+                        "score": 0.95
+                    }]
+                }
+            
+            # Check synonyms match
+            if topic.get('synonyms'):
+                for synonym in topic['synonyms']:
+                    synonym_lower = synonym.lower().strip()
+                    if synonym_lower and synonym_lower in text_lower:
+                        print(f"🎯 SYNONYM MATCH: '{synonym}' (topic: {topic['name']})")
+                        return {
+                            "topic_id": topic['id'],
+                            "topic_name": topic['name'],
+                            "score": 0.93,  # Slightly lower than exact name match
+                            "method": "synonym",
+                            "top_matches": [{
+                                "topic_id": topic['id'],
+                                "topic_name": topic['name'],
+                                "score": 0.93
+                            }]
+                        }
+            
+            # Check multi-keyword match (at least 2 keywords must match)
+            topic_keywords = self._extract_keywords(topic['name'])
+            if topic.get('synonyms'):
+                for syn in topic['synonyms']:
+                    topic_keywords.update(self._extract_keywords(syn))
+            
+            matching_keywords = text_keywords & topic_keywords
+            if len(matching_keywords) >= 2 and len(topic_keywords) > 0:
+                match_ratio = len(matching_keywords) / len(topic_keywords)
+                if match_ratio >= 0.5:  # At least 50% of topic keywords must appear
+                    print(f"🎯 MULTI-KEYWORD MATCH: {matching_keywords} (topic: {topic['name']}, ratio: {match_ratio:.2f})")
+                    return {
+                        "topic_id": topic['id'],
+                        "topic_name": topic['name'],
+                        "score": 0.85 + (match_ratio * 0.05),  # 0.85-0.90 based on match ratio
+                        "method": "multi_keyword",
+                        "top_matches": [{
+                            "topic_id": topic['id'],
+                            "topic_name": topic['name'],
+                            "score": 0.85 + (match_ratio * 0.05)
+                        }]
+                    }
+        
+        return None
     
     def _load_business_topics(self, business_id: int) -> Tuple[List[Dict], np.ndarray, BusinessAISettings]:
         """Load topics from DB and generate embeddings if needed"""
@@ -90,49 +168,63 @@ class TopicClassifier:
             return [], np.array([]), ai_settings
         
         topic_data = []
-        needs_embedding_update = False
+        embeddings_list = []
+        needs_update = []
         
         for topic in topics:
-            # Parse existing embedding if available
+            # Parse existing embedding if available (stored as JSONB array)
             existing_embedding = None
             if topic.embedding:
                 try:
-                    existing_embedding = json.loads(topic.embedding)
-                except (json.JSONDecodeError, TypeError):
-                    print(f"⚠️ Failed to parse embedding for topic {topic.id}")
-                    needs_embedding_update = True
+                    if isinstance(topic.embedding, str):
+                        existing_embedding = json.loads(topic.embedding)
+                    elif isinstance(topic.embedding, list):
+                        existing_embedding = topic.embedding
+                    
+                    if existing_embedding and len(existing_embedding) == 1536:  # text-embedding-3-small dimension
+                        embeddings_list.append(existing_embedding)
+                    else:
+                        needs_update.append(topic.id)
+                        existing_embedding = None
+                except (json.JSONDecodeError, TypeError) as e:
+                    print(f"⚠️ Failed to parse embedding for topic {topic.id}: {e}")
+                    needs_update.append(topic.id)
             else:
-                needs_embedding_update = True
+                needs_update.append(topic.id)
             
             topic_data.append({
                 "id": topic.id,
                 "name": topic.name,
-                "synonyms": topic.synonyms or [],
-                "existing_embedding": existing_embedding
+                "synonyms": topic.synonyms if isinstance(topic.synonyms, list) else [],
+                "has_embedding": existing_embedding is not None
             })
         
-        # Generate embeddings for all topics (including synonyms)
-        texts_to_embed = []
-        for topic in topic_data:
-            # Combine name with synonyms for richer embedding
-            text = topic["name"]
-            if topic["synonyms"]:
-                text += " " + " ".join(topic["synonyms"])
-            texts_to_embed.append(text)
+        # If some embeddings are missing, generate for ALL topics (more efficient)
+        if needs_update or len(embeddings_list) != len(topic_data):
+            print(f"💾 Generating embeddings for {len(topic_data)} topics...")
+            texts_to_embed = []
+            for topic in topic_data:
+                # Combine name with synonyms for richer embedding
+                text = topic["name"]
+                if topic["synonyms"]:
+                    text += " " + " ".join(topic["synonyms"])
+                texts_to_embed.append(text)
+            
+            embeddings = self._generate_embeddings(texts_to_embed)
+            
+            # Save ALL embeddings back to DB in one transaction
+            if embeddings.size > 0:
+                for i, topic_dict in enumerate(topic_data):
+                    db_topic = BusinessTopic.query.get(topic_dict["id"])
+                    if db_topic:
+                        db_topic.embedding = embeddings[i].tolist()  # Store as JSONB array
+                
+                db.session.commit()
+                print(f"✅ Saved {len(topic_data)} embeddings for business {business_id}")
+        else:
+            embeddings = np.array(embeddings_list)
+            print(f"✅ Loaded {len(topic_data)} topics with cached embeddings for business {business_id}")
         
-        embeddings = self._generate_embeddings(texts_to_embed, ai_settings.embedding_model)
-        
-        # Save embeddings back to DB if they were missing
-        if needs_embedding_update and embeddings.size > 0:
-            print(f"💾 Saving embeddings for {len(topic_data)} topics...")
-            for i, topic in enumerate(topic_data):
-                db_topic = BusinessTopic.query.get(topic["id"])
-                if db_topic:
-                    db_topic.embedding = json.dumps(embeddings[i].tolist())
-            db.session.commit()
-            print(f"✅ Embeddings saved for business {business_id}")
-        
-        print(f"✅ Loaded {len(topic_data)} topics with embeddings for business {business_id}")
         return topic_data, embeddings, ai_settings
     
     def get_or_build_topics_index(self, business_id: int) -> Optional[TopicCacheEntry]:
@@ -172,14 +264,16 @@ class TopicClassifier:
     
     def classify_text(self, business_id: int, text: str) -> Optional[Dict]:
         """
-        Classify text into a topic using semantic similarity
+        Classify text into a topic using 2-layer approach:
+        1. Fast keyword/synonym matching (free, instant)
+        2. Semantic similarity with embeddings (if no keyword match)
         
         Args:
             business_id: Business ID
             text: Text to classify (e.g., final transcript)
         
         Returns:
-            Dict with {topic_id, topic_name, score, top_matches} if match found, None otherwise
+            Dict with {topic_id, topic_name, score, method, top_matches} if match found, None otherwise
         """
         if not text or not text.strip():
             print(f"⚠️ Empty text provided for classification")
@@ -201,8 +295,18 @@ class TopicClassifier:
         threshold = ai_settings.embedding_threshold
         top_k = ai_settings.embedding_top_k
         
+        # LAYER 1: Try keyword/synonym matching first (FREE & INSTANT)
+        keyword_result = self._keyword_match(text, entry.topics)
+        if keyword_result:
+            elapsed = (time.time() - start) * 1000
+            print(f"✅ LAYER 1 (keyword) matched in {elapsed:.0f}ms")
+            return keyword_result
+        
+        # LAYER 2: No keyword match - use embeddings (SEMANTIC MATCHING)
+        print(f"📭 No keyword match, trying embeddings (Layer 2)...")
+        
         # Generate embedding for input text
-        query_embedding = self._generate_embeddings([text], ai_settings.embedding_model)
+        query_embedding = self._generate_embeddings([text])
         
         if query_embedding.size == 0:
             print("⚠️ Failed to generate query embedding")
@@ -227,7 +331,7 @@ class TopicClassifier:
         best_score = best_match["score"]
         
         elapsed = (time.time() - start) * 1000
-        print(f"🔍 Topic classification took {elapsed:.0f}ms")
+        print(f"🔍 Topic classification took {elapsed:.0f}ms (Layer 2 - embeddings)")
         print(f"   Best match: score={best_score:.3f}, topic='{best_match['topic_name']}'")
         
         if best_score < threshold:
@@ -238,8 +342,11 @@ class TopicClassifier:
             "topic_id": best_match["topic_id"],
             "topic_name": best_match["topic_name"],
             "score": best_score,
+            "method": "embedding",
             "top_matches": top_matches
         }
+        """
+        Classify text into a topic using semantic similarity
     
     def rebuild_all_embeddings(self, business_id: int) -> Dict:
         """
