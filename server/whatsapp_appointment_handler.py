@@ -107,6 +107,21 @@ def create_whatsapp_appointment(customer_phone: str, message_text: str, whatsapp
                 'reason': 'business_id נדרש ליצירת פגישה',
                 'error': 'MISSING_BUSINESS_ID'
             }
+
+        # ✅ CRITICAL: Only allow appointment creation when business call_goal == "appointment"
+        # Prevents auto-creating appointments for businesses running sales/service flows on WhatsApp.
+        try:
+            from server.models_sql import BusinessSettings
+            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            call_goal = getattr(settings, "call_goal", "lead_only") if settings else "lead_only"
+        except Exception:
+            call_goal = "lead_only"
+        if call_goal != "appointment":
+            return {
+                'success': False,
+                'reason': 'תיאום פגישות לא זמין בעסק הזה כרגע',
+                'error': 'APPOINTMENTS_DISABLED'
+            }
         
         # חיפוש או יצירת לקוח
         # ✅ FIX: Filter by both phone AND business_id for multi-tenant safety

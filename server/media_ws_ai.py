@@ -11,6 +11,13 @@ from server.services.mulaw_fast import mulaw_to_pcm16_fast
 from server.services.appointment_nlp import extract_appointment_request
 from server.services.hebrew_stt_validator import validate_stt_output, is_gibberish, load_hebrew_lexicon
 
+# 🔥 SERVER-FIRST scheduling (Realtime, no tools):
+# - Server parses date/time deterministically after STT_FINAL
+# - Server checks availability + schedules (DB) and injects an exact sentence to speak
+# - When enabled for appointment calls, we disable Realtime auto-response creation and manually
+#   trigger response.create after server decisions.
+SERVER_FIRST_SCHEDULING = os.getenv("SERVER_FIRST_SCHEDULING", "1").lower() in ("1", "true", "yes", "on")
+
 # 🚫 DISABLE_GOOGLE: Hard off - prevents stalls and latency issues
 DISABLE_GOOGLE = os.getenv('DISABLE_GOOGLE', 'true').lower() == 'true'
 
@@ -924,6 +931,49 @@ def create_appointment_from_realtime(business_id: int, customer_phone: str,
         import traceback
         traceback.print_exc()
         return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 🔥 SERVER-FIRST APPOINTMENT PARSING (deterministic, no LLM)
+# ──────────────────────────────────────────────────────────────────────────────
+_DATE_TOKEN_RE = re.compile(r"(היום|מחרתיים|מחר|(?:ביום\s+)?(?:יום\s+)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת))")
+
+def _extract_hebrew_date_token(text: str) -> str:
+    if not text:
+        return ""
+    m = _DATE_TOKEN_RE.search(text)
+    return (m.group(1) or "").strip() if m else ""
+
+def _extract_hebrew_time_token(text: str) -> str:
+    """
+    Best-effort extraction of a time phrase from Hebrew STT.
+    Returns a short string that resolve_hebrew_time() can parse (e.g. "15:30", "שלוש וחצי", "בשעה 3").
+    """
+    if not text:
+        return ""
+    t = text.strip()
+    # HH:MM
+    m = re.search(r"\b(\d{1,2}:\d{2})\b", t)
+    if m:
+        return m.group(1)
+    # "בשעה 3", "ב 15", "בשעה שלוש וחצי", etc.
+    m = re.search(r"(?:בשעה|בש|ב)\s+([^\s,\.!?]+(?:\s+(?:וחצי|ורבע))?)", t)
+    if m:
+        return m.group(1).strip()
+    # Hebrew number word standalone + optional "וחצי/ורבע"
+    m = re.search(
+        r"\b(אחת|אחד|שתיים|שניים|שתים|שלוש|ארבע|חמש|חמישה|שש|שבע|שמונה|תשע|עשר|עשרה|אחת עשרה|אחד עשר|שתים עשרה|שנים עשר)(?:\s+(וחצי|ורבע))?\b",
+        t,
+    )
+    if m:
+        base = m.group(1)
+        suf = m.group(2) or ""
+        return (base + (" " + suf if suf else "")).strip()
+    # Digit hour near "שעה/בשעה"
+    m = re.search(r"(?:שעה|בשעה)\s+(\d{1,2})(?:\b|:)", t)
+    if m:
+        return m.group(1)
+    return ""
 
 
 # ⚡ BUILD 168.2: Minimal boot logging (clean startup)
@@ -2032,6 +2082,12 @@ class MediaStreamHandler:
         """
         tools = []
         
+        # 🔥 SERVER-FIRST: Do NOT expose scheduling tools to Realtime.
+        # Server will decide when to check/schedule and will inject verbatim sentences.
+        if SERVER_FIRST_SCHEDULING:
+            logger.info("[TOOLS][REALTIME] SERVER_FIRST_SCHEDULING=1 - no tools exposed")
+            return tools
+        
         # Check if business has appointment scheduling enabled
         try:
             business_id = getattr(self, 'business_id', None)
@@ -2357,11 +2413,19 @@ class MediaStreamHandler:
                 # Never block the call on sanitizer issues; proceed with original prompt.
                 _orig_print(f"⚠️ [PROMPT_SANITIZE] Failed: {_sanitize_err}", flush=True)
 
+            # 🔥 SERVER-FIRST: For appointment calls we disable auto response creation so the server
+            # can decide when/how to respond (verbatim injection after scheduling).
+            call_goal = getattr(self, "call_goal", None) or getattr(getattr(self, "call_config", None), "call_goal", "lead_only")
+            manual_turns = bool(SERVER_FIRST_SCHEDULING and call_goal == "appointment")
+            self._server_first_scheduling_enabled = bool(SERVER_FIRST_SCHEDULING and call_goal == "appointment")
+            self._manual_response_turns_enabled = bool(manual_turns)
+
             await client.configure_session(
                 instructions=greeting_prompt,
                 voice=call_voice,
                 input_audio_format="g711_ulaw",
                 output_audio_format="g711_ulaw",
+                auto_create_response=not manual_turns,
                 vad_threshold=SERVER_VAD_THRESHOLD,        # Use config (0.5) - balanced sensitivity
                 silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
                 temperature=0.6,
@@ -2695,6 +2759,16 @@ class MediaStreamHandler:
                 try:
                     from server.services.realtime_prompt_builder import build_global_system_prompt
                     system_prompt = build_global_system_prompt(call_direction=call_direction)
+
+                    # 🔥 SERVER-FIRST APPOINTMENTS: Hard role separation rule.
+                    # The server is the source-of-truth for booking; the model must not claim bookings on its own.
+                    if getattr(self, "_server_first_scheduling_enabled", False):
+                        system_prompt = (
+                            f"{system_prompt} "
+                            "Appointments rule: never say you booked/scheduled/changed an appointment. "
+                            "Only ask for missing details. "
+                            "If you receive a SERVER instruction to repeat an exact sentence, repeat it verbatim and nothing else."
+                        )
 
                     # 🔥 FIX #3: Inject dynamic "today" context (helps prevent year/weekday hallucinations).
                     # Keep it short and purely factual.
@@ -6347,15 +6421,31 @@ class MediaStreamHandler:
                             print(f"✅ [SILENCE_CMD] Back to listening mode - awaiting next user input")
                             continue  # Skip all response logic
                         
-                        # 🔥 FIX: DO NOT manually trigger response.create here
-                        # OpenAI's server_vad already automatically creates responses when speech ends
-                        # Manual triggering causes "conversation_already_has_active_response" errors
-                        # The automatic response from server_vad is sufficient and properly timed
-                        # We just log that we received the transcription
-                        if transcript and len(transcript.strip()) > 0:
-                            print(f"✅ [TRANSCRIPTION] Received user input: '{transcript[:40]}...' (response auto-created by server_vad)")
-                        else:
-                            print(f"⚠️ [TRANSCRIPTION] Empty transcript received")
+                        # ──────────────────────────────────────────────────────────────
+                        # 🔥 SERVER-FIRST APPOINTMENTS (no tools):
+                        # In this mode, session.turn_detection.create_response=False, so we must manually trigger response.create.
+                        # Before triggering, the server may schedule/offer alternatives deterministically and inject a verbatim sentence.
+                        # ──────────────────────────────────────────────────────────────
+                        manual_turn = bool(
+                            getattr(self, "_manual_response_turns_enabled", False)
+                            and getattr(self, "call_goal", "lead_only") == "appointment"
+                        )
+                        if manual_turn and transcript and len(transcript.strip()) > 0:
+                            try:
+                                handled = await self._maybe_server_first_schedule_from_transcript(client, transcript)
+                                if not handled:
+                                    await self.trigger_response("APPOINTMENT_MANUAL_TURN", client)
+                            except Exception as _sf_err:
+                                print(f"⚠️ [SERVER_FIRST] Error (continuing with normal AI turn): {_sf_err}")
+                                await self.trigger_response("APPOINTMENT_MANUAL_TURN", client)
+
+                        # 🔥 DEFAULT (Realtime-native): DO NOT manually trigger response.create here.
+                        # OpenAI's server_vad already automatically creates responses when speech ends.
+                        if not manual_turn:
+                            if transcript and len(transcript.strip()) > 0:
+                                print(f"✅ [TRANSCRIPTION] Received user input: '{transcript[:40]}...' (response auto-created by server_vad)")
+                            else:
+                                print(f"⚠️ [TRANSCRIPTION] Empty transcript received")
                         
                         # 🛡️ CHECK: Don't run NLP twice for same appointment
                         already_confirmed = getattr(self, 'appointment_confirmed_in_session', False)
@@ -10944,6 +11034,203 @@ class MediaStreamHandler:
             await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}")
         except Exception as e:
             print(f"❌ [AI] Failed to send text: {e}")
+
+    async def _inject_verbatim_reply_and_respond(self, client, user_msg: str, reason: str) -> bool:
+        """
+        Inject a strict system instruction and trigger a response.
+        Used by SERVER-FIRST scheduling (no tools; server is source-of-truth).
+        """
+        if not client:
+            return False
+        msg = (user_msg or "").strip()
+        if not msg:
+            return False
+        safe = msg.replace('"', '\\"')
+        await client.send_event(
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{safe}"',
+                        }
+                    ],
+                },
+            }
+        )
+        await self.trigger_response(reason, client)
+        return True
+
+    async def _maybe_server_first_schedule_from_transcript(self, client, transcript: str) -> bool:
+        """
+        SERVER-FIRST scheduling entrypoint (called after STT_FINAL).
+        Returns True if the server handled this turn by injecting a verbatim reply.
+        """
+        # ✅ CRITICAL: Entry gate #1 — only when call_goal is appointment.
+        # No parse/check/schedule/verbatim in lead/sales/service calls.
+        if getattr(self, "call_goal", "lead_only") != "appointment":
+            return False
+        # ✅ Entry gate #2 — feature flag
+        if not getattr(self, "_server_first_scheduling_enabled", False):
+            return False
+        if not transcript or not transcript.strip():
+            return False
+
+        # One-call safety: never double-book in the same session.
+        if getattr(self, "appointment_confirmed_in_session", False):
+            return False
+        crm_ctx = getattr(self, "crm_context", None)
+        if crm_ctx and getattr(crm_ctx, "has_appointment_created", False):
+            return False
+
+        business_id = getattr(self, "business_id", None)
+        if not business_id:
+            return False
+
+        app = _get_flask_app()
+        with app.app_context():
+            from server.policy.business_policy import get_business_policy
+            import pytz
+            from datetime import datetime as _dt, timedelta as _td
+            from server.services.hebrew_datetime import (
+                resolve_hebrew_date,
+                resolve_hebrew_time,
+                auto_correct_iso_year,
+            )
+            from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
+
+            policy = get_business_policy(business_id)
+            tz = pytz.timezone(getattr(policy, "tz", "Asia/Jerusalem") or "Asia/Jerusalem")
+            duration_min = int(getattr(policy, "slot_size_min", 30) or 30)
+
+            # Persisted pending slot (across turns)
+            pending = {}
+            if crm_ctx and getattr(crm_ctx, "pending_slot", None):
+                pending = dict(crm_ctx.pending_slot or {})
+            date_iso = (pending.get("date") or "").strip()
+            time_hhmm = (pending.get("time") or "").strip()
+            time_candidates = list(pending.get("time_candidates") or [])
+
+            # Update from this transcript (deterministic parse).
+            date_token = _extract_hebrew_date_token(transcript)
+            if date_token:
+                dres = resolve_hebrew_date(date_token, tz)
+                if dres:
+                    normalized_date_iso = dres.date_iso
+                    corrected_iso, corrected, _reason = auto_correct_iso_year(normalized_date_iso, tz)
+                    date_iso = corrected_iso if corrected else normalized_date_iso
+
+            time_token = _extract_hebrew_time_token(transcript)
+            if time_token:
+                tres = resolve_hebrew_time(time_token)
+                if tres and tres.candidates_hhmm:
+                    time_candidates = list(tres.candidates_hhmm)
+                    # Keep last explicit time too (first candidate is usually PM-first).
+                    time_hhmm = time_candidates[0]
+
+            # Persist pending state back.
+            if crm_ctx:
+                crm_ctx.pending_slot = {
+                    **pending,
+                    "date": date_iso or pending.get("date"),
+                    "time": time_hhmm or pending.get("time"),
+                    "time_candidates": time_candidates or pending.get("time_candidates") or [],
+                }
+
+            # Need date + at least one time candidate to proceed.
+            if not date_iso:
+                return False
+            if not time_candidates and not time_hhmm:
+                return False
+            if not time_candidates:
+                time_candidates = [time_hhmm]
+
+            # Need customer name to actually book.
+            customer_name = ""
+            if crm_ctx and getattr(crm_ctx, "customer_name", None):
+                customer_name = (crm_ctx.customer_name or "").strip()
+            if not customer_name:
+                customer_name = (getattr(self, "pending_customer_name", "") or "").strip()
+            if not customer_name:
+                return False
+
+            # Reject past dates deterministically.
+            today_local = _dt.now(tz).date()
+            try:
+                y, m, d = map(int, date_iso.split("-"))
+                requested_date = _dt(y, m, d, tzinfo=tz).date()
+            except Exception:
+                requested_date = None
+            if requested_date and requested_date < today_local:
+                return await self._inject_verbatim_reply_and_respond(
+                    client,
+                    "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא.",
+                    "SERVER_FIRST_APPT_PAST_DATE",
+                )
+
+            # Check availability near the requested time; try all candidates (PM-first already).
+            chosen = None
+            alternatives: list[str] = []
+            for cand in time_candidates:
+                try:
+                    slots_res = _calendar_find_slots_impl(
+                        FindSlotsInput(
+                            business_id=business_id,
+                            date_iso=date_iso,
+                            duration_min=duration_min,
+                            preferred_time=cand,
+                        )
+                    )
+                    alternatives = [s.start_display for s in (slots_res.slots or [])][:2]
+                    if slots_res.slots and any(s.start_display == cand for s in slots_res.slots):
+                        chosen = cand
+                        break
+                except Exception:
+                    continue
+
+            if not chosen:
+                if alternatives:
+                    msg = f"השעה שביקשת לא פנויה. יש לי {alternatives[0]}" + (f" או {alternatives[1]}" if len(alternatives) > 1 else "") + " באותו יום. מתאים?"
+                else:
+                    msg = "השעה שביקשת לא פנויה. תרצה שעה אחרת או תאריך אחר?"
+                return await self._inject_verbatim_reply_and_respond(client, msg, "SERVER_FIRST_APPT_UNAVAILABLE")
+
+            # Book.
+            start_dt = tz.localize(_dt.strptime(f"{date_iso} {chosen}", "%Y-%m-%d %H:%M"))
+            end_dt = start_dt + _td(minutes=duration_min)
+
+            phone = ""
+            if crm_ctx and getattr(crm_ctx, "customer_phone", None):
+                phone = (crm_ctx.customer_phone or "").strip()
+            if not phone:
+                phone = (getattr(self, "phone_number", "") or "").strip()
+
+            result = create_appointment_from_realtime(
+                business_id=business_id,
+                customer_phone=phone,
+                customer_name=customer_name,
+                treatment_type="Appointment",
+                start_iso=start_dt.isoformat(),
+                end_iso=end_dt.isoformat(),
+                notes="Server-first scheduling (Realtime).",
+            )
+
+            if isinstance(result, dict) and result.get("ok"):
+                appt_id = result.get("appointment_id")
+                if crm_ctx:
+                    crm_ctx.has_appointment_created = True
+                    crm_ctx.last_appointment_id = appt_id
+                self.appointment_confirmed_in_session = True
+                user_msg = (result.get("message") or "").strip() or f"מעולה, קבעתי לך תור ל{date_iso} בשעה {chosen}."
+                return await self._inject_verbatim_reply_and_respond(client, user_msg, "SERVER_FIRST_APPT_BOOKED")
+
+            fail_msg = "יש בעיה לקבוע את התור כרגע. אפשר לנסות שעה אחרת או תאריך אחר?"
+            if isinstance(result, dict) and isinstance(result.get("message"), str) and result.get("message"):
+                fail_msg = result.get("message")
+            return await self._inject_verbatim_reply_and_respond(client, fail_msg, "SERVER_FIRST_APPT_FAILED")
 
     # ──────────────────────────────────────────────────────────────────────────
     # 🔴 CRITICAL — Real Hangup (transcript-only)

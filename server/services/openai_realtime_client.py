@@ -438,6 +438,7 @@ class OpenAIRealtimeClient:
         voice: str = "coral",  # 🔥 BUILD 205: Upgraded to 'coral' - better for Hebrew
         input_audio_format: str = "g711_ulaw",
         output_audio_format: str = "g711_ulaw",
+        auto_create_response: bool = True,  # 🔥 SERVER-FIRST: allow manual response.create when False
         vad_threshold: float = None,  # 🔥 BUILD 341: Default from config
         silence_duration_ms: int = None,  # 🔥 BUILD 341: Default from config
         prefix_padding_ms: int = None,  # 🔥 BUILD 341: Default from config
@@ -525,7 +526,9 @@ class OpenAIRealtimeClient:
                 "threshold": vad_threshold,
                 "prefix_padding_ms": prefix_padding_ms,
                 "silence_duration_ms": silence_duration_ms,
-                "create_response": True  # ✅ CRITICAL: Auto-create response on turn end
+                # ✅ Default: Auto-create response on turn end (Realtime-native).
+                # 🔥 SERVER-FIRST APPOINTMENTS: set False to allow the server to decide when to respond.
+                "create_response": bool(auto_create_response)
             },
             "temperature": temperature,  # Agent 3: Allow low temps like 0.18 for focused responses
             "max_response_output_tokens": max_tokens
