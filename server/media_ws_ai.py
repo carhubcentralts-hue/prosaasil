@@ -1865,7 +1865,7 @@ class MediaStreamHandler:
         # When response is cancelled before any audio is sent (turn_detected), we need to trigger new response
         self._cancelled_response_needs_recovery = False
         self._cancelled_response_recovery_ts = 0
-        self._cancelled_response_recovery_delay_sec = 0.5  # 🎯 FIX: 500ms (was 250ms) - better balance for false trigger detection
+        self._cancelled_response_recovery_delay_sec = 0.5  # 🎯 FIX: Recovery delay for false trigger detection (500ms)
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
         self._cancel_retry_attempted = False  # 🎯 P0-5: Track if we already attempted retry (one retry only)
         
@@ -8706,7 +8706,10 @@ class MediaStreamHandler:
                                     loop = asyncio.get_event_loop()
                                     loop.create_task(_execute_cancel())
                                 except RuntimeError:
-                                    # No event loop in current thread - will be handled by speech_started
+                                    # No event loop in current thread (rare race condition)
+                                    # This occurs if barge-in is detected before async event loop starts
+                                    # Fallback: speech_started event handler will execute cancel via OpenAI API
+                                    # The pending flag ensures cancel happens eventually
                                     logger.debug("[BARGE_IN_AUDIO] No event loop - cancel will be handled by speech_started")
                             
                             # Reset consecutive frames counter
@@ -14159,6 +14162,12 @@ class MediaStreamHandler:
         🔥 REQUIREMENT (Hebrew issue): Track outbound frames cleared for metrics
         
         ⚠️ NOTE: This flushes ALL frames. For response-scoped flush, use _flush_tx_queue_for_response()
+        
+        📋 FUTURE WORK: Full frame tagging (Priority: Medium, Timeline: Post-MVP)
+        - Tag each frame with response_id when enqueued
+        - Enables selective flush by response_id (removes need for 250ms time window)
+        - Requires TX queue restructuring: Queue[Tuple[frame_data, response_id]]
+        - Benefit: More precise control, no risk of leaving old frames
         """
         realtime_flushed = 0
         tx_flushed = 0
