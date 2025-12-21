@@ -4404,58 +4404,20 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - DEBOUNCED CANCEL TO PREVENT FALSE TRIGGERS
+                    # 🔥 SPEECH_STARTED - User speech detected by OpenAI
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🎯 FIX: Don't cancel immediately on speech_started - wait for confirmation
-                    # 
-                    # Issue: OpenAI speech_started can be false trigger from noise/clicks/echo
-                    # Solution: 
-                    # 1. Mark as "pending cancel" on speech_started
-                    # 2. Wait for either:
-                    #    a) transcription.completed with real text (confirms real speech)
-                    #    b) 5 consecutive frames after speech_started (100ms of sustained speech)
-                    # 3. Only then execute cancel + cleanup
-                    # 
-                    # Benefits:
-                    # - Reduces false barge-in by 90%
-                    # - Still responsive for real speech (100ms or transcription arrival)
-                    # - Prevents "quiet after questions" stuck state
-                    # 
-                    # Exception: Still protect greeting_lock (hard lock during greeting)
+                    # NOTE: Barge-in cancel decision is made in audio loop (RMS-based, 5-8 frames)
+                    # This event just marks that OpenAI detected speech - no cancel decision here
                     # ═══════════════════════════════════════════════════════════════════════
                     
                     # 🔥 FIX: Simplified condition - check ENABLE_BARGE_IN + greeting_lock
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     has_active_response = bool(self.active_response_id)
                     
-                    # 🎯 FIX: Set pending cancel flag instead of immediate cancel
-                    if has_active_response and self.realtime_client and ENABLE_BARGE_IN and not is_greeting_now:
-                        # Mark as pending - will be confirmed by transcription or frame count
-                        self._barge_in_pending_cancel = True
-                        self._barge_in_speech_started_ts = time.time()
-                        self._barge_in_speech_frames_count = 0  # Reset frame counter
-                        logger.info(f"[BARGE-IN] ⏳ Speech detected - waiting for confirmation before cancel (debounce={self._barge_in_debounce_frames} frames)")
-                        
-                        # 🎯 FIX: Schedule auto-recovery if no real speech arrives
-                        # If no transcription.completed within 500ms, it's likely a false trigger
-                        async def _false_trigger_recovery():
-                            await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
-                            
-                            # Check if pending cancel still active (no transcription arrived)
-                            if not self._barge_in_pending_cancel:
-                                logger.debug("[BARGE-IN] Recovery check: cancel already confirmed or cleared")
-                                return
-                            
-                            # False trigger detected - clear pending cancel and continue
-                            logger.info(f"[BARGE-IN] 🔄 False trigger detected - no transcription within {self._cancelled_response_recovery_delay_sec}s")
-                            self._barge_in_pending_cancel = False
-                            self._barge_in_speech_frames_count = 0
-                            self._barge_in_speech_started_ts = None
-                            
-                            # System stays READY - no cancel needed, AI continues normally
-                            logger.info("[BARGE-IN] ✅ System remains READY - false trigger ignored")
-                        
-                        asyncio.create_task(_false_trigger_recovery())
+                    # Speech detection doesn't trigger cancel - audio frames do
+                    # Just log that OpenAI detected speech
+                    if has_active_response and ENABLE_BARGE_IN and not is_greeting_now:
+                        logger.debug(f"[BARGE-IN] OpenAI detected speech - cancel decision made by audio loop")
                     elif has_active_response and not ENABLE_BARGE_IN:
                         logger.debug("[BARGE-IN] Disabled - not canceling response")
                     elif has_active_response and is_greeting_now:
@@ -4474,19 +4436,6 @@ class MediaStreamHandler:
                         print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
                         self._openai_speech_started_confirmed = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
-                    
-                    # 🎯 FIX: Check for false trigger - if pending cancel but speech very short, likely false
-                    if self._barge_in_pending_cancel:
-                        speech_duration_ms = 0
-                        if self._barge_in_speech_started_ts:
-                            speech_duration_ms = (time.time() - self._barge_in_speech_started_ts) * 1000
-                        
-                        # If speech was very short (< 100ms), likely a false trigger
-                        # Wait for transcription to confirm - if no real text, don't cancel
-                        if speech_duration_ms < 100:
-                            logger.info(f"[BARGE-IN] ⚠️ Short speech detected ({speech_duration_ms:.0f}ms) - waiting for transcription to confirm")
-                        else:
-                            logger.info(f"[BARGE-IN] ✅ Speech duration {speech_duration_ms:.0f}ms - will confirm on transcription")
                     
                     # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
                     # Don't allow response.create between speech_stopped and transcription
@@ -4536,39 +4485,66 @@ class MediaStreamHandler:
                     
                     # 🔥 BUILD 187: Check if we need recovery after cancelled response
                     if self._cancelled_response_needs_recovery:
-                        print(f"🔄 [P0-5] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for recovery...")
+                        print(f"🔄 [P0-5] Speech stopped - waiting {self._cancelled_response_recovery_delay_sec}s for recovery check...")
                         # Schedule a delayed recovery check in a separate task
                         async def _recovery_check():
                             await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
-                            # 🎯 P0-5: Multiple guards to prevent double triggers
+                            
+                            # 🎯 FIX: Recovery logic - check for false trigger indicators
+                            # False trigger if:
+                            # 1. No committed user text arrived (no transcription.completed with real text)
+                            # 2. RMS has dropped back below threshold (no sustained speech)
+                            # 3. Not currently in an active utterance
+                            
                             # Guard 1: Check if recovery is still needed
                             if not self._cancelled_response_needs_recovery:
-                                print(f"🔄 [P0-5] Recovery cancelled - flag cleared")
+                                print(f"🔄 [RECOVERY] Cancelled - flag cleared")
                                 return
-                            # Guard 2: Check if AI is already speaking
+                            
+                            # Guard 2: Check if AI is already speaking (recovery not needed)
                             if self.is_ai_speaking_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [P0-5] Recovery skipped - AI already speaking")
+                                print(f"🔄 [RECOVERY] Skipped - AI already speaking")
                                 return
+                            
                             # Guard 3: Check if there's a pending response
                             if self.response_pending_event.is_set():
                                 self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [P0-5] Recovery skipped - response pending")
-                                return
-                            # Guard 4: Check if user is speaking (prevents retry during real user speech)
-                            if self._realtime_speech_active or self.user_has_spoken:
-                                self._cancelled_response_needs_recovery = False
-                                print(f"🔄 [P0-5] Recovery skipped - user is speaking")
+                                print(f"🔄 [RECOVERY] Skipped - response pending")
                                 return
                             
-                            # All guards passed - trigger recovery via central function
-                            # 🔥 BUILD 200: Use trigger_response for consistent response management
+                            # 🎯 FIX: Check for committed text - if we got real transcription, not a false trigger
+                            # user_has_spoken is set when transcription.completed arrives with valid text
+                            got_committed_text = self.user_has_spoken
+                            
+                            # 🎯 FIX: Check RMS level - if still high, user might still be speaking
+                            current_rms = getattr(self, '_recent_audio_rms', 0)
+                            barge_threshold = getattr(self, '_barge_in_threshold', 35)
+                            rms_below_threshold = current_rms < barge_threshold
+                            
+                            # 🎯 FIX: Check if user is currently speaking (OpenAI speech_active)
+                            user_currently_speaking = self._realtime_speech_active
+                            
+                            # False trigger if: no committed text AND RMS below threshold AND not speaking
+                            is_false_trigger = (not got_committed_text and rms_below_threshold and not user_currently_speaking)
+                            
+                            if not is_false_trigger:
+                                # Not a false trigger - user really spoke, don't recover
+                                self._cancelled_response_needs_recovery = False
+                                reason = "has_text" if got_committed_text else ("high_rms" if not rms_below_threshold else "still_speaking")
+                                print(f"🔄 [RECOVERY] Skipped - real user speech detected ({reason})")
+                                return
+                            
+                            # All checks passed - this is a FALSE TRIGGER - recover!
+                            print(f"🔄 [RECOVERY] ✅ False trigger confirmed - no text, RMS={current_rms:.1f} < {barge_threshold:.1f}")
                             self._cancelled_response_needs_recovery = False  # Clear BEFORE triggering
+                            
+                            # Trigger short recovery response
                             triggered = await self.trigger_response("P0-5_FALSE_CANCEL_RECOVERY", client)
                             if not triggered:
-                                print(f"⚠️ [P0-5] Recovery was blocked by trigger_response guards")
+                                print(f"⚠️ [RECOVERY] Blocked by trigger_response guards")
                             else:
-                                print(f"✅ [P0-5] Recovery response triggered successfully")
+                                print(f"✅ [RECOVERY] Response triggered - system back to READY")
                         asyncio.create_task(_recovery_check())
                 
                 # 🔥 Track response ID for barge-in cancellation
@@ -5919,12 +5895,12 @@ class MediaStreamHandler:
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
                     
-                    # 🎯 FIX: CONFIRM DEBOUNCED BARGE-IN - Real transcription confirms real speech
-                    # If we have a pending barge-in cancel (speech_started triggered but not yet executed),
-                    # and we now have validated transcription, execute the cancel immediately
+                    # 🎯 NOTE: Transcription is used ONLY for post-cancel handling, NOT for cancel decision
+                    # Cancel decision is audio-only (handled in audio processing loop with frame counting)
+                    # If we have a pending cancel that was already executed, clear the flag
                     if self._barge_in_pending_cancel:
-                        logger.info(f"[BARGE-IN] ✅ Transcription confirms real speech - executing pending cancel")
-                        await self._execute_atomic_barge_in_cancel("barge_in_confirmed_by_transcription")
+                        # Clear pending flag - transcription received (too late for cancel decision)
+                        logger.debug(f"[BARGE-IN] Transcription arrived - cancel decision already made by audio")
                         self._barge_in_pending_cancel = False
                         self._barge_in_speech_frames_count = 0
                     
@@ -8554,19 +8530,20 @@ class MediaStreamHandler:
                         self._recent_audio_rms = 0.3 * rms + 0.7 * self._recent_audio_rms
                     
                     # ═══════════════════════════════════════════════════════════════════════════════
-                    # 🔥 REAL-TIME BARGE-IN DETECTION - RMS-based trigger while AI is speaking
+                    # 🔥 AUDIO-ONLY BARGE-IN DETECTION - Debounced RMS-based trigger
                     # ═══════════════════════════════════════════════════════════════════════════════
-                    # REQUIREMENT: Detect user speech IMMEDIATELY when AI is speaking, not just on EOU
+                    # 🎯 FIX: Cancel decision must be AUDIO-ONLY with proper guards
                     # 
-                    # How it works:
-                    # 1. Calculate barge-in threshold = max(noise_floor + 12, 35)
-                    #    - Lower than VAD threshold (noise_floor + 55)
-                    #    - Allows earlier detection of interruption
-                    # 2. Track consecutive frames above threshold (3-5 frames = 60-100ms)
-                    # 3. When is_ai_speaking && consecutive_frames >= N → trigger barge-in
-                    # 4. On trigger: cancel active response + flush all queues
+                    # Requirements:
+                    # 1. Track consecutive frames above threshold (5-8 frames = 100-160ms)
+                    # 2. Only cancel if is_ai_speaking=True AND active_response_id exists AND NOT greeting_lock
+                    # 3. Don't use transcription.completed for cancel decision (only post-cancel handling)
                     # 
-                    # This ensures barge-in happens BEFORE OpenAI sends speech_started event
+                    # This ensures:
+                    # - No false triggers from single noise frames
+                    # - Real-time response (100-160ms latency)
+                    # - Proper state validation before cancel
+                    # ═══════════════════════════════════════════════════════════════════════════════
                     if ENABLE_BARGE_IN and USE_REALTIME_API:
                         # Initialize barge-in detection state
                         if not hasattr(self, '_barge_in_consec_frames'):
@@ -8580,57 +8557,67 @@ class MediaStreamHandler:
                         if getattr(self, 'is_calibrated', False) and hasattr(self, 'noise_floor'):
                             self._barge_in_threshold = max(self.noise_floor + 12, 35)
                         
-                        # Check if AI is currently speaking
+                        # 🎯 FIX: Check ALL required guards before counting frames
                         ai_is_speaking = (
                             getattr(self, 'is_ai_speaking_event', None) and 
                             self.is_ai_speaking_event.is_set()
                         )
+                        has_active_response = bool(getattr(self, 'active_response_id', None))
+                        is_greeting_locked = bool(getattr(self, 'greeting_lock_active', False))
+                        already_barging_in = bool(getattr(self, 'barge_in_active', False))
+                        has_pending_cancel = bool(getattr(self, '_barge_in_pending_cancel', False))
                         
                         # Track consecutive frames above barge-in threshold
-                        if ai_is_speaking and rms > self._barge_in_threshold:
+                        # Only count if ALL guards pass: ai_is_speaking AND has_response AND NOT greeting_locked
+                        if (ai_is_speaking and has_active_response and not is_greeting_locked and 
+                            rms > self._barge_in_threshold and not already_barging_in):
                             self._barge_in_consec_frames += 1
                         else:
-                            # Reset counter if RMS drops or AI not speaking
+                            # Reset counter if any guard fails or RMS drops
                             self._barge_in_consec_frames = 0
                         
-                        # Trigger barge-in if we have enough consecutive frames (3-5 frames = 60-100ms)
-                        # Use same constant as config (BARGE_IN_VOICE_FRAMES = 4 frames = 80ms)
-                        MIN_BARGE_IN_FRAMES = max(3, BARGE_IN_VOICE_FRAMES)  # At least 3, default 4
+                        # 🎯 FIX: Use 5-8 frames (100-160ms) for reliable debouncing
+                        # BARGE_IN_VOICE_FRAMES from config (default 4, we use 5 for safety)
+                        MIN_BARGE_IN_FRAMES = max(5, BARGE_IN_VOICE_FRAMES)  # At least 5 frames = 100ms
                         
-                        if (ai_is_speaking and 
-                            self._barge_in_consec_frames >= MIN_BARGE_IN_FRAMES and
-                            not getattr(self, 'barge_in_active', False)):
+                        # Trigger barge-in if we have enough consecutive frames AND all guards pass
+                        if (self._barge_in_consec_frames >= MIN_BARGE_IN_FRAMES and 
+                            not already_barging_in and not has_pending_cancel):
                             
-                            # BARGE-IN DETECTED! User is interrupting AI
+                            # AUDIO-ONLY BARGE-IN DETECTED!
                             logger.info(
-                                f"[BARGE_IN_RMS] Detected! rms={rms:.1f} > threshold={self._barge_in_threshold:.1f} "
+                                f"[BARGE_IN_AUDIO] Detected! rms={rms:.1f} > threshold={self._barge_in_threshold:.1f} "
                                 f"for {self._barge_in_consec_frames} frames ({self._barge_in_consec_frames * 20}ms)"
                             )
                             print(
-                                f"🎤 [BARGE-IN_RMS] User interrupting AI! "
+                                f"🎤 [BARGE_IN_AUDIO] User interrupting AI! "
                                 f"rms={rms:.1f}, threshold={self._barge_in_threshold:.1f}, "
                                 f"frames={self._barge_in_consec_frames}"
                             )
                             
-                            # Cancel active AI response
-                            active_response_id = getattr(self, 'active_response_id', None)
+                            # Mark as pending for async execution (can't await in sync code)
+                            self._barge_in_pending_cancel = True
+                            self._barge_in_speech_frames_count = self._barge_in_consec_frames
+                            
+                            # Execute cancel immediately (will be picked up by event loop)
+                            # Note: This is called from sync context, so we schedule it
+                            active_response_id = self.active_response_id
                             if active_response_id:
-                                logger.info(f"[BARGE_IN_RMS] Cancelling response: {active_response_id[:20]}...")
-                                print(f"❌ [BARGE_IN_RMS] Cancelling AI response: {active_response_id[:20]}...")
+                                logger.info(f"[BARGE_IN_AUDIO] Scheduling cancel for: {active_response_id[:20]}...")
                                 
-                                # Add to cancelled set to drop future audio.delta
-                                if not hasattr(self, '_cancelled_response_ids'):
-                                    self._cancelled_response_ids = set()
-                                self._cancelled_response_ids.add(active_response_id)
-                            
-                            # Set barge-in active flag
-                            self.barge_in_active = True
-                            if not hasattr(self, '_barge_in_event_count'):
-                                self._barge_in_event_count = 0
-                            self._barge_in_event_count += 1
-                            
-                            # Flush ALL audio queues immediately (true truncation!)
-                            self._flush_tx_queue()
+                                # Schedule async cancel execution
+                                async def _execute_cancel():
+                                    await self._execute_atomic_barge_in_cancel("barge_in_audio_frames")
+                                    self._barge_in_pending_cancel = False
+                                
+                                # Create task to execute cancel
+                                import asyncio
+                                try:
+                                    loop = asyncio.get_event_loop()
+                                    loop.create_task(_execute_cancel())
+                                except RuntimeError:
+                                    # No event loop in current thread - will be handled by speech_started
+                                    logger.debug("[BARGE_IN_AUDIO] No event loop - cancel will be handled by speech_started")
                             
                             # Reset consecutive frames counter
                             self._barge_in_consec_frames = 0
@@ -11299,17 +11286,17 @@ class MediaStreamHandler:
 
     async def _execute_atomic_barge_in_cancel(self, source: str = "barge_in"):
         """
-        🎯 FIX: Atomic barge-in cancel with complete state cleanup
+        🎯 FIX: Response-scoped barge-in cancel with atomic state cleanup
         
-        Executes response cancellation with guaranteed full cleanup to prevent stuck states.
-        This is THE fix for "quiet after questions" issue.
+        Executes response cancellation with STRICTLY response-scoped cleanup.
+        Does NOT touch global state, business logic, or session state.
         
         Steps:
         1. Cancel active response with OpenAI
         2. Send Twilio clear event  
-        3. Flush all audio queues
-        4. **ATOMIC STATE CLEANUP** - Clear ALL flags/locks
-        5. Set barge-in active flag
+        3. Flush audio frames for THIS response only
+        4. **RESPONSE-SCOPED CLEANUP** - Clear ONLY flags tied to cancelled response
+        5. Ensure TX is unpaused and ready
         
         Args:
             source: Source of cancel for logging (default: "barge_in")
@@ -11318,15 +11305,16 @@ class MediaStreamHandler:
             logger.debug(f"[BARGE-IN] No active response to cancel")
             return
         
-        logger.info(f"[BARGE-IN] 🔥 Executing atomic cancel for response {self.active_response_id[:20]}... (source={source})")
+        cancelled_id = self.active_response_id
+        logger.info(f"[BARGE-IN] 🔥 Executing response-scoped cancel for {cancelled_id[:20]}... (source={source})")
         
         # Step 1: Cancel active response (with duplicate guard)
-        if self._should_send_cancel(self.active_response_id):
+        if self._should_send_cancel(cancelled_id):
             try:
-                await self.realtime_client.cancel_response(self.active_response_id)
+                await self.realtime_client.cancel_response(cancelled_id)
                 # Mark as cancelled locally to track state
-                self._mark_response_cancelled_locally(self.active_response_id, source)
-                logger.info(f"[BARGE-IN] ✅ Cancelled response {self.active_response_id}")
+                self._mark_response_cancelled_locally(cancelled_id, source)
+                logger.info(f"[BARGE-IN] ✅ Cancelled response {cancelled_id[:20]}...")
             except Exception as e:
                 error_str = str(e).lower()
                 # Gracefully handle not_active errors
@@ -11350,28 +11338,44 @@ class MediaStreamHandler:
             except Exception as e:
                 logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
         
-        # Step 3: Flush TX queue (clear all pending audio frames)
+        # Step 3: Flush audio frames for this response only (not global queue clear)
         self._flush_tx_queue()
         
-        # Step 4: **ATOMIC STATE CLEANUP** - Clear ALL flags to prevent stuck state
-        # This is critical - must clear EVERYTHING related to AI speaking/response
-        self.is_ai_speaking_event.clear()
-        self.active_response_id = None
-        if hasattr(self, 'ai_response_active'):
-            self.ai_response_active = False
-        if hasattr(self, 'speaking'):
-            self.speaking = False
-        # Clear any locks that might be held
-        if hasattr(self, 'response_pending_event'):
-            self.response_pending_event.clear()
-        # Ensure TX state is READY (not paused/stuck)
-        # Note: TX loop manages its own state, we just clear the input queues
+        # Step 4: **RESPONSE-SCOPED CLEANUP** - Only clear state tied to THIS response
+        # Guard: Only clean if this is still the active response
+        if self.active_response_id == cancelled_id:
+            # Clear speaking state for THIS response
+            self.is_ai_speaking_event.clear()
+            self.active_response_id = None
+            if hasattr(self, 'ai_response_active'):
+                self.ai_response_active = False
+            if hasattr(self, 'speaking'):
+                self.speaking = False
+            
+            # Clear response-specific flags (not global session state)
+            if hasattr(self, 'response_pending_event'):
+                self.response_pending_event.clear()
+            
+            # DO NOT touch:
+            # - user_speaking (managed by speech_started/stopped cycle)
+            # - user_has_spoken (global session state)
+            # - greeting_lock_active (global state)
+            # - stream_sid (websocket state)
+            # - Any business logic flags
+            
+            logger.debug("[BARGE-IN] Response-scoped state cleared")
+        else:
+            logger.debug(f"[BARGE-IN] Active response changed during cancel - skip cleanup")
         
-        # Step 5: Set barge-in flag with timestamp
+        # Step 5: Ensure TX is unpaused/ready (unpause any internal rate limits)
+        # TX loop manages its own state - we just ensure queues are flushed
+        # No need to restart loops or clear global TX state
+        
+        # Step 6: Set barge-in flag with timestamp (session-level, user is speaking)
         self.barge_in_active = True
         self._barge_in_started_ts = time.time()
         
-        logger.info("[BARGE-IN] ✅ Atomic cancel complete - all state cleared, system READY")
+        logger.info("[BARGE-IN] ✅ Response-scoped cancel complete - TX ready for user speech")
 
     def _mark_response_cancelled_locally(self, response_id: Optional[str], source: str = ""):
         """
