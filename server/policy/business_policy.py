@@ -161,7 +161,9 @@ def parse_policy_from_prompt(prompt: str) -> Dict[str, Any]:
 
 # 🔥 FIX #5: Policy cache to reduce DB queries (MUST be after BusinessPolicy class!)
 _POLICY_CACHE: Dict[int, tuple["BusinessPolicy", float]] = {}  # Use quoted annotation
-_POLICY_CACHE_TTL = 300  # 5 minutes in seconds
+# Cache TTL: keep it short to avoid stale settings, but long enough to reduce DB load
+# (especially important for WS/realtime threads which may call this frequently).
+_POLICY_CACHE_TTL = 180  # 3 minutes
 
 
 def invalidate_business_policy_cache(business_id: int) -> None:
@@ -203,7 +205,7 @@ def get_business_policy(
     from server.db import db
     from flask import has_app_context
     
-    # 🔥 FIX #5: Check cache first (5min TTL) - SKIP if prompt override provided!
+    # 🔥 FIX #5: Check cache first (short TTL) - SKIP if prompt override provided!
     now = time_module.time()
     if not prompt_text and business_id in _POLICY_CACHE:
         cached_policy, cached_time = _POLICY_CACHE[business_id]

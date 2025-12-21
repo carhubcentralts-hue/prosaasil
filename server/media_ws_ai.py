@@ -11548,7 +11548,9 @@ class MediaStreamHandler:
                                     "normalized_date": normalized_date_iso,
                                     "weekday_he": weekday_he,
                                     "date_display_he": date_display_he,
-                                    "error": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש מהלקוח (היום/מחר/תאריך אחר)."
+                                    "error": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש מהלקוח (היום/מחר/תאריך אחר).",
+                                    # ✅ Provide a deterministic phrase the model MUST say (avoid improvisation/stalls)
+                                    "user_message": "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
                                 }, ensure_ascii=False)
                             }
                         })
@@ -11853,36 +11855,52 @@ class MediaStreamHandler:
                                     "normalized_date": normalized_date_iso,
                                     "weekday_he": weekday_he,
                                     "date_display_he": date_display_he,
-                                    "message": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש (היום/מחר/תאריך אחר)."
+                                    "message": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש (היום/מחר/תאריך אחר).",
+                                    "user_message": "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
                                 }, ensure_ascii=False)
                             }
                         })
                         await client.send_event({"type": "response.create"})
                         return
 
-                    # 🔥 HARD RULE: schedule_appointment requires a recent check_availability first.
+                    # ✅ SOFT RULE: Prefer prior check_availability, but never hard-block.
+                    # If we don't have a recent enough context, we will refresh availability automatically.
+                    # This avoids friction for long calls and for "change only the time on the same day".
                     last_av = getattr(self, "_last_availability", None) or {}
                     last_av_date = last_av.get("date_iso")
-                    last_av_ts = last_av.get("ts", 0)
-                    if not last_av_date or last_av_date != normalized_date_iso or (time.time() - float(last_av_ts or 0)) > 600:
-                        print(f"🛑 [APPOINTMENT] Blocked: must call check_availability first (last_date={last_av_date}, age={(time.time()-float(last_av_ts or 0)):.1f}s)")
-                        await client.send_event({
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "function_call_output",
-                                "call_id": call_id,
-                                "output": json.dumps({
-                                    "success": False,
-                                    "error_code": "must_check_availability_first",
-                                    "normalized_date": normalized_date_iso,
-                                    "weekday_he": weekday_he,
-                                    "date_display_he": date_display_he,
-                                    "message": "חובה לקרוא קודם ל-check_availability לאותו תאריך (ב-10 דקות האחרונות) לפני קביעת תור."
-                                }, ensure_ascii=False)
+                    last_av_ts = float(last_av.get("ts") or 0)
+                    availability_age_sec = time.time() - last_av_ts if last_av_ts else None
+                    # If we have date match and the requested time is within previously returned slots,
+                    # we can proceed even if it's old (we still re-check below per candidate).
+                    need_refresh = (
+                        (not last_av_date) or
+                        (last_av_date != normalized_date_iso) or
+                        (availability_age_sec is not None and availability_age_sec > 900)
+                    )
+                    if need_refresh:
+                        # Lightweight refresh: run find_slots once so the model stays anchored to server state.
+                        try:
+                            preferred_for_refresh = time_res.candidates_hhmm[0] if time_res.candidates_hhmm else None
+                            slots_result = _calendar_find_slots_impl(
+                                FindSlotsInput(
+                                    business_id=business_id,
+                                    date_iso=normalized_date_iso,
+                                    duration_min=policy.slot_size_min,
+                                    preferred_time=preferred_for_refresh,
+                                )
+                            )
+                            refreshed_slots = [s.start_display for s in (slots_result.slots or [])][:3]
+                            self._last_availability = {
+                                "date_iso": normalized_date_iso,
+                                "weekday_he": weekday_he,
+                                "date_display_he": date_display_he,
+                                "slots": refreshed_slots,
+                                "ts": time.time(),
+                                "source": "auto_refresh_from_schedule",
                             }
-                        })
-                        await client.send_event({"type": "response.create"})
-                        return
+                            print(f"🔄 [APPOINTMENT] Auto-refreshed availability for {normalized_date_iso}: {refreshed_slots}")
+                        except Exception as _refresh_err:
+                            print(f"⚠️ [APPOINTMENT] Availability auto-refresh failed (continuing): {_refresh_err}")
                     
                     # 🔥 HARD RULE: availability check BEFORE creating appointment
                     duration_min = policy.slot_size_min
@@ -11946,8 +11964,11 @@ class MediaStreamHandler:
                     print(f"📅 [APPOINTMENT] Creating: {date_display_he} {chosen_time} ({requested_dt.isoformat()} -> {end_dt.isoformat()})")
                     
                     # Build context for _calendar_create_appointment_impl
+                    # Prefer caller-id/call context phone even if user didn't provide DTMF.
+                    caller_id = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None) or None
+                    phone_for_notes = customer_phone or caller_id
                     context = {
-                        "customer_phone": customer_phone,
+                        "customer_phone": phone_for_notes,
                         "channel": "phone"
                     }
                     
@@ -11955,11 +11976,15 @@ class MediaStreamHandler:
                     input_data = CreateAppointmentInput(
                         business_id=business_id,
                         customer_name=customer_name,
-                        customer_phone=customer_phone,
+                        customer_phone=phone_for_notes,
                         treatment_type=service_type or "Appointment",
                         start_iso=requested_dt.isoformat(),
                         end_iso=end_dt.isoformat(),
-                        notes=f"Scheduled via phone call",
+                        notes=(
+                            "Scheduled via phone call. "
+                            + (f"Caller ID: {caller_id}. " if caller_id else "")
+                            + ("Phone not collected (policy optional)." if not phone_for_notes else "")
+                        ),
                         source="realtime_phone"
                     )
                     
