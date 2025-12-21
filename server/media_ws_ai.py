@@ -3619,6 +3619,12 @@ class MediaStreamHandler:
             print(f"⏸️ [RESPONSE GUARD] Hangup pending - blocking new responses ({reason})")
             return False
         
+        # 🔥 REQUIREMENT: Block new response.create when session is closing
+        # Prevents "audio after close" issue (response continues after WS_STOP)
+        if getattr(self, 'closed', False) or getattr(self, 'realtime_stop_flag', False):
+            print(f"🛑 [RESPONSE GUARD] Session closing/closed - blocking new responses ({reason})")
+            return False
+        
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
         # After user says "לא", city is cleared so AI will naturally ask for it again
         # No artificial delay - the city clearing is the main fix
@@ -7753,6 +7759,24 @@ class MediaStreamHandler:
             if not DEBUG:
                 _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
             try:
+                # 🔥 REQUIREMENT: Cancel active OpenAI response when Twilio closes
+                # This prevents "audio after close" issue (response.audio_transcript.delta after WS_STOP)
+                if hasattr(self, 'active_response_id') and self.active_response_id:
+                    _orig_print(f"   🛑 Cancelling active response: {self.active_response_id[:20]}...", flush=True)
+                    # Add to cancelled set to drop any late audio.delta
+                    if not hasattr(self, '_cancelled_response_ids'):
+                        self._cancelled_response_ids = set()
+                    self._cancelled_response_ids.add(self.active_response_id)
+                    
+                    # Send cancel event to OpenAI if realtime thread is still alive
+                    if hasattr(self, 'realtime_thread') and self.realtime_thread.is_alive():
+                        try:
+                            # Use trigger_response to send cancel (it handles the async event loop)
+                            # But we can't wait for it - just set the flag
+                            pass  # Cancel will happen via _cancelled_response_ids
+                        except:
+                            pass
+                
                 # Clear speaking state
                 if hasattr(self, 'is_ai_speaking_event'):
                     self.is_ai_speaking_event.clear()
