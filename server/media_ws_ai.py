@@ -14177,20 +14177,42 @@ class MediaStreamHandler:
         """
         🎯 SAFETY CHECK 2: Flush only frames belonging to specific response
         
-        This prevents accidentally deleting audio from a new response that was
-        created after the cancel was initiated.
+        CRITICAL: Without response_id tagging on frames, flushing all frames can
+        delete audio from a NEW response created after cancel → causes silence!
         
-        NOTE: Current implementation flushes all frames (frames don't have response_id tags yet).
-        This is a placeholder for future frame tagging implementation.
-        For now, we use timing guards to prevent issues.
+        Safe approach: Only flush if we're within the first 250ms of the cancelled
+        response. After 250ms, a new response might exist, so DON'T flush.
+        
+        Why 250ms is safe:
+        - Response.create takes ~100-200ms minimum to generate audio
+        - If cancel happens > 250ms after response.created, new response might exist
+        - Better to leave a few old frames than delete new response audio
         
         Args:
             response_id: Response ID to flush frames for
         """
-        # For now, use the existing flush-all implementation
-        # TODO: When frames are tagged with response_id, implement selective flush here
-        logger.debug(f"[BARGE-IN] Flushing frames for response {response_id[:20]}... (currently flushes all)")
-        self._flush_tx_queue()
+        # Check if response was created recently (< 250ms ago)
+        response_age_ms = None
+        if hasattr(self, '_response_created_ts') and self._response_created_ts:
+            response_age_ms = (time.time() - self._response_created_ts) * 1000
+        
+        # 🎯 CRITICAL: Only flush if within safe time window (< 250ms)
+        SAFE_FLUSH_WINDOW_MS = 250
+        
+        if response_age_ms is not None and response_age_ms < SAFE_FLUSH_WINDOW_MS:
+            # Safe to flush - response is young, no new response could exist yet
+            logger.info(f"[BARGE-IN] Safe to flush TX - response age {response_age_ms:.0f}ms < {SAFE_FLUSH_WINDOW_MS}ms")
+            self._flush_tx_queue()
+        elif response_age_ms is not None:
+            # NOT safe - response is old, new response might have started
+            logger.warning(f"[BARGE-IN] ⚠️ Skipping TX flush - response age {response_age_ms:.0f}ms > {SAFE_FLUSH_WINDOW_MS}ms (new response might exist)")
+            logger.warning(f"[BARGE-IN] Clearing Twilio queue only (not TX queue)")
+            # Still send Twilio clear event to stop buffered audio on Twilio side
+            # But DON'T flush TX queue (might have new response audio)
+        else:
+            # No timing info - err on the side of caution, don't flush
+            logger.warning(f"[BARGE-IN] ⚠️ Skipping TX flush - no response timing info (prevents deleting new response)")
+            logger.warning(f"[BARGE-IN] Note: Without frame tagging, cannot safely flush after 250ms")
     
     def _tx_loop(self):
         """
