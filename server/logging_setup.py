@@ -68,20 +68,21 @@ def setup_logging():
         # PRODUCTION MODE – minimal logs only (WARNING and above)
         root_logger.setLevel(logging.WARNING)
         
-        # External libraries: ERROR only in production
-        # 🔥 Set parent logger first, then child for proper propagation
-        logging.getLogger("httpx").setLevel(logging.ERROR)
-        logging.getLogger("uvicorn").setLevel(logging.ERROR)
-        logging.getLogger("werkzeug").setLevel(logging.ERROR)
-        logging.getLogger("urllib3").setLevel(logging.ERROR)
-        
-        # 🔥 Block Twilio HTTP client logs completely in production
-        # This prevents "BEGIN Twilio API Request" spam
-        # CRITICAL: Set propagate=False to prevent root handler from logging these
+        # 🔥 CRITICAL: Block Twilio HTTP client logs COMPLETELY in production
+        # Set to ERROR (not WARNING) to prevent "BEGIN Twilio API Request" spam
+        # MUST be done early with propagate=False to block all handlers
         for lib_name in ("twilio", "twilio.http_client", "twilio.rest"):
             lib_logger = logging.getLogger(lib_name)
-            lib_logger.setLevel(logging.WARNING)
-            lib_logger.propagate = False
+            lib_logger.setLevel(logging.ERROR)  # 🔥 ERROR not WARNING!
+            lib_logger.propagate = False  # CRITICAL: prevent root handler from logging
+        
+        # External libraries: ERROR only in production
+        logging.getLogger("httpx").setLevel(logging.ERROR)
+        logging.getLogger("httpx.client").setLevel(logging.ERROR)
+        logging.getLogger("uvicorn").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # 🔥 Quiet health check spam
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        logging.getLogger("urllib3").setLevel(logging.ERROR)
     else:
         # DEBUG MODE – full logs (DEBUG and above)
         root_logger.setLevel(logging.DEBUG)
@@ -111,11 +112,15 @@ def setup_logging():
     # 🔥 CRITICAL: Re-enforce twilio.http_client blocking after handler setup
     # This ensures no handler can override the level settings
     if DEBUG:
-        # Production: Block twilio logs completely with propagate=False
+        # Production: Block twilio logs completely with ERROR level + propagate=False
         for lib_name in ("twilio", "twilio.http_client", "twilio.rest"):
             lib_logger = logging.getLogger(lib_name)
-            lib_logger.setLevel(logging.WARNING)
+            lib_logger.setLevel(logging.ERROR)  # 🔥 ERROR not WARNING!
             lib_logger.propagate = False
+        
+        # Also quiet uvicorn.access (health check spam)
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+        logging.getLogger("uvicorn.access").propagate = False
     
     # 🔥 Verify twilio.http_client level in DEBUG mode only (when DEBUG=False, i.e., development)
     if not DEBUG:

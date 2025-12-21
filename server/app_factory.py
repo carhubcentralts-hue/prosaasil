@@ -13,10 +13,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 IS_PROD = os.getenv("DEBUG", "1") == "1"
 if IS_PROD:
     # Production: Silence noisy external libraries completely
-    # 🔥 FIX: Explicitly set twilio.http_client to WARNING + propagate=False
-    for lib_name in ("twilio.http_client", "twilio", "twilio.rest", "urllib3", "httpx"):
+    # 🔥 FIX: Set to ERROR (not WARNING) to completely block Twilio spam
+    for lib_name in ("twilio.http_client", "twilio", "twilio.rest", "urllib3", "httpx", "httpx.client"):
         lib_logger = logging.getLogger(lib_name)
-        lib_logger.setLevel(logging.WARNING)
+        lib_logger.setLevel(logging.ERROR)  # 🔥 ERROR not WARNING!
         lib_logger.propagate = False  # Critical: prevent root handler from logging these
     
     # 🔥 FIX: Also silence uvicorn.access in production (health check spam)

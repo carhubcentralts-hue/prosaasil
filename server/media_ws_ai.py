@@ -1707,12 +1707,11 @@ class MediaStreamHandler:
         self.tx_first_frame = 0.0        # [TX] First reply frame sent
         
         # TX Queue for smooth audio transmission
-        # 🔥 BARGE-IN FIX: Optimal size for responsive barge-in
-        # 🔥 REQUIREMENT (Hebrew issue): SMALL queues for fast cutoff (<200ms)
-        # 10 frames = 200ms buffer - ensures quick barge-in response
-        # ⚠️ Trade-off: Smaller buffer = faster cutoff, but may cause stuttering on poor networks
-        # This is intentional per requirements - prioritizes barge-in responsiveness over network resilience
-        self.tx_q = queue.Queue(maxsize=10)  # 10 frames = 200ms buffer
+        # 🔥 BARGE-IN FIX: Balanced buffer size for stability + responsiveness
+        # 🔥 REQUIREMENT (Hebrew issue): Large enough for stability, flush handles barge-in
+        # 100 frames = 2s buffer - stable for network jitter, flush ensures fast barge-in
+        # ⚠️ The "cut" comes from flush + hard gate, NOT from tiny buffer size
+        self.tx_q = queue.Queue(maxsize=100)  # 100 frames = 2s buffer
         self.tx_running = False
         self.tx_thread = threading.Thread(target=self._tx_loop, daemon=True)
         self._last_overflow_log = 0.0  # For throttled logging
@@ -1761,10 +1760,10 @@ class MediaStreamHandler:
         # ✅ Use imported queue module (at top of file) - NOT queue_module alias
         import queue as _queue_module  # Local import to avoid shadowing
         self.realtime_audio_in_queue = _queue_module.Queue(maxsize=1000)  # Twilio → Realtime
-        # 🔥 REQUIREMENT (Hebrew issue): SMALL queue for fast barge-in cutoff
-        # ⚠️ Trade-off: 10 frames (200ms) instead of 1000 - faster cutoff but may stutter on poor networks
-        # This is intentional per requirements - prioritizes barge-in responsiveness
-        self.realtime_audio_out_queue = _queue_module.Queue(maxsize=10)  # Realtime → Twilio (10 frames = 200ms)
+        # 🔥 REQUIREMENT (Hebrew issue): Large enough for stability, flush ensures fast barge-in
+        # 150 frames = 3s buffer - stable for OpenAI bursts, flush handles barge-in cut
+        # ⚠️ The "cut" comes from flush + hard gate during user_speaking, NOT from tiny buffer
+        self.realtime_audio_out_queue = _queue_module.Queue(maxsize=150)  # Realtime → Twilio (3s buffer)
         self.realtime_text_input_queue = _queue_module.Queue(maxsize=10)  # DTMF/text → Realtime
         self.realtime_greeting_queue = _queue_module.Queue(maxsize=1)  # Greeting → Realtime
         self.realtime_stop_flag = False  # Signal to stop Realtime threads
