@@ -53,6 +53,22 @@ def _normalize_text_for_matching(text: str) -> str:
     return text
 
 
+def _normalize_synonyms_list(synonyms: List[str]) -> List[str]:
+    """
+    Normalize a list of synonyms for matching.
+    Filters out empty strings and applies text normalization.
+    
+    Args:
+        synonyms: List of synonym strings
+        
+    Returns:
+        List of normalized synonym strings
+    """
+    if not synonyms:
+        return []
+    return [_normalize_text_for_matching(s) for s in synonyms if s]
+
+
 class TopicCacheEntry:
     """Single business topic cache entry"""
     def __init__(self, business_id: int, topics: List[Dict], embeddings: np.ndarray):
@@ -133,11 +149,15 @@ class TopicClassifier:
                 }
             
             # Check synonyms match using pre-normalized synonyms
-            if topic.get('synonyms_normalized'):
-                for i, synonym_normalized in enumerate(topic['synonyms_normalized']):
+            if topic.get('synonyms_normalized') and topic.get('synonyms'):
+                synonyms_normalized = topic['synonyms_normalized']
+                synonyms_original = topic['synonyms']
+                
+                for i, synonym_normalized in enumerate(synonyms_normalized):
                     # Use 'contains' check to catch "מנול" in "התקנת מנול."
                     if synonym_normalized and synonym_normalized in text_normalized:
-                        original_synonym = topic['synonyms'][i] if i < len(topic.get('synonyms', [])) else synonym_normalized
+                        # Get original synonym for logging (safe access with fallback)
+                        original_synonym = synonyms_original[i] if i < len(synonyms_original) else synonym_normalized
                         print(f"🎯 SYNONYM MATCH: '{original_synonym}' (normalized: '{synonym_normalized}') → topic: {topic['name']}")
                         return {
                             "topic_id": topic['id'],
@@ -225,7 +245,7 @@ class TopicClassifier:
                 "id": topic.id,
                 "name": topic.name,
                 "synonyms": topic.synonyms if isinstance(topic.synonyms, list) else [],
-                "synonyms_normalized": [_normalize_text_for_matching(s) for s in (topic.synonyms if isinstance(topic.synonyms, list) else []) if s],  # 🔥 Pre-normalize synonyms
+                "synonyms_normalized": _normalize_synonyms_list(topic.synonyms if isinstance(topic.synonyms, list) else []),  # 🔥 Pre-normalize synonyms
                 "canonical_service_type": topic.canonical_service_type,  # 🔥 Include canonical mapping
                 "has_embedding": existing_embedding is not None
             })

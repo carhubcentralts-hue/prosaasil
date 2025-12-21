@@ -102,7 +102,7 @@ def setup_logging():
     file_handler.setFormatter(JSONFormatter())
     root_logger.addHandler(file_handler)
     
-    # 🔥 Verify twilio.http_client level in DEBUG mode only
+    # 🔥 Verify twilio.http_client level in DEBUG mode only (when DEBUG=False, i.e., development)
     if not DEBUG:
         twilio_logger = logging.getLogger("twilio.http_client")
         print(f"[LOGGING_SETUP] twilio.http_client effectiveLevel: {logging.getLevelName(twilio_logger.getEffectiveLevel())}")
