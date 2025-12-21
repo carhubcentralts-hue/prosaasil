@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Phone, Loader2, Search, LayoutGrid, List, CheckSquare } from 'lucide-react';
 import { http } from '../../services/http';
@@ -42,6 +42,7 @@ type ViewMode = 'kanban' | 'list';
 
 export function InboundCallsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -49,6 +50,20 @@ export function InboundCallsPage() {
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<number>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const pageSize = 25;
+
+  // Support deep-link from Lead page tiles: /app/calls?phone=... or ?leadId=...
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const phone = sp.get('phone');
+    const leadId = sp.get('leadId');
+    if (phone) {
+      setSearchQuery(phone);
+      setPage(1);
+    } else if (leadId) {
+      setSearchQuery(leadId);
+      setPage(1);
+    }
+  }, [location.search]);
 
   // Fetch lead statuses for Kanban
   const { data: statusesData, isLoading: statusesLoading } = useQuery<LeadStatus[]>({
@@ -132,7 +147,7 @@ export function InboundCallsPage() {
   const statuses = statusesData || [];
 
   const handleLeadClick = (leadId: number) => {
-    navigate(`/app/leads/${leadId}`);
+    navigate(`/app/leads/${leadId}?from=inbound`);
   };
 
   const handleLeadSelect = (leadId: number) => {

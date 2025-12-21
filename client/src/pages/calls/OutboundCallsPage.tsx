@@ -1,5 +1,5 @@
 import React, { useState, useRef, ChangeEvent, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Phone, 
@@ -86,6 +86,7 @@ type ViewMode = 'table' | 'kanban';
 
 export function OutboundCallsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -109,6 +110,20 @@ export function OutboundCallsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLeadId, setDeleteLeadId] = useState<number | null>(null);
   const pageSize = 50;
+
+  // Support deep-link from Lead page tiles: /app/outbound-calls?phone=... or ?leadId=...
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const phone = sp.get('phone');
+    const leadId = sp.get('leadId');
+    if (phone) {
+      setActiveTab('system');
+      setSearchQuery(phone);
+    } else if (leadId) {
+      setActiveTab('system');
+      setSearchQuery(leadId);
+    }
+  }, [location.search]);
 
   // Queries
   const { data: counts, isLoading: countsLoading, refetch: refetchCounts, error: countsError } = useQuery<CallCounts>({
@@ -487,7 +502,7 @@ export function OutboundCallsPage() {
   };
 
   const handleLeadClick = (leadId: number) => {
-    navigate(`/app/leads/${leadId}`);
+    navigate(`/app/leads/${leadId}?from=outbound`);
   };
 
   const filteredLeads = (Array.isArray(leads) ? leads : []).filter((lead: Lead) => {

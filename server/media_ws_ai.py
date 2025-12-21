@@ -1976,6 +1976,10 @@ class MediaStreamHandler:
         self._last_speech_time = time.time()  # Either user or AI speech
         self._silence_warning_count = 0  # How many "are you there?" warnings sent
         self._silence_check_task = None  # Background task for silence monitoring
+        # ✅ HARD SILENCE WATCHDOG (telephony): hang up on real inactivity (not AI-dependent)
+        # Updated on input_audio_buffer.speech_started and response.audio.delta.
+        self._last_user_voice_started_ts = None
+        self._hard_silence_hangup_sec = 25.0
         
         # 🔥 BUILD 338: COST TRACKING - Count response.create calls per call
         self._response_create_count = 0  # Track for cost debugging
@@ -4271,6 +4275,9 @@ class MediaStreamHandler:
                     # Track utterance start for validation
                     self._candidate_user_speaking = True
                     self._utterance_start_ts = time.time()
+                    # ✅ HARD SILENCE WATCHDOG: treat speech_started as user activity
+                    # (Even if transcription never arrives, this prevents zombie "quiet but connected" calls.)
+                    self._last_user_voice_started_ts = time.time()
                     
                     # Set user_speaking to block new AI responses until transcription completes
                     self.user_speaking = True
@@ -10702,6 +10709,35 @@ class MediaStreamHandler:
                 
                 # 🔥 BUILD 312: NEVER count silence until user has spoken at least once!
                 # This prevents AI from responding "are you there?" before user says anything
+                # ✅ HARD SILENCE WATCHDOG (independent of AI logic)
+                # If absolutely no activity (user speech_started OR AI audio.delta) for X seconds → hang up.
+                now_ts = time.time()
+                try:
+                    last_user_voice = getattr(self, "_last_user_voice_started_ts", None)
+                    last_ai_audio = getattr(self, "last_ai_audio_ts", None)
+                    last_activity = max([t for t in [last_user_voice, last_ai_audio] if t is not None] or [self._last_speech_time])
+                    hard_timeout = float(getattr(self, "_hard_silence_hangup_sec", 25.0))
+
+                    if (now_ts - last_activity) >= hard_timeout:
+                        # Only hang up when nothing is actively happening.
+                        if (
+                            not self.is_ai_speaking_event.is_set()
+                            and not self.response_pending_event.is_set()
+                            and not getattr(self, "has_pending_ai_response", False)
+                            and not getattr(self, "_realtime_speech_active", False)
+                            and not getattr(self, "user_speaking", False)
+                            and not getattr(self, "waiting_for_dtmf", False)
+                            and self.call_state == CallState.ACTIVE
+                            and not self.hangup_triggered
+                            and not getattr(self, "pending_hangup", False)
+                        ):
+                            print(f"🔇 [HARD_SILENCE] {hard_timeout:.0f}s inactivity - hanging up (last_activity={now_ts - last_activity:.1f}s ago)")
+                            self.call_state = CallState.CLOSING
+                            await self.request_hangup("hard_silence_timeout", "silence_watchdog")
+                            return
+                except Exception as watchdog_err:
+                    print(f"⚠️ [HARD_SILENCE] Watchdog error (ignored): {watchdog_err}")
+
                 if not self.user_has_spoken:
                     # User hasn't spoken yet - check for idle timeout
                     # But add a safety limit of 30 seconds to avoid zombie calls

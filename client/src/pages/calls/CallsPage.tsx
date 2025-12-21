@@ -128,7 +128,7 @@ export function CallsPage() {
   const openInCRM = async (call: Call) => {
     // If call already has a lead_id, navigate directly
     if (call.lead_id) {
-      navigate(`/app/leads/${call.lead_id}`);
+      navigate(`/app/leads/${call.lead_id}?from=inbound`);
       return;
     }
     
@@ -144,7 +144,7 @@ export function CallsPage() {
         const response = await http.get(`/api/leads?search=${encodeURIComponent(searchTerm)}`);
         if (response && (response as any).leads && (response as any).leads.length > 0) {
           const lead = (response as any).leads[0];
-          navigate(`/app/leads/${lead.id}`);
+          navigate(`/app/leads/${lead.id}?from=inbound`);
           return;
         }
       } catch (error) {

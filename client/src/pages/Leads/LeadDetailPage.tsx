@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Phone, Mail, MessageSquare, Clock, Activity, CheckCircle2, Circle, User, Tag, Calendar, Plus, Pencil, Save, X, Loader2, ChevronDown, Trash2, MapPin, FileText, Upload, Image as ImageIcon, File } from 'lucide-react';
 import WhatsAppChat from './components/WhatsAppChat';
 import { ReminderModal } from './components/ReminderModal';
@@ -30,6 +30,28 @@ type TabKey = typeof TABS[number]['key'];
 export default function LeadDetailPage({}: LeadDetailPageProps) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromParam = new URLSearchParams(location.search).get('from');
+
+  const handleBack = useCallback(() => {
+    const fromToPath: Record<string, string> = {
+      outbound: '/app/outbound-calls',
+      inbound: '/app/calls',
+      whatsapp: '/app/whatsapp',
+      leads: '/app/leads',
+    };
+    const target = fromParam ? fromToPath[fromParam] : undefined;
+    if (target) {
+      navigate(target);
+      return;
+    }
+    // Prefer browser back if we have history, otherwise fallback to leads list
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate('/app/leads');
+  }, [fromParam, navigate]);
   
   const [lead, setLead] = useState<Lead | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
@@ -221,7 +243,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error || 'ליד לא נמצא'}</p>
-          <Button onClick={() => navigate('/app/leads')} variant="secondary">
+          <Button onClick={handleBack} variant="secondary">
             חזור לרשימת הלידים
           </Button>
         </div>
@@ -241,7 +263,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate('/app/leads')}
+                onClick={handleBack}
                 className="mr-4"
                 data-testid="button-back"
               >
@@ -297,7 +319,7 @@ export default function LeadDetailPage({}: LeadDetailPageProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate('/app/leads')}
+                onClick={handleBack}
                 data-testid="button-back-mobile"
               >
                 <ArrowLeft className="w-4 h-4 mr-2" />
@@ -478,6 +500,10 @@ interface OverviewTabProps {
 }
 
 function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, editForm, setEditForm, startEditing, cancelEditing, saveLead }: OverviewTabProps) {
+  const navigate = useNavigate();
+  const leadPhone = (lead.phone_e164 || (lead as any).phone || '').toString();
+  const cleanPhone = leadPhone.replace(/[^0-9]/g, '');
+
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6">
       {/* Lead Info */}
@@ -590,6 +616,50 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">תאריך יצירה</label>
                   <p className="text-sm text-gray-900">{formatDate(lead.created_at)}</p>
+                </div>
+              </div>
+
+              {/* Quick navigation tiles */}
+              <div className="mt-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/app/whatsapp?phone=${encodeURIComponent(cleanPhone)}&leadId=${lead.id}`)}
+                    className="text-right rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
+                    data-testid="tile-whatsapp"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <MessageSquare className="w-4 h-4 text-green-600" />
+                      <span className="font-medium text-gray-900">WhatsApp</span>
+                    </div>
+                    <p className="text-sm text-gray-500">פתח/י שיחות לפי ליד</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/app/calls?leadId=${lead.id}&phone=${encodeURIComponent(leadPhone)}`)}
+                    className="text-right rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
+                    data-testid="tile-inbound-calls"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Phone className="w-4 h-4 text-green-600" />
+                      <span className="font-medium text-gray-900">שיחות נכנסות</span>
+                    </div>
+                    <p className="text-sm text-gray-500">מעבר לליסט השיחות הנכנסות</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/app/outbound-calls?leadId=${lead.id}&phone=${encodeURIComponent(leadPhone)}`)}
+                    className="text-right rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
+                    data-testid="tile-outbound-calls"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Phone className="w-4 h-4 text-blue-600" />
+                      <span className="font-medium text-gray-900">שיחות יוצאות</span>
+                    </div>
+                    <p className="text-sm text-gray-500">מעבר לליסט השיחות היוצאות</p>
+                  </button>
                 </div>
               </div>
               
