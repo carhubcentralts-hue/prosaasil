@@ -53,6 +53,26 @@ SERVICE_CANONICALIZATION_MAP = {
     "ניקיון כללי": "נקיון",
 }
 
+def get_all_canonical_services() -> set:
+    """
+    Get set of all canonical service types.
+    Used to check if a service_type is already in canonical form.
+    """
+    return set(SERVICE_CANONICALIZATION_MAP.values())
+
+def is_canonical_service(service_type: Optional[str]) -> bool:
+    """
+    Check if service_type is already in canonical form.
+    
+    Returns True if the service is already a canonical value (e.g., "מנעולן", "חשמלאי")
+    Returns False if it's a raw/specific service or None
+    """
+    if not service_type:
+        return False
+    
+    canonical_services = get_all_canonical_services()
+    return service_type.strip() in canonical_services
+
 def canonicalize_service(service_category: Optional[str], business_id: Optional[int] = None) -> Optional[str]:
     """
     Normalize specific service mentions to canonical business categories.
@@ -82,18 +102,21 @@ def canonicalize_service(service_category: Optional[str], business_id: Optional[
     # Check exact match in canonicalization map (case-insensitive)
     for raw_service, canonical_service in SERVICE_CANONICALIZATION_MAP.items():
         if normalized_input == raw_service.lower():
-            logger.info(f"[CANONICALIZE] '{service_category}' → '{canonical_service}' (exact match)")
+            logger.info(f"[SERVICE_CANON] raw='{service_category}' -> canon='{canonical_service}' (exact match)")
+            print(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (exact match)")
             return canonical_service
     
     # Check if input contains any of the raw service patterns
     for raw_service, canonical_service in SERVICE_CANONICALIZATION_MAP.items():
         if raw_service.lower() in normalized_input:
-            logger.info(f"[CANONICALIZE] '{service_category}' → '{canonical_service}' (partial match: '{raw_service}')")
+            logger.info(f"[SERVICE_CANON] raw='{service_category}' -> canon='{canonical_service}' (partial match: '{raw_service}')")
+            print(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (partial match: '{raw_service}')")
             return canonical_service
     
     # No mapping found - return original value
     # This allows new service types to be stored as-is until explicitly mapped
-    logger.info(f"[CANONICALIZE] '{service_category}' → no mapping found, keeping original")
+    logger.info(f"[SERVICE_CANON] raw='{service_category}' -> no mapping found, keeping original")
+    print(f"[SERVICE_CANON] ℹ️ raw='{service_category}' -> no mapping, keeping original")
     return service_category
 
 def extract_city_and_service_from_summary(summary_text: str) -> dict:
