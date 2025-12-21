@@ -87,6 +87,78 @@ def hebrew_date_display(d: date) -> str:
     return f"יום {wd}, {d.day} {month} {d.year}"
 
 
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def auto_correct_iso_year(
+    date_iso: str,
+    tz: pytz.BaseTzInfo,
+    now: Optional[datetime] = None,
+    *,
+    recent_past_days: int = 7,
+) -> Tuple[str, bool, str]:
+    """
+    Auto-correct suspicious ISO dates that are likely missing/wrong year.
+
+    Why: LLMs sometimes send old training-data years (e.g., 2023) even when the user
+    said only "23 בדצמבר". For booking flows we want the *next upcoming* occurrence
+    of that month/day in the business timezone.
+
+    Rules:
+    - Only applies to ISO "YYYY-MM-DD" strings.
+    - If the date is in the past but only *recently* (<= recent_past_days), do NOT roll;
+      let caller reject as past (prevents turning "yesterday" into next year).
+    - Otherwise, map month/day to current year; if already passed this year, roll to next year.
+
+    Returns: (corrected_date_iso, corrected?, reason)
+    """
+    s = (date_iso or "").strip()
+    if not _ISO_DATE_RE.fullmatch(s):
+        return s, False, ""
+
+    if now is None:
+        now = datetime.now(tz)
+    if now.tzinfo is None:
+        now = tz.localize(now)
+
+    today = now.date()
+
+    try:
+        y, m, d = map(int, s.split("-"))
+        requested = date(y, m, d)
+    except Exception:
+        return s, False, "invalid_iso"
+
+    if requested >= today:
+        return s, False, ""
+
+    # Too close to "today" => probably truly past (e.g., "אתמול") → do not auto-roll.
+    try:
+        days_past = (today - requested).days
+    except Exception:
+        days_past = None
+    if days_past is not None and days_past <= recent_past_days:
+        return s, False, f"recent_past({days_past}d)"
+
+    # Map to next upcoming occurrence of MM-DD.
+    try:
+        candidate = date(today.year, m, d)
+    except Exception:
+        return s, False, "invalid_month_day"
+
+    if candidate < today:
+        try:
+            candidate = date(today.year + 1, m, d)
+        except Exception:
+            return s, False, "invalid_month_day_next_year"
+
+    corrected_iso = candidate.isoformat()
+    if corrected_iso == s:
+        return s, False, ""
+
+    return corrected_iso, True, f"year_roll({y}->{candidate.year})"
+
+
 @dataclass(frozen=True)
 class DateResolution:
     date_iso: str  # YYYY-MM-DD

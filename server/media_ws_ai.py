@@ -313,7 +313,7 @@ class CallCrmContext:
     Context for tracking CRM state during a phone call.
     Ensures every call creates/updates a lead and can schedule appointments.
     
-    🔥 NEW: has_appointment_created flag - prevents AI from saying "confirmed" before server approval
+    🔥 NEW: has_appointment_created flag - set true only after server appointment creation
     🔥 NEW: pending_slot - tracks date/time that was checked for availability
     🔥 NEW: customer_name - persists extracted name between NLP runs (survives 10-message window)
     """
@@ -2695,6 +2695,27 @@ class MediaStreamHandler:
                 try:
                     from server.services.realtime_prompt_builder import build_global_system_prompt
                     system_prompt = build_global_system_prompt(call_direction=call_direction)
+
+                    # 🔥 FIX #3: Inject dynamic "today" context (helps prevent year/weekday hallucinations).
+                    # Keep it short and purely factual.
+                    try:
+                        import pytz
+                        from datetime import datetime
+                        from server.policy.business_policy import get_business_policy
+                        from server.services.hebrew_datetime import hebrew_weekday_name
+
+                        policy = get_business_policy(business_id_safe, prompt_text=None)
+                        tz = pytz.timezone(getattr(policy, "tz", "Asia/Jerusalem") or "Asia/Jerusalem")
+                        today = datetime.now(tz).date()
+                        system_prompt = (
+                            f"{system_prompt} "
+                            f"Context: TODAY_ISO={today.isoformat()}. "
+                            f"TODAY_WEEKDAY_HE={hebrew_weekday_name(today)}. "
+                            f"TIMEZONE={getattr(policy, 'tz', 'Asia/Jerusalem')}."
+                        )
+                    except Exception:
+                        pass
+
                     if system_prompt and system_prompt.strip():
                         await client.send_event(
                             {
@@ -5328,59 +5349,6 @@ class MediaStreamHandler:
                             print(f"💰 [COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
                             self._ai_speech_start = None  # Reset for next utterance
                         
-                        # 🔥 POST-FILTER: Detect if AI said "confirmed" without server approval
-                        crm_context = getattr(self, 'crm_context', None)
-                        forbidden_words = ["קבעתי", "קבענו", "שריינתי", "התור נקבע", "התור שלך נקבע", "הפגישה נקבעה"]
-                        said_forbidden = any(word in transcript for word in forbidden_words)
-                        
-                        if said_forbidden and (not crm_context or not crm_context.has_appointment_created):
-                            print(f"⚠️ [GUARD] AI said '{transcript}' WITHOUT server approval!")
-                            print(f"🛡️ [GUARD] Sending immediate correction to AI...")
-                            # 🔥 BUILD 182: Block hangup if AI confirmed but system didn't
-                            # This prevents the call from ending before appointment is actually created
-                            self._ai_said_confirmed_without_approval = True
-                            # ⭐ BUILD 350: NLP disabled - appointments handled differently
-                            if ENABLE_LEGACY_TOOLS:
-                                # LEGACY: Trigger NLP immediately to try to create the appointment
-                                print(f"🔥 [LEGACY GUARD] Triggering immediate NLP check to create appointment...")
-                                self._check_appointment_confirmation(transcript)
-                            
-                            # 🔥 CRITICAL: _send_server_event_to_ai is deprecated (no-op).
-                            # Inject a SYSTEM correction and trigger an immediate AI response to avoid a stuck call.
-                            if not getattr(self, "_appointment_guard_system_msg_sent", False):
-                                self._appointment_guard_system_msg_sent = True
-                                
-                                async def _inject_and_recover():
-                                    try:
-                                        await client.send_event(
-                                            {
-                                                "type": "conversation.item.create",
-                                                "item": {
-                                                    "type": "message",
-                                                    "role": "system",
-                                                    "content": [
-                                                        {
-                                                            "type": "input_text",
-                                                            "text": (
-                                                                "SERVER OVERRIDE: You told the caller the appointment is booked, "
-                                                                "but the server has NOT created an appointment (no appointment_id). "
-                                                                "Immediately correct yourself in Hebrew: apologize, say you are checking availability now, "
-                                                                "then continue the appointment flow strictly: collect missing fields (name, full date+weekday, time), "
-                                                                "call check_availability, and only then call schedule_appointment. "
-                                                                "Never say 'קבעתי/נקבע' unless schedule_appointment returned success=true and includes appointment_id."
-                                                            ),
-                                                        }
-                                                    ],
-                                                },
-                                            }
-                                        )
-                                        # Prompt the model to speak a corrective message immediately.
-                                        await client.send_event({"type": "response.create"})
-                                    except Exception as _e:
-                                        logger.error(f"[GUARD] Failed to inject correction system message: {_e}")
-                                
-                                asyncio.create_task(_inject_and_recover())
-                        
                         # Track conversation
                         self.conversation_history.append({"speaker": "ai", "text": transcript, "ts": time.time()})
                         # 🔥 FIX: Don't run NLP when AI speaks - only when USER speaks!
@@ -5426,24 +5394,13 @@ class MediaStreamHandler:
                         should_hangup = False
                         hangup_reason = ""
                         
-                        # 🔥 BUILD 182: Block hangup if AI confirmed appointment but system hasn't
-                        ai_said_without_approval = getattr(self, '_ai_said_confirmed_without_approval', False)
-                        crm_ctx = getattr(self, 'crm_context', None)
-                        hangup_blocked_for_appointment = False
-                        if ai_said_without_approval and (not crm_ctx or not crm_ctx.has_appointment_created):
-                            print(f"🛑 [GUARD] Blocking hangup - AI confirmed but appointment not yet created!")
-                            hangup_blocked_for_appointment = True
-                        
                         # 🔥 BUILD 309: Check confirm_before_hangup setting from call config
                         # If False, allow hangup without user confirmation (just goodbye)
                         confirm_required = getattr(self, 'confirm_before_hangup', True)
                         
                         # 🔥 BUILD 170.5: Hangup only when proper conditions are met
-                        # Skip all hangup logic if appointment guard is active
-                        if hangup_blocked_for_appointment:
-                            print(f"🛑 [HANGUP] Skipping all hangup checks - waiting for appointment creation")
                         # Case 1: User explicitly said goodbye - always allow hangup after AI responds
-                        elif self.goodbye_detected and ai_polite_closing_detected:
+                        if self.goodbye_detected and ai_polite_closing_detected:
                             hangup_reason = "user_goodbye"
                             should_hangup = True
                             print(f"✅ [HANGUP] User said goodbye, AI responded politely - disconnecting")
@@ -7231,28 +7188,11 @@ class MediaStreamHandler:
                             error_msg = result.get("message", "שגיאה לא ידועה")
                             
                             print(f"❌ [FLOW STEP 10] FAILED - {error_type}: {error_msg}")
-                            
-                            # 🔥 BUILD 182: Check if AI already said confirmation
-                            ai_already_confirmed = getattr(self, '_ai_said_confirmed_without_approval', False)
-                            
+
                             # 🔥 CRITICAL: Send appropriate server event based on error type
                             if error_type == "need_phone":
-                                if ai_already_confirmed:
-                                    # 🔥 BUILD 182: AI already said "קבעתי" - don't ask for DTMF!
-                                    # Just apologize and try to proceed with Caller ID
-                                    print(f"⚠️ [BUILD 182] AI already confirmed - NOT asking for DTMF!")
-                                    caller_id = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
-                                    if caller_id:
-                                        print(f"📞 [BUILD 182] Using Caller ID as fallback: {caller_id}")
-                                        # Retry with Caller ID
-                                        customer_phone = caller_id
-                                    else:
-                                        # Proceed without phone - appointment already "confirmed" to customer
-                                        await self._send_server_event_to_ai("✅ Appointment created")
-                                        return
-                                else:
-                                    logger.info(f"📞 [DTMF VERIFICATION] Requesting phone via DTMF - AI will ask user to press digits")
-                                    await self._send_server_event_to_ai("missing_phone_collect_via_dtmf")
+                                logger.info(f"📞 [DTMF VERIFICATION] Requesting phone via DTMF - AI will ask user to press digits")
+                                await self._send_server_event_to_ai("missing_phone_collect_via_dtmf")
                             else:
                                 await self._send_server_event_to_ai(f"❌ שגיאה: {error_msg}")
                             return
@@ -7295,12 +7235,6 @@ class MediaStreamHandler:
                             crm_context.has_appointment_created = True
                             logger.info(f"✅ [APPOINTMENT VERIFICATION] Created appointment #{appt_id} in DB - has_appointment_created=True")
                             print(f"🔓 [GUARD] Appointment created - AI can now confirm to customer")
-                        
-                        # 🔥 BUILD 182: Clear the "AI confirmed without approval" flag
-                        # Now appointment is created, hangup can proceed normally
-                        if hasattr(self, '_ai_said_confirmed_without_approval'):
-                            self._ai_said_confirmed_without_approval = False
-                            print(f"✅ [BUILD 182] Cleared _ai_said_confirmed_without_approval - hangup allowed")
                             
                         # 🔥 BUILD 146: Clear pending_slot ONLY after successful appointment creation
                         if crm_context:
@@ -11473,6 +11407,7 @@ class MediaStreamHandler:
                 
                 if not date_str_raw:
                     print(f"❌ [CHECK_AVAIL] Missing date")
+                    user_msg = "על איזה תאריך מדובר? למשל היום/מחר/יום ראשון."
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -11482,10 +11417,26 @@ class MediaStreamHandler:
                                 "success": False,
                                 "error": "חסר תאריך",
                                 "error_code": "missing_date",
-                                "user_message": "על איזה תאריך מדובר? למשל היום/מחר/יום ראשון."
+                                "user_message": user_msg
                             })
                         }
                     })
+                    # ✅ Tool-flow: on failure, speak server-provided user_message (no improvisation).
+                    await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                    }
+                                ],
+                            },
+                        }
+                    )
                     await client.send_event({"type": "response.create"})
                     return
                 
@@ -11499,6 +11450,7 @@ class MediaStreamHandler:
                         resolve_hebrew_date,
                         resolve_hebrew_time,
                         pick_best_time_candidate,
+                        auto_correct_iso_year,
                     )
                     
                     # Get policy to determine duration
@@ -11510,6 +11462,7 @@ class MediaStreamHandler:
                     date_res = resolve_hebrew_date(date_str_raw, business_tz)
                     if not date_res:
                         print(f"❌ [CHECK_AVAIL] Invalid date input: '{date_str_raw}'")
+                        user_msg = "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
                         await client.send_event({
                             "type": "conversation.item.create",
                             "item": {
@@ -11519,16 +11472,51 @@ class MediaStreamHandler:
                                     "success": False,
                                     "error": "תאריך לא תקין. בקש תאריך אחר.",
                                     "error_code": "invalid_date",
-                                    "user_message": "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
+                                    "user_message": user_msg
                                 }, ensure_ascii=False)
                             }
                         })
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                         await client.send_event({"type": "response.create"})
                         return
                     
                     normalized_date_iso = date_res.date_iso
                     weekday_he = date_res.weekday_he
                     date_display_he = date_res.date_display_he
+
+                    # 🔥 FIX #1: Auto-correct suspicious ISO year BEFORE past-date guard.
+                    # LLMs sometimes send training-data years (e.g., 2023) even when user didn't specify a year.
+                    corrected_iso, corrected, reason = auto_correct_iso_year(
+                        normalized_date_iso,
+                        business_tz,
+                    )
+                    if corrected:
+                        print(
+                            f"🔧 [CHECK_AVAIL] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
+                            f"(reason={reason}) raw='{date_str_raw}'"
+                        )
+                        # Re-resolve display/weekday to match corrected date.
+                        corrected_res = resolve_hebrew_date(corrected_iso, business_tz)
+                        if corrected_res:
+                            normalized_date_iso = corrected_res.date_iso
+                            weekday_he = corrected_res.weekday_he
+                            date_display_he = corrected_res.date_display_he
+                        else:
+                            normalized_date_iso = corrected_iso
 
                     # 🛡️ SAFETY: If the resolved date is in the past, DO NOT query availability.
                     # Force the model to ask for a new date instead of looping on a past date.
@@ -11540,6 +11528,7 @@ class MediaStreamHandler:
                         requested_date = None
                     if requested_date and requested_date < today_local:
                         print(f"⚠️ [CHECK_AVAIL] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{date_str_raw}'")
+                        user_msg = "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
                         await client.send_event({
                             "type": "conversation.item.create",
                             "item": {
@@ -11553,10 +11542,25 @@ class MediaStreamHandler:
                                     "date_display_he": date_display_he,
                                     "error": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש מהלקוח (היום/מחר/תאריך אחר).",
                                     # ✅ Provide a deterministic phrase the model MUST say (avoid improvisation/stalls)
-                                    "user_message": "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
+                                    "user_message": user_msg
                                 }, ensure_ascii=False)
                             }
                         })
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                         await client.send_event({"type": "response.create"})
                         return
                     
@@ -11623,6 +11627,7 @@ class MediaStreamHandler:
                     else:
                         print(f"⚠️ [CHECK_AVAIL] No slots available for {normalized_date_iso}")
                         logger.warning(f"[CHECK_AVAIL] No slots found for business_id={business_id} date={normalized_date_iso}")
+                        user_msg = "אין זמנים פנויים בתאריך הזה. אפשר תאריך אחר? למשל מחר או שבוע הבא."
                         
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -11636,10 +11641,25 @@ class MediaStreamHandler:
                                     "date_display_he": date_display_he,
                                     "error": f"אין זמנים פנויים ב-{date_display_he}. הצע תאריך אחר.",
                                     "error_code": "no_slots",
-                                    "user_message": "אין זמנים פנויים בתאריך הזה. אפשר תאריך אחר? למשל מחר או שבוע הבא."
+                                    "user_message": user_msg
                                 }, ensure_ascii=False)
                             }
                         })
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                     
                     await client.send_event({"type": "response.create"})
                     
@@ -11648,6 +11668,7 @@ class MediaStreamHandler:
                     logger.error(f"[CHECK_AVAIL] Exception: {slots_error}")
                     import traceback
                     traceback.print_exc()
+                    user_msg = "יש בעיה לבדוק זמינות כרגע. אפשר תאריך אחר או לנסות שוב עוד מעט?"
                     
                     await client.send_event({
                         "type": "conversation.item.create",
@@ -11656,10 +11677,27 @@ class MediaStreamHandler:
                             "call_id": call_id,
                             "output": json.dumps({
                                 "success": False,
-                                "error": "בעיה בבדיקת זמינות. בקש מהלקוח תאריך אחר."
+                                "error": "בעיה בבדיקת זמינות. בקש מהלקוח תאריך אחר.",
+                                "error_code": "calendar_error",
+                                "user_message": user_msg,
                             })
                         }
                     })
+                    await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                    }
+                                ],
+                            },
+                        }
+                    )
                     await client.send_event({"type": "response.create"})
                     
             except json.JSONDecodeError as e:
@@ -11747,6 +11785,7 @@ class MediaStreamHandler:
                 
                 if not customer_name:
                     print(f"❌ [APPOINTMENT] Missing customer_name")
+                    user_msg = "על איזה שם לרשום את הפגישה?"
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -11755,15 +11794,31 @@ class MediaStreamHandler:
                             "output": json.dumps({
                                 "success": False,
                                 "error_code": "missing_name",
-                                "user_message": "על איזה שם לרשום את הפגישה?"
+                                "user_message": user_msg
                             })
                         }
                     })
+                    await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                    }
+                                ],
+                            },
+                        }
+                    )
                     await client.send_event({"type": "response.create"})
                     return
                 
                 if not appointment_date_raw or not appointment_time_raw:
                     print(f"❌ [APPOINTMENT] Missing date or time")
+                    user_msg = "כדי לקבוע תור אני צריכה תאריך ושעה. לאיזה יום ובאיזו שעה?"
                     await client.send_event({
                         "type": "conversation.item.create",
                         "item": {
@@ -11772,10 +11827,25 @@ class MediaStreamHandler:
                             "output": json.dumps({
                                 "success": False,
                                 "error_code": "missing_datetime",
-                                "user_message": "כדי לקבוע תור אני צריכה תאריך ושעה. לאיזה יום ובאיזו שעה?"
+                                "user_message": user_msg
                             })
                         }
                     })
+                    await client.send_event(
+                        {
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "message",
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "input_text",
+                                        "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                    }
+                                ],
+                            },
+                        }
+                    )
                     await client.send_event({"type": "response.create"})
                     return
                 
@@ -11795,6 +11865,7 @@ class MediaStreamHandler:
                     from server.services.hebrew_datetime import (
                         resolve_hebrew_date,
                         resolve_hebrew_time,
+                        auto_correct_iso_year,
                     )
                     
                     # Get policy and timezone
@@ -11805,6 +11876,7 @@ class MediaStreamHandler:
                     date_res = resolve_hebrew_date(appointment_date_raw, tz)
                     if not date_res:
                         print(f"❌ [APPOINTMENT] Invalid date input: '{appointment_date_raw}'")
+                        user_msg = "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
                         await client.send_event({
                             "type": "conversation.item.create",
                             "item": {
@@ -11814,16 +11886,32 @@ class MediaStreamHandler:
                                     "success": False,
                                     "error_code": "invalid_date",
                                     "message": "תאריך לא תקין. בקש תאריך אחר.",
-                                    "user_message": "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
+                                    "user_message": user_msg
                                 }, ensure_ascii=False)
                             }
                         })
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                         await client.send_event({"type": "response.create"})
                         return
                     
                     time_res = resolve_hebrew_time(appointment_time_raw)
                     if not time_res or not time_res.candidates_hhmm:
                         print(f"❌ [APPOINTMENT] Invalid time input: '{appointment_time_raw}'")
+                        user_msg = "באיזו שעה? אפשר להגיד למשל 15:00 או ארבע."
                         await client.send_event({
                             "type": "conversation.item.create",
                             "item": {
@@ -11833,16 +11921,49 @@ class MediaStreamHandler:
                                     "success": False,
                                     "error_code": "invalid_time",
                                     "message": "שעה לא תקינה. בקש שעה בפורמט HH:MM או שעה ברורה.",
-                                    "user_message": "באיזו שעה? אפשר להגיד למשל 15:00 או ארבע."
+                                    "user_message": user_msg
                                 }, ensure_ascii=False)
                             }
                         })
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                         await client.send_event({"type": "response.create"})
                         return
                     
                     normalized_date_iso = date_res.date_iso
                     weekday_he = date_res.weekday_he
                     date_display_he = date_res.date_display_he
+
+                    # 🔥 FIX #1: Auto-correct suspicious ISO year BEFORE past-date guard.
+                    corrected_iso, corrected, reason = auto_correct_iso_year(
+                        normalized_date_iso,
+                        tz,
+                    )
+                    if corrected:
+                        print(
+                            f"🔧 [APPOINTMENT] Auto-corrected year: {normalized_date_iso} → {corrected_iso} "
+                            f"(reason={reason}) raw='{appointment_date_raw}'"
+                        )
+                        corrected_res = resolve_hebrew_date(corrected_iso, tz)
+                        if corrected_res:
+                            normalized_date_iso = corrected_res.date_iso
+                            weekday_he = corrected_res.weekday_he
+                            date_display_he = corrected_res.date_display_he
+                        else:
+                            normalized_date_iso = corrected_iso
 
                     # 🛡️ SAFETY: Never attempt booking on a past date.
                     today_local = datetime.now(tz).date()
@@ -11853,6 +11974,7 @@ class MediaStreamHandler:
                         requested_date = None
                     if requested_date and requested_date < today_local:
                         print(f"⚠️ [APPOINTMENT] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{appointment_date_raw}'")
+                        user_msg = "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
                         await client.send_event({
                             "type": "conversation.item.create",
                             "item": {
@@ -11865,10 +11987,25 @@ class MediaStreamHandler:
                                     "weekday_he": weekday_he,
                                     "date_display_he": date_display_he,
                                     "message": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש (היום/מחר/תאריך אחר).",
-                                    "user_message": "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא."
+                                    "user_message": user_msg
                                 }, ensure_ascii=False)
                             }
                         })
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                         await client.send_event({"type": "response.create"})
                         return
 
@@ -11941,6 +12078,7 @@ class MediaStreamHandler:
                                 "time": appointment_time_raw,
                                 "available": False,
                             }
+                        user_msg = "השעה שביקשת לא פנויה. מתאים לך אחת מהחלופות, או שתרצה שעה אחרת?"
                         await client.send_event({
                             "type": "conversation.item.create",
                             "item": {
@@ -11955,10 +12093,25 @@ class MediaStreamHandler:
                                     "requested_time_raw": appointment_time_raw,
                                     "alternative_times": alternatives,
                                     "message": "השעה שביקשת לא פנויה. הצע חלופות מהשרת.",
-                                    "user_message": "השעה שביקשת לא פנויה. מתאים לך אחת מהחלופות, או שתרצה שעה אחרת?"
+                                    "user_message": user_msg
                                 }, ensure_ascii=False)
                             }
                         })
+                        await client.send_event(
+                            {
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "system",
+                                    "content": [
+                                        {
+                                            "type": "input_text",
+                                            "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                        }
+                                    ],
+                                },
+                            }
+                        )
                         await client.send_event({"type": "response.create"})
                         return
                     
@@ -12020,9 +12173,6 @@ class MediaStreamHandler:
                                 "time": chosen_time,
                                 "available": True,
                             }
-                        # Clear any "confirmed without approval" guard once server created the appointment.
-                        if getattr(self, "_ai_said_confirmed_without_approval", False):
-                            self._ai_said_confirmed_without_approval = False
                         
                         await client.send_event({
                             "type": "conversation.item.create",
@@ -12083,6 +12233,7 @@ class MediaStreamHandler:
                             error_msg = result.get("message", "שגיאה ביצירת פגישה")
                             print(f"❌ [APPOINTMENT] CAL_CREATE_FAILED: {error_code} - {error_msg}")
                             logger.error(f"❌ CAL_CREATE_FAILED business_id={business_id} error={error_code} message={error_msg} date={normalized_date_iso} time={chosen_time}")
+                            user_msg = "יש בעיה לקבוע את התור כרגע. אפשר לנסות שעה אחרת או תאריך אחר?"
                             await client.send_event({
                                 "type": "conversation.item.create",
                                 "item": {
@@ -12096,10 +12247,26 @@ class MediaStreamHandler:
                                         "weekday_he": weekday_he,
                                         "date_display_he": date_display_he,
                                         "alternative_times": alternatives,
-                                        "suggestion": "הצע עד 2 חלופות מהשרת."
+                                        "suggestion": "הצע עד 2 חלופות מהשרת.",
+                                        "user_message": user_msg,
                                     }, ensure_ascii=False)
                                 }
                             })
+                            await client.send_event(
+                                {
+                                    "type": "conversation.item.create",
+                                    "item": {
+                                        "type": "message",
+                                        "role": "system",
+                                        "content": [
+                                            {
+                                                "type": "input_text",
+                                                "text": f'SERVER: Reply in Hebrew with EXACTLY this sentence and nothing else: "{user_msg}"',
+                                            }
+                                        ],
+                                    },
+                                }
+                            )
                             await client.send_event({"type": "response.create"})
                     else:
                         # Unexpected format
