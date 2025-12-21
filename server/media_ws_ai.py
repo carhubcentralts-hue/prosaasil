@@ -2075,9 +2075,11 @@ class MediaStreamHandler:
         self.connection_start_time = time.time()  # Track connection start for metrics
         
         # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
-        self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock
-        self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
-        self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
+        self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock (INBOUND)
+        self._frames_dropped_by_filters = 0  # Frames dropped by audio filters (INBOUND)
+        self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full (INBOUND)
+        # 🔥 REQUIREMENT (Hebrew issue): Track OUTBOUND frames cleared (allowed in SIMPLE_MODE)
+        self._outbound_frames_cleared_on_barge_in = 0  # AI audio cleared during barge-in (OUTBOUND - allowed)
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -13704,6 +13706,8 @@ class MediaStreamHandler:
         Flushes:
         1. realtime_audio_out_queue - Audio from OpenAI not yet in TX queue
         2. tx_q - Audio waiting to be sent to Twilio
+        
+        🔥 REQUIREMENT (Hebrew issue): Track outbound frames cleared for metrics
         """
         realtime_flushed = 0
         tx_flushed = 0
@@ -13728,6 +13732,10 @@ class MediaStreamHandler:
                         break
             
             total_flushed = realtime_flushed + tx_flushed
+            # 🔥 REQUIREMENT: Track outbound frames cleared (separate from inbound drops)
+            if hasattr(self, '_outbound_frames_cleared_on_barge_in'):
+                self._outbound_frames_cleared_on_barge_in += total_flushed
+            
             if total_flushed > 0:
                 _orig_print(f"🧹 [BARGE-IN FLUSH] Cleared {total_flushed} frames total (realtime_queue={realtime_flushed}, tx_queue={tx_flushed})", flush=True)
             else:
@@ -14333,17 +14341,23 @@ class MediaStreamHandler:
             frames_dropped_by_greeting_lock = getattr(self, '_frames_dropped_by_greeting_lock', 0)
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
+            # 🔥 REQUIREMENT (Hebrew issue): Track outbound frames cleared separately
+            outbound_frames_cleared = getattr(self, '_outbound_frames_cleared_on_barge_in', 0)
             
-            # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
-            # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
-            # Filters should also respect SIMPLE_MODE (passthrough)
-            if SIMPLE_MODE and frames_dropped_total > 0:
+            # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn ONLY for INBOUND drops
+            # 🔥 REQUIREMENT: Separate inbound_frames_dropped from outbound_frames_cleared
+            # In SIMPLE_MODE:
+            # - inbound_frames_dropped MUST be 0 (greeting_lock + filters + queue_full)
+            # - outbound_frames_cleared is ALLOWED (barge-in cuts)
+            inbound_frames_dropped = frames_dropped_by_greeting_lock + frames_dropped_by_filters + frames_dropped_by_queue_full
+            if SIMPLE_MODE and inbound_frames_dropped > 0:
                 logger.warning(
-                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
+                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {inbound_frames_dropped} INBOUND frames dropped! "
                     f"greeting_lock={frames_dropped_by_greeting_lock}, "
                     f"filters={frames_dropped_by_filters}, "
                     f"queue_full={frames_dropped_by_queue_full}. "
-                    f"In SIMPLE_MODE, no frames should be dropped."
+                    f"In SIMPLE_MODE, no INBOUND frames should be dropped. "
+                    f"(outbound_frames_cleared={outbound_frames_cleared} is allowed for barge-in)"
                 )
             
             # Log comprehensive metrics
@@ -14364,7 +14378,8 @@ class MediaStreamHandler:
                 "frames_dropped_total=%(frames_dropped_total)d, "
                 "frames_dropped_greeting=%(frames_dropped_greeting)d, "
                 "frames_dropped_filters=%(frames_dropped_filters)d, "
-                "frames_dropped_queue=%(frames_dropped_queue)d",
+                "frames_dropped_queue=%(frames_dropped_queue)d, "
+                "outbound_frames_cleared=%(outbound_frames_cleared)d",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -14382,7 +14397,8 @@ class MediaStreamHandler:
                     'frames_dropped_total': frames_dropped_total,
                     'frames_dropped_greeting': frames_dropped_by_greeting_lock,
                     'frames_dropped_filters': frames_dropped_by_filters,
-                    'frames_dropped_queue': frames_dropped_by_queue_full
+                    'frames_dropped_queue': frames_dropped_by_queue_full,
+                    'outbound_frames_cleared': outbound_frames_cleared
                 }
             )
             
