@@ -275,7 +275,11 @@ class TopicClassifier:
         Returns:
             Dict with {topic_id, topic_name, score, method, top_matches} if match found, None otherwise
         """
+        import logging
+        log = logging.getLogger(__name__)
+        
         if not text or not text.strip():
+            log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | Empty text - skipping")
             print(f"⚠️ Empty text provided for classification")
             return None
         
@@ -283,32 +287,40 @@ class TopicClassifier:
         
         entry = self.get_or_build_topics_index(business_id)
         if not entry or len(entry.topics) == 0:
+            log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | No topics available")
             print(f"⚠️ No topics available for business {business_id}")
             return None
         
         # Get AI settings for threshold
         ai_settings = BusinessAISettings.query.filter_by(business_id=business_id).first()
         if not ai_settings:
+            log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | No AI settings found")
             print(f"⚠️ No AI settings found for business {business_id}")
             return None
         
         threshold = ai_settings.embedding_threshold
         top_k = ai_settings.embedding_top_k
         
+        # Log classification start with details
+        log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | Starting classification | text_length={len(text)} chars | topics_loaded={len(entry.topics)} | threshold={threshold}")
+        
         # LAYER 1: Try keyword/synonym matching first (FREE & INSTANT)
         keyword_result = self._keyword_match(text, entry.topics)
         if keyword_result:
             elapsed = (time.time() - start) * 1000
+            log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | ✅ LAYER 1 SUCCESS | method={keyword_result['method']} | topic='{keyword_result['topic_name']}' | score={keyword_result['score']:.3f} | elapsed={elapsed:.0f}ms")
             print(f"✅ LAYER 1 (keyword) matched in {elapsed:.0f}ms")
             return keyword_result
         
         # LAYER 2: No keyword match - use embeddings (SEMANTIC MATCHING)
+        log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | LAYER 1 no match, trying LAYER 2 (embeddings)...")
         print(f"📭 No keyword match, trying embeddings (Layer 2)...")
         
         # Generate embedding for input text
         query_embedding = self._generate_embeddings([text])
         
         if query_embedding.size == 0:
+            log.error(f"[TOPIC_CLASSIFY] business_id={business_id} | Failed to generate query embedding")
             print("⚠️ Failed to generate query embedding")
             return None
         
@@ -331,12 +343,20 @@ class TopicClassifier:
         best_score = best_match["score"]
         
         elapsed = (time.time() - start) * 1000
+        
+        # Log all top matches for debugging
+        top_matches_str = " | ".join([f"{m['topic_name']}={m['score']:.3f}" for m in top_matches])
+        log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | LAYER 2 computed | top_matches=[{top_matches_str}] | elapsed={elapsed:.0f}ms")
+        
         print(f"🔍 Topic classification took {elapsed:.0f}ms (Layer 2 - embeddings)")
         print(f"   Best match: score={best_score:.3f}, topic='{best_match['topic_name']}'")
         
         if best_score < threshold:
+            log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | ❌ BELOW THRESHOLD | best_score={best_score:.3f} < threshold={threshold} | No topic assigned")
             print(f"❌ Best score {best_score:.3f} below threshold {threshold}")
             return None
+        
+        log.info(f"[TOPIC_CLASSIFY] business_id={business_id} | ✅ LAYER 2 SUCCESS | method=embedding | topic='{best_match['topic_name']}' | score={best_score:.3f} | elapsed={elapsed:.0f}ms")
         
         return {
             "topic_id": best_match["topic_id"],
