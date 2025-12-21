@@ -1004,7 +1004,7 @@ export function OutboundCallsPage() {
                   ייבוא לידים מקובץ
                 </h3>
                 <p className="text-sm text-gray-500 mt-1">
-                  ניתן לייצא מאקסל או Google Sheets כ-CSV ולהעלות כאן. חובה לכלול עמודות: שם, טלפון. עיר והערות – אופציונלי.
+                  ניתן לייצא מאקסל או Google Sheets כ-CSV / Excel ולהעלות כאן. השרת יזהה עמודות אוטומטית — חובה רק מספר טלפון (שם אופציונלי).
                 </p>
               </div>
               <div className="text-sm text-gray-600 bg-gray-100 px-4 py-2 rounded-lg">
@@ -1016,7 +1016,7 @@ export function OutboundCallsPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx"
                 onChange={handleFileUpload}
                 className="hidden"
                 id="csv-upload"
@@ -1024,7 +1024,7 @@ export function OutboundCallsPage() {
               />
               <label htmlFor="csv-upload" className="cursor-pointer">
                 <FileSpreadsheet className="h-12 w-12 mx-auto text-gray-400 mb-3" />
-                <p className="text-gray-600 mb-2">לחץ לבחירת קובץ CSV</p>
+                <p className="text-gray-600 mb-2">לחץ לבחירת קובץ CSV / Excel</p>
                 <p className="text-sm text-gray-400">או גרור ושחרר כאן</p>
               </label>
               {importMutation.isPending && (
