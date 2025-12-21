@@ -8,6 +8,11 @@ import os
 from datetime import datetime
 from flask import g, request
 
+# 🔥 Global DEBUG flag - Single source of truth
+# DEBUG=1 → Production (minimal logs)
+# DEBUG=0 → Development (full logs)
+DEBUG = os.getenv("DEBUG", "1") == "1"
+
 class JSONFormatter(logging.Formatter):
     """JSON formatter for structured logging"""
     
@@ -45,21 +50,40 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(log_entry, ensure_ascii=False)
 
 def setup_logging():
-    """Setup centralized logging with JSON format and file rotation"""
+    """Setup centralized logging with JSON format and file rotation
+    
+    🔥 PRODUCTION vs DEBUG MODE:
+    - DEBUG=1 (default) → PRODUCTION: Minimal logs (WARNING level), quiet mode
+    - DEBUG=0 → DEVELOPMENT: Full logs (DEBUG level), verbose mode
+    """
     
     # Create logs directory
     os.makedirs('logs', exist_ok=True)
     
-    # Get log level from environment (default: INFO)
-    log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
-    log_level = getattr(logging, log_level_str, logging.INFO)
-    
     # Root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-    
-    # Clear existing handlers
     root_logger.handlers.clear()
+    
+    if DEBUG:
+        # PRODUCTION MODE – minimal logs only (WARNING and above)
+        root_logger.setLevel(logging.WARNING)
+        
+        # External libraries: ERROR only in production
+        logging.getLogger("twilio").setLevel(logging.ERROR)
+        logging.getLogger("httpx").setLevel(logging.ERROR)
+        logging.getLogger("uvicorn").setLevel(logging.ERROR)
+        logging.getLogger("werkzeug").setLevel(logging.ERROR)
+        logging.getLogger("urllib3").setLevel(logging.ERROR)
+    else:
+        # DEBUG MODE – full logs (DEBUG and above)
+        root_logger.setLevel(logging.DEBUG)
+        
+        # External libraries: normal levels in debug mode
+        logging.getLogger("twilio").setLevel(logging.INFO)
+        logging.getLogger("httpx").setLevel(logging.INFO)
+        logging.getLogger("uvicorn").setLevel(logging.INFO)
+        logging.getLogger("werkzeug").setLevel(logging.INFO)
+        logging.getLogger("urllib3").setLevel(logging.INFO)
     
     # Console handler with JSON
     console_handler = logging.StreamHandler()
@@ -74,13 +98,6 @@ def setup_logging():
     )
     file_handler.setFormatter(JSONFormatter())
     root_logger.addHandler(file_handler)
-    
-    # 🔥 Reduce noise from external libraries - CRITICAL for performance
-    logging.getLogger('werkzeug').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('twilio.http_client').setLevel(logging.WARNING)
-    logging.getLogger('httpx').setLevel(logging.WARNING)
-    logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
     
     return root_logger
 
