@@ -265,6 +265,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             from datetime import datetime as _dt
             import pytz as _pytz
             from flask import g as _g
+            from server.models_sql import BusinessSettings
             from server.policy.business_policy import get_business_policy
             from server.services.hebrew_datetime import (
                 resolve_hebrew_date,
@@ -277,6 +278,20 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             tool_start = _time.time()
 
             context = getattr(_g, "agent_context", None) or {}
+
+            # ✅ CRITICAL: Only allow in appointment flow (prevents accidental scheduling in sales/service agents).
+            try:
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                call_goal = getattr(settings, "call_goal", "lead_only") if settings else "lead_only"
+            except Exception:
+                call_goal = "lead_only"
+            if call_goal != "appointment":
+                return {
+                    "success": False,
+                    "error_code": "appointments_disabled",
+                    "user_message": "תיאום פגישות לא זמין כרגע.",
+                }
+
             policy = get_business_policy(business_id, prompt_text=(context.get("business_prompt") or custom_instructions))
             business_tz = _pytz.timezone(policy.tz)
 
@@ -400,6 +415,7 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             import pytz as _pytz
             from flask import g as _g
 
+            from server.models_sql import BusinessSettings
             from server.policy.business_policy import get_business_policy
             from server.services.hebrew_datetime import resolve_hebrew_date, resolve_hebrew_time, auto_correct_iso_year
             from server.agent_tools.tools_calendar import (
@@ -413,6 +429,19 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             date_raw = (appointment_date or "").strip()
             time_raw = (appointment_time or "").strip()
             service = (service_type or "").strip() or "Appointment"
+
+            # ✅ CRITICAL: Only allow in appointment flow (prevents accidental booking in other flows).
+            try:
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+                call_goal = getattr(settings, "call_goal", "lead_only") if settings else "lead_only"
+            except Exception:
+                call_goal = "lead_only"
+            if call_goal != "appointment":
+                return {
+                    "success": False,
+                    "error_code": "appointments_disabled",
+                    "user_message": "תיאום פגישות לא זמין כרגע.",
+                }
 
             if not name:
                 return {"success": False, "error_code": "missing_name", "user_message": "על איזה שם לרשום את הפגישה?"}

@@ -11069,9 +11069,12 @@ class MediaStreamHandler:
         SERVER-FIRST scheduling entrypoint (called after STT_FINAL).
         Returns True if the server handled this turn by injecting a verbatim reply.
         """
-        if not getattr(self, "_server_first_scheduling_enabled", False):
-            return False
+        # ✅ CRITICAL: Entry gate #1 — only when call_goal is appointment.
+        # No parse/check/schedule/verbatim in lead/sales/service calls.
         if getattr(self, "call_goal", "lead_only") != "appointment":
+            return False
+        # ✅ Entry gate #2 — feature flag
+        if not getattr(self, "_server_first_scheduling_enabled", False):
             return False
         if not transcript or not transcript.strip():
             return False
