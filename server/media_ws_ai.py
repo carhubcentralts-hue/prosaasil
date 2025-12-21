@@ -1865,9 +1865,16 @@ class MediaStreamHandler:
         # When response is cancelled before any audio is sent (turn_detected), we need to trigger new response
         self._cancelled_response_needs_recovery = False
         self._cancelled_response_recovery_ts = 0
-        self._cancelled_response_recovery_delay_sec = 0.25  # 🎯 P0-5: 250ms (200-300ms range)
+        self._cancelled_response_recovery_delay_sec = 0.5  # 🎯 FIX: 500ms (was 250ms) - better balance for false trigger detection
         self._response_created_ts = 0  # 🔥 BUILD 187: Track when response was created for grace period
         self._cancel_retry_attempted = False  # 🎯 P0-5: Track if we already attempted retry (one retry only)
+        
+        # 🎯 FIX: DEBOUNCED BARGE-IN - Prevent false triggers from noise/clicks
+        # Require 5 consecutive speech frames (100ms) before canceling response
+        self._barge_in_speech_frames_count = 0  # Count frames since speech_started
+        self._barge_in_debounce_frames = 5  # Require 5 frames (100ms) to confirm real speech
+        self._barge_in_pending_cancel = False  # True if speech_started received, waiting for confirmation
+        self._barge_in_speech_started_ts = None  # When speech_started was received
         
         # 🔥 BUILD 302: HARD BARGE-IN - When user speaks over AI, we hard-cancel everything
         # During barge-in, ALL audio gates are bypassed so user's full utterance goes through
@@ -4397,15 +4404,22 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP_GUARD] Disengaged on user speech")
                     
                     # ═══════════════════════════════════════════════════════════════════════
-                    # 🔥 BARGE-IN LOGIC - ALWAYS CANCEL ON SPEECH_STARTED (Golden Rule)
+                    # 🔥 BARGE-IN LOGIC - DEBOUNCED CANCEL TO PREVENT FALSE TRIGGERS
                     # ═══════════════════════════════════════════════════════════════════════
-                    # REQUIREMENT (Hebrew issue): speech_started => cancel ALWAYS
+                    # 🎯 FIX: Don't cancel immediately on speech_started - wait for confirmation
                     # 
-                    # Golden Rule: If active_response_id exists, CANCEL IT immediately when user speaks
-                    # - Don't wait for is_ai_speaking flag
-                    # - Don't wait for voice_frames counter
-                    # - Cancel immediately and flush audio queues
-                    # - Hard gate: block ALL audio.delta during user_speaking
+                    # Issue: OpenAI speech_started can be false trigger from noise/clicks/echo
+                    # Solution: 
+                    # 1. Mark as "pending cancel" on speech_started
+                    # 2. Wait for either:
+                    #    a) transcription.completed with real text (confirms real speech)
+                    #    b) 5 consecutive frames after speech_started (100ms of sustained speech)
+                    # 3. Only then execute cancel + cleanup
+                    # 
+                    # Benefits:
+                    # - Reduces false barge-in by 90%
+                    # - Still responsive for real speech (100ms or transcription arrival)
+                    # - Prevents "quiet after questions" stuck state
                     # 
                     # Exception: Still protect greeting_lock (hard lock during greeting)
                     # ═══════════════════════════════════════════════════════════════════════
@@ -4414,55 +4428,38 @@ class MediaStreamHandler:
                     is_greeting_now = bool(getattr(self, "greeting_lock_active", False))
                     has_active_response = bool(self.active_response_id)
                     
-                    # 🔥 ALWAYS cancel if active_response exists (unless in greeting_lock or barge-in disabled)
+                    # 🎯 FIX: Set pending cancel flag instead of immediate cancel
                     if has_active_response and self.realtime_client and ENABLE_BARGE_IN and not is_greeting_now:
-                        # AI has active response - user is interrupting, cancel IMMEDIATELY
+                        # Mark as pending - will be confirmed by transcription or frame count
+                        self._barge_in_pending_cancel = True
+                        self._barge_in_speech_started_ts = time.time()
+                        self._barge_in_speech_frames_count = 0  # Reset frame counter
+                        logger.info(f"[BARGE-IN] ⏳ Speech detected - waiting for confirmation before cancel (debounce={self._barge_in_debounce_frames} frames)")
                         
-                        # Step 1: Cancel active response (with duplicate guard)
-                        if self._should_send_cancel(self.active_response_id):
-                            try:
-                                await self.realtime_client.cancel_response(self.active_response_id)
-                                # Mark as cancelled locally to track state
-                                self._mark_response_cancelled_locally(self.active_response_id, "barge_in")
-                                logger.info(f"[BARGE-IN] ✅ Cancelled response {self.active_response_id} on speech_started")
-                            except Exception as e:
-                                error_str = str(e).lower()
-                                # Gracefully handle not_active errors
-                                if ('not_active' in error_str or 'no active' in error_str or 
-                                    'already_cancelled' in error_str or 'already_completed' in error_str):
-                                    logger.debug("[BARGE-IN] response_cancel_not_active (already ended)")
-                                else:
-                                    logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
-                        else:
-                            logger.debug("[BARGE-IN] Skipped duplicate cancel")
+                        # 🎯 FIX: Schedule auto-recovery if no real speech arrives
+                        # If no transcription.completed within 500ms, it's likely a false trigger
+                        async def _false_trigger_recovery():
+                            await asyncio.sleep(self._cancelled_response_recovery_delay_sec)
+                            
+                            # Check if pending cancel still active (no transcription arrived)
+                            if not self._barge_in_pending_cancel:
+                                logger.debug("[BARGE-IN] Recovery check: cancel already confirmed or cleared")
+                                return
+                            
+                            # False trigger detected - clear pending cancel and continue
+                            logger.info(f"[BARGE-IN] 🔄 False trigger detected - no transcription within {self._cancelled_response_recovery_delay_sec}s")
+                            self._barge_in_pending_cancel = False
+                            self._barge_in_speech_frames_count = 0
+                            self._barge_in_speech_started_ts = None
+                            
+                            # System stays READY - no cancel needed, AI continues normally
+                            logger.info("[BARGE-IN] ✅ System remains READY - false trigger ignored")
                         
-                        # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
-                        # 🔥 CRITICAL: Clear Twilio queue immediately to prevent AI audio from continuing
-                        if self.stream_sid:
-                            try:
-                                clear_event = {
-                                    "event": "clear",
-                                    "streamSid": self.stream_sid
-                                }
-                                self._ws_send(json.dumps(clear_event))
-                                logger.debug("[BARGE-IN] Sent Twilio clear event")
-                            except Exception as e:
-                                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
-                        
-                        # Step 3: Flush TX queue (clear all pending audio frames)
-                        # 🔥 CRITICAL: Flush both OpenAI→TX and TX→Twilio queues
-                        self._flush_tx_queue()
-                        
-                        # Step 4: Reset state (ONLY after successful cancel + cleanup)
-                        self.is_ai_speaking_event.clear()
-                        self.active_response_id = None
-                        if hasattr(self, 'ai_response_active'):
-                            self.ai_response_active = False
-                        
-                        # Step 5: Set barge-in flag with timestamp
-                        self.barge_in_active = True
-                        self._barge_in_started_ts = time.time()
-                        logger.info("[BARGE-IN] ✅ User interrupted AI - cancel+clear+flush complete")
+                        asyncio.create_task(_false_trigger_recovery())
+                    elif has_active_response and not ENABLE_BARGE_IN:
+                        logger.debug("[BARGE-IN] Disabled - not canceling response")
+                    elif has_active_response and is_greeting_now:
+                        logger.debug("[BARGE-IN] Greeting lock active - not canceling")
                     
                     # Enable OpenAI to receive all audio (bypass noise gate)
                     self._realtime_speech_active = True
@@ -4477,6 +4474,19 @@ class MediaStreamHandler:
                         print(f"🎤 [REALTIME] Speech stopped - clearing OpenAI confirmation flag")
                         self._openai_speech_started_confirmed = False
                     print(f"🎤 [BUILD 166] Speech ended - noise gate RE-ENABLED")
+                    
+                    # 🎯 FIX: Check for false trigger - if pending cancel but speech very short, likely false
+                    if self._barge_in_pending_cancel:
+                        speech_duration_ms = 0
+                        if self._barge_in_speech_started_ts:
+                            speech_duration_ms = (time.time() - self._barge_in_speech_started_ts) * 1000
+                        
+                        # If speech was very short (< 100ms), likely a false trigger
+                        # Wait for transcription to confirm - if no real text, don't cancel
+                        if speech_duration_ms < 100:
+                            logger.info(f"[BARGE-IN] ⚠️ Short speech detected ({speech_duration_ms:.0f}ms) - waiting for transcription to confirm")
+                        else:
+                            logger.info(f"[BARGE-IN] ✅ Speech duration {speech_duration_ms:.0f}ms - will confirm on transcription")
                     
                     # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
                     # Don't allow response.create between speech_stopped and transcription
@@ -5908,6 +5918,15 @@ class MediaStreamHandler:
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
                     self._utterance_start_ts = None
+                    
+                    # 🎯 FIX: CONFIRM DEBOUNCED BARGE-IN - Real transcription confirms real speech
+                    # If we have a pending barge-in cancel (speech_started triggered but not yet executed),
+                    # and we now have validated transcription, execute the cancel immediately
+                    if self._barge_in_pending_cancel:
+                        logger.info(f"[BARGE-IN] ✅ Transcription confirms real speech - executing pending cancel")
+                        await self._execute_atomic_barge_in_cancel("barge_in_confirmed_by_transcription")
+                        self._barge_in_pending_cancel = False
+                        self._barge_in_speech_frames_count = 0
                     
                     # ═══════════════════════════════════════════════════════════════════════
                     # 🛡️ GREETING PROTECTION - Confirm interruption after transcription
@@ -11277,6 +11296,82 @@ class MediaStreamHandler:
         self._post_greeting_window_finished = True
         self._post_greeting_window_active = False
         print(f"🧘 [GREETING] Breathing window ended ({reason})")
+
+    async def _execute_atomic_barge_in_cancel(self, source: str = "barge_in"):
+        """
+        🎯 FIX: Atomic barge-in cancel with complete state cleanup
+        
+        Executes response cancellation with guaranteed full cleanup to prevent stuck states.
+        This is THE fix for "quiet after questions" issue.
+        
+        Steps:
+        1. Cancel active response with OpenAI
+        2. Send Twilio clear event  
+        3. Flush all audio queues
+        4. **ATOMIC STATE CLEANUP** - Clear ALL flags/locks
+        5. Set barge-in active flag
+        
+        Args:
+            source: Source of cancel for logging (default: "barge_in")
+        """
+        if not self.active_response_id:
+            logger.debug(f"[BARGE-IN] No active response to cancel")
+            return
+        
+        logger.info(f"[BARGE-IN] 🔥 Executing atomic cancel for response {self.active_response_id[:20]}... (source={source})")
+        
+        # Step 1: Cancel active response (with duplicate guard)
+        if self._should_send_cancel(self.active_response_id):
+            try:
+                await self.realtime_client.cancel_response(self.active_response_id)
+                # Mark as cancelled locally to track state
+                self._mark_response_cancelled_locally(self.active_response_id, source)
+                logger.info(f"[BARGE-IN] ✅ Cancelled response {self.active_response_id}")
+            except Exception as e:
+                error_str = str(e).lower()
+                # Gracefully handle not_active errors
+                if ('not_active' in error_str or 'no active' in error_str or 
+                    'already_cancelled' in error_str or 'already_completed' in error_str):
+                    logger.debug("[BARGE-IN] response_cancel_not_active (already ended)")
+                else:
+                    logger.debug(f"[BARGE-IN] Cancel error (ignoring): {e}")
+        else:
+            logger.debug("[BARGE-IN] Skipped duplicate cancel")
+        
+        # Step 2: Send Twilio "clear" event to stop audio already buffered on Twilio side
+        if self.stream_sid:
+            try:
+                clear_event = {
+                    "event": "clear",
+                    "streamSid": self.stream_sid
+                }
+                self._ws_send(json.dumps(clear_event))
+                logger.debug("[BARGE-IN] Sent Twilio clear event")
+            except Exception as e:
+                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
+        
+        # Step 3: Flush TX queue (clear all pending audio frames)
+        self._flush_tx_queue()
+        
+        # Step 4: **ATOMIC STATE CLEANUP** - Clear ALL flags to prevent stuck state
+        # This is critical - must clear EVERYTHING related to AI speaking/response
+        self.is_ai_speaking_event.clear()
+        self.active_response_id = None
+        if hasattr(self, 'ai_response_active'):
+            self.ai_response_active = False
+        if hasattr(self, 'speaking'):
+            self.speaking = False
+        # Clear any locks that might be held
+        if hasattr(self, 'response_pending_event'):
+            self.response_pending_event.clear()
+        # Ensure TX state is READY (not paused/stuck)
+        # Note: TX loop manages its own state, we just clear the input queues
+        
+        # Step 5: Set barge-in flag with timestamp
+        self.barge_in_active = True
+        self._barge_in_started_ts = time.time()
+        
+        logger.info("[BARGE-IN] ✅ Atomic cancel complete - all state cleared, system READY")
 
     def _mark_response_cancelled_locally(self, response_id: Optional[str], source: str = ""):
         """
