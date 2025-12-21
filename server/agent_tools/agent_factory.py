@@ -1000,13 +1000,26 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             logger.warning(f"⚠️ Could not load policy for slot_size_min: {e}")
     
     # 🔥 CRITICAL SYSTEM RULES (prepended to all prompts - NEVER remove!)
+    # WhatsApp uses unified appointment tools: check_availability + schedule_appointment.
+    # Other channels may still use calendar_* tools.
+    booking_tool_rule = (
+        "schedule_appointment()"
+        if channel == "whatsapp"
+        else "calendar_create_appointment()"
+    )
+    availability_tool_rule = (
+        "check_availability()"
+        if channel == "whatsapp"
+        else "calendar_find_slots()"
+    )
+
     system_rules = f"""🔒 SYSTEM CONTEXT (READ BUT DON'T MENTION):
 TODAY: {today_str} (Israel)
 TOMORROW: {tomorrow_str}{slot_interval_text}
 
 ⚠️ CRITICAL ANTI-HALLUCINATION RULES (BUILD 112):
-1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called calendar_create_appointment() THIS turn and got ok:true
-2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called calendar_find_slots() THIS turn
+1. NEVER say "קבעתי"/"הפגישה נקבעה" UNLESS you called {booking_tool_rule} THIS turn and got success/ok=true with appointment_id
+2. NEVER say "תפוס"/"פנוי"/"יש תור" UNLESS you called {availability_tool_rule} THIS turn
 3. NEVER say "שלחתי אישור" UNLESS you called whatsapp_send() THIS turn
 4. 🔥 BUILD 112: After SUCCESSFUL booking (ok:true), ALWAYS call whatsapp_send() to send confirmation
 5. NEVER say "אני מחפש" or "תן לי לבדוק" - just call the tool silently
