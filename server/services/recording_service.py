@@ -57,7 +57,6 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
         file_size = os.path.getsize(local_path)
         if file_size > 1000:  # Valid file (>1KB)
             log.info(f"[RECORDING_SERVICE] ✅ Using existing local file: {local_path} ({file_size} bytes)")
-            print(f"[RECORDING_SERVICE] ✅ Using existing recording from disk for {call_sid}")
             return local_path
         else:
             log.warning(f"[RECORDING_SERVICE] Local file too small ({file_size} bytes), will re-download")
@@ -66,11 +65,9 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     # 2. Download from Twilio using call_log.recording_url
     if not call_log.recording_url:
         log.error(f"[RECORDING_SERVICE] No recording_url for call {call_sid}")
-        print(f"❌ [RECORDING_SERVICE] No recording_url for {call_sid}")
         return None
     
     log.info(f"[RECORDING_SERVICE] Downloading recording from Twilio for {call_sid}")
-    print(f"[RECORDING_SERVICE] Downloading recording from Twilio for {call_sid}")
     
     # Get Twilio credentials
     account_sid = os.getenv("TWILIO_ACCOUNT_SID")
@@ -78,7 +75,6 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     
     if not account_sid or not auth_token:
         log.error("[RECORDING_SERVICE] Missing Twilio credentials")
-        print("❌ [RECORDING_SERVICE] Missing Twilio credentials")
         return None
     
     # ✅ Use EXACT same logic as UI (routes_calls.py download_recording)
@@ -92,7 +88,6 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
     
     if not recording_content:
         log.error(f"[RECORDING_SERVICE] Failed to download recording for {call_sid}")
-        print(f"❌ [RECORDING_SERVICE] Failed to download recording for {call_sid}")
         return None
     
     # 3. Save to local disk
@@ -101,12 +96,10 @@ def get_recording_file_for_call(call_log: CallLog) -> Optional[str]:
             f.write(recording_content)
         
         log.info(f"[RECORDING_SERVICE] ✅ Recording saved: {local_path} ({len(recording_content)} bytes)")
-        print(f"[RECORDING_SERVICE] ✅ Recording saved to disk: {local_path} ({len(recording_content)} bytes)")
         return local_path
         
     except Exception as e:
         log.error(f"[RECORDING_SERVICE] Failed to save recording to disk: {e}")
-        print(f"❌ [RECORDING_SERVICE] Failed to save recording to disk: {e}")
         return None
 
 
@@ -153,44 +146,38 @@ def _download_from_twilio(recording_url: str, account_sid: str, auth_token: str,
         
         for attempt, (try_url, format_desc) in enumerate(urls_to_try, 1):
             try:
-                log.info(f"[RECORDING_SERVICE] Trying format {attempt}/{len(urls_to_try)}: {format_desc}")
-                log.info(f"[RECORDING_SERVICE] URL: {try_url[:80]}...")
-                print(f"[RECORDING_SERVICE] Trying {format_desc}")
+                log.debug(f"[RECORDING_SERVICE] Trying format {attempt}/{len(urls_to_try)}: {format_desc}")
+                log.debug(f"[RECORDING_SERVICE] URL: {try_url[:80]}...")
                 
                 response = requests.get(try_url, auth=auth, timeout=30)
                 
-                log.info(f"[RECORDING_SERVICE] Status: {response.status_code}, bytes: {len(response.content)}")
-                print(f"[RECORDING_SERVICE] Status: {response.status_code}, bytes: {len(response.content)}")
+                log.debug(f"[RECORDING_SERVICE] Status: {response.status_code}, bytes: {len(response.content)}")
                 
                 # Check for 404 - might need to wait for Twilio processing
                 if response.status_code == 404:
                     if attempt == 1:
-                        log.info("[RECORDING_SERVICE] Got 404, waiting 5s before next format...")
-                        print("[RECORDING_SERVICE] Got 404, waiting 5s...")
+                        log.debug("[RECORDING_SERVICE] Got 404, waiting 5s before next format...")
                         time.sleep(5)
                     continue
                 
                 # Success!
                 if response.status_code == 200 and len(response.content) > 1000:
                     log.info(f"[RECORDING_SERVICE] ✅ Successfully downloaded {len(response.content)} bytes using {format_desc}")
-                    print(f"[RECORDING_SERVICE] ✅ Downloaded {len(response.content)} bytes using {format_desc}")
                     return response.content
                 else:
-                    log.warning(f"[RECORDING_SERVICE] URL returned {response.status_code} or too small ({len(response.content)} bytes)")
+                    log.debug(f"[RECORDING_SERVICE] URL returned {response.status_code} or too small ({len(response.content)} bytes)")
                     
             except requests.RequestException as e:
-                log.warning(f"[RECORDING_SERVICE] Failed URL: {e}")
+                log.debug(f"[RECORDING_SERVICE] Failed URL: {e}")
                 last_error = e
                 continue
         
         # All attempts failed
         log.error(f"[RECORDING_SERVICE] All download attempts failed for {call_sid}. Last error: {last_error}")
-        print(f"❌ [RECORDING_SERVICE] All download attempts failed for {call_sid}")
         return None
         
     except Exception as e:
         log.error(f"[RECORDING_SERVICE] Download error for {call_sid}: {e}")
-        print(f"❌ [RECORDING_SERVICE] Download error: {e}")
         return None
 
 
