@@ -7,6 +7,16 @@ from flask import Flask, jsonify, send_from_directory, send_file, current_app, r
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+# 🔥 CRITICAL: Block Twilio HTTP client logs BEFORE any imports that might use it
+# This must happen BEFORE app creation, migrations, or any Twilio client instantiation
+IS_PROD = os.getenv("DEBUG", "1") == "1"
+if IS_PROD:
+    # Production: Silence noisy external libraries completely
+    for lib_name in ("twilio.http_client", "twilio", "twilio.rest", "urllib3", "httpx"):
+        lib_logger = logging.getLogger(lib_name)
+        lib_logger.setLevel(logging.WARNING)
+        lib_logger.propagate = False  # Critical: prevent root handler from logging these
+
 # Setup async logging BEFORE anything else - SKIP in migration mode
 if os.getenv('MIGRATION_MODE') == '1':
     # Migration mode - use standard logging to avoid eventlet dependency
