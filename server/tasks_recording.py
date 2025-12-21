@@ -513,6 +513,17 @@ def process_recording_async(form_data):
                         print(f"[WEBHOOK] Preparing call_completed webhook: call={call_sid}, business={business.id}, direction={direction}")
                         log.info(f"[WEBHOOK] Preparing webhook for call {call_sid}: direction={direction}, business={business.id}")
                         
+                        # 🔥 FIX: Fetch canonical service_type from lead (after canonicalization)
+                        canonical_service_type = None
+                        if call_log.lead_id:
+                            try:
+                                lead = Lead.query.filter_by(id=call_log.lead_id).first()
+                                if lead and lead.service_type:
+                                    canonical_service_type = lead.service_type
+                                    log.info(f"[WEBHOOK] Using canonical service_type from lead {lead.id}: '{canonical_service_type}'")
+                            except Exception as e:
+                                log.warning(f"[WEBHOOK] Could not fetch lead for canonical service: {e}")
+                        
                         # Build payload with all available data
                         webhook_sent = send_call_completed_webhook(
                             business_id=business.id,
@@ -528,7 +539,8 @@ def process_recording_async(form_data):
                             direction=direction,
                             city=extracted_city,
                             service_category=extracted_service,
-                            recording_url=call_log.recording_url  # 🔥 FIX: Always include recording URL
+                            recording_url=call_log.recording_url,  # 🔥 FIX: Always include recording URL
+                            service_category_canonical=canonical_service_type  # 🔥 NEW: Canonical value from lead.service_type
                         )
                         
                         if webhook_sent:
