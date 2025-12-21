@@ -9,13 +9,20 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 # 🔥 CRITICAL: Block Twilio HTTP client logs BEFORE any imports that might use it
 # This must happen BEFORE app creation, migrations, or any Twilio client instantiation
+# 🔥 FIX: DEBUG="1" means PRODUCTION (minimal logs), DEBUG="0" means DEVELOPMENT (verbose)
 IS_PROD = os.getenv("DEBUG", "1") == "1"
 if IS_PROD:
     # Production: Silence noisy external libraries completely
-    for lib_name in ("twilio.http_client", "twilio", "twilio.rest", "urllib3", "httpx"):
+    # 🔥 FIX: Set to ERROR (not WARNING) to completely block Twilio spam
+    for lib_name in ("twilio.http_client", "twilio", "twilio.rest", "urllib3", "httpx", "httpx.client"):
         lib_logger = logging.getLogger(lib_name)
-        lib_logger.setLevel(logging.WARNING)
+        lib_logger.setLevel(logging.ERROR)  # 🔥 ERROR not WARNING!
         lib_logger.propagate = False  # Critical: prevent root handler from logging these
+    
+    # 🔥 FIX: Also silence uvicorn.access in production (health check spam)
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    uvicorn_access_logger.setLevel(logging.WARNING)
+    uvicorn_access_logger.propagate = False
 
 # Setup async logging BEFORE anything else - SKIP in migration mode
 if os.getenv('MIGRATION_MODE') == '1':
