@@ -550,10 +550,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
         if requested_dt.tzinfo is not None:
             # Convert from source timezone to business timezone
             requested_dt = requested_dt.astimezone(business_tz)
-            print(f"🔍 [VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
+            logger.debug(f"[VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
         else:
             # Naive datetime - assume it's in business local time
-            print(f"🔍 [VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
+            logger.debug(f"[VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
         
         # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
         now = datetime.now(business_tz)
@@ -660,7 +660,7 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             requested_start_naive = requested_dt
             requested_end_naive = requested_end_dt
         
-        print(f"🔍 [VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
+        logger.debug(f"[VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
         
         # Query DB for overlapping appointments
         from server.models_sql import Appointment
