@@ -318,14 +318,8 @@ def start_outbound_calls():
                         recording_status_callback=f"https://{host}/webhook/handle_recording",
                         recording_status_callback_event=['completed']
                     )
-                    results.append({
-                        "lead_id": lead.id,
-                        "lead_name": lead_name,
-                        "call_sid": None,
-                        "status": "warning",
-                        "message": "AMD not supported - call created without voicemail detection"
-                    })
-                    continue
+                    # Log warning but continue - call was created successfully
+                    log.info(f"📞 Outbound call started WITHOUT AMD: lead={lead.id}, call_sid={twilio_call.sid}")
                 
                 call_log.call_sid = twilio_call.sid
                 call_log.status = "ringing"
