@@ -614,7 +614,7 @@ export default function LeadsPage() {
                   key={lead.id}
                   data-testid={`row-lead-${lead.id}`}
                   className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer"
-                  onClick={() => navigate(`/app/leads/${lead.id}`)}
+                  onClick={() => navigate(`/app/leads/${lead.id}?from=leads`)}
                 >
                   <TableCell className="w-12">
                     <div onClick={(e: React.MouseEvent) => e.stopPropagation()}>
@@ -702,7 +702,7 @@ export default function LeadsPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/app/leads/${lead.id}`);
+                          navigate(`/app/leads/${lead.id}?from=leads`);
                         }}
                         className="h-8 w-8 p-0 bg-purple-500 text-white hover:bg-purple-600 border-0 rounded-md shadow-sm inline-flex items-center justify-center transition-colors"
                         data-testid={`button-details-${lead.id}`}
@@ -773,7 +773,7 @@ export default function LeadsPage() {
                           variant="secondary"
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigate(`/app/leads/${lead.id}`);
+                            navigate(`/app/leads/${lead.id}?from=leads`);
                           }}
                           className="flex-1 h-7 px-2 text-xs text-purple-600 border-purple-200 hover:bg-purple-50"
                           data-testid={`button-details-mobile-${lead.id}`}
@@ -895,7 +895,7 @@ export default function LeadsPage() {
                 onClick={(e) => {
                   // Only navigate if we're not clicking on status badge, checkbox, or action buttons
                   if (!e.defaultPrevented) {
-                    navigate(`/app/leads/${lead.id}`);
+                    navigate(`/app/leads/${lead.id}?from=leads`);
                   }
                 }}
                 data-testid={`card-lead-mobile-${lead.id}`}

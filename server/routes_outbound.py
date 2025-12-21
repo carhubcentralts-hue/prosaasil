@@ -291,6 +291,10 @@ def start_outbound_calls():
                     url=webhook_url,
                     status_callback=f"https://{host}/webhook/call_status",
                     status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                    # ✅ AMD: Do not trust "answered" for outbound - detect voicemail/fax
+                    machine_detection="DetectMessageEnd",
+                    amd_status_callback=f"https://{host}/webhook/amd_status",
+                    amd_status_callback_method="POST",
                     record=True,
                     recording_status_callback=f"https://{host}/webhook/handle_recording",
                     recording_status_callback_event=['completed']
@@ -1403,6 +1407,10 @@ def process_bulk_call_run(run_id: int):
                                 url=webhook_url,
                                 status_callback=f"https://{host}/webhook/call_status",
                                 status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                                # ✅ AMD: Do not trust "answered" for outbound - detect voicemail/fax
+                                machine_detection="DetectMessageEnd",
+                                amd_status_callback=f"https://{host}/webhook/amd_status",
+                                amd_status_callback_method="POST",
                                 record=True
                             )
                             

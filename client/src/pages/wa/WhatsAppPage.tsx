@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { MessageSquare, Users, Settings, Phone, QrCode, RefreshCw, Send, Bot, Smartphone, Server, ArrowRight, Power, Smile, Paperclip, Image, File } from 'lucide-react';
 import QRCodeReact from 'react-qr-code';
 import { http } from '../../services/http';
@@ -101,6 +102,7 @@ interface QRCodeData {
 }
 
 export function WhatsAppPage() {
+  const location = useLocation();
   // State management
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState<WhatsAppThread[]>([]);
@@ -125,6 +127,7 @@ export function WhatsAppPage() {
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'active' | 'unread' | 'closed'>('all');
+  const [deepLinkPhone, setDeepLinkPhone] = useState<string | null>(null);
   
   // Settings and prompt editing state
   const [showSettings, setShowSettings] = useState(false);
@@ -160,6 +163,28 @@ export function WhatsAppPage() {
     loadActiveChats();
     loadSummaries();
   }, []);
+
+  // Support deep-link from Lead page tiles: /app/whatsapp?phone=... (or digits)
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const phoneParam = sp.get('phone');
+    if (!phoneParam) return;
+    const normalized = phoneParam.replace(/[^0-9]/g, '');
+    if (!normalized) return;
+    setDeepLinkPhone(normalized);
+    setSearchQuery(normalized);
+    setFilterType('all');
+  }, [location.search]);
+
+  // Auto-select the thread if we can match by phone digits
+  useEffect(() => {
+    if (!deepLinkPhone || threads.length === 0) return;
+    if (selectedThread) return;
+    const match = threads.find(t => (t.phone || '').replace(/[^0-9]/g, '') === deepLinkPhone);
+    if (match) {
+      setSelectedThread(match);
+    }
+  }, [deepLinkPhone, threads, selectedThread]);
 
   // Poll messages for selected thread and load AI state
   useEffect(() => {

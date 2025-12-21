@@ -112,7 +112,7 @@ export function NotificationsPage() {
 
 
   const handleGoToLead = (leadId: number) => {
-    navigate(`/app/leads/${leadId}`);
+    navigate(`/app/leads/${leadId}?from=leads`);
   };
 
   if (isLoading) {

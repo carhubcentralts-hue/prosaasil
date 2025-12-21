@@ -256,21 +256,21 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
     switch (result.type) {
       case 'lead':
         if (result.id) {
-          navigate(`/app/leads/${result.id}`);
+          navigate(`/app/leads/${result.id}?from=leads`);
         } else {
           navigate(`/app/leads`);
         }
         break;
       case 'call':
         if (result.metadata?.lead_id) {
-          navigate(`/app/leads/${result.metadata.lead_id}`);
+          navigate(`/app/leads/${result.metadata.lead_id}?from=leads`);
         } else {
           navigate(`/app/calls`);
         }
         break;
       case 'whatsapp':
         if (result.metadata?.lead_id) {
-          navigate(`/app/leads/${result.metadata.lead_id}`);
+          navigate(`/app/leads/${result.metadata.lead_id}?from=leads`);
         } else {
           navigate(`/app/whatsapp`);
         }

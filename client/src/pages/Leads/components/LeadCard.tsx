@@ -152,7 +152,7 @@ const LeadCard = forwardRef<HTMLDivElement, LeadCardProps>(
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/app/leads/${lead.id}`);
+                navigate(`/app/leads/${lead.id}?from=leads`);
               }}
               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
               data-testid={`button-view-details-${lead.id}`}
