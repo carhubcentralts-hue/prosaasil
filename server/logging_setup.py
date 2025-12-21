@@ -69,7 +69,9 @@ def setup_logging():
         root_logger.setLevel(logging.WARNING)
         
         # External libraries: ERROR only in production
+        # 🔥 Set parent logger first, then child for proper propagation
         logging.getLogger("twilio").setLevel(logging.ERROR)
+        logging.getLogger("twilio.http_client").setLevel(logging.ERROR)
         logging.getLogger("httpx").setLevel(logging.ERROR)
         logging.getLogger("uvicorn").setLevel(logging.ERROR)
         logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -80,6 +82,7 @@ def setup_logging():
         
         # External libraries: normal levels in debug mode
         logging.getLogger("twilio").setLevel(logging.INFO)
+        logging.getLogger("twilio.http_client").setLevel(logging.INFO)
         logging.getLogger("httpx").setLevel(logging.INFO)
         logging.getLogger("uvicorn").setLevel(logging.INFO)
         logging.getLogger("werkzeug").setLevel(logging.INFO)
@@ -98,6 +101,11 @@ def setup_logging():
     )
     file_handler.setFormatter(JSONFormatter())
     root_logger.addHandler(file_handler)
+    
+    # 🔥 Verify twilio.http_client level in DEBUG mode only (when DEBUG=False, i.e., development)
+    if not DEBUG:
+        twilio_logger = logging.getLogger("twilio.http_client")
+        print(f"[LOGGING_SETUP] twilio.http_client effectiveLevel: {logging.getLevelName(twilio_logger.getEffectiveLevel())}")
     
     return root_logger
 

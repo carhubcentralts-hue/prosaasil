@@ -540,6 +540,7 @@ def process_recording_async(form_data):
                         log.info(f"[WEBHOOK] Preparing webhook for call {call_sid}: direction={direction}, business={business.id}")
                         
                         # 🔥 FIX: Fetch canonical service_type from lead (after canonicalization)
+                        # If lead.service_type is empty, fallback to topic.canonical_service_type
                         canonical_service_type = None
                         if call_log.lead_id:
                             try:
@@ -547,8 +548,14 @@ def process_recording_async(form_data):
                                 if lead and lead.service_type:
                                     canonical_service_type = lead.service_type
                                     log.info(f"[WEBHOOK] Using canonical service_type from lead {lead.id}: '{canonical_service_type}'")
+                                elif lead and lead.topic_id:
+                                    # Fallback: Get canonical from topic if lead.service_type is empty
+                                    topic = BusinessTopic.query.get(lead.topic_id)
+                                    if topic and topic.canonical_service_type:
+                                        canonical_service_type = topic.canonical_service_type
+                                        log.info(f"[WEBHOOK] Fallback to canonical service_type from topic {topic.id}: '{canonical_service_type}'")
                             except Exception as e:
-                                log.warning(f"[WEBHOOK] Could not fetch lead for canonical service: {e}")
+                                log.warning(f"[WEBHOOK] Could not fetch lead/topic for canonical service: {e}")
                         
                         # Build payload with all available data
                         webhook_sent = send_call_completed_webhook(
@@ -788,7 +795,7 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                                 # 1. lead.service_type is None/empty
                                                 # 2. OR lead.service_type is NOT already canonical (prevent overriding good values)
                                                 # 3. OR confidence is very high (>= 0.85) AND different from current
-                                                from server.services.lead_extraction_service import is_canonical_service
+                                                from server.services.lead_extraction_service import is_canonical_service, canonicalize_service
                                                 
                                                 old_service_type = lead.service_type
                                                 should_override = False
@@ -807,10 +814,12 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                                     override_reason = f"service_type '{lead.service_type}' is already canonical"
                                                 
                                                 if should_override:
-                                                    lead.service_type = topic.canonical_service_type
+                                                    # 🔥 Apply final canonicalization to ensure consistency
+                                                    canonical_value = canonicalize_service(topic.canonical_service_type, call_log.business_id)
+                                                    lead.service_type = canonical_value
                                                     if not DEBUG:
-                                                        log.debug(f"[TOPIC→SERVICE] ✅ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=True old='{old_service_type}' new='{topic.canonical_service_type}' reason={override_reason}")
-                                                    log.info(f"[TOPIC→SERVICE] Mapped topic {topic_id} to service_type '{topic.canonical_service_type}' for lead {lead.id} (was: '{old_service_type}')")
+                                                        log.debug(f"[TOPIC→SERVICE] ✅ enabled=True topic.canon='{topic.canonical_service_type}' final_canon='{canonical_value}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=True old='{old_service_type}' new='{canonical_value}' reason={override_reason}")
+                                                    log.info(f"[TOPIC→SERVICE] Mapped topic {topic_id} to service_type '{canonical_value}' for lead {lead.id} (was: '{old_service_type}')")
                                                 else:
                                                     if not DEBUG:
                                                         log.debug(f"[TOPIC→SERVICE] ℹ️ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=False old='{old_service_type}' reason={override_reason}")

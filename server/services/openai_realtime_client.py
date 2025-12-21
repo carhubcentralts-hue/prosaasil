@@ -254,13 +254,13 @@ class OpenAIRealtimeClient:
                     # Log important events (not audio deltas)
                     event_type = event.get("type", "")
                     
-                    # 🎯 TASK 1: Log audio chunks from OpenAI
+                    # 🎯 TASK 1: Log audio chunks from OpenAI (DEBUG only)
                     if event_type == "response.audio.delta":
                         audio_b64 = event.get("delta", "")
                         if audio_b64:
                             import base64
                             chunk_bytes = base64.b64decode(audio_b64)
-                            logger.info(
+                            logger.debug(
                                 "[REALTIME] got audio chunk from OpenAI: bytes=%d",
                                 len(chunk_bytes)
                             )

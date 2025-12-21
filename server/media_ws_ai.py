@@ -31,7 +31,9 @@ ENABLE_LEGACY_CITY_LOGIC = False
 # Realtime phone calls now use dynamic tool selection (appointments only when enabled)
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
-DEBUG = os.getenv("DEBUG", "0") == "1"
+# 🔥 DEBUG=1 → PRODUCTION (minimal logs, quiet mode)
+# 🔥 DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
+DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
 _orig_print = builtins.print
 
@@ -548,10 +550,10 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
         if requested_dt.tzinfo is not None:
             # Convert from source timezone to business timezone
             requested_dt = requested_dt.astimezone(business_tz)
-            print(f"🔍 [VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
+            logger.debug(f"[VALIDATION] Timezone-aware input converted to {policy.tz}: {requested_dt}")
         else:
             # Naive datetime - assume it's in business local time
-            print(f"🔍 [VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
+            logger.debug(f"[VALIDATION] Naive input assumed to be in {policy.tz}: {requested_dt}")
         
         # 🔥 BUILD 183: Check booking_window_days and min_notice_min FIRST
         now = datetime.now(business_tz)
@@ -658,7 +660,7 @@ def validate_appointment_slot(business_id: int, requested_dt) -> bool:
             requested_start_naive = requested_dt
             requested_end_naive = requested_end_dt
         
-        print(f"🔍 [VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
+        logger.debug(f"[VALIDATION] Checking calendar: {requested_start_naive.strftime('%Y-%m-%d %H:%M')} - {requested_end_naive.strftime('%H:%M')} (slot_size={slot_duration_min}min)")
         
         # Query DB for overlapping appointments
         from server.models_sql import Appointment
@@ -2364,7 +2366,7 @@ class MediaStreamHandler:
             self._realtime_failure_reason = f"THREAD_EXCEPTION: {type(e).__name__}"
             
             # Log metrics for failed call
-            _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION", flush=True)
+            logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION")
             _orig_print(f"❌ [REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})", flush=True)
         finally:
             print(f"🔚 [REALTIME] Thread ended for call {call_id}")
@@ -2482,7 +2484,7 @@ class MediaStreamHandler:
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = "OPENAI_CONNECT_TIMEOUT"
-                _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT", flush=True)
+                logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
                 return
                 
@@ -2501,7 +2503,7 @@ class MediaStreamHandler:
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
-                _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}", flush=True)
+                logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
                 
                 # 🔥 FIX #3: Log call context for debugging
@@ -3099,7 +3101,7 @@ class MediaStreamHandler:
             # 🔥 REALTIME STABILITY: Log final metrics
             # ═══════════════════════════════════════════════════════════════════════
             # Log timing metrics at end of call
-            _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed={self.realtime_failed}", flush=True)
+            logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed={self.realtime_failed}")
             
             # 💰 COST TRACKING: Use centralized cost calculation
             self._calculate_and_log_cost()
@@ -3297,11 +3299,11 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count frames sent and log metrics periodically
                 _frames_sent += 1
                 
-                # Log metrics every 5 seconds
+                # Log metrics every 5 seconds (DEBUG only)
                 current_time = time.time()
                 if current_time - _metrics_last_log >= _metrics_log_interval:
                     call_duration = current_time - _call_start_time
-                    print(f"📊 [FRAME_METRICS] StreamSid={self.stream_sid} | "
+                    logger.debug(f"[FRAME_METRICS] StreamSid={self.stream_sid} | "
                           f"frames_in={_frames_in}, frames_sent={_frames_sent}, frames_dropped={_frames_dropped} | "
                           f"call_duration={call_duration:.1f}s")
                     _metrics_last_log = current_time
@@ -3360,7 +3362,7 @@ class MediaStreamHandler:
                                 self.barge_in_active = False
                                 self._barge_in_started_ts = None
                     
-                    print(
+                    logger.debug(
                         f"[PIPELINE STATUS] sent={self._stats_audio_sent} blocked={self._stats_audio_blocked} | "
                         f"active_response={self.active_response_id[:15] if self.active_response_id else 'None'}... | "
                         f"ai_speaking={self.is_ai_speaking_event.is_set()} | barge_in={self.barge_in_active}"
@@ -4533,11 +4535,11 @@ class MediaStreamHandler:
                     response_id = event.get("response_id", "")
                     if audio_b64:
                         # ═══════════════════════════════════════════════════════════════
-                        # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (per הנחיה)
+                        # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (DEBUG only)
                         # ═══════════════════════════════════════════════════════════════
                         import base64
                         audio_bytes = base64.b64decode(audio_b64)
-                        _orig_print(f"📥 [AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}", flush=True)
+                        logger.debug(f"[AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}")
                         
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
@@ -5424,10 +5426,10 @@ class MediaStreamHandler:
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
                         
-                        # 💰 COST TRACKING: AI finished speaking - stop timer
+                        # 💰 COST TRACKING: AI finished speaking - stop timer (DEBUG only)
                         if hasattr(self, '_ai_speech_start') and self._ai_speech_start is not None:
                             ai_duration = time.time() - self._ai_speech_start
-                            print(f"💰 [COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
+                            logger.debug(f"[COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
                             self._ai_speech_start = None  # Reset for next utterance
                         
                         # Track conversation
@@ -5631,8 +5633,8 @@ class MediaStreamHandler:
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
-                    # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
-                    print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
+                    # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript (DEBUG only)
+                    logger.debug(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
                     
                     # 🔥 MASTER CHECK: Log utterance received (verification requirement)
                     logger.info(f"[UTTERANCE] text='{raw_text}'")
@@ -6109,10 +6111,10 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
                         self._loop_guard_engaged = False
                     
-                    # 💰 COST TRACKING: User finished speaking - stop timer  
+                    # 💰 COST TRACKING: User finished speaking - stop timer (DEBUG only)
                     if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
                         user_duration = time.time() - self._user_speech_start
-                        print(f"💰 [COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
+                        logger.debug(f"[COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
                         self._user_speech_start = None  # Reset for next utterance
                     
                     if transcript:
@@ -6826,9 +6828,9 @@ class MediaStreamHandler:
         # 🔍 DEBUG: Check CRM context state
         crm_context = getattr(self, 'crm_context', None)
         if crm_context:
-            print(f"🔍 [DEBUG] CRM context - name: '{crm_context.customer_name}', phone: '{crm_context.customer_phone}'")
+            logger.debug(f"[DEBUG] CRM context - name: '{crm_context.customer_name}', phone: '{crm_context.customer_phone}'")
         else:
-            print(f"🔍 [DEBUG] No CRM context exists yet")
+            logger.debug(f"[DEBUG] No CRM context exists yet")
         
         # 🔥 BUILD 146 FIX: Save date/time to pending_slot from ANY NLP extraction
         # This ensures we don't lose the time when it "falls off" the 10-message history window
@@ -7365,18 +7367,18 @@ class MediaStreamHandler:
         import threading
         import hashlib
         
-        print(f"🔍 [DEBUG] _check_appointment_confirmation called with transcript: '{ai_transcript[:50] if ai_transcript else 'EMPTY'}...'")
-        print(f"🔍 [DEBUG] Conversation history length: {len(self.conversation_history)}")
+        logger.debug(f"[DEBUG] _check_appointment_confirmation called with transcript: '{ai_transcript[:50] if ai_transcript else 'EMPTY'}...'")
+        logger.debug(f"[DEBUG] Conversation history length: {len(self.conversation_history)}")
         
         # 🛡️ BUILD 149 FIX: Check guard FIRST - if appointment already confirmed, skip NLP entirely
         if getattr(self, 'appointment_confirmed_in_session', False):
-            print(f"🛡️ [NLP] GUARD ACTIVE - appointment_confirmed_in_session=True, skipping NLP")
+            logger.debug(f"[NLP] GUARD ACTIVE - appointment_confirmed_in_session=True, skipping NLP")
             return
         
         # 🛡️ Also check CRM context guard
         crm_context = getattr(self, 'crm_context', None)
         if crm_context and crm_context.has_appointment_created:
-            print(f"🛡️ [NLP] GUARD ACTIVE - crm_context.has_appointment_created=True, skipping NLP")
+            logger.debug(f"[NLP] GUARD ACTIVE - crm_context.has_appointment_created=True, skipping NLP")
             return
         
         # 🔥 CRITICAL: Create hash of conversation to prevent duplicate NLP runs
@@ -7387,10 +7389,10 @@ class MediaStreamHandler:
             for msg in self.conversation_history[-10:]  # Last 10 messages
             if msg.get("speaker") == "user"
         ]
-        print(f"🔍 [DEBUG] User messages for hash: {user_messages_only}")
+        logger.debug(f"[DEBUG] User messages for hash: {user_messages_only}")
         conversation_str = json.dumps(user_messages_only, sort_keys=True)
         current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
-        print(f"🔍 [DEBUG] Current conversation hash: {current_hash[:8]}...")
+        logger.debug(f"[DEBUG] Current conversation hash: {current_hash[:8]}...")
         
         # Skip if already processed this exact conversation state (with 30s TTL)
         should_process = False
@@ -7399,26 +7401,26 @@ class MediaStreamHandler:
             
             # 🛡️ BUILD 149 FIX: Check if another NLP thread is still running
             if self.nlp_is_processing:
-                print(f"⏭️ [NLP] BLOCKED - Another NLP thread is still processing")
+                logger.debug(f"[NLP] BLOCKED - Another NLP thread is still processing")
                 return
             
             # Check if we should process (new hash OR expired TTL)
             if self.last_nlp_processed_hash is None:
                 # First run
-                print(f"🔍 [DEBUG] First NLP run - processing")
+                logger.debug(f"[DEBUG] First NLP run - processing")
                 should_process = True
             elif current_hash != self.last_nlp_processed_hash:
                 # Different hash - always process
-                print(f"🔍 [DEBUG] Hash changed ({self.last_nlp_processed_hash[:8] if self.last_nlp_processed_hash else 'None'} → {current_hash[:8]}) - processing")
+                logger.debug(f"[DEBUG] Hash changed ({self.last_nlp_processed_hash[:8] if self.last_nlp_processed_hash else 'None'} → {current_hash[:8]}) - processing")
                 should_process = True
             elif (now - self.last_nlp_hash_timestamp) >= 30:
                 # Same hash but TTL expired - reprocess
-                print(f"🔄 [NLP] TTL expired - reprocessing same hash")
+                logger.debug(f"[NLP] TTL expired - reprocessing same hash")
                 should_process = True
             else:
                 # Same hash within TTL - skip
                 hash_age = now - self.last_nlp_hash_timestamp
-                print(f"⏭️ [NLP] Skipping duplicate (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
+                logger.debug(f"[NLP] Skipping duplicate (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
                 return
             
             # 🛡️ Mark as processing BEFORE releasing lock to prevent race
@@ -7426,13 +7428,13 @@ class MediaStreamHandler:
                 self.nlp_is_processing = True
         
         if not should_process:
-            print(f"🔍 [DEBUG] should_process=False - returning early")
+            logger.debug(f"[DEBUG] should_process=False - returning early")
             return
         
-        print(f"🔍 [NLP] ✅ WILL PROCESS new conversation state (hash={current_hash[:8]}...)")
-        print(f"🔍 [DEBUG] CRM context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
+        logger.debug(f"[NLP] WILL PROCESS new conversation state (hash={current_hash[:8]}...)")
+        logger.debug(f"[DEBUG] CRM context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
         if hasattr(self, 'crm_context') and self.crm_context:
-            print(f"🔍 [DEBUG] CRM data - name: '{self.crm_context.customer_name}', phone: '{self.crm_context.customer_phone}'")
+            logger.debug(f"[DEBUG] CRM data - name: '{self.crm_context.customer_name}', phone: '{self.crm_context.customer_phone}'")
         
         def run_in_thread():
             """Run async parser in dedicated thread with its own event loop"""
@@ -7628,16 +7630,16 @@ class MediaStreamHandler:
             # ⚡ BUILD 168.2: Compact cost log (single line)
             # 🔥 BUILD 338: Added response.create count for cost debugging
             logger.info(f"[COST] {call_duration:.0f}s ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create={response_create_count}")
-            print(f"💰 [COST SUMMARY] Duration: {call_duration:.0f}s | Cost: ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create: {response_create_count}")
+            logger.debug(f"[COST SUMMARY] Duration: {call_duration:.0f}s | Cost: ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create: {response_create_count}")
             
             # 🚨 BUILD 338: WARN if too many response.create calls (cost indicator)
             if response_create_count > 5:
-                print(f"⚠️ [COST WARNING] High response.create count: {response_create_count} (target: ≤5)")
+                logger.debug(f"[COST WARNING] High response.create count: {response_create_count} (target: ≤5)")
             
             return total_cost
             
         except Exception as e:
-            print(f"❌ [COST] Error calculating cost: {e}")
+            logger.error(f"[COST] Error calculating cost: {e}")
             return 0.0
     
     def close_session(self, reason: str):
@@ -7928,7 +7930,7 @@ class MediaStreamHandler:
                         self._realtime_failure_reason = "NO_START_EVENT"
                         
                         # Log metrics and break
-                        _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms=0, first_greeting_audio_ms=0, realtime_failed=True, reason=NO_START_EVENT", flush=True)
+                        logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms=0, first_greeting_audio_ms=0, realtime_failed=True, reason=NO_START_EVENT")
                         _orig_print(f"❌ [REALTIME_FALLBACK] Call pending handled without realtime (reason=NO_START_EVENT_FROM_TWILIO)", flush=True)
                         break
 
@@ -8095,6 +8097,12 @@ class MediaStreamHandler:
                     print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
+                        
+                        # 🔥 PRODUCTION LOG: [CALL_START] - Always logged (WARNING level)
+                        call_direction = getattr(self, 'call_direction', 'unknown')
+                        business_id = getattr(self, 'business_id', None) or getattr(self, 'outbound_business_id', None) or 'N/A'
+                        logger.warning(f"[CALL_START] call_sid={self.call_sid} biz={business_id} direction={call_direction}")
+                        
                         # 🔥 GREETING PROFILER: Track WS connect time
                         stream_registry.set_metric(self.call_sid, 'ws_connect_ts', self.t0_connected)
                     
@@ -8583,9 +8591,9 @@ class MediaStreamHandler:
                         self._barge_in_debug_counter += 1
                         
                         if self._barge_in_debug_counter % 50 == 0:
-                            # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning
+                            # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning (DEBUG only)
                             current_threshold = MIN_SPEECH_RMS
-                            print(f"🔍 [BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
+                            logger.debug(f"[BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, threshold={current_threshold:.0f}, voice_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
                         
@@ -8766,7 +8774,7 @@ class MediaStreamHandler:
                                         self.state = STATE_LISTEN
                                     print(f"✅ Processing complete for conversation #{current_id}")
                     
-                    # ✅ WebSocket Keepalive - מונע נפילות אחרי 5 דקות
+                    # ✅ WebSocket Keepalive - מונע נפילות אחרי 5 דקות (DEBUG only)
                     if current_time - self.last_keepalive_ts > self.keepalive_interval:
                         self.last_keepalive_ts = current_time
                         self.heartbeat_counter += 1
@@ -8781,11 +8789,11 @@ class MediaStreamHandler:
                                 }
                                 success = self._ws_send(json.dumps(heartbeat_msg))
                                 if success:
-                                    print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
+                                    logger.debug(f"WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
                             except Exception as e:
-                                print(f"⚠️ Keepalive failed: {e}")
+                                logger.debug(f"Keepalive failed: {e}")
                         else:
-                            print(f"💔 SKIPPING keepalive - WebSocket connection failed")
+                            logger.debug(f"SKIPPING keepalive - WebSocket connection failed")
                     
                     # ✅ Watchdog: וודא שלא תקועים במצב + EOU כפויה
                     if self.processing and (current_time - self.processing_start_ts) > 2.5:
@@ -8964,6 +8972,22 @@ class MediaStreamHandler:
             session_id = getattr(self, '_call_session_id', 'N/A')
             call_duration = time.time() - getattr(self, 'call_start_time', time.time())
             business_id = getattr(self, 'business_id', 'N/A')
+            
+            # 🔥 PRODUCTION LOG: [CALL_END] - Always logged (WARNING level)
+            call_sid = getattr(self, 'call_sid', None)
+            if call_sid:
+                # Calculate warnings/errors
+                realtime_failed = getattr(self, 'realtime_failed', False)
+                failure_reason = getattr(self, '_realtime_failure_reason', None)
+                warnings_errors = []
+                if realtime_failed:
+                    warnings_errors.append(f"realtime_failed={failure_reason or 'unknown'}")
+                if self.tx == 0 and call_sid:
+                    warnings_errors.append("tx=0")
+                
+                warnings_str = ", ".join(warnings_errors) if warnings_errors else "none"
+                logger.warning(f"[CALL_END] call_sid={call_sid} duration={call_duration:.1f}s warnings={warnings_str}")
+            
             print(f"📞 [{session_id}] CALL ENDED - duration={call_duration:.1f}s, business_id={business_id}, rx={self.rx}, tx={self.tx}")
             logger.info(f"[{session_id}] DISCONNECT - duration={call_duration:.1f}s, business={business_id}")
             
@@ -9010,7 +9034,7 @@ class MediaStreamHandler:
                     self._realtime_failure_reason = failure_reason
             
             # Log metrics - include is_ghost flag for monitoring
-            _orig_print(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}, is_ghost={is_ghost_session}", flush=True)
+            logger.debug(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}, is_ghost={is_ghost_session}")
             
             # 🔥 GREETING OPTIMIZATION: Log complete timeline for latency analysis
             # Get TwiML timing from stream registry (set by webhook)
@@ -9036,14 +9060,14 @@ class MediaStreamHandler:
             sla_met = total_greeting_ms <= greeting_threshold and total_greeting_ms > 0
             
             if not is_ghost_session and total_greeting_ms > 0:
-                # Log complete greeting timeline (only for real calls with greeting)
+                # Log complete greeting timeline (only for real calls with greeting) - DEBUG ONLY
                 if sla_met:
-                    _orig_print(f"[GREETING_SLA_MET] {total_greeting_ms}ms (threshold={greeting_threshold}ms, direction={call_direction})", flush=True)
+                    logger.debug(f"[GREETING_SLA_MET] {total_greeting_ms}ms (threshold={greeting_threshold}ms, direction={call_direction})")
                 else:
-                    _orig_print(f"[GREETING_SLA_FAILED] inbound={is_inbound} twiml_ms={twiml_ms} openai_ms={openai_connect_ms} greet_ms={first_greeting_audio_ms} total={total_greeting_ms}ms > {greeting_threshold}ms", flush=True)
+                    logger.debug(f"[GREETING_SLA_FAILED] inbound={is_inbound} twiml_ms={twiml_ms} openai_ms={openai_connect_ms} greet_ms={first_greeting_audio_ms} total={total_greeting_ms}ms > {greeting_threshold}ms")
                 
-                # Unified timeline log for analysis
-                _orig_print(f"[GREETING_TIMELINE] inbound={is_inbound} twiml_ms={twiml_ms} ws_start_offset_ms={ws_start_offset_ms} openai_connect_ms={openai_connect_ms} first_greeting_audio_ms={first_greeting_audio_ms} total={total_greeting_ms}ms sla_met={sla_met}", flush=True)
+                # Unified timeline log for analysis - DEBUG ONLY
+                logger.debug(f"[GREETING_TIMELINE] inbound={is_inbound} twiml_ms={twiml_ms} ws_start_offset_ms={ws_start_offset_ms} openai_connect_ms={openai_connect_ms} first_greeting_audio_ms={first_greeting_audio_ms} total={total_greeting_ms}ms sla_met={sla_met}")
                 logger.info(f"[GREETING_TIMELINE] inbound={is_inbound} total={total_greeting_ms}ms sla_met={sla_met}")
             
             # ⚡ STREAMING STT: Close session at end of call
