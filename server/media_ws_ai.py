@@ -11480,7 +11480,9 @@ class MediaStreamHandler:
                             "call_id": call_id,
                             "output": json.dumps({
                                 "success": False,
-                                "error": "חסר תאריך"
+                                "error": "חסר תאריך",
+                                "error_code": "missing_date",
+                                "user_message": "על איזה תאריך מדובר? למשל היום/מחר/יום ראשון."
                             })
                         }
                     })
@@ -11516,7 +11518,8 @@ class MediaStreamHandler:
                                 "output": json.dumps({
                                     "success": False,
                                     "error": "תאריך לא תקין. בקש תאריך אחר.",
-                                    "error_code": "invalid_date"
+                                    "error_code": "invalid_date",
+                                    "user_message": "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
                                 }, ensure_ascii=False)
                             }
                         })
@@ -11631,7 +11634,9 @@ class MediaStreamHandler:
                                     "normalized_date": normalized_date_iso,
                                     "weekday_he": weekday_he,
                                     "date_display_he": date_display_he,
-                                    "error": f"אין זמנים פנויים ב-{date_display_he}. הצע תאריך אחר."
+                                    "error": f"אין זמנים פנויים ב-{date_display_he}. הצע תאריך אחר.",
+                                    "error_code": "no_slots",
+                                    "user_message": "אין זמנים פנויים בתאריך הזה. אפשר תאריך אחר? למשל מחר או שבוע הבא."
                                 }, ensure_ascii=False)
                             }
                         })
@@ -11749,7 +11754,8 @@ class MediaStreamHandler:
                             "call_id": call_id,
                             "output": json.dumps({
                                 "success": False,
-                                "error_code": "missing_name"
+                                "error_code": "missing_name",
+                                "user_message": "על איזה שם לרשום את הפגישה?"
                             })
                         }
                     })
@@ -11765,7 +11771,8 @@ class MediaStreamHandler:
                             "call_id": call_id,
                             "output": json.dumps({
                                 "success": False,
-                                "error_code": "missing_datetime"
+                                "error_code": "missing_datetime",
+                                "user_message": "כדי לקבוע תור אני צריכה תאריך ושעה. לאיזה יום ובאיזו שעה?"
                             })
                         }
                     })
@@ -11806,7 +11813,8 @@ class MediaStreamHandler:
                                 "output": json.dumps({
                                     "success": False,
                                     "error_code": "invalid_date",
-                                    "message": "תאריך לא תקין. בקש תאריך אחר."
+                                    "message": "תאריך לא תקין. בקש תאריך אחר.",
+                                    "user_message": "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון."
                                 }, ensure_ascii=False)
                             }
                         })
@@ -11824,7 +11832,8 @@ class MediaStreamHandler:
                                 "output": json.dumps({
                                     "success": False,
                                     "error_code": "invalid_time",
-                                    "message": "שעה לא תקינה. בקש שעה בפורמט HH:MM או שעה ברורה."
+                                    "message": "שעה לא תקינה. בקש שעה בפורמט HH:MM או שעה ברורה.",
+                                    "user_message": "באיזו שעה? אפשר להגיד למשל 15:00 או ארבע."
                                 }, ensure_ascii=False)
                             }
                         })
@@ -11945,7 +11954,8 @@ class MediaStreamHandler:
                                     "date_display_he": date_display_he,
                                     "requested_time_raw": appointment_time_raw,
                                     "alternative_times": alternatives,
-                                    "message": "השעה שביקשת לא פנויה. הצע חלופות מהשרת."
+                                    "message": "השעה שביקשת לא פנויה. הצע חלופות מהשרת.",
+                                    "user_message": "השעה שביקשת לא פנויה. מתאים לך אחת מהחלופות, או שתרצה שעה אחרת?"
                                 }, ensure_ascii=False)
                             }
                         })
