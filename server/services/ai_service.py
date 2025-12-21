@@ -1287,6 +1287,8 @@ class AIService:
             tool_calls_data = []
             tool_count = 0
             booking_successful = False  # Track if booking actually succeeded
+            # For WhatsApp hardening: if any tool returns user_message on error, we can force it verbatim.
+            forced_user_message: Optional[str] = None
             
             if hasattr(result, 'new_items') and result.new_items:
                 print(f"📊 Agent returned {len(result.new_items)} items")
@@ -1346,12 +1348,17 @@ class AIService:
                             
                             # 🔍 CHECK if this is a successful booking
                             if isinstance(output, dict):
-                                if output.get('ok') is True and output.get('appointment_id'):
+                                # Unified success detection (calendar_* returns ok, WhatsApp tools return success)
+                                appt_id = output.get('appointment_id')
+                                if appt_id and (output.get('ok') is True or output.get('success') is True):
                                     booking_successful = True
-                                    print(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={output.get('appointment_id')}")
+                                    print(f"     ✅ DETECTED SUCCESSFUL BOOKING: appointment_id={appt_id}")
                                     # Store appointment details for WhatsApp validation
                                     if not hasattr(result, 'appointment_details'):
                                         result.appointment_details = output
+                                # Capture deterministic user_message from tool errors (WhatsApp must echo verbatim)
+                                if output.get("success") is False and output.get("user_message") and not forced_user_message:
+                                    forced_user_message = str(output.get("user_message"))
                 
                 if tool_count > 0:
                     print(f"✅ [AGENTKIT] Agent executed {tool_count} tool actions")
@@ -1374,7 +1381,12 @@ class AIService:
             # ✅ RESTORED: Tool call validation for AgentKit (non-realtime flows)
             # Check if calendar_create_appointment was called (with or without _wrapped suffix)
             booking_tool_called = any(
-                tc.get("tool") in ["calendar_create_appointment", "calendar_create_appointment_wrapped"]
+                tc.get("tool") in [
+                    "calendar_create_appointment",
+                    "calendar_create_appointment_wrapped",
+                    # WhatsApp unified endpoint (AgentKit)
+                    "schedule_appointment",
+                ]
                 for tc in tool_calls_data
             )
             
@@ -1391,7 +1403,12 @@ class AIService:
             
             # Check if calendar_find_slots was called
             check_availability_called = any(
-                tc.get("tool") in ["calendar_find_slots", "calendar_find_slots_wrapped"]
+                tc.get("tool") in [
+                    "calendar_find_slots",
+                    "calendar_find_slots_wrapped",
+                    # WhatsApp unified endpoint (AgentKit)
+                    "check_availability",
+                ]
                 for tc in tool_calls_data
             )
             
@@ -1479,6 +1496,12 @@ class AIService:
                 print(f"⚠️  [AGENTKIT] INFO: Booking successful but NO WhatsApp sent (agent didn't try)")
                 logger.info(f"⚠️  [AGENTKIT] Booking successful without WhatsApp confirmation")
                 # Don't block - just log (WhatsApp is nice-to-have, not critical)
+
+            # ✅ WhatsApp hardening: if a tool returned user_message on error, force the reply to it verbatim.
+            # This prevents improvisation and ensures consistent UX with Realtime.
+            if channel == "whatsapp" and forced_user_message and not booking_successful:
+                logger.info(f"WHATSAPP_APPT forcing user_message verbatim: '{forced_user_message[:120]}'")
+                reply_text = forced_user_message
             
             # ✨ Save trace to database
             try:

@@ -238,6 +238,306 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
     
     # If business_id provided, create wrapper tools that inject it
     if business_id:
+        # ============================================================================
+        # ✅ WhatsApp/AgentKit MUST use the SAME appointment tools as Realtime:
+        # - check_availability
+        # - schedule_appointment
+        # These return structured {success,error_code,user_message,...} and server-side date normalization.
+        # ============================================================================
+        @function_tool
+        def check_availability(date: str, preferred_time: str = "", service_type: str = ""):
+            """
+            Check available appointment slots for a specific date.
+
+            Args:
+                date: Date to check. Accepts YYYY-MM-DD OR Hebrew like 'היום'/'מחר'/'ראשון' etc.
+                preferred_time: Optional preferred time (HH:MM or Hebrew like 'שלוש')
+                service_type: Optional service type (can affect duration in some businesses)
+
+            Returns:
+                dict with:
+                - success: bool
+                - error_code: optional string
+                - user_message: optional string (MUST be sent to the customer verbatim on WhatsApp)
+                - normalized_date/date_display_he/weekday_he/slots
+            """
+            import time as _time
+            from datetime import datetime as _dt
+            import pytz as _pytz
+            from flask import g as _g
+            from server.policy.business_policy import get_business_policy
+            from server.services.hebrew_datetime import resolve_hebrew_date, resolve_hebrew_time, pick_best_time_candidate
+            from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
+
+            tool_start = _time.time()
+
+            context = getattr(_g, "agent_context", None) or {}
+            policy = get_business_policy(business_id, prompt_text=(context.get("business_prompt") or custom_instructions))
+            business_tz = _pytz.timezone(policy.tz)
+
+            date_raw = (date or "").strip()
+            if not date_raw:
+                return {
+                    "success": False,
+                    "error_code": "missing_date",
+                    "user_message": "על איזה תאריך מדובר? למשל היום/מחר/יום ראשון.",
+                }
+
+            date_res = resolve_hebrew_date(date_raw, business_tz)
+            if not date_res:
+                return {
+                    "success": False,
+                    "error_code": "invalid_date",
+                    "user_message": "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון.",
+                }
+
+            normalized_date_iso = date_res.date_iso
+            weekday_he = date_res.weekday_he
+            date_display_he = date_res.date_display_he
+
+            # Past date hard-stop
+            today_local = _dt.now(business_tz).date()
+            try:
+                y, m, d = map(int, normalized_date_iso.split("-"))
+                requested_date = _dt(y, m, d, tzinfo=business_tz).date()
+            except Exception:
+                requested_date = None
+
+            if requested_date and requested_date < today_local:
+                return {
+                    "success": False,
+                    "error_code": "past_date",
+                    "normalized_date": normalized_date_iso,
+                    "weekday_he": weekday_he,
+                    "date_display_he": date_display_he,
+                    "user_message": "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא.",
+                }
+
+            preferred_time_raw = (preferred_time or "").strip()
+            preferred_hhmm = None
+            if preferred_time_raw:
+                time_res = resolve_hebrew_time(preferred_time_raw)
+                if time_res and time_res.candidates_hhmm:
+                    preferred_hhmm = pick_best_time_candidate(time_res.candidates_hhmm)
+
+            duration_min = policy.slot_size_min
+            try:
+                result = _calendar_find_slots_impl(
+                    FindSlotsInput(
+                        business_id=business_id,
+                        date_iso=normalized_date_iso,
+                        duration_min=duration_min,
+                        preferred_time=preferred_hhmm if preferred_hhmm else None,
+                    ),
+                    context=context,
+                )
+            except Exception as e:
+                logger.warning(f"WHATSAPP_APPT tool=check_availability success=false error_code=calendar_error appointment_id= - err={e}")
+                return {
+                    "success": False,
+                    "error_code": "calendar_error",
+                    "user_message": "יש בעיה לבדוק זמינות כרגע. אפשר תאריך אחר או לנסות שוב עוד מעט?",
+                }
+
+            slots_display = [s.start_display for s in (result.slots or [])][:3]
+            ok = bool(slots_display)
+            payload = {
+                "success": ok,
+                "normalized_date": normalized_date_iso,
+                "weekday_he": weekday_he,
+                "date_display_he": date_display_he,
+                "slots": slots_display,
+                "business_hours": getattr(result, "business_hours", "dynamic"),
+                "ts": _time.time(),
+            }
+            if ok:
+                logger.info(f"WHATSAPP_APPT tool=check_availability success=true error_code= appointment_id= - date={normalized_date_iso} slots={slots_display[:2]}")
+                return payload
+
+            payload.update(
+                {
+                    "error_code": "no_slots",
+                    "user_message": "אין זמנים פנויים בתאריך הזה. אפשר תאריך אחר? למשל מחר או שבוע הבא.",
+                }
+            )
+            logger.info(f"WHATSAPP_APPT tool=check_availability success=false error_code=no_slots appointment_id= - date={normalized_date_iso}")
+            return payload
+
+        @function_tool
+        def schedule_appointment(
+            customer_name: str,
+            appointment_date: str,
+            appointment_time: str,
+            service_type: str = "",
+        ):
+            """
+            Create an appointment ONLY after checking availability.
+
+            Returns:
+                dict with:
+                - success: bool
+                - appointment_id on success
+                - error_code + user_message on failure (MUST be sent verbatim on WhatsApp)
+            """
+            import time as _time
+            from datetime import datetime as _dt, timedelta as _td
+            import pytz as _pytz
+            from flask import g as _g
+
+            from server.policy.business_policy import get_business_policy
+            from server.services.hebrew_datetime import resolve_hebrew_date, resolve_hebrew_time
+            from server.agent_tools.tools_calendar import (
+                CreateAppointmentInput,
+                FindSlotsInput,
+                _calendar_find_slots_impl,
+                _calendar_create_appointment_impl,
+            )
+
+            name = (customer_name or "").strip()
+            date_raw = (appointment_date or "").strip()
+            time_raw = (appointment_time or "").strip()
+            service = (service_type or "").strip() or "Appointment"
+
+            if not name:
+                return {"success": False, "error_code": "missing_name", "user_message": "על איזה שם לרשום את הפגישה?"}
+            if not date_raw or not time_raw:
+                return {
+                    "success": False,
+                    "error_code": "missing_datetime",
+                    "user_message": "כדי לקבוע תור אני צריכה תאריך ושעה. לאיזה יום ובאיזו שעה?",
+                }
+
+            context = getattr(_g, "agent_context", None) or {}
+            policy = get_business_policy(business_id, prompt_text=(context.get("business_prompt") or custom_instructions))
+            tz = _pytz.timezone(policy.tz)
+
+            date_res = resolve_hebrew_date(date_raw, tz)
+            if not date_res:
+                return {
+                    "success": False,
+                    "error_code": "invalid_date",
+                    "user_message": "לא הצלחתי להבין את התאריך. אפשר תאריך אחר? למשל מחר או יום ראשון.",
+                }
+            time_res = resolve_hebrew_time(time_raw)
+            if not time_res or not time_res.candidates_hhmm:
+                return {
+                    "success": False,
+                    "error_code": "invalid_time",
+                    "user_message": "באיזו שעה? אפשר להגיד למשל 15:00 או ארבע.",
+                }
+
+            normalized_date_iso = date_res.date_iso
+            weekday_he = date_res.weekday_he
+            date_display_he = date_res.date_display_he
+
+            today_local = _dt.now(tz).date()
+            try:
+                y, m, d = map(int, normalized_date_iso.split("-"))
+                requested_date = _dt(y, m, d, tzinfo=tz).date()
+            except Exception:
+                requested_date = None
+            if requested_date and requested_date < today_local:
+                return {
+                    "success": False,
+                    "error_code": "past_date",
+                    "normalized_date": normalized_date_iso,
+                    "weekday_he": weekday_he,
+                    "date_display_he": date_display_he,
+                    "user_message": "זה תאריך שכבר עבר. אפשר תאריך חדש? למשל מחר או שבוע הבא.",
+                }
+
+            duration_min = policy.slot_size_min
+            chosen_time = None
+            alternatives: list[str] = []
+            for cand in time_res.candidates_hhmm:
+                try:
+                    slots_result = _calendar_find_slots_impl(
+                        FindSlotsInput(
+                            business_id=business_id,
+                            date_iso=normalized_date_iso,
+                            duration_min=duration_min,
+                            preferred_time=cand,
+                        ),
+                        context=context,
+                    )
+                    alternatives = [s.start_display for s in (slots_result.slots or [])][:2]
+                    if slots_result.slots and any(s.start_display == cand for s in slots_result.slots):
+                        chosen_time = cand
+                        break
+                except Exception:
+                    continue
+
+            if not chosen_time:
+                logger.info(
+                    f"WHATSAPP_APPT tool=schedule_appointment success=false error_code=slot_unavailable appointment_id= - date={normalized_date_iso} requested='{time_raw}' alt={alternatives}"
+                )
+                return {
+                    "success": False,
+                    "error_code": "slot_unavailable",
+                    "normalized_date": normalized_date_iso,
+                    "weekday_he": weekday_he,
+                    "date_display_he": date_display_he,
+                    "requested_time_raw": time_raw,
+                    "alternative_times": alternatives,
+                    "user_message": "השעה שביקשת לא פנויה. מתאים לך אחת מהחלופות, או שתרצה שעה אחרת?",
+                }
+
+            requested_dt = tz.localize(_dt.strptime(f"{normalized_date_iso} {chosen_time}", "%Y-%m-%d %H:%M"))
+            end_dt = requested_dt + _td(minutes=duration_min)
+
+            # Phone source in WhatsApp: prefer whatsapp_from in agent_context
+            # (AgentKit context is the metadata source; do NOT ask for DTMF).
+            wa_from = (context or {}).get("whatsapp_from") or (context or {}).get("customer_phone") or None
+            notes = "Scheduled via WhatsApp. " + (f"WhatsApp from: {wa_from}. " if wa_from else "Phone not collected (policy optional).")
+
+            input_data = CreateAppointmentInput(
+                business_id=business_id,
+                customer_name=name,
+                customer_phone=wa_from,  # _choose_phone will normalize/fallback
+                treatment_type=service,
+                start_iso=requested_dt.isoformat(),
+                end_iso=end_dt.isoformat(),
+                notes=notes,
+                source="whatsapp",
+            )
+
+            result = _calendar_create_appointment_impl(input_data, context={**context, "channel": "whatsapp"}, session=None)
+
+            # Success
+            if hasattr(result, "appointment_id"):
+                appt_id = result.appointment_id
+                logger.info(f"WHATSAPP_APPT tool=schedule_appointment success=true error_code= appointment_id={appt_id}")
+                return {
+                    "success": True,
+                    "appointment_id": appt_id,
+                    "normalized_date": normalized_date_iso,
+                    "weekday_he": weekday_he,
+                    "date_display_he": date_display_he,
+                    "time_hhmm": chosen_time,
+                    "start_time": requested_dt.isoformat(),
+                    "end_time": end_dt.isoformat(),
+                    "customer_name": name,
+                    "whatsapp_status": getattr(result, "whatsapp_status", "skipped"),
+                }
+
+            # Error dict from calendar impl
+            if isinstance(result, dict):
+                error_code = result.get("error") or result.get("error_code") or "server_error"
+                logger.info(f"WHATSAPP_APPT tool=schedule_appointment success=false error_code={error_code} appointment_id=")
+                # Map a safe user_message
+                user_message = (
+                    "יש בעיה לקבוע את התור כרגע. אפשר לנסות שעה אחרת או תאריך אחר?"
+                    if error_code not in {"need_phone", "missing_phone"}
+                    else "מה המספר שלך?"
+                )
+                if isinstance(result.get("message"), str) and result.get("message"):
+                    # Keep internal message for logs; do not expose raw tech errors.
+                    pass
+                return {"success": False, "error_code": error_code, "user_message": user_message}
+
+            logger.info("WHATSAPP_APPT tool=schedule_appointment success=false error_code=unexpected_result appointment_id=")
+            return {"success": False, "error_code": "unexpected_result", "user_message": "יש בעיה לקבוע את התור כרגע. אפשר לנסות שוב?"}
+
         # Wrapper for calendar_find_slots
         @function_tool
         def calendar_find_slots_wrapped(date_iso: str, duration_min: int = 60, preferred_time: str = None):
@@ -369,14 +669,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             Create a new appointment in the calendar
             
-            CRITICAL: Must have valid customer_phone before calling this!
-            Agent MUST collect phone via DTMF (keypad input) BEFORE booking.
+            Phone collection:
+            - Phone is OPTIONAL by default (caller-id / WhatsApp context may exist).
+            - Only require customer_phone if BusinessPolicy.require_phone_before_booking=True.
             
             Args:
                 treatment_type: Type of treatment (required)
                 start_iso: Start time in ISO format (required)
                 end_iso: End time in ISO format (required)
-                customer_phone: Customer phone number (required - collected via DTMF)
+                customer_phone: Customer phone number (optional unless policy requires it)
                 customer_name: Customer name (required - collected verbally)
                 notes: Additional notes (optional)
             """
@@ -393,10 +694,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from flask import g
+                from server.policy.business_policy import get_business_policy
                 
                 # Get context and session for _choose_phone
                 context = getattr(g, 'agent_context', None)
                 session = None  # TODO: pass session if available
+
+                # Load policy (determines whether phone is required)
+                policy = get_business_policy(business_id, (context or {}).get("business_prompt") if context else None)
                 
                 # 🔥 CRITICAL: Validate both NAME and PHONE!
                 if not customer_name or customer_name.strip() in ["", "לקוח", "customer"]:
@@ -408,21 +713,17 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                         "message": error_msg
                     }
                 
-                # 🔥 NEW: Validate phone was collected via DTMF
-                if not customer_phone or len(customer_phone.strip()) < 9:
+                # Phone is optional unless policy explicitly requires it
+                if policy.require_phone_before_booking and (not customer_phone or len(customer_phone.strip()) < 9):
                     error_msg = "missing_phone"
-                    logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg}")
-                    return {
-                        "ok": False,
-                        "error": "missing_phone",
-                        "message": error_msg
-                    }
+                    logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg} (policy requires phone)")
+                    return {"ok": False, "error": "missing_phone", "message": error_msg}
                 
                 # 🔥 CRITICAL: Validate date/time to ensure calendar was checked
                 from datetime import datetime
                 import pytz
                 try:
-                    tz = pytz.timezone("Asia/Jerusalem")
+                    tz = pytz.timezone(policy.tz or "Asia/Jerusalem")
                     now = datetime.now(tz)
                     start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
                     
@@ -616,14 +917,25 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
         # ✅ RESTORED: AgentKit tools for non-realtime flows (WhatsApp, backend tasks, post-call)
         # IMPORTANT: These tools are used ONLY in AgentKit / non-realtime flows
         # Realtime phone calls use media_ws_ai.py with separate tool policy
-        tools_to_use = [
-            calendar_find_slots_wrapped,
-            calendar_create_appointment_wrapped,
-            leads_upsert_wrapped,
-            leads_search,
-            whatsapp_send,
-            business_get_info
-        ]
+        # WhatsApp MUST use check_availability/schedule_appointment (not calendar_* tools)
+        if channel == "whatsapp":
+            tools_to_use = [
+                check_availability,
+                schedule_appointment,
+                leads_upsert_wrapped,
+                leads_search,
+                whatsapp_send,
+                business_get_info,
+            ]
+        else:
+            tools_to_use = [
+                calendar_find_slots_wrapped,
+                calendar_create_appointment_wrapped,
+                leads_upsert_wrapped,
+                leads_search,
+                whatsapp_send,
+                business_get_info
+            ]
         logger.info(f"✅ AgentKit tools RESTORED for business {business_id} (non-realtime flows)")
     else:
         # ✅ RESTORED: AgentKit tools without business_id injection
@@ -725,10 +1037,12 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 2. Call calendar_find_slots() to check availability
 3. Suggest 2 available times if requested time is unavailable
 4. Once time is confirmed, ask for NAME only: "על איזה שם?"
-5. Once you have name, ask for PHONE:
-   - 📞 PHONE channel ONLY: "מה המספר שלך? אנא הקלידו והקישו סולמית (#) בסיום"
-   - 📱 WHATSAPP channel: "מה המספר שלך?" (NO DTMF instruction!)
-6. Call calendar_create_appointment() with all details
+5. PHONE handling:
+   - By default phone is OPTIONAL. Prefer using the caller-id / existing WhatsApp context.
+   - Only ask for phone if your business policy explicitly requires it before booking.
+   - If you must ask on PHONE: "מה המספר שלך? אנא הקלידו והקישו סולמית (#) בסיום"
+   - If you must ask on WHATSAPP: "מה המספר שלך?" (NO DTMF instruction!)
+6. Call calendar_create_appointment() with all details (only claim "קבעתי" after ok:true)
 7. Confirm booking based on whatsapp_status
 
 🔥 CRITICAL: Ask for NAME and PHONE separately - NEVER together!
