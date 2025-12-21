@@ -8534,6 +8534,16 @@ class MediaStreamHandler:
                                 logger.info(f"✅ [VAD] Calibrated: noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f}")
                                 print(f"🎛️ VAD CALIBRATED (noise={self.noise_floor:.1f}, threshold={self.vad_threshold:.1f})")
                             self.is_calibrated = True
+                            
+                            # 🔥 VERIFICATION LOG: Show encoding and barge-in threshold (one-time, DEBUG only)
+                            if DEBUG:
+                                barge_in_th = getattr(self, '_barge_in_threshold', max(self.noise_floor + 12, 35))
+                                logger.debug(
+                                    f"[BARGE_IN_INIT] encoding=pcm16 (from G.711 μ-law), "
+                                    f"noise_floor={self.noise_floor:.1f}, "
+                                    f"vad_threshold={self.vad_threshold:.1f}, "
+                                    f"barge_in_threshold={barge_in_th:.1f}"
+                                )
                     
                     # 🚀 REALTIME API: Route audio to Realtime if enabled
                     if USE_REALTIME_API and self.realtime_thread and self.realtime_thread.is_alive():
@@ -13886,6 +13896,12 @@ class MediaStreamHandler:
                 
                 # Handle "media" event - send audio to Twilio (NO LOGS)
                 if item.get("type") == "media" or item.get("event") == "media":
+                    # 🔥 BARGE-IN FIX: Drop frames that were dequeued before flush if barge-in active
+                    # This handles the "frame already in hand" race condition
+                    if getattr(self, 'barge_in_active', False):
+                        # Drop this frame - user interrupted, don't send AI audio
+                        continue
+                    
                     # Send frame to Twilio WS (item already has correct format from enqueue)
                     if item.get("event") == "media" and "media" in item:
                         success = self._ws_send(json.dumps(item))
