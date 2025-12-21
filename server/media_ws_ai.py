@@ -2653,7 +2653,11 @@ class MediaStreamHandler:
             # Use compact for initial greeting (fast!)
             greeting_prompt_to_use = compact_prompt
             print(f"🎯 [PROMPT STRATEGY] Using COMPACT prompt for greeting: {len(greeting_prompt_to_use)} chars")
-            logger.info(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
+            if DEBUG:
+                logger.debug(f"[PROMPT-LOADING] business_id={business_id_safe} direction={call_direction} source=registry strategy=COMPACT→FULL")
+            else:
+                # Production: Only log at startup, not per-call
+                pass
             
             # Store full BUSINESS prompt for post-greeting injection (NOT session.update.instructions)
             self._full_prompt_for_upgrade = full_prompt
@@ -3820,7 +3824,11 @@ class MediaStreamHandler:
                                     _orig_print(f"   - status: {status}", flush=True)
                                     _orig_print(f"   - duration_ms: {duration_ms}", flush=True)
                             
-                            print(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}", flush=True)
+                            if DEBUG:
+                                logger.debug(f"[TX_RESPONSE] end response_id={resp_id[:20]}..., frames_sent={frames_sent}, duration_ms={duration_ms}, avg_fps={avg_fps:.1f}")
+                            else:
+                                # Production: Only log critical metrics, not per-response details
+                                pass
                             # Cleanup
                             del self._response_tracking[resp_id]
                         
@@ -4031,7 +4039,11 @@ class MediaStreamHandler:
                             'frames_sent': 0,
                             'first_audio_ts': None
                         }
-                        print(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}", flush=True)
+                        if DEBUG:
+                            logger.debug(f"[TX_RESPONSE] start response_id={resp_id[:20]}..., t={time.time():.3f}")
+                        else:
+                            # Production: Silence per-response logs
+                            pass
                     else:
                         _orig_print(f"🔊 [REALTIME] {event_type}", flush=True)
                 
