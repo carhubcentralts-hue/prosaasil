@@ -15,6 +15,7 @@ Features:
 - Idempotency protection
 """
 import os
+import re
 import time
 import threading
 import numpy as np
@@ -28,6 +29,28 @@ TOPIC_CACHE_TTL_SECONDS = int(os.getenv("TOPIC_CACHE_TTL_SEC", "1800"))  # 30 mi
 EMBEDDING_MODEL = "text-embedding-3-small"  # Fixed model, not configurable
 DEFAULT_THRESHOLD = 0.78
 DEFAULT_TOP_K = 3
+
+
+def _normalize_text_for_matching(text: str) -> str:
+    """
+    Normalize text for topic/synonym matching (unified normalization).
+    Removes niqqud, punctuation, extra spaces, and converts to lowercase.
+    
+    This is the single source of truth for text normalization in topic classification.
+    """
+    if not text:
+        return ""
+    
+    # Remove Hebrew niqqud (vowel marks: U+0591-U+05C7)
+    text = re.sub(r'[\u0591-\u05C7]', '', text)
+    
+    # Remove punctuation and special characters
+    text = re.sub(r'[^\w\s]', ' ', text)
+    
+    # Normalize whitespace and lowercase
+    text = ' '.join(text.split()).strip().lower()
+    
+    return text
 
 
 class TopicCacheEntry:
@@ -83,15 +106,18 @@ class TopicClassifier:
     def _keyword_match(self, text: str, topics: List[Dict]) -> Optional[Dict]:
         """
         LAYER 1: Fast keyword/synonym matching (free, instant)
-        Returns topic with high confidence if exact match found
+        Returns topic with high confidence if exact match found.
+        
+        Uses normalized text (niqqud/punctuation removed, lowercase) for matching.
         """
-        text_lower = text.lower()
-        text_keywords = self._extract_keywords(text)
+        # Normalize text for matching
+        text_normalized = _normalize_text_for_matching(text)
+        text_keywords = self._extract_keywords(text_normalized)
         
         for topic in topics:
-            # Check exact name match
-            topic_name_lower = topic['name'].lower()
-            if topic_name_lower in text_lower:
+            # Check exact name match (normalized)
+            topic_name_normalized = _normalize_text_for_matching(topic['name'])
+            if topic_name_normalized and topic_name_normalized in text_normalized:
                 print(f"🎯 KEYWORD MATCH (name): '{topic['name']}' found in text")
                 return {
                     "topic_id": topic['id'],
@@ -105,12 +131,15 @@ class TopicClassifier:
                     }]
                 }
             
-            # Check synonyms match
+            # Check synonyms match (normalized)
             if topic.get('synonyms'):
                 for synonym in topic['synonyms']:
-                    synonym_lower = synonym.lower().strip()
-                    if synonym_lower and synonym_lower in text_lower:
-                        print(f"🎯 SYNONYM MATCH: '{synonym}' (topic: {topic['name']})")
+                    if not synonym:
+                        continue
+                    synonym_normalized = _normalize_text_for_matching(synonym)
+                    # Use 'contains' check to catch "מנול" in "התקנת מנול."
+                    if synonym_normalized and synonym_normalized in text_normalized:
+                        print(f"🎯 SYNONYM MATCH: '{synonym}' (normalized: '{synonym_normalized}') → topic: {topic['name']}")
                         return {
                             "topic_id": topic['id'],
                             "topic_name": topic['name'],
@@ -124,10 +153,11 @@ class TopicClassifier:
                         }
             
             # Check multi-keyword match (at least 2 keywords must match)
-            topic_keywords = self._extract_keywords(topic['name'])
+            topic_keywords = self._extract_keywords(topic_name_normalized)
             if topic.get('synonyms'):
                 for syn in topic['synonyms']:
-                    topic_keywords.update(self._extract_keywords(syn))
+                    if syn:
+                        topic_keywords.update(self._extract_keywords(_normalize_text_for_matching(syn)))
             
             matching_keywords = text_keywords & topic_keywords
             if len(matching_keywords) >= 2 and len(topic_keywords) > 0:
@@ -196,6 +226,7 @@ class TopicClassifier:
                 "id": topic.id,
                 "name": topic.name,
                 "synonyms": topic.synonyms if isinstance(topic.synonyms, list) else [],
+                "canonical_service_type": topic.canonical_service_type,  # 🔥 Include canonical mapping
                 "has_embedding": existing_embedding is not None
             })
         
