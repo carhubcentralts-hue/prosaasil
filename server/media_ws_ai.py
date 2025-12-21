@@ -2095,6 +2095,11 @@ class MediaStreamHandler:
         self._tx_schedule_resets = 0  # Count of timing resyncs (indicates burst/pause pattern)
         self._tx_late_frames = 0  # Frames sent after their deadline
         self._tx_timing_deltas = []  # Track timing deltas for p95 calculation (limited to last 1000)
+        
+        # 🔥 REQUIREMENT: Audio flow diagnostics - track per response
+        # These help identify if issue is "no audio.delta from OpenAI" vs "dropped internally"
+        self._response_diagnostics = {}  # response_id -> {audio_deltas, transcript_deltas, enqueued, sent}
+        self._last_twilio_send_ts = None  # Last time we sent audio to Twilio (for stall detection)
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -2928,6 +2933,44 @@ class MediaStreamHandler:
 
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog (only when greeting triggered)
+            # ═══════════════════════════════════════════════════════════════════════
+            # 🔥 REQUIREMENT: TX Watchdog - detect TX stalls
+            # ═══════════════════════════════════════════════════════════════════════
+            async def _tx_stall_watchdog():
+                """Monitor TX loop for stalls - alert if queue has frames but no sends."""
+                await asyncio.sleep(3.0)  # Wait 3s for startup
+                
+                while not self.realtime_stop_flag:
+                    try:
+                        # Check TX health every 1 second
+                        await asyncio.sleep(1.0)
+                        
+                        # Skip if not in active call
+                        if not hasattr(self, 'realtime_audio_out_queue'):
+                            continue
+                        
+                        queue_size = self.realtime_audio_out_queue.qsize()
+                        last_send = getattr(self, '_last_twilio_send_ts', None)
+                        tx_alive = getattr(self, 'tx_thread', None) and self.tx_thread.is_alive()
+                        stream_sid = getattr(self, 'stream_sid', None)
+                        stop_flag = getattr(self, 'realtime_stop_flag', False)
+                        
+                        # Alert if queue has frames but no recent send
+                        if queue_size > 0 and last_send:
+                            now = time.perf_counter()
+                            ms_since_send = (now - last_send) * 1000
+                            if ms_since_send > 300:  # >300ms stall
+                                _orig_print(
+                                    f"[TX_STALL] queue={queue_size} last_send_ms={ms_since_send:.0f} "
+                                    f"stream_sid={bool(stream_sid)} stop_flag={stop_flag} tx_alive={tx_alive}",
+                                    flush=True
+                                )
+                    except Exception as e:
+                        # Don't let watchdog crash
+                        pass
+            
+            asyncio.create_task(_tx_stall_watchdog())
+            
             # ═══════════════════════════════════════════════════════════════════════
             if triggered:
                 async def _greeting_audio_timeout_watchdog():
@@ -4566,6 +4609,17 @@ class MediaStreamHandler:
                         self._last_audio_chunk_ts = time.time()
                         self._openai_audio_chunks_received = 0
                         
+                        # 🔥 REQUIREMENT: Initialize diagnostic counters for this response
+                        if not hasattr(self, '_response_diagnostics'):
+                            self._response_diagnostics = {}
+                        self._response_diagnostics[response_id] = {
+                            'audio_deltas': 0,
+                            'transcript_deltas': 0,
+                            'enqueued': 0,
+                            'sent': 0,
+                            'created_ts': time.time()
+                        }
+                        
                         # 🔥 SILENCE FAILSAFE: Cancel any pending response timeout
                         # Response was created, so we're not stuck in silence
                         if hasattr(self, '_response_timeout_task') and self._response_timeout_task:
@@ -4579,6 +4633,16 @@ class MediaStreamHandler:
                 if event_type == "response.audio.delta":
                     audio_b64 = event.get("delta", "")
                     response_id = event.get("response_id", "")
+                    
+                    # 🔥 REQUIREMENT: Track audio.delta count for diagnostics
+                    if response_id and hasattr(self, '_response_diagnostics'):
+                        if response_id not in self._response_diagnostics:
+                            self._response_diagnostics[response_id] = {
+                                'audio_deltas': 0, 'transcript_deltas': 0, 
+                                'enqueued': 0, 'sent': 0, 'created_ts': time.time()
+                            }
+                        self._response_diagnostics[response_id]['audio_deltas'] += 1
+                    
                     if audio_b64:
                         # ═══════════════════════════════════════════════════════════════
                         # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (DEBUG only)
@@ -4591,7 +4655,8 @@ class MediaStreamHandler:
                         # 🔥 BUILD 178: Disabled for outbound calls
                         is_outbound = getattr(self, 'call_direction', 'inbound') == 'outbound'
                         if self._loop_guard_engaged and not is_outbound:
-                            # Silently drop audio - don't even log each frame
+                            # Drop audio - log reason
+                            logger.debug(f"[DROP_AUDIO] reason=LOOP_GUARD response_id={response_id[:20] if response_id else '?'}...")
                             continue
                         
                         # ═══════════════════════════════════════════════════════════════
@@ -4601,7 +4666,7 @@ class MediaStreamHandler:
                         # This ensures NO buffering happens during user speech (true no-duplex)
                         if self.user_speaking:
                             response_id_display = response_id[:20] + '...' if response_id else 'None'
-                            logger.debug(f"[HARD_GATE] Dropping audio.delta - user_speaking=True (response_id={response_id_display})")
+                            logger.debug(f"[DROP_AUDIO] reason=USER_SPEAKING response_id={response_id_display}")
                             continue
                         
                         # ═══════════════════════════════════════════════════════════════
@@ -4796,6 +4861,13 @@ class MediaStreamHandler:
                         if not self.closed:
                             try:
                                 self.realtime_audio_out_queue.put_nowait(audio_b64)
+                                
+                                # 🔥 REQUIREMENT: Track enqueue for diagnostics
+                                response_id = event.get("response_id")
+                                if response_id and hasattr(self, '_response_diagnostics'):
+                                    if response_id in self._response_diagnostics:
+                                        self._response_diagnostics[response_id]['enqueued'] += 1
+                                
                                 # 🎯 PROBE 4: Track enqueue for rate monitoring
                                 self._enq_counter += 1
                                 now_mono = time.monotonic()
@@ -4897,6 +4969,28 @@ class MediaStreamHandler:
                     
                     # 🔥 BUILD 172: Update speech time for silence detection
                     self._update_speech_time()
+                    
+                    # 🔥 REQUIREMENT: Print audio flow diagnostics for this response
+                    response_id = event.get("response_id") or (event.get("response", {}) or {}).get("id")
+                    if response_id and hasattr(self, '_response_diagnostics'):
+                        diag = self._response_diagnostics.get(response_id, {
+                            'audio_deltas': 0, 'transcript_deltas': 0, 
+                            'enqueued': 0, 'sent': 0, 'created_ts': 0
+                        })
+                        tx_ready = getattr(self, 'tx_running', False)
+                        stream_sid_present = bool(getattr(self, 'stream_sid', None))
+                        _orig_print(
+                            f"[AUDIO_DIAG] resp={response_id[:12]}... "
+                            f"audio_deltas={diag['audio_deltas']} "
+                            f"enqueued={diag['enqueued']} "
+                            f"sent={diag['sent']} "
+                            f"tx_ready={tx_ready} "
+                            f"stream_sid={stream_sid_present}",
+                            flush=True
+                        )
+                        # Cleanup old diagnostic entry
+                        if response_id in self._response_diagnostics:
+                            del self._response_diagnostics[response_id]
                     
                     # ═══════════════════════════════════════════════════════════════════════════════
                     # 🔥 BARGE-IN TRUNCATION: Drop remaining frames when user interrupts
@@ -13946,9 +14040,28 @@ class MediaStreamHandler:
                         continue
                     
                     # Check if connection is still valid
-                    if not self.stream_sid or getattr(self, 'closed', False):
+                    if not self.stream_sid:
+                        # Drop frame - no stream_sid
+                        self._frames_dropped_state += 1
+                        if not hasattr(self, '_drop_no_sid_logged'):
+                            _orig_print(f"[DROP_AUDIO] reason=NO_STREAM_SID", flush=True)
+                            self._drop_no_sid_logged = True
+                        continue
+                    
+                    if getattr(self, 'closed', False):
                         # Drop frame - connection closing
                         self._frames_dropped_state += 1
+                        if not hasattr(self, '_drop_closed_logged'):
+                            _orig_print(f"[DROP_AUDIO] reason=WS_CLOSED", flush=True)
+                            self._drop_closed_logged = True
+                        continue
+                    
+                    if getattr(self, 'realtime_stop_flag', False):
+                        # Drop frame - stop flag set
+                        self._frames_dropped_tx_stop += 1
+                        if not hasattr(self, '_drop_stop_logged'):
+                            _orig_print(f"[DROP_AUDIO] reason=STOP_FLAG", flush=True)
+                            self._drop_stop_logged = True
                         continue
                     
                     # 🔥 FIX: Check timing - if we're >100ms late, resync to avoid burst
@@ -13984,6 +14097,7 @@ class MediaStreamHandler:
                     if success:
                         self.tx += 1
                         frames_sent_total += 1
+                        self._last_twilio_send_ts = time.perf_counter()  # Track for stall detection
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
