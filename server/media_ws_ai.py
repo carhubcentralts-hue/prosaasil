@@ -13898,7 +13898,8 @@ class MediaStreamHandler:
                 if item.get("type") == "media" or item.get("event") == "media":
                     # 🔥 BARGE-IN FIX: Drop frames that were dequeued before flush if barge-in active
                     # This handles the "frame already in hand" race condition
-                    if getattr(self, 'barge_in_active', False):
+                    # Note: barge_in_active is always initialized in __init__ (line 1806)
+                    if self.barge_in_active:
                         # Drop this frame - user interrupted, don't send AI audio
                         continue
                     
