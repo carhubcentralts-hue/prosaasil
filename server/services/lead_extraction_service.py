@@ -25,6 +25,100 @@ HEBREW_BUSINESS_VOCABULARY = {
     ]
 }
 
+# Service canonicalization mapping - normalize specific services to canonical categories
+# Maps specific service mentions to their canonical business category
+SERVICE_CANONICALIZATION_MAP = {
+    # Locksmith services - all map to "מנעולן"
+    "פריצת מנעול": "מנעולן",
+    "פריצת דלת": "מנעולן",
+    "החלפת צילינדר": "מנעולן",
+    "תיקון מנעול": "מנעולן",
+    "תיקון מנעול חכם": "מנעולן",
+    "פורץ מנעולים": "מנעולן",
+    "שכפול מפתח": "מנעולן",
+    "התקנת מנעול": "מנעולן",
+    # Electrician services - all map to "חשמלאי"
+    "תיקון חשמל": "חשמלאי",
+    "התקנת גוף תאורה": "חשמלאי",
+    "תיקון לוח חשמל": "חשמלאי",
+    "תיקון מזגן": "חשמלאי",
+    # Plumber services - all map to "שרברב"
+    "תיקון צינור": "שרברב",
+    "פתיחת סתימה": "שרברב",
+    "תיקון ברז": "שרברב",
+    "אינסטלטור": "שרברב",
+    # Cleaning services - all map to "נקיון"
+    "ניקיון דירה": "נקיון",
+    "ניקיון משרדים": "נקיון",
+    "ניקיון כללי": "נקיון",
+}
+
+def get_all_canonical_services() -> set:
+    """
+    Get set of all canonical service types.
+    Used to check if a service_type is already in canonical form.
+    """
+    return set(SERVICE_CANONICALIZATION_MAP.values())
+
+def is_canonical_service(service_type: Optional[str]) -> bool:
+    """
+    Check if service_type is already in canonical form.
+    
+    Returns True if the service is already a canonical value (e.g., "מנעולן", "חשמלאי")
+    Returns False if it's a raw/specific service or None
+    """
+    if not service_type:
+        return False
+    
+    canonical_services = get_all_canonical_services()
+    return service_type.strip() in canonical_services
+
+def canonicalize_service(service_category: Optional[str], business_id: Optional[int] = None) -> Optional[str]:
+    """
+    Normalize specific service mentions to canonical business categories.
+    
+    For example:
+    - "פריצת מנעול" → "מנעולן"
+    - "פריצת דלת" → "מנעולן"
+    - "החלפת צילינדר" → "מנעולן"
+    - "תיקון חשמל" → "חשמלאי"
+    
+    This ensures consistent service_type values in the database and prevents
+    raw LLM extractions from creating fragmented service categories.
+    
+    Args:
+        service_category: Raw service category from LLM extraction
+        business_id: Optional business ID for future business-specific mappings
+        
+    Returns:
+        Canonical service category, or original if no mapping found
+    """
+    if not service_category:
+        return None
+    
+    # Normalize input: lowercase and strip whitespace
+    normalized_input = service_category.strip().lower()
+    
+    # Check exact match in canonicalization map (case-insensitive)
+    for raw_service, canonical_service in SERVICE_CANONICALIZATION_MAP.items():
+        if normalized_input == raw_service.lower():
+            logger.info(f"[SERVICE_CANON] raw='{service_category}' -> canon='{canonical_service}' (exact match)")
+            print(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (exact match)")
+            return canonical_service
+    
+    # Check if input contains any of the raw service patterns
+    for raw_service, canonical_service in SERVICE_CANONICALIZATION_MAP.items():
+        if raw_service.lower() in normalized_input:
+            logger.info(f"[SERVICE_CANON] raw='{service_category}' -> canon='{canonical_service}' (partial match: '{raw_service}')")
+            print(f"[SERVICE_CANON] ✅ raw='{service_category}' -> canon='{canonical_service}' (partial match: '{raw_service}')")
+            return canonical_service
+    
+    # No mapping found - return original value
+    # This allows new service types to be stored as-is until explicitly mapped
+    logger.info(f"[SERVICE_CANON] raw='{service_category}' -> no mapping found, keeping original")
+    print(f"[SERVICE_CANON] ℹ️ raw='{service_category}' -> no mapping, keeping original")
+    return service_category
+
 def extract_city_and_service_from_summary(summary_text: str) -> dict:
     """
     חילוץ עיר ותחום שירות מטקסט שיחה (סיכום או תמלול).

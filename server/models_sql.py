@@ -947,6 +947,10 @@ class BusinessTopic(db.Model):
     name = db.Column(db.String(255), nullable=False)  # e.g., "פורץ מנעולים"
     synonyms = db.Column(db.JSON, nullable=True)  # JSONB array of synonyms for better matching
     
+    # Service type mapping - maps topic to canonical service_type for lead
+    # e.g., topic "locksmith" → service_type "מנעולן"
+    canonical_service_type = db.Column(db.String(255), nullable=True)  # Canonical service type this topic maps to
+    
     # Embedding for semantic search - stored as JSONB array of floats
     embedding = db.Column(db.JSON, nullable=True)  # JSONB array [float, float, ...] - 1536 dimensions for text-embedding-3-small
     
@@ -980,6 +984,11 @@ class BusinessAISettings(db.Model):
     auto_tag_leads = db.Column(db.Boolean, default=True)  # Automatically tag leads with detected topic
     auto_tag_calls = db.Column(db.Boolean, default=True)  # Automatically tag calls with detected topic
     auto_tag_whatsapp = db.Column(db.Boolean, default=False)  # Automatically tag WhatsApp conversations
+    
+    # Service type mapping from topics
+    # When enabled and topic has canonical_service_type, update lead.service_type
+    map_topic_to_service_type = db.Column(db.Boolean, default=False)  # Map detected topic to lead.service_type
+    service_type_min_confidence = db.Column(db.Float, default=0.75)  # Minimum confidence to map topic to service_type
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

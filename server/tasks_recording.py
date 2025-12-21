@@ -15,7 +15,7 @@ from typing import Optional
 from sqlalchemy.exc import OperationalError, DisconnectionError
 
 # 🔒 Import Lead model at top level for efficient access
-from server.models_sql import CallLog, Business, Lead
+from server.models_sql import CallLog, Business, Lead, BusinessTopic
 
 log = logging.getLogger("tasks.recording")
 
@@ -691,12 +691,16 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     ai_settings = BusinessAISettings.query.filter_by(business_id=call_log.business_id).first()
                     
                     if ai_settings and ai_settings.embedding_enabled:
+                        print(f"[TOPIC_CLASSIFY] 🚀 enabled for business {call_log.business_id} | threshold={ai_settings.embedding_threshold} | top_k={ai_settings.embedding_top_k}")
+                        log.info(f"[TOPIC_CLASSIFY] Classification enabled: threshold={ai_settings.embedding_threshold}, top_k={ai_settings.embedding_top_k}")
+                        
                         # Use final_transcript if available, otherwise fall back to transcription
                         text_to_classify = final_transcript if (final_transcript and len(final_transcript.strip()) > 50) else transcription
+                        text_source = "final_transcript (from recording)" if (final_transcript and len(final_transcript.strip()) > 50) else "transcription (realtime)"
                         
                         if text_to_classify and len(text_to_classify.strip()) > 50:
-                            print(f"[TOPIC_CLASSIFY] Running classification for call {call_sid} ({len(text_to_classify)} chars)")
-                            log.info(f"[TOPIC_CLASSIFY] Running classification for call {call_sid}")
+                            print(f"[TOPIC_CLASSIFY] Running classification for call {call_sid} | source={text_source} | length={len(text_to_classify)} chars")
+                            log.info(f"[TOPIC_CLASSIFY] Running classification for call {call_sid} using {text_source}")
                             
                             # Classify the text (2-layer: keyword + embeddings)
                             classification_result = topic_classifier.classify_text(call_log.business_id, text_to_classify)
@@ -725,6 +729,51 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                         lead.detected_topic_confidence = confidence
                                         lead.detected_topic_source = method
                                         print(f"[TOPIC_CLASSIFY] ✅ Tagged lead {call_log.lead_id} with topic {topic_id}")
+                                        
+                                        # 🔥 NEW: Map topic to service_type if configured
+                                        if ai_settings.map_topic_to_service_type and confidence >= ai_settings.service_type_min_confidence:
+                                            # Get the topic to check if it has canonical_service_type
+                                            topic = BusinessTopic.query.get(topic_id)
+                                            if topic and topic.canonical_service_type:
+                                                # 🔥 CRITICAL: Only override if:
+                                                # 1. lead.service_type is None/empty
+                                                # 2. OR lead.service_type is NOT already canonical (prevent overriding good values)
+                                                # 3. OR confidence is very high (>= 0.85) AND different from current
+                                                from server.services.lead_extraction_service import is_canonical_service
+                                                
+                                                old_service_type = lead.service_type
+                                                should_override = False
+                                                override_reason = ""
+                                                
+                                                if not lead.service_type:
+                                                    should_override = True
+                                                    override_reason = "service_type is empty"
+                                                elif not is_canonical_service(lead.service_type):
+                                                    should_override = True
+                                                    override_reason = f"service_type '{lead.service_type}' is not canonical"
+                                                elif confidence >= 0.85 and lead.service_type != topic.canonical_service_type:
+                                                    should_override = True
+                                                    override_reason = f"high confidence ({confidence:.3f}) and different value"
+                                                else:
+                                                    override_reason = f"service_type '{lead.service_type}' is already canonical"
+                                                
+                                                if should_override:
+                                                    lead.service_type = topic.canonical_service_type
+                                                    print(f"[TOPIC→SERVICE] ✅ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=True old='{old_service_type}' new='{topic.canonical_service_type}' reason={override_reason}")
+                                                    log.info(f"[TOPIC→SERVICE] Mapped topic {topic_id} to service_type '{topic.canonical_service_type}' for lead {lead.id} (was: '{old_service_type}')")
+                                                else:
+                                                    print(f"[TOPIC→SERVICE] ℹ️ enabled=True topic.canon='{topic.canonical_service_type}' conf={confidence:.3f}>={ai_settings.service_type_min_confidence} override=False old='{old_service_type}' reason={override_reason}")
+                                                    log.info(f"[TOPIC→SERVICE] NOT overriding lead {lead.id} service_type '{lead.service_type}' - {override_reason}")
+                                            else:
+                                                if not topic:
+                                                    print(f"[TOPIC→SERVICE] ⚠️ Topic {topic_id} not found in DB")
+                                                else:
+                                                    print(f"[TOPIC→SERVICE] ℹ️ Topic {topic_id} ('{topic.name}') has no canonical_service_type mapping")
+                                        else:
+                                            if not ai_settings.map_topic_to_service_type:
+                                                print(f"[TOPIC→SERVICE] ℹ️ Topic-to-service mapping disabled for business {call_log.business_id}")
+                                            elif confidence < ai_settings.service_type_min_confidence:
+                                                print(f"[TOPIC→SERVICE] ℹ️ Confidence {confidence:.3f} below threshold {ai_settings.service_type_min_confidence} for service_type mapping")
                                 
                                 db.session.commit()
                             else:
@@ -826,8 +875,11 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                             log.info(f"[OFFLINE_EXTRACT] High confidence ({extraction_confidence:.2f}), will overwrite lead {lead.id} city")
                     
                     if update_service:
-                        lead.service_type = extracted_service
-                        log.info(f"[OFFLINE_EXTRACT] ✅ Updated lead {lead.id} service_type: '{extracted_service}'")
+                        # 🔥 Canonicalize service category before saving
+                        from server.services.lead_extraction_service import canonicalize_service
+                        canonical_service = canonicalize_service(extracted_service, call_log.business_id)
+                        lead.service_type = canonical_service
+                        log.info(f"[OFFLINE_EXTRACT] ✅ Updated lead {lead.id} service_type: '{extracted_service}' → '{canonical_service}'")
                     
                     if update_city:
                         lead.city = extracted_city
