@@ -2441,7 +2441,15 @@ class MediaStreamHandler:
                 silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש.",  # ✅ QA: Simple Hebrew transcription guidance
+                # 🔥 PRODUCTION STT QUALITY: Optimized transcription prompt for Hebrew accuracy
+                # Goal: Maximum precision for Hebrew speech, avoid hallucinations, prefer accuracy over completeness
+                transcription_prompt=(
+                    "תמלול מדויק בעברית ישראלית. "
+                    "דיוק מקסימלי! "
+                    "אם לא דיברו או לא ברור - השאר ריק. "
+                    "אל תנחש, אל תשלים, אל תמציא מילים. "
+                    "העדף דיוק על פני שלמות."
+                ),
                 force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
             )
         
