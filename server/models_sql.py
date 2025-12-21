@@ -106,6 +106,11 @@ class CallLog(db.Model):
     audio_duration_sec = db.Column(db.Float, nullable=True)  # Recording duration in seconds from metadata
     transcript_source = db.Column(db.String(32), nullable=True)  # "recording"/"realtime" - source of final_transcript
     
+    # 🆕 AI TOPIC CLASSIFICATION: Detected topic from transcript
+    detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)
+    detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
+    detected_topic_source = db.Column(db.String(32), default="embedding")  # "embedding" - classification method
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -325,6 +330,11 @@ class WhatsAppConversation(db.Model):
     summary_created = db.Column(db.Boolean, default=False)
     summary = db.Column(db.Text)  # AI-generated session summary
     
+    # 🆕 AI TOPIC CLASSIFICATION: Detected topic from conversation
+    detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)
+    detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
+    detected_topic_source = db.Column(db.String(32), default="embedding")  # "embedding" - classification method
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -381,6 +391,11 @@ class Lead(db.Model):
     # Call direction tracking for filtering (inbound/outbound)
     # 🔒 IMPORTANT: Set ONCE on first interaction, never overridden by subsequent calls
     last_call_direction = db.Column(db.String(16), nullable=True, index=True)  # inbound|outbound - set on first call only
+    
+    # 🆕 AI TOPIC CLASSIFICATION: Detected topic from transcript
+    detected_topic_id = db.Column(db.Integer, db.ForeignKey("business_topics.id"), nullable=True, index=True)
+    detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
+    detected_topic_source = db.Column(db.String(32), default="embedding")  # "embedding" - classification method
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
@@ -917,3 +932,58 @@ class WhatsAppBroadcastRecipient(db.Model):
     # Relationships
     broadcast = db.relationship("WhatsAppBroadcast", backref="recipients")
     lead = db.relationship("Lead")
+
+
+# === AI TOPIC CLASSIFICATION SYSTEM ===
+
+class BusinessTopic(db.Model):
+    """Business topics for AI-based classification of calls/conversations"""
+    __tablename__ = "business_topics"
+    
+    id = db.Column(db.Integer, primary_key=True)
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), nullable=False, index=True)
+    
+    # Topic details
+    name = db.Column(db.String(255), nullable=False)  # e.g., "פורץ מנעולים"
+    synonyms = db.Column(db.JSON, nullable=True)  # JSONB array of synonyms for better matching
+    
+    # Embedding for semantic search - stored as JSONB array of floats
+    embedding = db.Column(db.JSON, nullable=True)  # JSONB array [float, float, ...] - 1536 dimensions for text-embedding-3-small
+    
+    # Status
+    is_active = db.Column(db.Boolean, default=True, index=True)
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref="topics")
+    
+    __table_args__ = (
+        db.Index('idx_business_topic_active', 'business_id', 'is_active'),
+    )
+
+
+class BusinessAISettings(db.Model):
+    """AI settings for topic classification and embedding"""
+    __tablename__ = "business_ai_settings"
+    
+    business_id = db.Column(db.Integer, db.ForeignKey("business.id"), primary_key=True)
+    
+    # Embedding settings - NO API KEY stored here (use ENV vars)
+    embedding_enabled = db.Column(db.Boolean, default=False)  # Enable topic classification
+    embedding_threshold = db.Column(db.Float, default=0.78)  # Minimum confidence score (0.0-1.0)
+    embedding_top_k = db.Column(db.Integer, default=3)  # Number of top matches to consider
+    
+    # Auto-tagging settings
+    auto_tag_leads = db.Column(db.Boolean, default=True)  # Automatically tag leads with detected topic
+    auto_tag_calls = db.Column(db.Boolean, default=True)  # Automatically tag calls with detected topic
+    auto_tag_whatsapp = db.Column(db.Boolean, default=False)  # Automatically tag WhatsApp conversations
+    
+    # Timestamps
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    business = db.relationship("Business", backref="ai_settings", uselist=False)

@@ -1161,6 +1161,95 @@ def apply_migrations():
             db.session.rollback()
             raise
     
+    # Migration 42: AI Topic Classification System
+    checkpoint("Migration 42: AI Topic Classification System")
+    try:
+        # Create business_topics table
+        if not check_table_exists('business_topics'):
+            log.info("Creating business_topics table...")
+            db.session.execute(text("""
+                CREATE TABLE business_topics (
+                    id SERIAL PRIMARY KEY,
+                    business_id INTEGER NOT NULL REFERENCES business(id),
+                    name VARCHAR(255) NOT NULL,
+                    synonyms JSONB,
+                    embedding JSONB,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            db.session.execute(text("CREATE INDEX idx_business_topic_active ON business_topics(business_id, is_active)"))
+            migrations_applied.append('create_business_topics_table')
+            log.info("✅ Created business_topics table")
+        
+        # Create business_ai_settings table
+        if not check_table_exists('business_ai_settings'):
+            log.info("Creating business_ai_settings table...")
+            db.session.execute(text("""
+                CREATE TABLE business_ai_settings (
+                    business_id INTEGER PRIMARY KEY REFERENCES business(id),
+                    embedding_enabled BOOLEAN DEFAULT FALSE,
+                    embedding_threshold FLOAT DEFAULT 0.78,
+                    embedding_top_k INTEGER DEFAULT 3,
+                    auto_tag_leads BOOLEAN DEFAULT TRUE,
+                    auto_tag_calls BOOLEAN DEFAULT TRUE,
+                    auto_tag_whatsapp BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            migrations_applied.append('create_business_ai_settings_table')
+            log.info("✅ Created business_ai_settings table")
+        
+        # Add topic classification fields to call_log
+        if check_table_exists('call_log'):
+            if not check_column_exists('call_log', 'detected_topic_id'):
+                log.info("Adding topic classification fields to call_log...")
+                db.session.execute(text("""
+                    ALTER TABLE call_log 
+                    ADD COLUMN detected_topic_id INTEGER REFERENCES business_topics(id),
+                    ADD COLUMN detected_topic_confidence FLOAT,
+                    ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
+                """))
+                db.session.execute(text("CREATE INDEX idx_call_log_detected_topic ON call_log(detected_topic_id)"))
+                migrations_applied.append('add_topic_fields_to_call_log')
+                log.info("✅ Added topic classification fields to call_log")
+        
+        # Add topic classification fields to leads
+        if check_table_exists('leads'):
+            if not check_column_exists('leads', 'detected_topic_id'):
+                log.info("Adding topic classification fields to leads...")
+                db.session.execute(text("""
+                    ALTER TABLE leads 
+                    ADD COLUMN detected_topic_id INTEGER REFERENCES business_topics(id),
+                    ADD COLUMN detected_topic_confidence FLOAT,
+                    ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
+                """))
+                db.session.execute(text("CREATE INDEX idx_leads_detected_topic ON leads(detected_topic_id)"))
+                migrations_applied.append('add_topic_fields_to_leads')
+                log.info("✅ Added topic classification fields to leads")
+        
+        # Add topic classification fields to whatsapp_conversation
+        if check_table_exists('whatsapp_conversation'):
+            if not check_column_exists('whatsapp_conversation', 'detected_topic_id'):
+                log.info("Adding topic classification fields to whatsapp_conversation...")
+                db.session.execute(text("""
+                    ALTER TABLE whatsapp_conversation 
+                    ADD COLUMN detected_topic_id INTEGER REFERENCES business_topics(id),
+                    ADD COLUMN detected_topic_confidence FLOAT,
+                    ADD COLUMN detected_topic_source VARCHAR(32) DEFAULT 'embedding'
+                """))
+                db.session.execute(text("CREATE INDEX idx_wa_conv_detected_topic ON whatsapp_conversation(detected_topic_id)"))
+                migrations_applied.append('add_topic_fields_to_whatsapp_conversation')
+                log.info("✅ Added topic classification fields to whatsapp_conversation")
+        
+        log.info("✅ Applied migration 42: AI Topic Classification System")
+    except Exception as e:
+        log.error(f"❌ Migration 42 failed: {e}")
+        db.session.rollback()
+        raise
+    
     checkpoint("Committing migrations to database...")
     if migrations_applied:
         db.session.commit()

@@ -675,6 +675,79 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
             # 🔥 CRITICAL: Commit to database BEFORE logging
             db.session.commit()
             
+            # 🆕 AI TOPIC CLASSIFICATION: Run after call is saved
+            # 🔒 IDEMPOTENCY: Skip if already classified
+            try:
+                from server.models_sql import BusinessAISettings, Lead
+                from server.services.topic_classifier import topic_classifier
+                
+                # Check if already classified (idempotency)
+                if call_log.detected_topic_source:
+                    print(f"[TOPIC_CLASSIFY] ⏭️ Call {call_sid} already classified (source={call_log.detected_topic_source}) - skipping")
+                    log.info(f"[TOPIC_CLASSIFY] Skipping - already classified")
+                else:
+                    # Get AI settings to check if classification is enabled
+                    ai_settings = BusinessAISettings.query.filter_by(business_id=call_log.business_id).first()
+                    
+                    if ai_settings and ai_settings.embedding_enabled:
+                        # Use final_transcript if available, otherwise fall back to transcription
+                        text_to_classify = final_transcript if (final_transcript and len(final_transcript.strip()) > 50) else transcription
+                        
+                        if text_to_classify and len(text_to_classify.strip()) > 50:
+                            print(f"[TOPIC_CLASSIFY] Running classification for call {call_sid} ({len(text_to_classify)} chars)")
+                            log.info(f"[TOPIC_CLASSIFY] Running classification for call {call_sid}")
+                            
+                            # Classify the text (2-layer: keyword + embeddings)
+                            classification_result = topic_classifier.classify_text(call_log.business_id, text_to_classify)
+                            
+                            if classification_result:
+                                topic_id = classification_result['topic_id']
+                                confidence = classification_result['score']
+                                method = classification_result.get('method', 'embedding')
+                                
+                                print(f"[TOPIC_CLASSIFY] ✅ Detected topic: '{classification_result['topic_name']}' (confidence={confidence:.3f}, method={method})")
+                                log.info(f"[TOPIC_CLASSIFY] Detected topic {topic_id} with confidence {confidence} via {method}")
+                                
+                                # Update call log if auto_tag_calls is enabled
+                                if ai_settings.auto_tag_calls:
+                                    call_log.detected_topic_id = topic_id
+                                    call_log.detected_topic_confidence = confidence
+                                    call_log.detected_topic_source = method  # 'keyword', 'synonym', 'multi_keyword', or 'embedding'
+                                    print(f"[TOPIC_CLASSIFY] ✅ Tagged call {call_sid} with topic {topic_id}")
+                                
+                                # Update lead if auto_tag_leads is enabled and lead exists
+                                if ai_settings.auto_tag_leads and call_log.lead_id:
+                                    lead = Lead.query.get(call_log.lead_id)
+                                    if lead and not lead.detected_topic_source:  # Idempotency for lead too
+                                        lead.detected_topic_id = topic_id
+                                        lead.detected_topic_confidence = confidence
+                                        lead.detected_topic_source = method
+                                        print(f"[TOPIC_CLASSIFY] ✅ Tagged lead {call_log.lead_id} with topic {topic_id}")
+                                
+                                db.session.commit()
+                            else:
+                                print(f"[TOPIC_CLASSIFY] No topic matched threshold for call {call_sid}")
+                                log.info(f"[TOPIC_CLASSIFY] No topic matched for call {call_sid}")
+                        else:
+                            print(f"[TOPIC_CLASSIFY] Text too short for classification ({len(text_to_classify or '')} chars)")
+                            log.info(f"[TOPIC_CLASSIFY] Skipping classification - text too short")
+                    else:
+                        print(f"[TOPIC_CLASSIFY] Classification disabled for business {call_log.business_id}")
+                        log.debug(f"[TOPIC_CLASSIFY] Classification disabled")
+                    
+            except Exception as topic_err:
+                # Don't fail the entire pipeline if classification fails
+                print(f"⚠️ [TOPIC_CLASSIFY] Classification failed for {call_sid}: {topic_err}")
+                log.error(f"[TOPIC_CLASSIFY] Failed for {call_sid}: {topic_err}")
+                import traceback
+                traceback.print_exc()
+                # Rollback only the topic classification, keep the call data
+                db.session.rollback()
+                # Re-load call_log and re-commit without topic data
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if call_log:
+                    db.session.commit()
+            
             # ✅ Explicit confirmation logging
             if final_transcript and len(final_transcript) > 0:
                 print(f"[OFFLINE_STT] ✅ Saved final_transcript ({len(final_transcript)} chars) for {call_sid}")

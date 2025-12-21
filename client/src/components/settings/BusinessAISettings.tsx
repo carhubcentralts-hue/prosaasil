@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { http } from '../../services/http';
 import { useAuth } from '../../features/auth/hooks';
+import { TopicClassificationSection } from './TopicClassificationSection';
 
 interface PromptData {
   calls_prompt: string;
@@ -619,6 +620,9 @@ export function BusinessAISettings() {
       </div>
 
       {/* 🔥 BUILD 310: STT Vocabulary section removed - using OpenAI Realtime native transcription */}
+
+      {/* Topic Classification Section */}
+      <TopicClassificationSection />
 
       {/* Version Info */}
       {prompts.last_updated && (

@@ -424,6 +424,10 @@ def create_app():
         from server.routes_ai_prompt import ai_prompt_bp
         app.register_blueprint(ai_prompt_bp)
         
+        # AI Topics Management Blueprint - Topic classification system
+        from server.routes_ai_topics import ai_topics_bp
+        app.register_blueprint(ai_topics_bp)
+        
         # Note: Status Management Blueprint now registered earlier (before line 356)
         
         @app.before_request  
