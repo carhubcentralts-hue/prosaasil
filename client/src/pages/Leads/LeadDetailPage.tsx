@@ -501,8 +501,6 @@ interface OverviewTabProps {
 
 function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, editForm, setEditForm, startEditing, cancelEditing, saveLead }: OverviewTabProps) {
   const navigate = useNavigate();
-  const leadPhone = (lead.phone_e164 || (lead as any).phone || '').toString();
-  const cleanPhone = leadPhone.replace(/[^0-9]/g, '');
 
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6">
@@ -624,7 +622,7 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <button
                     type="button"
-                    onClick={() => navigate(`/app/whatsapp?phone=${encodeURIComponent(cleanPhone)}&leadId=${lead.id}`)}
+                    onClick={() => navigate('/app/whatsapp')}
                     className="text-right rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
                     data-testid="tile-whatsapp"
                   >
@@ -637,7 +635,7 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
 
                   <button
                     type="button"
-                    onClick={() => navigate(`/app/calls?leadId=${lead.id}&phone=${encodeURIComponent(leadPhone)}`)}
+                    onClick={() => navigate('/app/calls')}
                     className="text-right rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
                     data-testid="tile-inbound-calls"
                   >
@@ -650,7 +648,7 @@ function OverviewTab({ lead, reminders, onOpenReminder, isEditing, isSaving, edi
 
                   <button
                     type="button"
-                    onClick={() => navigate(`/app/outbound-calls?leadId=${lead.id}&phone=${encodeURIComponent(leadPhone)}`)}
+                    onClick={() => navigate('/app/outbound-calls')}
                     className="text-right rounded-lg border border-gray-200 bg-white p-4 hover:bg-gray-50 transition-colors"
                     data-testid="tile-outbound-calls"
                   >
