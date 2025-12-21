@@ -166,7 +166,7 @@ class OpenAIRealtimeClient:
                     close_timeout=5
                 )
                 # 🔥 BUILD 331: Clear logging when WebSocket opens
-                logger.info(f"[REALTIME] Connected (attempt {attempt}/{max_retries})")
+                logger.debug(f"[REALTIME] Connected (attempt {attempt}/{max_retries})")
                 print(f"🟢 REALTIME_WS_OPEN model={self.model}")
                 return self.ws
                 
@@ -187,7 +187,7 @@ class OpenAIRealtimeClient:
             try:
                 # 🧹 COST SAFETY: Explicitly close connection to prevent session reuse
                 await self.ws.close()
-                logger.info("✅ WebSocket connection closed cleanly")
+                logger.debug("✅ WebSocket connection closed cleanly")
                 # 🔥 BUILD 331: Clear logging when WebSocket closes
                 print(f"🔴 REALTIME_WS_CLOSED reason={reason}")
             except Exception as e:
@@ -195,7 +195,7 @@ class OpenAIRealtimeClient:
                 print(f"🔴 REALTIME_WS_CLOSED reason=error:{e}")
             finally:
                 self.ws = None
-                logger.info("🔌 Disconnected from Realtime API (session destroyed)")
+                logger.debug("🔌 Disconnected from Realtime API (session destroyed)")
     
     async def send_event(self, event: Dict[str, Any], max_retries: int = 2):
         """
@@ -401,7 +401,7 @@ class OpenAIRealtimeClient:
             "type": "response.create"
         })
         
-        logger.info(f"✅ User message sent: '{text[:50]}...'")
+        logger.debug(f"✅ User message sent: '{text[:50]}...'")
     
     async def send_text_response(self, text: str):
         """
@@ -430,7 +430,7 @@ class OpenAIRealtimeClient:
             "type": "response.create"
         })
         
-        logger.info(f"✅ Text response sent: '{text[:50]}...'")
+        logger.debug(f"✅ Text response sent: '{text[:50]}...'")
     
     async def configure_session(
         self,
@@ -482,7 +482,7 @@ class OpenAIRealtimeClient:
                     silence_duration_ms = SERVER_VAD_SILENCE_MS
                 if prefix_padding_ms is None:
                     prefix_padding_ms = SERVER_VAD_PREFIX_PADDING_MS
-                logger.info(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
+                logger.debug(f"🎯 [VAD CONFIG] Using tuned defaults: threshold={vad_threshold}, silence={silence_duration_ms}ms, prefix_padding={prefix_padding_ms}ms")
             except ImportError:
                 # Fallback if config not available
                 if vad_threshold is None:
@@ -506,7 +506,7 @@ class OpenAIRealtimeClient:
         # Add transcription prompt if provided (business-specific vocabulary)
         if transcription_prompt:
             transcription_config["prompt"] = transcription_prompt
-            logger.info(f"🎤 [STT PROMPT] Using dynamic transcription prompt ({len(transcription_prompt)} chars)")
+            logger.debug(f"🎤 [STT PROMPT] Using dynamic transcription prompt ({len(transcription_prompt)} chars)")
         
         # ✅ CRITICAL: Internal transcription is REQUIRED for AI to hear audio!
         # Without input_audio_transcription, the AI receives no STT events and stays silent.
@@ -542,10 +542,10 @@ class OpenAIRealtimeClient:
         # We'll add it optimistically and fallback if it fails
         use_noise_reduction = True  # Try with noise reduction first
         session_config["input_audio_noise_reduction"] = {"type": "near_field"}
-        logger.info(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field (experimental)")
+        logger.debug(f"✅ [TRANSCRIPTION] Enabled server-side noise reduction: near_field (experimental)")
         
         # 🔍 VERIFICATION LOG: Model configuration for Agent 3 compliance
-        logger.info(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
+        logger.debug(f"🎯 [REALTIME CONFIG] model={self.model}, stt=gpt-4o-transcribe, temp={temperature}, max_tokens={max_tokens}")
         
         # ⭐ BUILD 350: NO TOOLS for phone calls - pure conversation mode
         # All field extraction (service, city, details) happens ONLY from summary at end of call
@@ -561,11 +561,11 @@ class OpenAIRealtimeClient:
         instructions_hash = hashlib.md5(instructions.encode()).hexdigest()[:16]
         
         if not force and self._last_instructions_hash == instructions_hash and self._last_voice == voice:
-            logger.info(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
+            logger.debug(f"💰 [COST SAVE] Skipping session.update - same instructions already sent (hash={instructions_hash})")
             return True  # Return True to indicate session is configured (from cache)
         
         if force:
-            logger.info(f"🔄 [FORCE RESEND] Bypassing hash check - force retry requested")
+            logger.debug(f"🔄 [FORCE RESEND] Bypassing hash check - force retry requested")
         
         self._last_instructions_hash = instructions_hash
         self._last_voice = voice
@@ -576,7 +576,7 @@ class OpenAIRealtimeClient:
             logger.warning(f"⚠️ [COST ALERT] Session update #{self._session_update_count} exceeds expected baseline of 2! Check for prompt regeneration loop!")
             print(f"⚠️ [BUILD 332] COST ALERT: session.update called {self._session_update_count} times (expected ≤2)")
         else:
-            logger.info(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
+            logger.debug(f"✅ [BUILD 318] Session update #{self._session_update_count} (instructions changed, hash={instructions_hash})")
         
         # Send session.update and store config for validation
         self._pending_session_config = session_config.copy()  # Store for validation
@@ -584,7 +584,7 @@ class OpenAIRealtimeClient:
             "type": "session.update",
             "session": session_config
         })
-        logger.info(f"✅ Session update sent: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
+        logger.debug(f"✅ Session update sent: voice={voice}, format={input_audio_format}, vad_threshold={vad_threshold}, transcription=gpt-4o-transcribe")
         
         # Return True to indicate session.update was sent successfully
         # Caller should wait for session.updated event before proceeding

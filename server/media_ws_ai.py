@@ -2091,14 +2091,14 @@ class MediaStreamHandler:
         # 🔥 SERVER-FIRST: Do NOT expose scheduling tools to Realtime.
         # Server will decide when to check/schedule and will inject verbatim sentences.
         if SERVER_FIRST_SCHEDULING:
-            logger.info("[TOOLS][REALTIME] SERVER_FIRST_SCHEDULING=1 - no tools exposed")
+            logger.debug("[TOOLS][REALTIME] SERVER_FIRST_SCHEDULING=1 - no tools exposed")
             return tools
         
         # Check if business has appointment scheduling enabled
         try:
             business_id = getattr(self, 'business_id', None)
             if not business_id:
-                logger.info("[TOOLS][REALTIME] No business_id - no tools enabled")
+                logger.debug("[TOOLS][REALTIME] No business_id - no tools enabled")
                 return tools
             
             # 🔥 FIX: Database queries need Flask app context!
@@ -2169,9 +2169,9 @@ class MediaStreamHandler:
                     
                     tools.append(availability_tool)
                     tools.append(appointment_tool)
-                    logger.info(f"[TOOLS][REALTIME] Appointment tools ENABLED (call_goal=appointment) for business {business_id}")
+                    logger.debug(f"[TOOLS][REALTIME] Appointment tools ENABLED (call_goal=appointment) for business {business_id}")
                 else:
-                    logger.info(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}) - no tools for business {business_id}")
+                    logger.debug(f"[TOOLS][REALTIME] Appointments DISABLED (call_goal={call_goal}) - no tools for business {business_id}")
                 
         except Exception as e:
             logger.error(f"[TOOLS][REALTIME] Error checking appointment settings: {e}")
@@ -2342,13 +2342,13 @@ class MediaStreamHandler:
         
         # 🔥 CRITICAL: Unconditional logs at the very top
         _orig_print(f"🚀 [REALTIME] _run_realtime_mode_thread ENTERED for call {call_id} (FRESH SESSION)", flush=True)
-        logger.info(f"[REALTIME] _run_realtime_mode_thread ENTERED for call {call_id}")
-        logger.info(f"[REALTIME] Thread started for call {call_id}")
-        logger.info(f"[REALTIME] About to run asyncio.run(_run_realtime_mode_async)...")
+        logger.debug(f"[REALTIME] _run_realtime_mode_thread ENTERED for call {call_id}")
+        logger.debug(f"[REALTIME] Thread started for call {call_id}")
+        logger.debug(f"[REALTIME] About to run asyncio.run(_run_realtime_mode_async)...")
         
         try:
             asyncio.run(self._run_realtime_mode_async())
-            logger.info(f"[REALTIME] asyncio.run completed normally for call {call_id}")
+            logger.debug(f"[REALTIME] asyncio.run completed normally for call {call_id}")
         except Exception as e:
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME_FATAL: Critical exception in realtime thread
@@ -2370,7 +2370,7 @@ class MediaStreamHandler:
             _orig_print(f"❌ [REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})", flush=True)
         finally:
             print(f"🔚 [REALTIME] Thread ended for call {call_id}")
-            logger.info(f"[REALTIME] Thread ended for call {call_id}")
+            logger.debug(f"[REALTIME] Thread ended for call {call_id}")
     
     async def _run_realtime_mode_async(self):
         """
@@ -2387,7 +2387,7 @@ class MediaStreamHandler:
         # Note: realtime_prompt_builder imported inside try block at line ~1527
         
         _orig_print(f"🚀 [REALTIME] Async loop starting - connecting to OpenAI IMMEDIATELY", flush=True)
-        logger.info(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
+        logger.debug(f"[REALTIME] _run_realtime_mode_async STARTED for call {self.call_sid}")
         
         # Helper function for session configuration (used for initial config and retry)
         async def _send_session_config(client, greeting_prompt, call_voice, greeting_max_tokens, force=False):
@@ -2521,7 +2521,7 @@ class MediaStreamHandler:
             
             is_mini = "mini" in OPENAI_REALTIME_MODEL.lower()
             cost_info = "MINI (80% cheaper)" if is_mini else "STANDARD"
-            logger.info("[REALTIME] Connected")
+            logger.debug("[REALTIME] Connected")
             
             # 🚀 PARALLEL STEP 2: Wait briefly for business info (do NOT block greeting)
             print(f"⏳ [PARALLEL] Waiting for business info from DB query...")
@@ -2692,7 +2692,7 @@ class MediaStreamHandler:
             # 🔥 STEP 1: Start RX loop BEFORE session.update to prevent event loss
             # ═══════════════════════════════════════════════════════════════════════
             _orig_print(f"🚀 [RX_LOOP] Starting receiver task BEFORE session.update (prevents event loss)", flush=True)
-            logger.info(f"[REALTIME] Starting receiver loop before session configuration")
+            logger.debug(f"[REALTIME] Starting receiver loop before session configuration")
             
             # Initialize flag to track when RX loop is ready
             self._recv_loop_started = False
@@ -2891,10 +2891,10 @@ class MediaStreamHandler:
             # 🚀 Start audio/text bridges after greeting trigger attempt:
             # - If greeting triggered: start immediately after trigger to enforce "bot speaks first"
             # - If greeting failed: still start so the call can proceed
-            logger.info("[REALTIME] Starting audio/text sender tasks (post-greeting trigger attempt)...")
+            logger.debug("[REALTIME] Starting audio/text sender tasks (post-greeting trigger attempt)...")
             audio_in_task = asyncio.create_task(self._realtime_audio_sender(client))
             text_in_task = asyncio.create_task(self._realtime_text_sender(client))
-            logger.info("[REALTIME] Audio/text tasks created successfully")
+            logger.debug("[REALTIME] Audio/text tasks created successfully")
 
             # ═══════════════════════════════════════════════════════════════════════
             # 🔥 REALTIME STABILITY: Greeting audio timeout watchdog (only when greeting triggered)
@@ -2948,9 +2948,9 @@ class MediaStreamHandler:
             tool_choice = "auto"
             
             try:
-                logger.info(f"[REALTIME] Building tools for call...")
+                logger.debug(f"[REALTIME] Building tools for call...")
                 realtime_tools = self._build_realtime_tools_for_call()
-                logger.info(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
+                logger.debug(f"[REALTIME] Tools built successfully: count={len(realtime_tools)}")
             except Exception as tools_error:
                 logger.error(f"[REALTIME] Failed to build tools - continuing with empty tools: {tools_error}")
                 import traceback
@@ -2960,7 +2960,7 @@ class MediaStreamHandler:
             if realtime_tools:
                 # 🔥 FIX: Appointment tools are enabled - SEND THEM TO SESSION!
                 print(f"[TOOLS][REALTIME] Appointment tools ENABLED - count={len(realtime_tools)}")
-                logger.info(f"[TOOLS][REALTIME] Sending {len(realtime_tools)} tools to session")
+                logger.debug(f"[TOOLS][REALTIME] Sending {len(realtime_tools)} tools to session")
                 
                 # Wait for greeting to complete before adding tools (avoid interference)
                 async def _load_appointment_tool():
@@ -2980,7 +2980,7 @@ class MediaStreamHandler:
                             }
                         })
                         print(f"✅ [TOOLS][REALTIME] Appointment tools registered in session successfully!")
-                        logger.info(f"[TOOLS][REALTIME] Tools successfully added to session")
+                        logger.debug(f"[TOOLS][REALTIME] Tools successfully added to session")
                         
                     except Exception as e:
                         print(f"❌ [TOOLS][REALTIME] FAILED to register tools: {e}")
@@ -2992,7 +2992,7 @@ class MediaStreamHandler:
             else:
                 # No tools for this call - pure conversation mode
                 print(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
-                logger.info(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
+                logger.debug(f"[TOOLS][REALTIME] No tools enabled for this call - pure conversation mode")
             
             # 📋 CRM: Initialize context in background (non-blocking for voice)
             # This runs in background thread while AI is already speaking
@@ -3077,9 +3077,9 @@ class MediaStreamHandler:
                 print(f"⚠️ [CRM] No customer phone or lead_id - skipping lead creation")
                 self.crm_context = None
             
-            logger.info(f"[REALTIME] Entering main audio/text loop (gather tasks)...")
+            logger.debug(f"[REALTIME] Entering main audio/text loop (gather tasks)...")
             await asyncio.gather(audio_in_task, audio_out_task, text_in_task)
-            logger.info(f"[REALTIME] Main audio/text loop completed")
+            logger.debug(f"[REALTIME] Main audio/text loop completed")
             
         except Exception as e:
             # ═══════════════════════════════════════════════════════════════════════
@@ -4239,7 +4239,7 @@ class MediaStreamHandler:
                 # 🎯 Handle function calls from Realtime (appointment scheduling)
                 if event_type == "response.function_call_arguments.done":
                     print(f"🔧 [TOOLS][REALTIME] Function call received!")
-                    logger.info(f"[TOOLS][REALTIME] Processing function call from OpenAI Realtime")
+                    logger.debug(f"[TOOLS][REALTIME] Processing function call from OpenAI Realtime")
                     await self._handle_function_call(event, client)
                     continue
                 
@@ -7822,8 +7822,8 @@ class MediaStreamHandler:
         
         # 🔥 CRITICAL: Unconditional logs at the very top (always printed!)
         _orig_print(f"🔵 [REALTIME] MediaStreamHandler.run() ENTERED - waiting for START event...", flush=True)
-        logger.info("[REALTIME] MediaStreamHandler.run() ENTERED - waiting for START event")
-        logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, websocket_type={type(self.ws)}")
+        logger.debug("[REALTIME] MediaStreamHandler.run() ENTERED - waiting for START event")
+        logger.debug(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, websocket_type={type(self.ws)}")
         
         # 🔥 REALTIME STABILITY: Track if START event was received
         _start_event_received = False
@@ -7946,8 +7946,8 @@ class MediaStreamHandler:
                     
                     # 🔥 CRITICAL: Unconditional logs - Force print to bypass DEBUG override
                     _orig_print(f"🎯 [REALTIME] START EVENT RECEIVED! session={self._call_session_id} (delay={start_delay_ms}ms from WS open)", flush=True)
-                    logger.info(f"[REALTIME] [{self._call_session_id}] START EVENT RECEIVED - entering start handler")
-                    logger.info(f"[REALTIME] [{self._call_session_id}] Event data keys: {list(evt.keys())}")
+                    logger.debug(f"[REALTIME] [{self._call_session_id}] START EVENT RECEIVED - entering start handler")
+                    logger.debug(f"[REALTIME] [{self._call_session_id}] Event data keys: {list(evt.keys())}")
                     
                     # תמיכה בשני פורמטים: Twilio אמיתי ובדיקות
                     if "start" in evt:
@@ -8110,7 +8110,7 @@ class MediaStreamHandler:
                     # ⛔ CRITICAL: VALIDATE BUSINESS_ID **BEFORE** STARTING OPENAI SESSION
                     # This prevents OpenAI charges if business cannot be identified
                     # ═══════════════════════════════════════════════════════════════════════
-                    logger.info(f"[REALTIME] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
+                    logger.debug(f"[REALTIME] START event received: call_sid={self.call_sid}, to_number={getattr(self, 'to_number', 'N/A')}")
                     
                     # 🔥 STEP 1: IDENTIFY BUSINESS FIRST (before OpenAI connection)
                     t_biz_start = time.time()
@@ -8156,33 +8156,33 @@ class MediaStreamHandler:
                         
                         # 🔥 STEP 2: Now that business is validated, START OPENAI SESSION
                         # OpenAI connection happens ONLY AFTER business_id is confirmed
-                        logger.info(f"[REALTIME] About to check if we should start realtime thread...")
-                        logger.info(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
+                        logger.debug(f"[REALTIME] About to check if we should start realtime thread...")
+                        logger.debug(f"[REALTIME] USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread={getattr(self, 'realtime_thread', None)}")
                         
                         if USE_REALTIME_API and not self.realtime_thread:
-                            logger.info(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
+                            logger.debug(f"[REALTIME] Condition passed - About to START realtime thread for call {self.call_sid}")
                             t_realtime_start = time.time()
                             delta_from_t0 = (t_realtime_start - self.t0_connected) * 1000
                             _orig_print(f"🚀 [REALTIME] Starting OpenAI at T0+{delta_from_t0:.0f}ms (AFTER business validation!)", flush=True)
                             
-                            logger.info(f"[REALTIME] Creating realtime thread...")
+                            logger.debug(f"[REALTIME] Creating realtime thread...")
                             self.realtime_thread = threading.Thread(
                                 target=self._run_realtime_mode_thread,
                                 daemon=True
                             )
-                            logger.info(f"[REALTIME] Starting realtime thread...")
+                            logger.debug(f"[REALTIME] Starting realtime thread...")
                             self.realtime_thread.start()
                             self.background_threads.append(self.realtime_thread)
-                            logger.info(f"[REALTIME] Realtime thread started successfully!")
+                            logger.debug(f"[REALTIME] Realtime thread started successfully!")
                             
-                            logger.info(f"[REALTIME] Creating realtime audio out thread...")
+                            logger.debug(f"[REALTIME] Creating realtime audio out thread...")
                             realtime_out_thread = threading.Thread(
                                 target=self._realtime_audio_out_loop,
                                 daemon=True
                             )
                             realtime_out_thread.start()
                             self.background_threads.append(realtime_out_thread)
-                            logger.info(f"[REALTIME] Both realtime threads started successfully!")
+                            logger.debug(f"[REALTIME] Both realtime threads started successfully!")
                         else:
                             logger.warning(f"[REALTIME] Realtime thread NOT started! USE_REALTIME_API={USE_REALTIME_API}, self.realtime_thread exists={hasattr(self, 'realtime_thread') and self.realtime_thread is not None}")
                         if not hasattr(self, 'bot_speaks_first'):

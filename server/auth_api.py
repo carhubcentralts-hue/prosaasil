@@ -12,8 +12,13 @@ import secrets
 import os
 import hashlib
 import binascii
+import logging
+
+# 🔥 AUTH DEBUG flag - only enabled in development
+DEBUG_AUTH = os.getenv("DEBUG_AUTH", "0") == "1"
 
 auth_api = Blueprint('auth_api', __name__, url_prefix='/api/auth')
+logger = logging.getLogger(__name__)
 
 def get_session_user():
     """
@@ -368,8 +373,9 @@ def require_api_auth(allowed_roles=None):
             user_role = user['role']
             impersonating = bool(session.get("impersonated_tenant_id"))
             
-            # 🔍 BUILD 142 FINAL DEBUG: Log auth context
-            print(f"🔍 AUTH DEBUG: user_id={user.get('id')}, role={user_role}, business_id={user.get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
+            # 🔍 BUILD 142 AUTH DEBUG: Only log in development mode
+            if DEBUG_AUTH:
+                logger.debug(f"[AUTH] user_id={user.get('id')}, role={user_role}, business_id={user.get('business_id')}, computed_tenant={tenant}, impersonating={impersonating}")
             
             # BUILD 138: FIXED legacy role mapping - only map ACTUAL legacy roles, not new ones!
             # Legacy roles (old): manager, business, superadmin

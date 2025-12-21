@@ -70,12 +70,15 @@ def setup_logging():
         
         # External libraries: ERROR only in production
         # 🔥 Set parent logger first, then child for proper propagation
-        logging.getLogger("twilio").setLevel(logging.ERROR)
-        logging.getLogger("twilio.http_client").setLevel(logging.ERROR)
         logging.getLogger("httpx").setLevel(logging.ERROR)
         logging.getLogger("uvicorn").setLevel(logging.ERROR)
         logging.getLogger("werkzeug").setLevel(logging.ERROR)
         logging.getLogger("urllib3").setLevel(logging.ERROR)
+        
+        # 🔥 Block Twilio HTTP client logs completely in production
+        # This prevents "BEGIN Twilio API Request" spam
+        logging.getLogger("twilio").setLevel(logging.WARNING)
+        logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
     else:
         # DEBUG MODE – full logs (DEBUG and above)
         root_logger.setLevel(logging.DEBUG)
@@ -101,6 +104,13 @@ def setup_logging():
     )
     file_handler.setFormatter(JSONFormatter())
     root_logger.addHandler(file_handler)
+    
+    # 🔥 CRITICAL: Re-enforce twilio.http_client blocking after handler setup
+    # This ensures no handler can override the level settings
+    if DEBUG:
+        # Production: Block twilio logs completely
+        logging.getLogger("twilio").setLevel(logging.WARNING)
+        logging.getLogger("twilio.http_client").setLevel(logging.WARNING)
     
     # 🔥 Verify twilio.http_client level in DEBUG mode only (when DEBUG=False, i.e., development)
     if not DEBUG:
