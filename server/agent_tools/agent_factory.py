@@ -369,14 +369,15 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
             """
             Create a new appointment in the calendar
             
-            CRITICAL: Must have valid customer_phone before calling this!
-            Agent MUST collect phone via DTMF (keypad input) BEFORE booking.
+            Phone collection:
+            - Phone is OPTIONAL by default (caller-id / WhatsApp context may exist).
+            - Only require customer_phone if BusinessPolicy.require_phone_before_booking=True.
             
             Args:
                 treatment_type: Type of treatment (required)
                 start_iso: Start time in ISO format (required)
                 end_iso: End time in ISO format (required)
-                customer_phone: Customer phone number (required - collected via DTMF)
+                customer_phone: Customer phone number (optional unless policy requires it)
                 customer_name: Customer name (required - collected verbally)
                 notes: Additional notes (optional)
             """
@@ -393,10 +394,14 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                 
                 from server.agent_tools.tools_calendar import CreateAppointmentInput, _calendar_create_appointment_impl
                 from flask import g
+                from server.policy.business_policy import get_business_policy
                 
                 # Get context and session for _choose_phone
                 context = getattr(g, 'agent_context', None)
                 session = None  # TODO: pass session if available
+
+                # Load policy (determines whether phone is required)
+                policy = get_business_policy(business_id, (context or {}).get("business_prompt") if context else None)
                 
                 # 🔥 CRITICAL: Validate both NAME and PHONE!
                 if not customer_name or customer_name.strip() in ["", "לקוח", "customer"]:
@@ -408,21 +413,17 @@ def create_booking_agent(business_name: str = "העסק", custom_instructions: s
                         "message": error_msg
                     }
                 
-                # 🔥 NEW: Validate phone was collected via DTMF
-                if not customer_phone or len(customer_phone.strip()) < 9:
+                # Phone is optional unless policy explicitly requires it
+                if policy.require_phone_before_booking and (not customer_phone or len(customer_phone.strip()) < 9):
                     error_msg = "missing_phone"
-                    logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg}")
-                    return {
-                        "ok": False,
-                        "error": "missing_phone",
-                        "message": error_msg
-                    }
+                    logger.error(f"❌ calendar_create_appointment_wrapped: {error_msg} (policy requires phone)")
+                    return {"ok": False, "error": "missing_phone", "message": error_msg}
                 
                 # 🔥 CRITICAL: Validate date/time to ensure calendar was checked
                 from datetime import datetime
                 import pytz
                 try:
-                    tz = pytz.timezone("Asia/Jerusalem")
+                    tz = pytz.timezone(policy.tz or "Asia/Jerusalem")
                     now = datetime.now(tz)
                     start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
                     
@@ -725,10 +726,12 @@ TOMORROW: {tomorrow_str}{slot_interval_text}
 2. Call calendar_find_slots() to check availability
 3. Suggest 2 available times if requested time is unavailable
 4. Once time is confirmed, ask for NAME only: "על איזה שם?"
-5. Once you have name, ask for PHONE:
-   - 📞 PHONE channel ONLY: "מה המספר שלך? אנא הקלידו והקישו סולמית (#) בסיום"
-   - 📱 WHATSAPP channel: "מה המספר שלך?" (NO DTMF instruction!)
-6. Call calendar_create_appointment() with all details
+5. PHONE handling:
+   - By default phone is OPTIONAL. Prefer using the caller-id / existing WhatsApp context.
+   - Only ask for phone if your business policy explicitly requires it before booking.
+   - If you must ask on PHONE: "מה המספר שלך? אנא הקלידו והקישו סולמית (#) בסיום"
+   - If you must ask on WHATSAPP: "מה המספר שלך?" (NO DTMF instruction!)
+6. Call calendar_create_appointment() with all details (only claim "קבעתי" after ok:true)
 7. Confirm booking based on whatsapp_status
 
 🔥 CRITICAL: Ask for NAME and PHONE separately - NEVER together!

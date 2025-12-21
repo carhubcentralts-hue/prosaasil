@@ -6100,15 +6100,50 @@ class MediaStreamHandler:
                         # ═══════════════════════════════════════════════════════════════════════════
                         # 🔥 PROMPT-ONLY: NEGATIVE ANSWER DETECTION - Full reset on "לא"
                         # ═══════════════════════════════════════════════════════════════════════════
+                        # For appointment goal: do NOT reset state on every short "לא".
+                        # Only treat it as a reset when it's an explicit cancellation OR it happens at a confirmation step.
+                        call_goal = getattr(self, 'call_goal', 'lead_only')
+                        last_ai_msg = None
+                        try:
+                            for msg in reversed(self.conversation_history):
+                                if msg.get("speaker") == "ai":
+                                    last_ai_msg = (msg.get("text", "") or "").lower()
+                                    break
+                        except Exception:
+                            last_ai_msg = None
+
                         transcript_clean_neg = transcript.strip().lower().replace(".", "").replace("!", "").replace("?", "")
                         negative_answers = ["לא", "ממש לא", "חד משמעית לא", "לא צריך", "אין צורך", "לא לא", "לא נכון", "טעות"]
                         is_negative_answer = any(transcript_clean_neg.startswith(neg) for neg in negative_answers)
-                        
+
                         # Detect STRONG rejection: short, clear "no" (not just "לא" in a long sentence)
                         is_strong_rejection = is_negative_answer and len(transcript_clean_neg) < 20
-                        
+
                         if is_strong_rejection:
-                            print(f"🔥 [PROMPT-ONLY] STRONG REJECTION detected: '{transcript}' - resetting verification state")
+                            if call_goal == 'appointment':
+                                explicit_cancel_phrases = [
+                                    "לא רוצה", "לא מעוניין", "לא מעוניינת", "עזוב", "עזבי", "תבטל", "תבטלי", "לבטל",
+                                    "לא צריך תור", "לא צריך פגישה", "לא לקבוע", "לא לקבוע תור", "לא לקבוע פגישה",
+                                ]
+                                is_explicit_cancel = any(p in transcript_clean_neg for p in explicit_cancel_phrases)
+                                ai_is_asking_confirmation = bool(last_ai_msg) and any(
+                                    p in last_ai_msg for p in ["נכון", "לאשר", "מאשר", "מאשרת", "לקבוע", "לשריין", "שנקבע", "שקובעים"]
+                                )
+                                if not (is_explicit_cancel or ai_is_asking_confirmation):
+                                    print(f"ℹ️ [APPOINTMENT] Short 'no' detected but NOT cancelling/resetting state: '{transcript}'")
+                                else:
+                                    # Treat as rejection/cancel at the relevant step, but avoid clearing unrelated locked fields.
+                                    self.user_rejected_confirmation = True
+                                    crm_ctx = getattr(self, 'crm_context', None)
+                                    if crm_ctx and hasattr(crm_ctx, 'pending_slot'):
+                                        # Clear only the pending slot so the flow re-asks date/time.
+                                        crm_ctx.pending_slot = None
+                                    asyncio.create_task(self._send_text_to_ai(
+                                        "[SYSTEM] The user rejected/cancelled at the appointment confirmation step. "
+                                        "Do NOT reset unrelated collected details. Ask for a new date/time or confirm if they still want to book."
+                                    ))
+                            else:
+                                print(f"🔥 [PROMPT-ONLY] STRONG REJECTION detected: '{transcript}' - resetting verification state")
                             
                             # 1) Clear verification / lead candidate state
                             self._verification_state = None
@@ -6155,12 +6190,7 @@ class MediaStreamHandler:
                         is_first_response = len([m for m in self.conversation_history if m.get("speaker") == "user"]) == 0
                         transcript_clean = transcript.strip().lower().replace(".", "").replace("!", "").replace("?", "")
                         
-                        # Get last AI message for context check
-                        last_ai_msg = None
-                        for msg in reversed(self.conversation_history):
-                            if msg.get("speaker") == "ai":
-                                last_ai_msg = msg.get("text", "").lower()
-                                break
+                        # Get last AI message for context check (already computed above when possible)
                         
                         is_incoherent_response = False
                         
@@ -11462,6 +11492,7 @@ class MediaStreamHandler:
                     from server.agent_tools.tools_calendar import FindSlotsInput, _calendar_find_slots_impl
                     from server.policy.business_policy import get_business_policy
                     import pytz
+                    from datetime import datetime
                     from server.services.hebrew_datetime import (
                         resolve_hebrew_date,
                         resolve_hebrew_time,
@@ -11495,6 +11526,34 @@ class MediaStreamHandler:
                     normalized_date_iso = date_res.date_iso
                     weekday_he = date_res.weekday_he
                     date_display_he = date_res.date_display_he
+
+                    # 🛡️ SAFETY: If the resolved date is in the past, DO NOT query availability.
+                    # Force the model to ask for a new date instead of looping on a past date.
+                    today_local = datetime.now(business_tz).date()
+                    try:
+                        y, m, d = map(int, normalized_date_iso.split("-"))
+                        requested_date = datetime(y, m, d, tzinfo=business_tz).date()
+                    except Exception:
+                        requested_date = None
+                    if requested_date and requested_date < today_local:
+                        print(f"⚠️ [CHECK_AVAIL] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{date_str_raw}'")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "past_date",
+                                    "normalized_date": normalized_date_iso,
+                                    "weekday_he": weekday_he,
+                                    "date_display_he": date_display_he,
+                                    "error": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש מהלקוח (היום/מחר/תאריך אחר)."
+                                }, ensure_ascii=False)
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
                     
                     # Normalize preferred time (optional)
                     preferred_time = None
@@ -11676,23 +11735,8 @@ class MediaStreamHandler:
                 service_type = args.get("service_type", "").strip()
                 
                 # 🔥 STEP 3: Use customer_phone from call context
-                customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None)
-                
-                if not customer_phone:
-                    print(f"❌ [APPOINTMENT] No phone in call context")
-                    await client.send_event({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": json.dumps({
-                                "success": False,
-                                "error_code": "missing_phone"
-                            })
-                        }
-                    })
-                    await client.send_event({"type": "response.create"})
-                    return
+                # Phone is OPTIONAL by default; only required if BusinessPolicy requires it.
+                customer_phone = getattr(self, 'phone_number', None) or getattr(self, 'caller_number', None) or None
                 
                 if not customer_name:
                     print(f"❌ [APPOINTMENT] Missing customer_name")
@@ -11788,6 +11832,57 @@ class MediaStreamHandler:
                     normalized_date_iso = date_res.date_iso
                     weekday_he = date_res.weekday_he
                     date_display_he = date_res.date_display_he
+
+                    # 🛡️ SAFETY: Never attempt booking on a past date.
+                    today_local = datetime.now(tz).date()
+                    try:
+                        y, m, d = map(int, normalized_date_iso.split("-"))
+                        requested_date = datetime(y, m, d, tzinfo=tz).date()
+                    except Exception:
+                        requested_date = None
+                    if requested_date and requested_date < today_local:
+                        print(f"⚠️ [APPOINTMENT] Past date rejected: {normalized_date_iso} (today={today_local.isoformat()}) raw='{appointment_date_raw}'")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "past_date",
+                                    "normalized_date": normalized_date_iso,
+                                    "weekday_he": weekday_he,
+                                    "date_display_he": date_display_he,
+                                    "message": "התאריך שיצא הוא בעבר. חובה לבקש תאריך חדש (היום/מחר/תאריך אחר)."
+                                }, ensure_ascii=False)
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
+
+                    # 🔥 HARD RULE: schedule_appointment requires a recent check_availability first.
+                    last_av = getattr(self, "_last_availability", None) or {}
+                    last_av_date = last_av.get("date_iso")
+                    last_av_ts = last_av.get("ts", 0)
+                    if not last_av_date or last_av_date != normalized_date_iso or (time.time() - float(last_av_ts or 0)) > 600:
+                        print(f"🛑 [APPOINTMENT] Blocked: must call check_availability first (last_date={last_av_date}, age={(time.time()-float(last_av_ts or 0)):.1f}s)")
+                        await client.send_event({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": json.dumps({
+                                    "success": False,
+                                    "error_code": "must_check_availability_first",
+                                    "normalized_date": normalized_date_iso,
+                                    "weekday_he": weekday_he,
+                                    "date_display_he": date_display_he,
+                                    "message": "חובה לקרוא קודם ל-check_availability לאותו תאריך (ב-10 דקות האחרונות) לפני קביעת תור."
+                                }, ensure_ascii=False)
+                            }
+                        })
+                        await client.send_event({"type": "response.create"})
+                        return
                     
                     # 🔥 HARD RULE: availability check BEFORE creating appointment
                     duration_min = policy.slot_size_min
@@ -11890,6 +11985,9 @@ class MediaStreamHandler:
                                 "time": chosen_time,
                                 "available": True,
                             }
+                        # Clear any "confirmed without approval" guard once server created the appointment.
+                        if getattr(self, "_ai_said_confirmed_without_approval", False):
+                            self._ai_said_confirmed_without_approval = False
                         
                         await client.send_event({
                             "type": "conversation.item.create",

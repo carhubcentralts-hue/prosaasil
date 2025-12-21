@@ -201,6 +201,7 @@ def get_business_policy(
     """
     from server.models_sql import BusinessSettings
     from server.db import db
+    from flask import has_app_context
     
     # 🔥 FIX #5: Check cache first (5min TTL) - SKIP if prompt override provided!
     now = time_module.time()
@@ -219,7 +220,16 @@ def get_business_policy(
         if db_session:
             settings = db_session.query(BusinessSettings).filter_by(tenant_id=business_id).first()
         else:
-            settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            # 🔥 CRITICAL: This function is used from WS/threads too.
+            # Flask-SQLAlchemy queries require an app context; if we're outside one,
+            # temporarily enter the process app context to avoid "Working outside of application context"
+            if not has_app_context():
+                from server.app_factory import get_process_app
+                app = get_process_app()
+                with app.app_context():
+                    settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
+            else:
+                settings = BusinessSettings.query.filter_by(tenant_id=business_id).first()
     except Exception as db_err:
         # 🔥 BUILD 186 FIX: Handle missing columns gracefully (e.g., inbound_webhook_url)
         logger.warning(f"⚠️ Could not load BusinessSettings for {business_id} (DB schema issue): {db_err}")
