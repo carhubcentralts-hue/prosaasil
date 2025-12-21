@@ -42,26 +42,26 @@ MAX_AUDIO_FRAMES_PER_CALL = 42000    # 70 fps × 600s = 42000 frames maximum
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 STABLE VAD CONFIGURATION - Production-ready values for Hebrew calls
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (per הנחיה ממוקדת לסוכן):
-# - threshold 0.50: Balanced sensitivity - not aggressive
-# - silence_duration_ms 500: Stable for light background noise (250-400 cuts too early)
-# - prefix_padding_ms 300: Standard padding for Hebrew syllables
+# TUNING RATIONALE (updated per new requirements):
+# - threshold 0.91: LESS SENSITIVE - filters noise better, prevents false triggers
+# - silence_duration_ms 650: LONGER WAIT - doesn't cut off speech too early
+# - prefix_padding_ms 300: Standard padding for Hebrew syllables (unchanged)
 # - create_response: true (automatic response generation on turn end)
 #
-# These stable values prevent:
-# ❌ Transcription cutting mid-sentence (aggressive VAD)
-# ❌ Instability in light noise (too low silence threshold)
-# ❌ Greeting conflicts (no special greeting mode)
+# These updated values prevent:
+# ❌ Transcription triggering on background noise (too sensitive VAD)
+# ❌ Transcription cutting mid-sentence (too short silence threshold)
+# ❌ False speech detection from ambient sounds
 #
-# Current stable settings (0.50/500ms/300ms) provide:
-# ✅ Stable transcription even in light background noise
-# ✅ Reliable detection of short Hebrew utterances ("כן", "לא", "שלום")
-# ✅ Greeting is just first response (no special protection)
+# Current stable settings (0.91/650ms/300ms) provide:
+# ✅ Less sensitive VAD - only real speech triggers transcription
+# ✅ Longer silence wait - allows natural pauses in Hebrew speech
+# ✅ Reliable detection of intentional speech (not noise)
 # ✅ Natural conversation flow with proper turn-taking
 # ═══════════════════════════════════════════════════════════════════════════════
-SERVER_VAD_THRESHOLD = 0.50         # Stable: not aggressive
-SERVER_VAD_SILENCE_MS = 500         # Stable for light noise (450-500 range per requirements)
-SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew
+SERVER_VAD_THRESHOLD = 0.91         # Less sensitive: filters noise better (was 0.50)
+SERVER_VAD_SILENCE_MS = 650         # Longer wait before cutting (was 500)
+SERVER_VAD_PREFIX_PADDING_MS = 300  # Standard padding for Hebrew (unchanged)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 CRITICAL HOTFIX: AUDIO GUARD - DISABLED to prevent blocking real speech
@@ -102,29 +102,26 @@ ECHO_GATE_MIN_FRAMES = 5        # Requires 100ms consistent audio (prevents gree
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🔥 GREETING FIX: BALANCED BARGE-IN - Protect greeting, allow natural interruption
 # ═══════════════════════════════════════════════════════════════════════════════
-# TUNING RATIONALE (based on log analysis):
-# - Frames 8: Requires 160ms of consistent speech to trigger interruption
-#   (prevents greeting interruption from brief noise spikes < 160ms)
-# - Debounce 350ms: Prevents rapid re-triggering after barge-in
-#   (was 300ms - too short, allowed double interruptions)
+# TUNING RATIONALE (updated per new requirements):
+# - Frames 3: Requires 60ms of consistent speech to trigger interruption (was 8 frames/160ms)
+#   Lower threshold makes barge-in more responsive - trusts speech_started event more
+# - Debounce 350ms: Prevents rapid re-triggering after barge-in (unchanged)
 #
-# Log analysis showed:
-# ❌ Greeting interrupted within 100-300ms by brief noise (< 8 frames)
-# ❌ speech_started triggered by echo/background sounds during first 500ms of greeting
+# NEW APPROACH:
+# ❌ OLD: Required 160ms of voice (8 frames) before barge-in
+# ✅ NEW: Reduced to 60ms (3 frames) - trust speech_started event primarily
 #
-# Current balanced settings (8 frames/350ms) provide:
-# ✅ Greeting protection - brief noise (< 160ms) doesn't interrupt
-# ✅ Natural interruption - real user speech (≥ 160ms) can interrupt
+# Golden Rule: speech_started => cancel ALWAYS when active_response_id exists
+# - voice_frames is only used for supplementary validation
+# - Primary trigger is speech_started event itself
+#
+# Current settings (3 frames/350ms) provide:
+# ✅ Faster barge-in response (60ms vs 160ms)
+# ✅ More reliable interruption (trusts OpenAI VAD)
 # ✅ No double triggers - 350ms debounce prevents rapid re-triggering
-#
-# Special Greeting Mode (first 500ms):
-# - During greeting playback, require BOTH:
-#   1. speech_started + 250-350ms of continuous voice, OR
-#   2. transcription.completed with non-empty text
-# - This prevents false triggers from echo/noise at greeting start
 # ═══════════════════════════════════════════════════════════════════════════════
-BARGE_IN_VOICE_FRAMES = 8   # Requires 160ms consistent speech (protects greeting from brief noise)
-BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in
+BARGE_IN_VOICE_FRAMES = 3   # Reduced to 60ms - trust speech_started event (was 8)
+BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in (unchanged)
 
 # Greeting-specific protection (applied during greeting playback only)
 GREETING_PROTECT_DURATION_MS = 500  # Protect greeting for first 500ms
