@@ -15,7 +15,7 @@ from typing import Optional
 from sqlalchemy.exc import OperationalError, DisconnectionError
 
 # 🔒 Import Lead model at top level for efficient access
-from server.models_sql import CallLog, Business, Lead
+from server.models_sql import CallLog, Business, Lead, BusinessTopic
 
 log = logging.getLogger("tasks.recording")
 
@@ -725,6 +725,27 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                                         lead.detected_topic_confidence = confidence
                                         lead.detected_topic_source = method
                                         print(f"[TOPIC_CLASSIFY] ✅ Tagged lead {call_log.lead_id} with topic {topic_id}")
+                                        
+                                        # 🔥 NEW: Map topic to service_type if configured
+                                        if ai_settings.map_topic_to_service_type and confidence >= ai_settings.service_type_min_confidence:
+                                            # Get the topic to check if it has canonical_service_type
+                                            topic = BusinessTopic.query.get(topic_id)
+                                            if topic and topic.canonical_service_type:
+                                                # Only update if lead.service_type is empty or topic confidence is high
+                                                if not lead.service_type or confidence >= 0.85:
+                                                    old_service_type = lead.service_type
+                                                    lead.service_type = topic.canonical_service_type
+                                                    print(f"[TOPIC_CLASSIFY] ✅ Mapped topic '{topic.name}' to service_type: '{old_service_type}' → '{topic.canonical_service_type}' (confidence={confidence:.3f})")
+                                                    log.info(f"[TOPIC_CLASSIFY] Mapped topic {topic_id} to service_type '{topic.canonical_service_type}' for lead {lead.id}")
+                                                else:
+                                                    print(f"[TOPIC_CLASSIFY] ℹ️ Lead {lead.id} already has service_type '{lead.service_type}', confidence {confidence:.3f} too low to override")
+                                            else:
+                                                print(f"[TOPIC_CLASSIFY] ℹ️ Topic {topic_id} has no canonical_service_type mapping")
+                                        else:
+                                            if not ai_settings.map_topic_to_service_type:
+                                                print(f"[TOPIC_CLASSIFY] ℹ️ Topic-to-service mapping disabled for business {call_log.business_id}")
+                                            elif confidence < ai_settings.service_type_min_confidence:
+                                                print(f"[TOPIC_CLASSIFY] ℹ️ Confidence {confidence:.3f} below threshold {ai_settings.service_type_min_confidence} for service_type mapping")
                                 
                                 db.session.commit()
                             else:
@@ -826,8 +847,11 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                             log.info(f"[OFFLINE_EXTRACT] High confidence ({extraction_confidence:.2f}), will overwrite lead {lead.id} city")
                     
                     if update_service:
-                        lead.service_type = extracted_service
-                        log.info(f"[OFFLINE_EXTRACT] ✅ Updated lead {lead.id} service_type: '{extracted_service}'")
+                        # 🔥 Canonicalize service category before saving
+                        from server.services.lead_extraction_service import canonicalize_service
+                        canonical_service = canonicalize_service(extracted_service, call_log.business_id)
+                        lead.service_type = canonical_service
+                        log.info(f"[OFFLINE_EXTRACT] ✅ Updated lead {lead.id} service_type: '{extracted_service}' → '{canonical_service}'")
                     
                     if update_city:
                         lead.city = extracted_city
