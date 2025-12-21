@@ -6828,9 +6828,9 @@ class MediaStreamHandler:
         # 🔍 DEBUG: Check CRM context state
         crm_context = getattr(self, 'crm_context', None)
         if crm_context:
-            print(f"🔍 [DEBUG] CRM context - name: '{crm_context.customer_name}', phone: '{crm_context.customer_phone}'")
+            logger.debug(f"[DEBUG] CRM context - name: '{crm_context.customer_name}', phone: '{crm_context.customer_phone}'")
         else:
-            print(f"🔍 [DEBUG] No CRM context exists yet")
+            logger.debug(f"[DEBUG] No CRM context exists yet")
         
         # 🔥 BUILD 146 FIX: Save date/time to pending_slot from ANY NLP extraction
         # This ensures we don't lose the time when it "falls off" the 10-message history window
@@ -7367,18 +7367,18 @@ class MediaStreamHandler:
         import threading
         import hashlib
         
-        print(f"🔍 [DEBUG] _check_appointment_confirmation called with transcript: '{ai_transcript[:50] if ai_transcript else 'EMPTY'}...'")
-        print(f"🔍 [DEBUG] Conversation history length: {len(self.conversation_history)}")
+        logger.debug(f"[DEBUG] _check_appointment_confirmation called with transcript: '{ai_transcript[:50] if ai_transcript else 'EMPTY'}...'")
+        logger.debug(f"[DEBUG] Conversation history length: {len(self.conversation_history)}")
         
         # 🛡️ BUILD 149 FIX: Check guard FIRST - if appointment already confirmed, skip NLP entirely
         if getattr(self, 'appointment_confirmed_in_session', False):
-            print(f"🛡️ [NLP] GUARD ACTIVE - appointment_confirmed_in_session=True, skipping NLP")
+            logger.debug(f"[NLP] GUARD ACTIVE - appointment_confirmed_in_session=True, skipping NLP")
             return
         
         # 🛡️ Also check CRM context guard
         crm_context = getattr(self, 'crm_context', None)
         if crm_context and crm_context.has_appointment_created:
-            print(f"🛡️ [NLP] GUARD ACTIVE - crm_context.has_appointment_created=True, skipping NLP")
+            logger.debug(f"[NLP] GUARD ACTIVE - crm_context.has_appointment_created=True, skipping NLP")
             return
         
         # 🔥 CRITICAL: Create hash of conversation to prevent duplicate NLP runs
@@ -7389,10 +7389,10 @@ class MediaStreamHandler:
             for msg in self.conversation_history[-10:]  # Last 10 messages
             if msg.get("speaker") == "user"
         ]
-        print(f"🔍 [DEBUG] User messages for hash: {user_messages_only}")
+        logger.debug(f"[DEBUG] User messages for hash: {user_messages_only}")
         conversation_str = json.dumps(user_messages_only, sort_keys=True)
         current_hash = hashlib.md5(conversation_str.encode()).hexdigest()
-        print(f"🔍 [DEBUG] Current conversation hash: {current_hash[:8]}...")
+        logger.debug(f"[DEBUG] Current conversation hash: {current_hash[:8]}...")
         
         # Skip if already processed this exact conversation state (with 30s TTL)
         should_process = False
@@ -7401,26 +7401,26 @@ class MediaStreamHandler:
             
             # 🛡️ BUILD 149 FIX: Check if another NLP thread is still running
             if self.nlp_is_processing:
-                print(f"⏭️ [NLP] BLOCKED - Another NLP thread is still processing")
+                logger.debug(f"[NLP] BLOCKED - Another NLP thread is still processing")
                 return
             
             # Check if we should process (new hash OR expired TTL)
             if self.last_nlp_processed_hash is None:
                 # First run
-                print(f"🔍 [DEBUG] First NLP run - processing")
+                logger.debug(f"[DEBUG] First NLP run - processing")
                 should_process = True
             elif current_hash != self.last_nlp_processed_hash:
                 # Different hash - always process
-                print(f"🔍 [DEBUG] Hash changed ({self.last_nlp_processed_hash[:8] if self.last_nlp_processed_hash else 'None'} → {current_hash[:8]}) - processing")
+                logger.debug(f"[DEBUG] Hash changed ({self.last_nlp_processed_hash[:8] if self.last_nlp_processed_hash else 'None'} → {current_hash[:8]}) - processing")
                 should_process = True
             elif (now - self.last_nlp_hash_timestamp) >= 30:
                 # Same hash but TTL expired - reprocess
-                print(f"🔄 [NLP] TTL expired - reprocessing same hash")
+                logger.debug(f"[NLP] TTL expired - reprocessing same hash")
                 should_process = True
             else:
                 # Same hash within TTL - skip
                 hash_age = now - self.last_nlp_hash_timestamp
-                print(f"⏭️ [NLP] Skipping duplicate (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
+                logger.debug(f"[NLP] Skipping duplicate (hash={current_hash[:8]}..., age={hash_age:.1f}s)")
                 return
             
             # 🛡️ Mark as processing BEFORE releasing lock to prevent race
@@ -7428,13 +7428,13 @@ class MediaStreamHandler:
                 self.nlp_is_processing = True
         
         if not should_process:
-            print(f"🔍 [DEBUG] should_process=False - returning early")
+            logger.debug(f"[DEBUG] should_process=False - returning early")
             return
         
-        print(f"🔍 [NLP] ✅ WILL PROCESS new conversation state (hash={current_hash[:8]}...)")
-        print(f"🔍 [DEBUG] CRM context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
+        logger.debug(f"[NLP] WILL PROCESS new conversation state (hash={current_hash[:8]}...)")
+        logger.debug(f"[DEBUG] CRM context exists: {hasattr(self, 'crm_context') and self.crm_context is not None}")
         if hasattr(self, 'crm_context') and self.crm_context:
-            print(f"🔍 [DEBUG] CRM data - name: '{self.crm_context.customer_name}', phone: '{self.crm_context.customer_phone}'")
+            logger.debug(f"[DEBUG] CRM data - name: '{self.crm_context.customer_name}', phone: '{self.crm_context.customer_phone}'")
         
         def run_in_thread():
             """Run async parser in dedicated thread with its own event loop"""
