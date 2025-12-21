@@ -8577,7 +8577,7 @@ class MediaStreamHandler:
                             self._barge_in_consec_frames = 0
                         
                         # 🎯 FIX: Use 5-8 frames (100-160ms) for reliable debouncing
-                        # BARGE_IN_VOICE_FRAMES from config (default 4, we use 5 for safety)
+                        # Config BARGE_IN_VOICE_FRAMES default is 4, but we use minimum of 5 for safety
                         MIN_BARGE_IN_FRAMES = max(5, BARGE_IN_VOICE_FRAMES)  # At least 5 frames = 100ms
                         
                         # Trigger barge-in if we have enough consecutive frames AND all guards pass
@@ -8611,7 +8611,6 @@ class MediaStreamHandler:
                                     self._barge_in_pending_cancel = False
                                 
                                 # Create task to execute cancel
-                                import asyncio
                                 try:
                                     loop = asyncio.get_event_loop()
                                     loop.create_task(_execute_cancel())
