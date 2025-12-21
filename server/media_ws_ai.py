@@ -1881,6 +1881,10 @@ class MediaStreamHandler:
         self._completed_response_timestamps = {}  # response_id -> timestamp for cleanup
         self._completed_response_max_age_sec = 60  # Clean up after 60 seconds
         
+        # 🎯 SAFETY CHECK 2: Per-response timestamps for safe TX flush window
+        self._response_created_ts = {}  # response_id -> monotonic timestamp when created
+        self._response_created_max_age_sec = 60  # Clean up old timestamps
+        
         # 🎯 SAFETY CHECK 5: Track last cancel timestamp for cooldown bypass
         self._last_cancel_ts = None  # When last cancel occurred (don't count as "turn" for loop guard)
         
@@ -4645,9 +4649,26 @@ class MediaStreamHandler:
                         print(f"🔊 [RESPONSE.CREATED] response_id={response_id[:20]}... stored for cancellation (is_ai_speaking will be set on first audio.delta)")
                         
                         print(f"[BARGE_IN] Stored active_response_id={response_id[:20]}... for cancellation")
-                        # 🔥 BUILD 187: Response grace period - track when response started
+                        
+                        # 🎯 SAFETY CHECK 2: Store per-response timestamp using monotonic clock
+                        # CRITICAL: Use monotonic clock for accurate timing (not affected by system clock changes)
+                        # Store by response_id (not just _response_created_ts) for accurate lookup during cancel
+                        self._response_created_ts[response_id] = time.monotonic()
+                        
+                        # Cleanup old entries (TTL)
+                        now_monotonic = time.monotonic()
+                        expired_ids = [
+                            rid for rid, ts in self._response_created_ts.items()
+                            if now_monotonic - ts > self._response_created_max_age_sec
+                        ]
+                        for rid in expired_ids:
+                            del self._response_created_ts[rid]
+                        
+                        # 🔥 BUILD 187: Response grace period - track when response started (legacy single timestamp)
                         # This prevents false turn_detected from echo/noise in first 500ms
-                        self._response_created_ts = time.time()
+                        # Note: This is the old single-value timestamp, kept for compatibility
+                        # New code should use _response_created_ts[response_id] with monotonic clock
+                        self._response_created_ts_legacy = time.time()
                         # 🔥 BUILD 187: Clear recovery flag - new response was created!
                         if self._cancelled_response_needs_recovery:
                             print(f"🔄 [P0-5] New response created - cancelling recovery")
@@ -14188,31 +14209,40 @@ class MediaStreamHandler:
         - If cancel happens > 250ms after response.created, new response might exist
         - Better to leave a few old frames than delete new response audio
         
+        🎯 CRITICAL REQUIREMENTS (Hebrew feedback):
+        1. Use monotonic clock (not time.time()) for accurate timing
+        2. Check timestamp by cancelled response_id (not current active_response_id)
+        3. If no timestamp exists → DON'T flush (safe default)
+        
         Args:
             response_id: Response ID to flush frames for
         """
-        # Check if response was created recently (< 250ms ago)
-        response_age_ms = None
-        if hasattr(self, '_response_created_ts') and self._response_created_ts:
-            response_age_ms = (time.time() - self._response_created_ts) * 1000
+        # 🎯 Requirement 2: Check timestamp by cancelled response_id
+        response_created_ts = self._response_created_ts.get(response_id)
+        
+        # 🎯 Requirement 3: Safe default - if no timestamp, DON'T flush
+        if response_created_ts is None:
+            logger.warning(f"[BARGE-IN] ⚠️ No timestamp for response {response_id[:20]}... - NOT flushing TX (safe default)")
+            logger.warning(f"[BARGE-IN] Better to leave old frames than risk deleting new response audio")
+            return
+        
+        # 🎯 Requirement 1: Use monotonic clock for accurate timing
+        now_monotonic = time.monotonic()
+        response_age_ms = (now_monotonic - response_created_ts) * 1000
         
         # 🎯 CRITICAL: Only flush if within safe time window (< 250ms)
         SAFE_FLUSH_WINDOW_MS = 250
         
-        if response_age_ms is not None and response_age_ms < SAFE_FLUSH_WINDOW_MS:
+        if response_age_ms < SAFE_FLUSH_WINDOW_MS:
             # Safe to flush - response is young, no new response could exist yet
-            logger.info(f"[BARGE-IN] Safe to flush TX - response age {response_age_ms:.0f}ms < {SAFE_FLUSH_WINDOW_MS}ms")
+            logger.info(f"[BARGE-IN] ✅ Safe to flush TX - response age {response_age_ms:.0f}ms < {SAFE_FLUSH_WINDOW_MS}ms")
             self._flush_tx_queue()
-        elif response_age_ms is not None:
+        else:
             # NOT safe - response is old, new response might have started
             logger.warning(f"[BARGE-IN] ⚠️ Skipping TX flush - response age {response_age_ms:.0f}ms > {SAFE_FLUSH_WINDOW_MS}ms (new response might exist)")
             logger.warning(f"[BARGE-IN] Clearing Twilio queue only (not TX queue)")
             # Still send Twilio clear event to stop buffered audio on Twilio side
             # But DON'T flush TX queue (might have new response audio)
-        else:
-            # No timing info - err on the side of caution, don't flush
-            logger.warning(f"[BARGE-IN] ⚠️ Skipping TX flush - no response timing info (prevents deleting new response)")
-            logger.warning(f"[BARGE-IN] Note: Without frame tagging, cannot safely flush after 250ms")
     
     def _tx_loop(self):
         """
