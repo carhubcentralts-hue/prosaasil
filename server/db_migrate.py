@@ -1277,6 +1277,38 @@ def apply_migrations():
             db.session.rollback()
             raise
         
+        # Migration 43: Service Canonicalization - Add canonical_service_type to BusinessTopic and service mapping settings
+        checkpoint("Migration 43: Service Canonicalization and Topic-to-Service Mapping")
+        try:
+            # Add canonical_service_type to business_topics
+            if check_table_exists('business_topics'):
+                if not check_column_exists('business_topics', 'canonical_service_type'):
+                    log.info("Adding canonical_service_type to business_topics...")
+                    db.session.execute(text("""
+                        ALTER TABLE business_topics 
+                        ADD COLUMN canonical_service_type VARCHAR(255)
+                    """))
+                    migrations_applied.append('add_canonical_service_type_to_business_topics')
+                    log.info("✅ Added canonical_service_type to business_topics")
+            
+            # Add service mapping settings to business_ai_settings
+            if check_table_exists('business_ai_settings'):
+                if not check_column_exists('business_ai_settings', 'map_topic_to_service_type'):
+                    log.info("Adding service mapping settings to business_ai_settings...")
+                    db.session.execute(text("""
+                        ALTER TABLE business_ai_settings 
+                        ADD COLUMN map_topic_to_service_type BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN service_type_min_confidence FLOAT DEFAULT 0.75
+                    """))
+                    migrations_applied.append('add_service_mapping_settings_to_business_ai_settings')
+                    log.info("✅ Added service mapping settings to business_ai_settings")
+            
+            log.info("✅ Applied migration 43: Service Canonicalization and Topic-to-Service Mapping")
+        except Exception as e:
+            log.error(f"❌ Migration 43 failed: {e}")
+            db.session.rollback()
+            raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
