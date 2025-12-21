@@ -285,20 +285,47 @@ def start_outbound_calls():
                 client = get_twilio_client()
                 
                 # 🔥 FIX: Add recordingStatusCallback to ensure recordings are linked to leads
-                twilio_call = client.calls.create(
-                    to=normalized_phone,  # Use normalized phone
-                    from_=from_phone,
-                    url=webhook_url,
-                    status_callback=f"https://{host}/webhook/call_status",
-                    status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                    # ✅ AMD: Do not trust "answered" for outbound - detect voicemail/fax
-                    machine_detection="DetectMessageEnd",
-                    amd_status_callback=f"https://{host}/webhook/amd_status",
-                    amd_status_callback_method="POST",
-                    record=True,
-                    recording_status_callback=f"https://{host}/webhook/handle_recording",
-                    recording_status_callback_event=['completed']
-                )
+                # ✅ AMD: Correct parameters for Twilio Python SDK
+                amd_callback_url = f"https://{host}/webhook/amd_status"
+                
+                try:
+                    # Try with correct AMD parameters (async_amd + async_amd_status_callback)
+                    twilio_call = client.calls.create(
+                        to=normalized_phone,  # Use normalized phone
+                        from_=from_phone,
+                        url=webhook_url,
+                        status_callback=f"https://{host}/webhook/call_status",
+                        status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                        # ✅ AMD: Correct Twilio Python SDK parameters
+                        machine_detection="DetectMessageEnd",
+                        async_amd=True,
+                        async_amd_status_callback=amd_callback_url,
+                        async_amd_status_callback_method="POST",
+                        record=True,
+                        recording_status_callback=f"https://{host}/webhook/handle_recording",
+                        recording_status_callback_event=['completed']
+                    )
+                except TypeError as amd_error:
+                    # Fallback: AMD parameters not supported by SDK version - create call without AMD
+                    log.warning(f"AMD parameters not supported (SDK version issue): {amd_error}. Creating call without AMD.")
+                    twilio_call = client.calls.create(
+                        to=normalized_phone,
+                        from_=from_phone,
+                        url=webhook_url,
+                        status_callback=f"https://{host}/webhook/call_status",
+                        status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                        record=True,
+                        recording_status_callback=f"https://{host}/webhook/handle_recording",
+                        recording_status_callback_event=['completed']
+                    )
+                    results.append({
+                        "lead_id": lead.id,
+                        "lead_name": lead_name,
+                        "call_sid": None,
+                        "status": "warning",
+                        "message": "AMD not supported - call created without voicemail detection"
+                    })
+                    continue
                 
                 call_log.call_sid = twilio_call.sid
                 call_log.status = "ringing"
@@ -1401,18 +1428,36 @@ def process_bulk_call_run(run_id: int):
                             webhook_url += f"&job_id={next_job.id}"
                             
                             client = get_twilio_client()
-                            twilio_call = client.calls.create(
-                                to=normalized_phone,
-                                from_=from_phone,
-                                url=webhook_url,
-                                status_callback=f"https://{host}/webhook/call_status",
-                                status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                                # ✅ AMD: Do not trust "answered" for outbound - detect voicemail/fax
-                                machine_detection="DetectMessageEnd",
-                                amd_status_callback=f"https://{host}/webhook/amd_status",
-                                amd_status_callback_method="POST",
-                                record=True
-                            )
+                            
+                            # ✅ AMD: Correct parameters for Twilio Python SDK
+                            amd_callback_url = f"https://{host}/webhook/amd_status"
+                            
+                            try:
+                                # Try with correct AMD parameters (async_amd + async_amd_status_callback)
+                                twilio_call = client.calls.create(
+                                    to=normalized_phone,
+                                    from_=from_phone,
+                                    url=webhook_url,
+                                    status_callback=f"https://{host}/webhook/call_status",
+                                    status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                                    # ✅ AMD: Correct Twilio Python SDK parameters
+                                    machine_detection="DetectMessageEnd",
+                                    async_amd=True,
+                                    async_amd_status_callback=amd_callback_url,
+                                    async_amd_status_callback_method="POST",
+                                    record=True
+                                )
+                            except TypeError as amd_error:
+                                # Fallback: AMD parameters not supported by SDK version - create call without AMD
+                                log.warning(f"[BulkCall] AMD parameters not supported (SDK version issue): {amd_error}. Creating call without AMD.")
+                                twilio_call = client.calls.create(
+                                    to=normalized_phone,
+                                    from_=from_phone,
+                                    url=webhook_url,
+                                    status_callback=f"https://{host}/webhook/call_status",
+                                    status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                                    record=True
+                                )
                             
                             call_log.call_sid = twilio_call.sid
                             next_job.call_sid = twilio_call.sid

@@ -360,3 +360,138 @@ def rebuild_embeddings():
             "success": False,
             "message": str(e)
         }), 500
+
+
+@ai_topics_bp.route('/api/call_logs/<int:call_log_id>/reclassify-topic', methods=['POST'])
+@require_api_auth(['owner', 'admin'])
+@csrf.exempt
+def reclassify_call_topic(call_log_id):
+    """
+    Re-classify topic for a specific call log.
+    
+    This endpoint:
+    1. Resets the detected_topic fields (id, confidence, source)
+    2. Re-runs topic classification
+    3. Returns the new classification result
+    
+    Useful after:
+    - Updating topic definitions
+    - Adding/modifying synonyms
+    - Adjusting classification threshold
+    """
+    try:
+        from flask import g
+        from server.models_sql import CallLog, BusinessAISettings, Lead
+        business_id = g.business_id
+        
+        # Get call log
+        call_log = CallLog.query.filter_by(
+            id=call_log_id,
+            business_id=business_id
+        ).first()
+        
+        if not call_log:
+            return jsonify({"error": "Call log not found"}), 404
+        
+        # Get AI settings
+        ai_settings = BusinessAISettings.query.filter_by(business_id=business_id).first()
+        
+        if not ai_settings or not ai_settings.embedding_enabled:
+            return jsonify({
+                "error": "Topic classification is not enabled for this business"
+            }), 400
+        
+        # Get transcript to classify
+        text_to_classify = None
+        if call_log.final_transcript and len(call_log.final_transcript.strip()) > 50:
+            text_to_classify = call_log.final_transcript
+        elif call_log.transcription and len(call_log.transcription.strip()) > 50:
+            text_to_classify = call_log.transcription
+        
+        if not text_to_classify:
+            return jsonify({
+                "error": "No transcript available for classification (transcript too short or missing)"
+            }), 400
+        
+        logger.info(f"[RECLASSIFY] Starting re-classification for call {call_log_id} ({len(text_to_classify)} chars)")
+        
+        # Reset existing classification
+        old_topic_id = call_log.detected_topic_id
+        old_topic_name = None
+        if old_topic_id:
+            old_topic = BusinessTopic.query.get(old_topic_id)
+            old_topic_name = old_topic.name if old_topic else None
+        
+        call_log.detected_topic_id = None
+        call_log.detected_topic_confidence = None
+        call_log.detected_topic_source = None
+        
+        # Also reset lead topic if exists and was set by this call
+        if call_log.lead_id:
+            lead = Lead.query.get(call_log.lead_id)
+            if lead and lead.detected_topic_id == old_topic_id:
+                lead.detected_topic_id = None
+                lead.detected_topic_confidence = None
+                lead.detected_topic_source = None
+        
+        db.session.commit()
+        
+        logger.info(f"[RECLASSIFY] Reset classification for call {call_log_id} (was: {old_topic_name})")
+        
+        # Run classification
+        classification_result = topic_classifier.classify_text(business_id, text_to_classify)
+        
+        if classification_result:
+            topic_id = classification_result['topic_id']
+            confidence = classification_result['score']
+            method = classification_result.get('method', 'embedding')
+            topic_name = classification_result['topic_name']
+            
+            logger.info(f"[RECLASSIFY] ✅ New topic: '{topic_name}' (confidence={confidence:.3f}, method={method})")
+            
+            # Update call log if auto_tag_calls is enabled
+            if ai_settings.auto_tag_calls:
+                call_log.detected_topic_id = topic_id
+                call_log.detected_topic_confidence = confidence
+                call_log.detected_topic_source = method
+            
+            # Update lead if auto_tag_leads is enabled and lead exists
+            if ai_settings.auto_tag_leads and call_log.lead_id:
+                lead = Lead.query.get(call_log.lead_id)
+                if lead:
+                    lead.detected_topic_id = topic_id
+                    lead.detected_topic_confidence = confidence
+                    lead.detected_topic_source = method
+            
+            db.session.commit()
+            
+            return jsonify({
+                "success": True,
+                "classification": {
+                    "topic_id": topic_id,
+                    "topic_name": topic_name,
+                    "confidence": confidence,
+                    "method": method,
+                    "top_matches": classification_result.get('top_matches', [])
+                },
+                "previous_topic": old_topic_name,
+                "message": f"Successfully re-classified call to topic '{topic_name}' (method: {method})"
+            })
+        else:
+            logger.info(f"[RECLASSIFY] No topic matched threshold for call {call_log_id}")
+            db.session.commit()
+            
+            return jsonify({
+                "success": True,
+                "classification": None,
+                "previous_topic": old_topic_name,
+                "message": "No topic matched the classification threshold"
+            })
+    
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error re-classifying call {call_log_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
