@@ -27,6 +27,20 @@ TRANSCRIPT_SOURCE_FAILED = "failed"        # Transcription attempt failed
 # ✅ Global queue for recording jobs - single shared instance
 RECORDING_QUEUE = queue.Queue()
 
+# 🔥 Helper for safe text preview in logs (prevent PII exposure + reduce log size)
+def _preview(text, max_len=120):
+    """Create safe preview of text for logging - masks PII and limits length"""
+    if not text:
+        return ""
+    preview = str(text)[:max_len].replace("\n", " ")
+    return preview + ("..." if len(text) > max_len else "")
+
+# 🔥 Check if verbose logging is enabled
+def _is_verbose():
+    """Check if verbose call logging is enabled via env var"""
+    return os.getenv("LOG_VERBOSE_CALLS", "false").lower() == "true"
+
+
 def normalize_call_direction(twilio_direction):
     """
     Normalize Twilio's direction values to simple inbound/outbound/unknown.
@@ -381,10 +395,15 @@ def process_recording_async(form_data):
                     pass
             
             summary = summarize_conversation(source_text_for_summary, call_sid, business_type, business_name)
-            log.info(f"✅ Dynamic summary generated from {transcript_source}: {summary[:50]}...")
+            # 🔥 Reduced logging - only essential info, no full text
+            if summary and len(summary.strip()) > 0:
+                log.info(f"✅ Summary generated: {len(summary)} chars from {transcript_source}")
+            else:
+                log.warning(f"⚠️ Summary generation returned empty")
         else:
-            print(f"[SUMMARY] ⚠️ No valid transcript available for summary (final_transcript={len(final_transcript or '')} chars, transcription={len(transcription or '')} chars)")
-            log.warning(f"[SUMMARY] No valid transcript for summary")
+            # 🔥 Reduced logging - only when verbose mode enabled
+            if _is_verbose():
+                log.debug(f"[SUMMARY] No valid transcript (final={len(final_transcript or '')} chars, realtime={len(transcription or '')} chars)")
         
         # 🆕 3.5. חילוץ עיר ושירות - חכם עם FALLBACK!
         # עדיפות 1: סיכום (אם קיים ובאורך סביר)
@@ -811,24 +830,16 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                 if call_log:
                     db.session.commit()
             
-            # ✅ Explicit confirmation logging
+            # 🔥 CONSOLIDATED LOG: Single summary line instead of multiple prints
+            processing_summary = []
             if final_transcript and len(final_transcript) > 0:
-                print(f"[OFFLINE_STT] ✅ Saved final_transcript ({len(final_transcript)} chars) for {call_sid}")
-            else:
-                print(f"[OFFLINE_STT] ℹ️ No offline transcript saved for {call_sid} (empty or failed)")
-            
-            # 🔥 BUILD 342: Log recording quality metadata for verification
+                processing_summary.append(f"transcript={len(final_transcript)}chars")
             if audio_bytes_len and audio_bytes_len > 0:
-                print(f"[BUILD 342] ✅ Recording metadata: bytes={audio_bytes_len}, duration={audio_duration_sec:.2f}s, source={transcript_source}")
-                log.info(f"[BUILD 342] Recording quality: bytes={audio_bytes_len}, duration={audio_duration_sec}, source={transcript_source}")
-            else:
-                print(f"[BUILD 342] ⚠️ No recording file downloaded (audio_bytes_len={audio_bytes_len})")
-                log.warning(f"[BUILD 342] No valid recording file for {call_sid}")
-            
+                processing_summary.append(f"audio={audio_bytes_len}bytes/{audio_duration_sec:.1f}s")
             if extracted_service or extracted_city:
-                print(f"[OFFLINE_STT] ✅ Extracted: service='{extracted_service}', city='{extracted_city}', confidence={extraction_confidence}")
-            else:
-                print(f"[OFFLINE_STT] ℹ️ No extraction data for {call_sid} (service=None, city=None)")
+                processing_summary.append(f"extract='{extracted_service or 'N/A'}/{extracted_city or 'N/A'}'")
+            
+            log.info(f"[OFFLINE_STT] ✅ Completed {call_sid}: {', '.join(processing_summary) if processing_summary else 'no data'}")
             
             log.info(f"[OFFLINE_STT] Database committed successfully for {call_sid}")
             
