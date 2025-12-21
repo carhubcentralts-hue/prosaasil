@@ -2366,7 +2366,7 @@ class MediaStreamHandler:
             self._realtime_failure_reason = f"THREAD_EXCEPTION: {type(e).__name__}"
             
             # Log metrics for failed call
-            _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION", flush=True)
+            logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed=True, reason=THREAD_EXCEPTION")
             _orig_print(f"❌ [REALTIME_FALLBACK] Call {call_id} handled without realtime (reason=THREAD_EXCEPTION: {type(e).__name__})", flush=True)
         finally:
             print(f"🔚 [REALTIME] Thread ended for call {call_id}")
@@ -2484,7 +2484,7 @@ class MediaStreamHandler:
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = "OPENAI_CONNECT_TIMEOUT"
-                _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT", flush=True)
+                logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason=OPENAI_CONNECT_TIMEOUT")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason=OPENAI_CONNECT_TIMEOUT)", flush=True)
                 return
                 
@@ -2503,7 +2503,7 @@ class MediaStreamHandler:
                 
                 self.realtime_failed = True
                 self._realtime_failure_reason = f"OPENAI_CONNECT_ERROR: {type(connect_err).__name__}"
-                _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}", flush=True)
+                logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms=0, realtime_failed=True, reason={self._realtime_failure_reason}")
                 _orig_print(f"❌ [REALTIME_FALLBACK] Call {self.call_sid} handled without realtime (reason={self._realtime_failure_reason})", flush=True)
                 
                 # 🔥 FIX #3: Log call context for debugging
@@ -3101,7 +3101,7 @@ class MediaStreamHandler:
             # 🔥 REALTIME STABILITY: Log final metrics
             # ═══════════════════════════════════════════════════════════════════════
             # Log timing metrics at end of call
-            _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed={self.realtime_failed}", flush=True)
+            logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms={self._metrics_openai_connect_ms}, first_greeting_audio_ms={self._metrics_first_greeting_audio_ms}, realtime_failed={self.realtime_failed}")
             
             # 💰 COST TRACKING: Use centralized cost calculation
             self._calculate_and_log_cost()
@@ -5426,10 +5426,10 @@ class MediaStreamHandler:
                             self.is_ai_speaking_event.clear()
                             self.speaking = False
                         
-                        # 💰 COST TRACKING: AI finished speaking - stop timer
+                        # 💰 COST TRACKING: AI finished speaking - stop timer (DEBUG only)
                         if hasattr(self, '_ai_speech_start') and self._ai_speech_start is not None:
                             ai_duration = time.time() - self._ai_speech_start
-                            print(f"💰 [COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
+                            logger.debug(f"[COST] AI utterance: {ai_duration:.2f}s ({self.realtime_audio_out_chunks} chunks)")
                             self._ai_speech_start = None  # Reset for next utterance
                         
                         # Track conversation
@@ -6111,10 +6111,10 @@ class MediaStreamHandler:
                         print(f"✅ [LOOP GUARD] User spoke - disengaging loop guard")
                         self._loop_guard_engaged = False
                     
-                    # 💰 COST TRACKING: User finished speaking - stop timer  
+                    # 💰 COST TRACKING: User finished speaking - stop timer (DEBUG only)
                     if hasattr(self, '_user_speech_start') and self._user_speech_start is not None:
                         user_duration = time.time() - self._user_speech_start
-                        print(f"💰 [COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
+                        logger.debug(f"[COST] User utterance: {user_duration:.2f}s ({self.realtime_audio_in_chunks} chunks total)")
                         self._user_speech_start = None  # Reset for next utterance
                     
                     if transcript:
@@ -7630,16 +7630,16 @@ class MediaStreamHandler:
             # ⚡ BUILD 168.2: Compact cost log (single line)
             # 🔥 BUILD 338: Added response.create count for cost debugging
             logger.info(f"[COST] {call_duration:.0f}s ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create={response_create_count}")
-            print(f"💰 [COST SUMMARY] Duration: {call_duration:.0f}s | Cost: ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create: {response_create_count}")
+            logger.debug(f"[COST SUMMARY] Duration: {call_duration:.0f}s | Cost: ${total_cost:.4f} (₪{total_cost_nis:.2f}) | response.create: {response_create_count}")
             
             # 🚨 BUILD 338: WARN if too many response.create calls (cost indicator)
             if response_create_count > 5:
-                print(f"⚠️ [COST WARNING] High response.create count: {response_create_count} (target: ≤5)")
+                logger.debug(f"[COST WARNING] High response.create count: {response_create_count} (target: ≤5)")
             
             return total_cost
             
         except Exception as e:
-            print(f"❌ [COST] Error calculating cost: {e}")
+            logger.error(f"[COST] Error calculating cost: {e}")
             return 0.0
     
     def close_session(self, reason: str):
@@ -7930,7 +7930,7 @@ class MediaStreamHandler:
                         self._realtime_failure_reason = "NO_START_EVENT"
                         
                         # Log metrics and break
-                        _orig_print(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms=0, first_greeting_audio_ms=0, realtime_failed=True, reason=NO_START_EVENT", flush=True)
+                        logger.debug(f"[METRICS] REALTIME_TIMINGS: openai_connect_ms=0, first_greeting_audio_ms=0, realtime_failed=True, reason=NO_START_EVENT")
                         _orig_print(f"❌ [REALTIME_FALLBACK] Call pending handled without realtime (reason=NO_START_EVENT_FROM_TWILIO)", flush=True)
                         break
 
@@ -9034,7 +9034,7 @@ class MediaStreamHandler:
                     self._realtime_failure_reason = failure_reason
             
             # Log metrics - include is_ghost flag for monitoring
-            _orig_print(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}, is_ghost={is_ghost_session}", flush=True)
+            logger.debug(f"[METRICS] REALTIME_TIMINGS: call_sid={self.call_sid}, openai_connect_ms={openai_connect_ms}, first_greeting_audio_ms={first_greeting_audio_ms}, realtime_failed={realtime_failed}, reason={failure_reason}, tx={self.tx}, is_ghost={is_ghost_session}")
             
             # 🔥 GREETING OPTIMIZATION: Log complete timeline for latency analysis
             # Get TwiML timing from stream registry (set by webhook)
@@ -9060,14 +9060,14 @@ class MediaStreamHandler:
             sla_met = total_greeting_ms <= greeting_threshold and total_greeting_ms > 0
             
             if not is_ghost_session and total_greeting_ms > 0:
-                # Log complete greeting timeline (only for real calls with greeting)
+                # Log complete greeting timeline (only for real calls with greeting) - DEBUG ONLY
                 if sla_met:
-                    _orig_print(f"[GREETING_SLA_MET] {total_greeting_ms}ms (threshold={greeting_threshold}ms, direction={call_direction})", flush=True)
+                    logger.debug(f"[GREETING_SLA_MET] {total_greeting_ms}ms (threshold={greeting_threshold}ms, direction={call_direction})")
                 else:
-                    _orig_print(f"[GREETING_SLA_FAILED] inbound={is_inbound} twiml_ms={twiml_ms} openai_ms={openai_connect_ms} greet_ms={first_greeting_audio_ms} total={total_greeting_ms}ms > {greeting_threshold}ms", flush=True)
+                    logger.debug(f"[GREETING_SLA_FAILED] inbound={is_inbound} twiml_ms={twiml_ms} openai_ms={openai_connect_ms} greet_ms={first_greeting_audio_ms} total={total_greeting_ms}ms > {greeting_threshold}ms")
                 
-                # Unified timeline log for analysis
-                _orig_print(f"[GREETING_TIMELINE] inbound={is_inbound} twiml_ms={twiml_ms} ws_start_offset_ms={ws_start_offset_ms} openai_connect_ms={openai_connect_ms} first_greeting_audio_ms={first_greeting_audio_ms} total={total_greeting_ms}ms sla_met={sla_met}", flush=True)
+                # Unified timeline log for analysis - DEBUG ONLY
+                logger.debug(f"[GREETING_TIMELINE] inbound={is_inbound} twiml_ms={twiml_ms} ws_start_offset_ms={ws_start_offset_ms} openai_connect_ms={openai_connect_ms} first_greeting_audio_ms={first_greeting_audio_ms} total={total_greeting_ms}ms sla_met={sla_met}")
                 logger.info(f"[GREETING_TIMELINE] inbound={is_inbound} total={total_greeting_ms}ms sla_met={sla_met}")
             
             # ⚡ STREAMING STT: Close session at end of call
