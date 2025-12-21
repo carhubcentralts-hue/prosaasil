@@ -109,6 +109,7 @@ class TopicClassifier:
         Returns topic with high confidence if exact match found.
         
         Uses normalized text (niqqud/punctuation removed, lowercase) for matching.
+        Synonyms are pre-normalized at load time for efficiency.
         """
         # Normalize text for matching
         text_normalized = _normalize_text_for_matching(text)
@@ -131,15 +132,13 @@ class TopicClassifier:
                     }]
                 }
             
-            # Check synonyms match (normalized)
-            if topic.get('synonyms'):
-                for synonym in topic['synonyms']:
-                    if not synonym:
-                        continue
-                    synonym_normalized = _normalize_text_for_matching(synonym)
+            # Check synonyms match using pre-normalized synonyms
+            if topic.get('synonyms_normalized'):
+                for i, synonym_normalized in enumerate(topic['synonyms_normalized']):
                     # Use 'contains' check to catch "מנול" in "התקנת מנול."
                     if synonym_normalized and synonym_normalized in text_normalized:
-                        print(f"🎯 SYNONYM MATCH: '{synonym}' (normalized: '{synonym_normalized}') → topic: {topic['name']}")
+                        original_synonym = topic['synonyms'][i] if i < len(topic.get('synonyms', [])) else synonym_normalized
+                        print(f"🎯 SYNONYM MATCH: '{original_synonym}' (normalized: '{synonym_normalized}') → topic: {topic['name']}")
                         return {
                             "topic_id": topic['id'],
                             "topic_name": topic['name'],
@@ -154,10 +153,10 @@ class TopicClassifier:
             
             # Check multi-keyword match (at least 2 keywords must match)
             topic_keywords = self._extract_keywords(topic_name_normalized)
-            if topic.get('synonyms'):
-                for syn in topic['synonyms']:
+            if topic.get('synonyms_normalized'):
+                for syn in topic['synonyms_normalized']:
                     if syn:
-                        topic_keywords.update(self._extract_keywords(_normalize_text_for_matching(syn)))
+                        topic_keywords.update(self._extract_keywords(syn))
             
             matching_keywords = text_keywords & topic_keywords
             if len(matching_keywords) >= 2 and len(topic_keywords) > 0:
@@ -226,6 +225,7 @@ class TopicClassifier:
                 "id": topic.id,
                 "name": topic.name,
                 "synonyms": topic.synonyms if isinstance(topic.synonyms, list) else [],
+                "synonyms_normalized": [_normalize_text_for_matching(s) for s in (topic.synonyms if isinstance(topic.synonyms, list) else []) if s],  # 🔥 Pre-normalize synonyms
                 "canonical_service_type": topic.canonical_service_type,  # 🔥 Include canonical mapping
                 "has_embedding": existing_embedding is not None
             })
