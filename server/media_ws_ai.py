@@ -31,7 +31,9 @@ ENABLE_LEGACY_CITY_LOGIC = False
 # Realtime phone calls now use dynamic tool selection (appointments only when enabled)
 
 # ⚡ PHASE 1: DEBUG mode - חונק כל print ב-hot path
-DEBUG = os.getenv("DEBUG", "0") == "1"
+# 🔥 DEBUG=1 → PRODUCTION (minimal logs, quiet mode)
+# 🔥 DEBUG=0 → DEVELOPMENT (full logs, verbose mode)
+DEBUG = os.getenv("DEBUG", "1") == "1"
 DEBUG_TX = os.getenv("DEBUG_TX", "0") == "1"  # 🔥 Separate flag for TX diagnostics
 _orig_print = builtins.print
 
@@ -3297,11 +3299,11 @@ class MediaStreamHandler:
                 # 🔥 BUILD 341: Count frames sent and log metrics periodically
                 _frames_sent += 1
                 
-                # Log metrics every 5 seconds
+                # Log metrics every 5 seconds (DEBUG only)
                 current_time = time.time()
                 if current_time - _metrics_last_log >= _metrics_log_interval:
                     call_duration = current_time - _call_start_time
-                    print(f"📊 [FRAME_METRICS] StreamSid={self.stream_sid} | "
+                    logger.debug(f"[FRAME_METRICS] StreamSid={self.stream_sid} | "
                           f"frames_in={_frames_in}, frames_sent={_frames_sent}, frames_dropped={_frames_dropped} | "
                           f"call_duration={call_duration:.1f}s")
                     _metrics_last_log = current_time
@@ -3360,7 +3362,7 @@ class MediaStreamHandler:
                                 self.barge_in_active = False
                                 self._barge_in_started_ts = None
                     
-                    print(
+                    logger.debug(
                         f"[PIPELINE STATUS] sent={self._stats_audio_sent} blocked={self._stats_audio_blocked} | "
                         f"active_response={self.active_response_id[:15] if self.active_response_id else 'None'}... | "
                         f"ai_speaking={self.is_ai_speaking_event.is_set()} | barge_in={self.barge_in_active}"
@@ -4533,11 +4535,11 @@ class MediaStreamHandler:
                     response_id = event.get("response_id", "")
                     if audio_b64:
                         # ═══════════════════════════════════════════════════════════════
-                        # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (per הנחיה)
+                        # 🔥 TX DIAGNOSTIC: Log audio delta → queue pipeline (DEBUG only)
                         # ═══════════════════════════════════════════════════════════════
                         import base64
                         audio_bytes = base64.b64decode(audio_b64)
-                        _orig_print(f"📥 [AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}", flush=True)
+                        logger.debug(f"[AUDIO_DELTA] response_id={response_id[:20] if response_id else '?'}..., bytes={len(audio_bytes)}, base64_len={len(audio_b64)}")
                         
                         # 🛑 BUILD 165: LOOP GUARD - DROP all AI audio when engaged
                         # 🔥 BUILD 178: Disabled for outbound calls
@@ -5631,8 +5633,8 @@ class MediaStreamHandler:
                     raw_text = event.get("transcript", "") or ""
                     text = raw_text.strip()
                     
-                    # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript
-                    print(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
+                    # 🔥 BUILD 300: UNIFIED STT LOGGING - Step 1: Log raw transcript (DEBUG only)
+                    logger.debug(f"[STT_RAW] '{raw_text}' (len={len(raw_text)})")
                     
                     # 🔥 MASTER CHECK: Log utterance received (verification requirement)
                     logger.info(f"[UTTERANCE] text='{raw_text}'")
@@ -8095,6 +8097,12 @@ class MediaStreamHandler:
                     print(f"🎯 [T0={time.time():.3f}] WS_START sid={self.stream_sid} call_sid={self.call_sid} from={self.phone_number} to={getattr(self, 'to_number', 'N/A')} mode={self.mode}")
                     if self.call_sid:
                         stream_registry.mark_start(self.call_sid)
+                        
+                        # 🔥 PRODUCTION LOG: [CALL_START] - Always logged (WARNING level)
+                        call_direction = getattr(self, 'call_direction', 'unknown')
+                        business_id = getattr(self, 'business_id', None) or getattr(self, 'outbound_business_id', None) or 'N/A'
+                        logger.warning(f"[CALL_START] call_sid={self.call_sid} biz={business_id} direction={call_direction}")
+                        
                         # 🔥 GREETING PROFILER: Track WS connect time
                         stream_registry.set_metric(self.call_sid, 'ws_connect_ts', self.t0_connected)
                     
@@ -8583,9 +8591,9 @@ class MediaStreamHandler:
                         self._barge_in_debug_counter += 1
                         
                         if self._barge_in_debug_counter % 50 == 0:
-                            # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning
+                            # ✅ NEW REQ 3: Enhanced logging with rms, threshold, consec_frames for tuning (DEBUG only)
                             current_threshold = MIN_SPEECH_RMS
-                            print(f"🔍 [BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
+                            logger.debug(f"[BARGE-IN DEBUG] is_ai_speaking={self.is_ai_speaking_event.is_set()}, "
                                   f"user_has_spoken={self.user_has_spoken}, waiting_for_dtmf={self.waiting_for_dtmf}, "
                                   f"rms={rms:.0f}, threshold={current_threshold:.0f}, voice_frames={self.barge_in_voice_frames}/{BARGE_IN_VOICE_FRAMES}")
                         
@@ -8766,7 +8774,7 @@ class MediaStreamHandler:
                                         self.state = STATE_LISTEN
                                     print(f"✅ Processing complete for conversation #{current_id}")
                     
-                    # ✅ WebSocket Keepalive - מונע נפילות אחרי 5 דקות
+                    # ✅ WebSocket Keepalive - מונע נפילות אחרי 5 דקות (DEBUG only)
                     if current_time - self.last_keepalive_ts > self.keepalive_interval:
                         self.last_keepalive_ts = current_time
                         self.heartbeat_counter += 1
@@ -8781,11 +8789,11 @@ class MediaStreamHandler:
                                 }
                                 success = self._ws_send(json.dumps(heartbeat_msg))
                                 if success:
-                                    print(f"💓 WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
+                                    logger.debug(f"WS_KEEPALIVE #{self.heartbeat_counter} (prevents 5min timeout)")
                             except Exception as e:
-                                print(f"⚠️ Keepalive failed: {e}")
+                                logger.debug(f"Keepalive failed: {e}")
                         else:
-                            print(f"💔 SKIPPING keepalive - WebSocket connection failed")
+                            logger.debug(f"SKIPPING keepalive - WebSocket connection failed")
                     
                     # ✅ Watchdog: וודא שלא תקועים במצב + EOU כפויה
                     if self.processing and (current_time - self.processing_start_ts) > 2.5:
@@ -8964,6 +8972,22 @@ class MediaStreamHandler:
             session_id = getattr(self, '_call_session_id', 'N/A')
             call_duration = time.time() - getattr(self, 'call_start_time', time.time())
             business_id = getattr(self, 'business_id', 'N/A')
+            
+            # 🔥 PRODUCTION LOG: [CALL_END] - Always logged (WARNING level)
+            call_sid = getattr(self, 'call_sid', None)
+            if call_sid:
+                # Calculate warnings/errors
+                realtime_failed = getattr(self, 'realtime_failed', False)
+                failure_reason = getattr(self, '_realtime_failure_reason', None)
+                warnings_errors = []
+                if realtime_failed:
+                    warnings_errors.append(f"realtime_failed={failure_reason or 'unknown'}")
+                if self.tx == 0 and call_sid:
+                    warnings_errors.append("tx=0")
+                
+                warnings_str = ", ".join(warnings_errors) if warnings_errors else "none"
+                logger.warning(f"[CALL_END] call_sid={call_sid} duration={call_duration:.1f}s warnings={warnings_str}")
+            
             print(f"📞 [{session_id}] CALL ENDED - duration={call_duration:.1f}s, business_id={business_id}, rx={self.rx}, tx={self.tx}")
             logger.info(f"[{session_id}] DISCONNECT - duration={call_duration:.1f}s, business={business_id}")
             

@@ -70,6 +70,7 @@ def setup_logging():
         
         # External libraries: ERROR only in production
         logging.getLogger("twilio").setLevel(logging.ERROR)
+        logging.getLogger("twilio.http_client").setLevel(logging.ERROR)
         logging.getLogger("httpx").setLevel(logging.ERROR)
         logging.getLogger("uvicorn").setLevel(logging.ERROR)
         logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -80,6 +81,7 @@ def setup_logging():
         
         # External libraries: normal levels in debug mode
         logging.getLogger("twilio").setLevel(logging.INFO)
+        logging.getLogger("twilio.http_client").setLevel(logging.INFO)
         logging.getLogger("httpx").setLevel(logging.INFO)
         logging.getLogger("uvicorn").setLevel(logging.INFO)
         logging.getLogger("werkzeug").setLevel(logging.INFO)
