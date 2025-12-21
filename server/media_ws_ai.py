@@ -2073,6 +2073,11 @@ class MediaStreamHandler:
         self._silence_10s_count = 0  # Count of 10s+ silence gaps during call
         self._stt_hallucinations_dropped = 0  # Count of STT hallucinations rejected by STT_GUARD
         self.connection_start_time = time.time()  # Track connection start for metrics
+        
+        # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
+        self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock
+        self._frames_dropped_by_filters = 0  # Frames dropped by audio filters
+        self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -2436,7 +2441,15 @@ class MediaStreamHandler:
                 silence_duration_ms=SERVER_VAD_SILENCE_MS, # Use config (400ms) - optimal for Hebrew
                 temperature=0.6,
                 max_tokens=greeting_max_tokens,
-                transcription_prompt="תמלול בעברית (ישראל). אם לא דיברו – אל תנחש.",  # ✅ QA: Simple Hebrew transcription guidance
+                # 🔥 PRODUCTION STT QUALITY: Optimized transcription prompt for Hebrew accuracy
+                # Goal: Maximum precision for Hebrew speech, avoid hallucinations, prefer accuracy over completeness
+                transcription_prompt=(
+                    "תמלול מדויק בעברית ישראלית. "
+                    "דיוק מקסימלי! "
+                    "אם לא דיברו או לא ברור - השאר ריק. "
+                    "אל תנחש, אל תשלים, אל תמציא מילים. "
+                    "העדף דיוק על פני שלמות."
+                ),
                 force=force  # 🔥 FIX 3: Pass force flag to bypass hash check on retry
             )
         
@@ -3758,6 +3771,8 @@ class MediaStreamHandler:
                         delta = event.get("delta", "")
                         # 🚫 Production mode: Only log in DEBUG
                         if DEBUG:
+                            logger.debug(f"[REALTIME] response.audio.delta: {len(delta)} bytes")
+                        else:
                             _orig_print(f"🔊 [REALTIME] response.audio.delta: {len(delta)} bytes", flush=True)
                     elif event_type == "response.done":
                         response = event.get("response", {})
@@ -4243,9 +4258,12 @@ class MediaStreamHandler:
                     await self._handle_function_call(event, client)
                     continue
                 
-                # 🔍 DEBUG: Log all event types to catch duplicates
+                # 🔍 DEBUG: Log all event types to catch duplicates (DEBUG level in production)
                 if not event_type.endswith(".delta") and not event_type.startswith("session") and not event_type.startswith("response."):
-                    print(f"[REALTIME] event: {event_type}")
+                    if DEBUG:
+                        logger.debug(f"[REALTIME] event: {event_type}")
+                    else:
+                        print(f"[REALTIME] event: {event_type}")
                 
                 # 🔥 CRITICAL FIX: Mark user as speaking when speech starts (before transcription completes!)
                 # This prevents the GUARD from blocking AI response audio
@@ -4264,7 +4282,10 @@ class MediaStreamHandler:
                     # 3. Set barge_in=True flag and wait for transcription.completed
                     # ═══════════════════════════════════════════════════════════════════════
                     
-                    print(f"🎤 [SPEECH_STARTED] User started speaking")
+                    if DEBUG:
+                        logger.debug(f"[SPEECH_STARTED] User started speaking")
+                    else:
+                        print(f"🎤 [SPEECH_STARTED] User started speaking")
 
                     # 🔴 GREETING_LOCK (HARD):
                     # While greeting_lock_active, ignore ALL user speech during greeting.
@@ -4283,7 +4304,10 @@ class MediaStreamHandler:
                     
                     # Set user_speaking to block new AI responses until transcription completes
                     self.user_speaking = True
-                    print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
+                    if DEBUG:
+                        logger.debug(f"[TURN_TAKING] user_speaking=True - blocking response.create")
+                    else:
+                        print(f"🛑 [TURN_TAKING] user_speaking=True - blocking response.create")
                     
                     # Set user_has_spoken flag (user has interacted)
                     if not self.user_has_spoken:
@@ -4394,7 +4418,10 @@ class MediaStreamHandler:
                     
                     # 🔥 CRITICAL: Keep user_speaking=True until transcription.completed
                     # Don't allow response.create between speech_stopped and transcription
-                    print(f"⏸️ [TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
+                    if DEBUG:
+                        logger.debug(f"[TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
+                    else:
+                        print(f"⏸️ [TURN_TAKING] Speech stopped - waiting for transcription.completed before allowing response")
                     
                     # 🔥 FIX BUG 2: Start timeout for user turn finalization
                     # If no transcription arrives within 1.8s, finalize the turn anyway
@@ -4722,7 +4749,10 @@ class MediaStreamHandler:
                             
                             # 🔥 BARGE-IN FIX: Better logging to distinguish greeting vs. regular AI talk
                             audio_type = "[GREETING]" if self.is_playing_greeting else "[AI_TALK]"
-                            print(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
+                            if DEBUG:
+                                logger.debug(f"{audio_type} chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes}")
+                            else:
+                                print(f"{audio_type} Audio chunk from OpenAI: chunk#{self._openai_audio_chunks_received}, bytes={len(chunk_bytes)}, first5={first5_bytes} | greeting_sent={self.greeting_sent}, user_has_spoken={self.user_has_spoken}, is_ai_speaking={self.is_ai_speaking_event.is_set()}")
                         
                         # 🔥 VERIFICATION #3: Block audio enqueue if closed
                         if not self.closed:
@@ -5758,7 +5788,10 @@ class MediaStreamHandler:
                     # 🔥 CRITICAL: Clear user_speaking flag - allow response.create now
                     # This completes the turn cycle: speech_started → speech_stopped → transcription → NOW AI can respond
                     self.user_speaking = False
-                    print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
+                    if DEBUG:
+                        logger.debug(f"[TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
+                    else:
+                        print(f"✅ [TURN_TAKING] user_speaking=False - transcription complete, AI can respond now")
                     
                     # 🎯 MASTER DIRECTIVE 4: BARGE-IN Phase B - STT validation
                     # If final text is filler → ignore, if real text → CONFIRMED barge-in
@@ -7655,20 +7688,27 @@ class MediaStreamHandler:
         with self.close_lock:
             if self.closed:
                 # Already closed - this is idempotent
-                _orig_print(f"🔒 [SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})", flush=True)
+                if DEBUG:
+                    logger.debug(f"[SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})")
+                else:
+                    _orig_print(f"🔒 [SESSION_CLOSE] Already closed (reason={self.close_reason}), ignoring duplicate close (trigger={reason})", flush=True)
                 return
             
             # Mark as closed FIRST to prevent re-entry
             self.closed = True
             self.close_reason = reason
-            _orig_print(f"🔒 [SESSION_CLOSE] Closing session (reason={reason}, call_sid={self.call_sid}, stream_sid={self.stream_sid})", flush=True)
+            if DEBUG:
+                logger.info(f"[SESSION_CLOSE] Closing session (reason={reason}, call_sid={self.call_sid}, stream_sid={self.stream_sid})")
+            else:
+                _orig_print(f"🔒 [SESSION_CLOSE] Closing session (reason={reason}, call_sid={self.call_sid}, stream_sid={self.stream_sid})", flush=True)
         
         # From here on, we're guaranteed to run only once
         
         # 🔥 VERIFICATION: Wrap in try/finally to ensure cleanup even on exception
         try:
             # STEP 0: Clear all state flags to prevent leakage between calls
-            _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [0/8] Clearing state flags to prevent leakage...", flush=True)
             try:
                 # Clear speaking state
                 if hasattr(self, 'is_ai_speaking_event'):
@@ -7694,13 +7734,15 @@ class MediaStreamHandler:
                 _orig_print(f"   ⚠️ Error clearing state flags: {e}", flush=True)
             
             # STEP 1: Set stop flags for all loops
-            _orig_print(f"   [1/8] Setting stop flags...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [1/8] Setting stop flags...", flush=True)
             self.realtime_stop_flag = True
             if hasattr(self, 'tx_running'):
                 self.tx_running = False
             
             # STEP 2: Signal queues to stop (sentinel values)
-            _orig_print(f"   [2/8] Sending stop signals to queues...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [2/8] Sending stop signals to queues...", flush=True)
             if hasattr(self, 'realtime_audio_in_queue') and self.realtime_audio_in_queue:
                 try:
                     self.realtime_audio_in_queue.put_nowait(None)
@@ -7713,11 +7755,13 @@ class MediaStreamHandler:
                     pass
             
             # STEP 3: Stop timers/watchdogs
-            _orig_print(f"   [3/8] Stopping timers and watchdogs...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [3/8] Stopping timers and watchdogs...", flush=True)
             # (Add any timer cleanup here if needed)
             
             # STEP 4: Close OpenAI connection
-            _orig_print(f"   [4/8] Closing OpenAI connection...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [4/8] Closing OpenAI connection...", flush=True)
             # The realtime_stop_flag will make the async tasks exit naturally
             
             # STEP 5: Wait for TX thread to finish draining
@@ -7726,7 +7770,8 @@ class MediaStreamHandler:
             ai_initiated = 'twilio' not in reason and 'call_status' not in reason and 'stream_ended' not in reason
             
             if ai_initiated:
-                _orig_print(f"   [5/8] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
+                if not DEBUG:
+                    _orig_print(f"   [5/8] AI-initiated close - waiting for TX thread to drain politely...", flush=True)
                 if hasattr(self, 'tx_thread') and self.tx_thread.is_alive():
                     try:
                         self.tx_thread.join(timeout=2.0)  # Give it 2s to drain
@@ -7738,7 +7783,8 @@ class MediaStreamHandler:
                         pass
             else:
                 # Twilio closed - clear queues immediately, no drain
-                _orig_print(f"   [5/8] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
+                if not DEBUG:
+                    _orig_print(f"   [5/8] Twilio-initiated close - clearing queues immediately (no drain)...", flush=True)
                 if hasattr(self, 'tx_q'):
                     cleared = 0
                     while not self.tx_q.empty():
@@ -7761,7 +7807,8 @@ class MediaStreamHandler:
                         _orig_print(f"   🧹 Cleared {cleared} frames from audio out queue", flush=True)
             
             # STEP 6: Close Twilio WebSocket
-            _orig_print(f"   [6/8] Closing Twilio WebSocket...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [6/8] Closing Twilio WebSocket...", flush=True)
             try:
                 if hasattr(self.ws, 'close') and not self._ws_closed:
                     self.ws.close()
@@ -7774,7 +7821,8 @@ class MediaStreamHandler:
         
         finally:
             # STEP 7: Unregister session from registry - ALWAYS runs even on exception
-            _orig_print(f"   [7/8] Unregistering session and handler...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [7/8] Unregistering session and handler...", flush=True)
             if self.call_sid:
                 try:
                     _close_session(self.call_sid)
@@ -7787,21 +7835,26 @@ class MediaStreamHandler:
                 _orig_print(f"   ✅ Session and handler unregistered for call_sid={self.call_sid}", flush=True)
             
             # STEP 8: Final state verification
-            _orig_print(f"   [8/8] Final state verification...", flush=True)
+            if not DEBUG:
+                _orig_print(f"   [8/8] Final state verification...", flush=True)
             is_speaking = self.is_ai_speaking_event.is_set() if hasattr(self, 'is_ai_speaking_event') else False
-            _orig_print(f"   is_ai_speaking={is_speaking}", flush=True)
-            _orig_print(f"   active_response_id={getattr(self, 'active_response_id', None)}", flush=True)
-            _orig_print(f"   user_speaking={getattr(self, 'user_speaking', False)}", flush=True)
-            _orig_print(f"   barge_in_active={getattr(self, 'barge_in_active', False)}", flush=True)
+            if not DEBUG:
+                _orig_print(f"   is_ai_speaking={is_speaking}", flush=True)
+                _orig_print(f"   active_response_id={getattr(self, 'active_response_id', None)}", flush=True)
+                _orig_print(f"   user_speaking={getattr(self, 'user_speaking', False)}", flush=True)
+                _orig_print(f"   barge_in_active={getattr(self, 'barge_in_active', False)}", flush=True)
             
-            _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
-            _orig_print(f"🔒 [SHUTDOWN_VERIFICATION] After this point, NO MORE logs should appear for:", flush=True)
-            _orig_print(f"   ❌ BARGE-IN DEBUG / BARGE-IN CONFIRM", flush=True)
-            _orig_print(f"   ❌ WS_KEEPALIVE / TX_HEARTBEAT", flush=True)
-            _orig_print(f"   ❌ SILENCE Warning / SILENCE Monitor", flush=True)
-            _orig_print(f"   ❌ VAD State / Speech started/stopped", flush=True)
-            _orig_print(f"   ❌ Any audio processing logs", flush=True)
-            _orig_print(f"   ✅ WS_DONE and final cleanup logs are OK", flush=True)
+            if DEBUG:
+                logger.info(f"[SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})")
+            else:
+                _orig_print(f"✅ [SESSION_CLOSE] Complete - session fully cleaned up (reason={reason})", flush=True)
+                _orig_print(f"🔒 [SHUTDOWN_VERIFICATION] After this point, NO MORE logs should appear for:", flush=True)
+                _orig_print(f"   ❌ BARGE-IN DEBUG / BARGE-IN CONFIRM", flush=True)
+                _orig_print(f"   ❌ WS_KEEPALIVE / TX_HEARTBEAT", flush=True)
+                _orig_print(f"   ❌ SILENCE Warning / SILENCE Monitor", flush=True)
+                _orig_print(f"   ❌ VAD State / Speech started/stopped", flush=True)
+                _orig_print(f"   ❌ Any audio processing logs", flush=True)
+                _orig_print(f"   ✅ WS_DONE and final cleanup logs are OK", flush=True)
     
     def run(self):
         """⚡ BUILD 168.2: Streamlined main loop - minimal logging
@@ -8276,7 +8329,9 @@ class MediaStreamHandler:
                     # While greeting is playing, the bot must NOT "hear" the caller at all.
                     # Drop inbound frames immediately (no decode/RMS/VAD/buffer/append/commit/barge-in paths).
                     # We still touch activity timestamps so watchdogs don't misfire.
-                    if getattr(self, "greeting_lock_active", False):
+                    # 
+                    # 🔥 SIMPLE_MODE FIX: In SIMPLE_MODE, NEVER drop frames - send everything to OpenAI
+                    if getattr(self, "greeting_lock_active", False) and not SIMPLE_MODE:
                         self.last_rx_ts = time.time()
                         if self.call_sid:
                             stream_registry.touch_media(self.call_sid)
@@ -8292,6 +8347,7 @@ class MediaStreamHandler:
                             pass
                         try:
                             self._stats_audio_blocked += 1
+                            self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
                         except Exception:
                             pass
                         continue
@@ -8375,7 +8431,8 @@ class MediaStreamHandler:
                         # - do NOT allow barge-in cancel paths
                         #
                         # Therefore: DROP inbound audio frames before enqueue to OpenAI.
-                        if getattr(self, "greeting_lock_active", False):
+                        # 🔥 SIMPLE_MODE FIX: In SIMPLE_MODE, NEVER drop frames - send everything to OpenAI
+                        if getattr(self, "greeting_lock_active", False) and not SIMPLE_MODE:
                             # Rate-limit logs to avoid flooding (about once per second @ 50fps)
                             if not hasattr(self, "_greeting_lock_drop_frames"):
                                 self._greeting_lock_drop_frames = 0
@@ -8385,6 +8442,7 @@ class MediaStreamHandler:
                                 print("🔒 [GREETING_LOCK] dropping inbound audio frame")
                             try:
                                 self._stats_audio_blocked += 1
+                                self._frames_dropped_by_greeting_lock += 1  # Track greeting_lock drops separately
                             except Exception:
                                 pass
                             continue
@@ -14258,16 +14316,24 @@ class MediaStreamHandler:
             # Count filler-only utterances
             stt_filler_only_count = getattr(self, '_stt_filler_only_count', 0)
             
-            # 🎯 TASK 6.1: AUDIO PIPELINE METRICS
+            # 🎯 TASK 6.1: AUDIO PIPELINE METRICS - Separate counters for drop diagnosis
             frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
             frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
-            frames_dropped_by_filters = getattr(self, '_stats_audio_blocked', 0)
+            frames_dropped_total = getattr(self, '_stats_audio_blocked', 0)
+            frames_dropped_by_greeting_lock = getattr(self, '_frames_dropped_by_greeting_lock', 0)
+            frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
+            frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn if frames were dropped
-            if SIMPLE_MODE and frames_dropped_by_filters > 0:
+            # In SIMPLE_MODE, greeting_lock should not drop (it checks SIMPLE_MODE)
+            # Filters should also respect SIMPLE_MODE (passthrough)
+            if SIMPLE_MODE and frames_dropped_total > 0:
                 logger.warning(
-                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_by_filters} frames dropped! "
-                    f"In SIMPLE_MODE, no frames should be dropped by filters."
+                    f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {frames_dropped_total} frames dropped! "
+                    f"greeting_lock={frames_dropped_by_greeting_lock}, "
+                    f"filters={frames_dropped_by_filters}, "
+                    f"queue_full={frames_dropped_by_queue_full}. "
+                    f"In SIMPLE_MODE, no frames should be dropped."
                 )
             
             # Log comprehensive metrics
@@ -14285,7 +14351,10 @@ class MediaStreamHandler:
                 "stt_filler_only=%(stt_filler_only)d, "
                 "frames_in=%(frames_in)d, "
                 "frames_forwarded=%(frames_forwarded)d, "
-                "frames_dropped=%(frames_dropped)d",
+                "frames_dropped_total=%(frames_dropped_total)d, "
+                "frames_dropped_greeting=%(frames_dropped_greeting)d, "
+                "frames_dropped_filters=%(frames_dropped_filters)d, "
+                "frames_dropped_queue=%(frames_dropped_queue)d",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -14300,7 +14369,10 @@ class MediaStreamHandler:
                     'stt_filler_only': stt_filler_only_count,
                     'frames_in': frames_in_from_twilio,
                     'frames_forwarded': frames_forwarded_to_realtime,
-                    'frames_dropped': frames_dropped_by_filters
+                    'frames_dropped_total': frames_dropped_total,
+                    'frames_dropped_greeting': frames_dropped_by_greeting_lock,
+                    'frames_dropped_filters': frames_dropped_by_filters,
+                    'frames_dropped_queue': frames_dropped_by_queue_full
                 }
             )
             
@@ -14314,9 +14386,10 @@ class MediaStreamHandler:
             print(f"   Silences (10s+): {silences_10s}")
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
             print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
-            print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped={frames_dropped_by_filters}")
-            if SIMPLE_MODE and frames_dropped_by_filters > 0:
-                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_by_filters} frames were dropped!")
+            print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
+            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
+            if SIMPLE_MODE and frames_dropped_total > 0:
+                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
