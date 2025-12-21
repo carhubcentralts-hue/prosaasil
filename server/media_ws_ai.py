@@ -2076,12 +2076,25 @@ class MediaStreamHandler:
         self._stt_hallucinations_dropped = 0  # Count of STT hallucinations rejected by STT_GUARD
         self.connection_start_time = time.time()  # Track connection start for metrics
         
-        # 🔥 SIMPLE_MODE FIX: Separate frame drop counters for diagnostics
+        # 🔥 REQUIREMENT: Detailed frame drop tracking for gap diagnosis
+        # Break down drops by category to identify root cause of 165+ frame drops
+        # INBOUND drops (should be 0 in SIMPLE_MODE):
         self._frames_dropped_by_greeting_lock = 0  # Frames dropped during greeting_lock (INBOUND)
         self._frames_dropped_by_filters = 0  # Frames dropped by audio filters (INBOUND)
         self._frames_dropped_by_queue_full = 0  # Frames dropped due to queue full (INBOUND)
-        # 🔥 REQUIREMENT (Hebrew issue): Track OUTBOUND frames cleared (allowed in SIMPLE_MODE)
+        
+        # OUTBOUND drops (allowed, but need tracking for gap diagnosis):
         self._outbound_frames_cleared_on_barge_in = 0  # AI audio cleared during barge-in (OUTBOUND - allowed)
+        self._frames_dropped_tx_barge_in = 0  # TX frames dropped due to barge-in (OUTBOUND)
+        self._frames_dropped_tx_stop = 0  # TX frames dropped during stop/cleanup (OUTBOUND)
+        self._frames_dropped_tx_late = 0  # TX frames dropped due to pacing issues (OUTBOUND)
+        self._frames_dropped_state = 0  # Frames dropped due to invalid state (OUTBOUND)
+        self._frames_dropped_unknown = 0  # Frames dropped for unknown reason (INVESTIGATE)
+        
+        # TX pacing metrics (for jitter/gap diagnosis):
+        self._tx_schedule_resets = 0  # Count of timing resyncs (indicates burst/pause pattern)
+        self._tx_late_frames = 0  # Frames sent after their deadline
+        self._tx_timing_deltas = []  # Track timing deltas for p95 calculation (limited to last 1000)
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -13863,13 +13876,16 @@ class MediaStreamHandler:
         
         NO LOGS, NO WATCHDOGS, NO STALL RECOVERY, NO FLUSH
         Only: get frame → send → sleep
+        
+        🔥 REQUIREMENT: Use perf_counter for stable pacing, track drops by category
         """
         call_sid_short = self.call_sid[:8] if hasattr(self, 'call_sid') and self.call_sid else 'unknown'
         # 🔥 PRODUCTION: Use logger.debug() to avoid spam
         logger.debug(f"[AUDIO_TX_LOOP] started (call_sid={call_sid_short}, frame_pacing=20ms)")
         
         FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms
-        next_deadline = time.monotonic()
+        # 🔥 FIX: Use perf_counter for stable timing (monotonic, higher resolution)
+        next_send = time.perf_counter()
         frames_sent_total = 0
         _first_frame_sent = False
         
@@ -13887,6 +13903,7 @@ class MediaStreamHandler:
                     continue
                 
                 if item.get("type") == "end":
+                    self._frames_dropped_tx_stop += 1  # Track stop signal
                     break
                 
                 # Handle "clear" event - send to Twilio (NO LOGS)
@@ -13901,7 +13918,36 @@ class MediaStreamHandler:
                     # Note: barge_in_active is always initialized in __init__ (line 1806)
                     if self.barge_in_active:
                         # Drop this frame - user interrupted, don't send AI audio
+                        self._frames_dropped_tx_barge_in += 1
                         continue
+                    
+                    # Check if connection is still valid
+                    if not self.stream_sid or getattr(self, 'closed', False):
+                        # Drop frame - connection closing
+                        self._frames_dropped_state += 1
+                        continue
+                    
+                    # 🔥 FIX: Check timing - if we're >100ms late, resync to avoid burst
+                    now = time.perf_counter()
+                    delay_until_send = next_send - now
+                    
+                    if delay_until_send < -0.1:  # More than 100ms late
+                        # We're way behind - resync to current time instead of bursting
+                        self._tx_schedule_resets += 1
+                        next_send = now
+                        delay_until_send = 0
+                    
+                    # Sleep until scheduled send time
+                    if delay_until_send > 0:
+                        time.sleep(delay_until_send)
+                    else:
+                        # Frame is late
+                        self._tx_late_frames += 1
+                    
+                    # Track actual timing delta for jitter calculation (limited buffer)
+                    actual_delta = time.perf_counter() - now
+                    if len(self._tx_timing_deltas) < 1000:
+                        self._tx_timing_deltas.append(actual_delta * 1000)  # Store as ms
                     
                     # Send frame to Twilio WS (item already has correct format from enqueue)
                     if item.get("event") == "media" and "media" in item:
@@ -13917,15 +13963,12 @@ class MediaStreamHandler:
                         if not _first_frame_sent:
                             _first_frame_sent = True
                             self._first_audio_sent = True
-                    
-                    # ✅ Strict 20ms timing - advance deadline and sleep
-                    next_deadline += FRAME_INTERVAL
-                    delay = next_deadline - time.monotonic()
-                    if delay > 0:
-                        time.sleep(delay)
                     else:
-                        # Missed deadline - resync to prevent catch-up bursts
-                        next_deadline = time.monotonic()
+                        # Send failed - likely connection issue
+                        self._frames_dropped_state += 1
+                    
+                    # ✅ Advance to next frame deadline (always move forward)
+                    next_send += FRAME_INTERVAL
                     
                     # NO GAP LOGGING INSIDE LOOP - causes micro-blocks
                     continue
@@ -14455,15 +14498,38 @@ class MediaStreamHandler:
             # Count filler-only utterances
             stt_filler_only_count = getattr(self, '_stt_filler_only_count', 0)
             
-            # 🎯 TASK 6.1: AUDIO PIPELINE METRICS - Separate counters for drop diagnosis
+            # 🔥 REQUIREMENT: Detailed frame drop tracking for gap diagnosis
+            # Get all drop counters - break down by category to find root cause
             frames_in_from_twilio = getattr(self, 'realtime_audio_in_chunks', 0)
             frames_forwarded_to_realtime = getattr(self, '_stats_audio_sent', 0)
-            frames_dropped_total = getattr(self, '_stats_audio_blocked', 0)
+            
+            # INBOUND drops (should be 0 in SIMPLE_MODE):
             frames_dropped_by_greeting_lock = getattr(self, '_frames_dropped_by_greeting_lock', 0)
             frames_dropped_by_filters = getattr(self, '_frames_dropped_by_filters', 0)
             frames_dropped_by_queue_full = getattr(self, '_frames_dropped_by_queue_full', 0)
-            # 🔥 REQUIREMENT (Hebrew issue): Track outbound frames cleared separately
+            
+            # OUTBOUND drops (allowed, tracked for gap diagnosis):
             outbound_frames_cleared = getattr(self, '_outbound_frames_cleared_on_barge_in', 0)
+            frames_dropped_tx_barge_in = getattr(self, '_frames_dropped_tx_barge_in', 0)
+            frames_dropped_tx_stop = getattr(self, '_frames_dropped_tx_stop', 0)
+            frames_dropped_tx_late = getattr(self, '_frames_dropped_tx_late', 0)
+            frames_dropped_state = getattr(self, '_frames_dropped_state', 0)
+            frames_dropped_unknown = getattr(self, '_frames_dropped_unknown', 0)
+            
+            # Calculate total drops
+            frames_dropped_total = getattr(self, '_stats_audio_blocked', 0)
+            
+            # TX pacing metrics:
+            tx_schedule_resets = getattr(self, '_tx_schedule_resets', 0)
+            tx_late_frames = getattr(self, '_tx_late_frames', 0)
+            tx_timing_deltas = getattr(self, '_tx_timing_deltas', [])
+            
+            # Calculate TX jitter p95 (95th percentile timing delta)
+            tx_jitter_p95_ms = 0
+            if tx_timing_deltas:
+                sorted_deltas = sorted(tx_timing_deltas)
+                p95_idx = int(len(sorted_deltas) * 0.95)
+                tx_jitter_p95_ms = sorted_deltas[p95_idx] if p95_idx < len(sorted_deltas) else 0
             
             # 🎯 TASK 6.1: SIMPLE MODE VALIDATION - Warn ONLY for INBOUND drops
             # 🔥 REQUIREMENT: Separate inbound_frames_dropped from outbound_frames_cleared
@@ -14471,6 +14537,12 @@ class MediaStreamHandler:
             # - inbound_frames_dropped MUST be 0 (greeting_lock + filters + queue_full)
             # - outbound_frames_cleared is ALLOWED (barge-in cuts)
             inbound_frames_dropped = frames_dropped_by_greeting_lock + frames_dropped_by_filters + frames_dropped_by_queue_full
+            
+            # 🔥 REQUIREMENT: Calculate OUTBOUND total for gap diagnosis
+            outbound_frames_dropped = (outbound_frames_cleared + frames_dropped_tx_barge_in + 
+                                      frames_dropped_tx_stop + frames_dropped_tx_late + 
+                                      frames_dropped_state + frames_dropped_unknown)
+            
             if SIMPLE_MODE and inbound_frames_dropped > 0:
                 logger.warning(
                     f"[CALL_METRICS] ⚠️ SIMPLE_MODE VIOLATION: {inbound_frames_dropped} INBOUND frames dropped! "
@@ -14478,10 +14550,16 @@ class MediaStreamHandler:
                     f"filters={frames_dropped_by_filters}, "
                     f"queue_full={frames_dropped_by_queue_full}. "
                     f"In SIMPLE_MODE, no INBOUND frames should be dropped. "
-                    f"(outbound_frames_cleared={outbound_frames_cleared} is allowed for barge-in)"
+                    f"(outbound_frames_dropped={outbound_frames_dropped} is allowed)"
                 )
             
-            # Log comprehensive metrics
+            # 🔥 REQUIREMENT: Warn if we have unknown drops (need investigation)
+            if frames_dropped_unknown > 0:
+                logger.warning(
+                    f"[CALL_METRICS] ⚠️ UNKNOWN DROPS: {frames_dropped_unknown} frames dropped for unknown reason - INVESTIGATE!"
+                )
+            
+            # Log comprehensive metrics with detailed breakdown
             logger.info(
                 "[CALL_METRICS] greeting_ms=%(greeting_ms)d, "
                 "first_user_utterance_ms=%(first_user_utterance_ms)d, "
@@ -14497,10 +14575,19 @@ class MediaStreamHandler:
                 "frames_in=%(frames_in)d, "
                 "frames_forwarded=%(frames_forwarded)d, "
                 "frames_dropped_total=%(frames_dropped_total)d, "
-                "frames_dropped_greeting=%(frames_dropped_greeting)d, "
-                "frames_dropped_filters=%(frames_dropped_filters)d, "
-                "frames_dropped_queue=%(frames_dropped_queue)d, "
-                "outbound_frames_cleared=%(outbound_frames_cleared)d",
+                "drops_inbound=%(drops_inbound)d, "
+                "drops_outbound=%(drops_outbound)d, "
+                "drop_greeting=%(drop_greeting)d, "
+                "drop_filters=%(drop_filters)d, "
+                "drop_queue=%(drop_queue)d, "
+                "drop_tx_barge_in=%(drop_tx_barge_in)d, "
+                "drop_tx_stop=%(drop_tx_stop)d, "
+                "drop_tx_late=%(drop_tx_late)d, "
+                "drop_state=%(drop_state)d, "
+                "drop_unknown=%(drop_unknown)d, "
+                "tx_schedule_resets=%(tx_schedule_resets)d, "
+                "tx_late_frames=%(tx_late_frames)d, "
+                "tx_jitter_p95_ms=%(tx_jitter_p95_ms).1f",
                 {
                     'greeting_ms': greeting_ms,
                     'first_user_utterance_ms': first_user_utterance_ms,
@@ -14516,14 +14603,23 @@ class MediaStreamHandler:
                     'frames_in': frames_in_from_twilio,
                     'frames_forwarded': frames_forwarded_to_realtime,
                     'frames_dropped_total': frames_dropped_total,
-                    'frames_dropped_greeting': frames_dropped_by_greeting_lock,
-                    'frames_dropped_filters': frames_dropped_by_filters,
-                    'frames_dropped_queue': frames_dropped_by_queue_full,
-                    'outbound_frames_cleared': outbound_frames_cleared
+                    'drops_inbound': inbound_frames_dropped,
+                    'drops_outbound': outbound_frames_dropped,
+                    'drop_greeting': frames_dropped_by_greeting_lock,
+                    'drop_filters': frames_dropped_by_filters,
+                    'drop_queue': frames_dropped_by_queue_full,
+                    'drop_tx_barge_in': frames_dropped_tx_barge_in,
+                    'drop_tx_stop': frames_dropped_tx_stop,
+                    'drop_tx_late': frames_dropped_tx_late,
+                    'drop_state': frames_dropped_state,
+                    'drop_unknown': frames_dropped_unknown,
+                    'tx_schedule_resets': tx_schedule_resets,
+                    'tx_late_frames': tx_late_frames,
+                    'tx_jitter_p95_ms': tx_jitter_p95_ms
                 }
             )
             
-            # Also print for visibility
+            # Also print for visibility with detailed breakdown
             print(f"📊 [CALL_METRICS] Call {self.call_sid[:16] if hasattr(self, 'call_sid') else 'N/A'}")
             print(f"   Greeting: {greeting_ms}ms")
             print(f"   First user utterance: {first_user_utterance_ms}ms")
@@ -14534,9 +14630,15 @@ class MediaStreamHandler:
             print(f"   STT hallucinations dropped: {stt_hallucinations_dropped}")
             print(f"   STT total: {stt_utterances_total}, empty: {stt_empty_count}, short: {stt_very_short_count}, filler-only: {stt_filler_only_count}")
             print(f"   Audio pipeline: in={frames_in_from_twilio}, forwarded={frames_forwarded_to_realtime}, dropped_total={frames_dropped_total}")
-            print(f"   Drop breakdown: greeting_lock={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue_full={frames_dropped_by_queue_full}")
-            if SIMPLE_MODE and frames_dropped_total > 0:
-                print(f"   ⚠️ WARNING: SIMPLE_MODE violation - {frames_dropped_total} frames were dropped!")
+            print(f"   🔍 DROP BREAKDOWN (total={frames_dropped_total}):")
+            print(f"      INBOUND: {inbound_frames_dropped} (greeting={frames_dropped_by_greeting_lock}, filters={frames_dropped_by_filters}, queue={frames_dropped_by_queue_full})")
+            print(f"      OUTBOUND: {outbound_frames_dropped} (tx_barge_in={frames_dropped_tx_barge_in}, tx_stop={frames_dropped_tx_stop}, tx_late={frames_dropped_tx_late}, state={frames_dropped_state}, unknown={frames_dropped_unknown})")
+            print(f"   📡 TX METRICS: late_frames={tx_late_frames}, resyncs={tx_schedule_resets}, jitter_p95={tx_jitter_p95_ms:.1f}ms")
+            
+            if SIMPLE_MODE and inbound_frames_dropped > 0:
+                print(f"   ⚠️ SIMPLE_MODE VIOLATION: {inbound_frames_dropped} INBOUND frames dropped!")
+            if frames_dropped_unknown > 0:
+                print(f"   ⚠️ UNKNOWN DROPS: {frames_dropped_unknown} frames - INVESTIGATE!")
             
         except Exception as e:
             logger.error(f"[CALL_METRICS] Failed to log metrics: {e}")
