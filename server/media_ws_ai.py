@@ -2119,6 +2119,9 @@ class MediaStreamHandler:
         # These help identify if issue is "no audio.delta from OpenAI" vs "dropped internally"
         self._response_diagnostics = {}  # response_id -> {audio_deltas, transcript_deltas, enqueued, sent}
         self._last_twilio_send_ts = None  # Last time we sent audio to Twilio (for stall detection)
+        
+        # 🔥 FIX: Stuck flags detection tracking (prevents crash on None subtraction)
+        self._stuck_flags_first_seen_ts = None  # When stuck flag state was first detected
 
     def _build_realtime_tools_for_call(self) -> list:
         """
@@ -3462,10 +3465,16 @@ class MediaStreamHandler:
                         not self.is_ai_speaking_event.is_set() and
                         self.active_response_id is None):
                         # Track how long this inconsistent state has persisted
-                        if not hasattr(self, '_stuck_flags_first_seen_ts'):
+                        # 🔥 FIX: Check for None explicitly, not just hasattr (attribute can exist but be None)
+                        if self._stuck_flags_first_seen_ts is None:
                             self._stuck_flags_first_seen_ts = now
                         
-                        stuck_flags_age = now - self._stuck_flags_first_seen_ts
+                        # 🔥 FIX: Guard against None before subtraction to prevent TypeError
+                        if self._stuck_flags_first_seen_ts is None:
+                            stuck_flags_age = 0.0
+                        else:
+                            stuck_flags_age = now - self._stuck_flags_first_seen_ts
+                        
                         if stuck_flags_age > STUCK_FLAGS_TIMEOUT_SEC:
                             print(f"🔧 [SAFETY_FUSE] STUCK FLAGS DETECTED! ai_response_active=True but is_ai_speaking=False and active_response_id=None for {stuck_flags_age:.1f}s")
                             print(f"   Force resetting 3 response-scoped flags...")
@@ -3478,8 +3487,7 @@ class MediaStreamHandler:
                             print(f"   ✅ Flags reset - system recovered")
                     else:
                         # Flags are consistent - reset tracking
-                        if hasattr(self, '_stuck_flags_first_seen_ts'):
-                            self._stuck_flags_first_seen_ts = None
+                        self._stuck_flags_first_seen_ts = None
                     
                     logger.debug(
                         f"[PIPELINE STATUS] sent={self._stats_audio_sent} blocked={self._stats_audio_blocked} | "
