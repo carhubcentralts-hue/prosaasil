@@ -106,33 +106,33 @@ ECHO_GATE_MIN_FRAMES = 5        # Requires 100ms consistent audio (prevents gree
 # 🔥 GREETING FIX: BALANCED BARGE-IN - Protect greeting, allow natural interruption
 # ═══════════════════════════════════════════════════════════════════════════════
 # TUNING RATIONALE (balanced approach per expert feedback):
-# - Frames 4: Requires 80ms of consistent speech to trigger interruption (was 8 frames/160ms)
-#   Balanced: Faster than old (160ms) but safer than aggressive 3 frames (60ms)
-#   Expert feedback: 3 frames risks false triggers from noise/breathing/clicks
+# - Frames 6: Requires 120ms of consistent speech to trigger interruption (was 4 frames/80ms)
+#   Balanced: More robust than 4 frames (80ms) - reduces false triggers from noise/breathing
+#   Expert feedback: 5 frames risks some false triggers, 6-8 frames (120-160ms) is optimal
 # - Debounce 350ms: Prevents rapid re-triggering after barge-in (unchanged)
 #
 # APPROACH:
-# ❌ OLD: Required 160ms of voice (8 frames) - too slow
-# ⚠️ TRIED: 60ms (3 frames) - too fast, risks false barge-in from noise
-# ✅ NEW: 80ms (4 frames) - balanced between speed and accuracy
+# ❌ OLD: Required 80ms of voice (4 frames) - too fast, risks false barge-in from noise
+# ⚠️ TRIED: 160ms (8 frames) - too slow for natural interruption
+# ✅ NEW: 120ms (6 frames) - balanced between speed and accuracy, fewer false triggers
 #
 # Golden Rule: speech_started => cancel ALWAYS when active_response_id exists
-# - voice_frames provides minimal noise filtering (80ms sustained sound)
+# - voice_frames provides reliable noise filtering (120ms sustained sound)
 # - Primary trigger is speech_started event itself
 # - Idempotency protection via _should_send_cancel() prevents double-cancel
 #
 # ⚠️ MONITORING REQUIRED:
-# - If still false triggers from noise → increase to 5 frames (100ms)
-# - If barge-in feels slow → can decrease to 3 frames but monitor closely
+# - If still false triggers from noise → increase to 7-8 frames (140-160ms)
+# - If barge-in feels slow → can decrease to 5 frames but monitor closely
 # - Check logs for "false barge-in" patterns (cancel without real speech)
 #
-# Current settings (4 frames/350ms) provide:
-# ✅ Fast barge-in response (80ms vs old 160ms)
-# ✅ Reduced false triggers vs 3 frames (60ms)
-# ✅ More reliable interruption (trusts OpenAI VAD)
+# Current settings (6 frames/350ms) provide:
+# ✅ Reliable barge-in response (120ms vs old 80ms)
+# ✅ Reduced false triggers from noise/breathing/clicks
+# ✅ More confident interruption detection (trusts OpenAI VAD)
 # ✅ No double triggers - 350ms debounce prevents rapid re-triggering
 # ═══════════════════════════════════════════════════════════════════════════════
-BARGE_IN_VOICE_FRAMES = 4   # Balanced: 80ms - faster response, fewer false triggers (was 8)
+BARGE_IN_VOICE_FRAMES = 6   # Balanced: 120ms - reliable detection, fewer false triggers (was 4)
 BARGE_IN_DEBOUNCE_MS = 350  # Prevents double triggers after barge-in (unchanged)
 
 # Greeting-specific protection (applied during greeting playback only)
