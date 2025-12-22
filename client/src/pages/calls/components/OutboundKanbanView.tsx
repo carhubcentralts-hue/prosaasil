@@ -207,38 +207,40 @@ export function OutboundKanbanView({
   const contentWidth = statuses.length * 320; // Each column is approximately 320px wide
 
   // Mobile column pager mode
-  if (isMobile) {
+  if (isMobile && statuses.length > 0) {
     const currentStatus = statuses[mobileColumnIndex];
-    const statusLeads = leadsByStatus[currentStatus?.name] || [];
+    const statusLeads = currentStatus ? (leadsByStatus[currentStatus.name] || []) : [];
     const leadIds = statusLeads.map(lead => lead.id);
 
     return (
       <div className="space-y-4">
         {/* Mobile status navigation */}
         <div className="flex items-center justify-between gap-2 bg-white p-4 rounded-lg border border-gray-200">
+          {/* Previous button - in RTL, previous is to the right, so use ChevronRight */}
           <button
             onClick={() => setMobileColumnIndex(prev => Math.max(0, prev - 1))}
             disabled={mobileColumnIndex === 0}
             className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="עמודה קודמת"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronRight className="w-5 h-5" />
           </button>
           
           <div className="flex-1 text-center">
-            <div className="font-semibold text-lg">{currentStatus?.label}</div>
+            <div className="font-semibold text-lg">{currentStatus?.label || ''}</div>
             <div className="text-sm text-gray-500">
               {mobileColumnIndex + 1} מתוך {statuses.length} • {statusLeads.length} לידים
             </div>
           </div>
           
+          {/* Next button - in RTL, next is to the left, so use ChevronLeft */}
           <button
             onClick={() => setMobileColumnIndex(prev => Math.min(statuses.length - 1, prev + 1))}
             disabled={mobileColumnIndex === statuses.length - 1}
             className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label="עמודה הבאה"
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
         </div>
 
