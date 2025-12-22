@@ -3417,77 +3417,108 @@ class MediaStreamHandler:
                 if now - self._stats_last_log_ts >= self._stats_log_interval_sec:
                     self._stats_last_log_ts = now
                     
-                    # 🔥 BUILD 301: SAFETY NET - Clear stuck active_response_id
-                    # If active_response_id has been set for >10 seconds, it's stuck (response.done was missed)
-                    # This prevents AI freeze without adding a watchdog - just inline check
-                    response_stuck_seconds = 10.0
-                    if self.active_response_id:
-                        # Get response start time - use _response_created_ts if available
-                        response_started = getattr(self, '_response_created_ts', None)
-                        if response_started and response_started > 0:
-                            response_age = now - response_started
+                    # 🔥 CRITICAL: Wrap all monitoring logic in try/except to prevent thread death
+                    # Monitoring is "best effort" - it should NEVER kill the audio sender thread
+                    try:
+                        # 🔥 BUILD 301: SAFETY NET - Clear stuck active_response_id
+                        # If active_response_id has been set for >10 seconds, it's stuck (response.done was missed)
+                        # This prevents AI freeze without adding a watchdog - just inline check
+                        response_stuck_seconds = 10.0
+                        if self.active_response_id:
+                            # Get response start time - use _response_created_ts dict lookup
+                            # 🔥 FIX: _response_created_ts is a dict (response_id -> timestamp), not a single value
+                            response_started_val = None
+                            response_created_dict = getattr(self, '_response_created_ts', None)
+                            
+                            # Extract timestamp from dict if it exists and is the right type
+                            if isinstance(response_created_dict, dict) and self.active_response_id in response_created_dict:
+                                response_started_val = response_created_dict[self.active_response_id]
+                            elif isinstance(response_created_dict, (int, float)):
+                                # Legacy single value support (if somehow still set)
+                                response_started_val = response_created_dict
+                            
+                            # Convert to float and validate
+                            try:
+                                if response_started_val is not None:
+                                    response_started_val = float(response_started_val)
+                                else:
+                                    response_started_val = None
+                            except (TypeError, ValueError):
+                                response_started_val = None
+                            
+                            if response_started_val is not None and response_started_val > 0:
+                                # Use monotonic time for comparison (response timestamps use time.monotonic())
+                                now_monotonic = time.monotonic()
+                                response_age = now_monotonic - response_started_val
+                            else:
+                                # Fallback: track first time we saw this response in status log
+                                if not hasattr(self, '_stuck_check_first_seen_ts'):
+                                    self._stuck_check_first_seen_ts = now
+                                response_age = now - self._stuck_check_first_seen_ts
+                            
+                            if response_age > response_stuck_seconds:
+                                print(f"🔧 [BUILD 301] STUCK RESPONSE DETECTED! Clearing active_response_id after {response_age:.1f}s")
+                                print(f"   Was: {self.active_response_id[:20]}...")
+                                self.active_response_id = None
+                                self.response_pending_event.clear()
+                                self.is_ai_speaking_event.clear()
+                                self._stuck_check_first_seen_ts = None  # Reset for next response
+                                print(f"   ✅ Response guards cleared - AI can respond again")
                         else:
-                            # Fallback: track first time we saw this response in status log
-                            if not hasattr(self, '_stuck_check_first_seen_ts'):
-                                self._stuck_check_first_seen_ts = now
-                            response_age = now - self._stuck_check_first_seen_ts
+                            # No active response - reset the tracking
+                            if hasattr(self, '_stuck_check_first_seen_ts'):
+                                self._stuck_check_first_seen_ts = None
                         
-                        if response_age > response_stuck_seconds:
-                            print(f"🔧 [BUILD 301] STUCK RESPONSE DETECTED! Clearing active_response_id after {response_age:.1f}s")
-                            print(f"   Was: {self.active_response_id[:20]}...")
-                            self.active_response_id = None
-                            self.response_pending_event.clear()
-                            self.is_ai_speaking_event.clear()
-                            self._stuck_check_first_seen_ts = None  # Reset for next response
-                            print(f"   ✅ Response guards cleared - AI can respond again")
-                    else:
-                        # No active response - reset the tracking
-                        if hasattr(self, '_stuck_check_first_seen_ts'):
-                            self._stuck_check_first_seen_ts = None
-                    
-                    # 🔥 BUILD 302: BARGE-IN FAILSAFE - Clear if stuck for >5 seconds
-                    # If speech_stopped never fires (e.g., network issue), don't leave barge_in_active stuck
-                    BARGE_IN_TIMEOUT_SEC = 5.0
-                    if self.barge_in_active:
-                        barge_start = getattr(self, '_barge_in_started_ts', None)
-                        if barge_start:
-                            barge_age = now - barge_start
-                            if barge_age > BARGE_IN_TIMEOUT_SEC:
-                                print(f"🔧 [BUILD 302] BARGE-IN TIMEOUT! Clearing after {barge_age:.1f}s (speech_stopped never received)")
-                                self.barge_in_active = False
-                                self._barge_in_started_ts = None
-                    
-                    # 🎯 SAFETY CHECK 6: Sanity fuse for stuck flag combination
-                    # Detects: ai_response_active=True BUT is_ai_speaking=False AND active_response_id=None
-                    # This catches 99% of edge cases where flags get out of sync
-                    STUCK_FLAGS_TIMEOUT_SEC = 1.5
-                    if (hasattr(self, 'ai_response_active') and self.ai_response_active and
-                        not self.is_ai_speaking_event.is_set() and
-                        self.active_response_id is None):
-                        # Track how long this inconsistent state has persisted
-                        # 🔥 FIX: Check for None explicitly, not just hasattr (attribute can exist but be None)
-                        if self._stuck_flags_first_seen_ts is None:
-                            self._stuck_flags_first_seen_ts = now
+                        # 🔥 BUILD 302: BARGE-IN FAILSAFE - Clear if stuck for >5 seconds
+                        # If speech_stopped never fires (e.g., network issue), don't leave barge_in_active stuck
+                        BARGE_IN_TIMEOUT_SEC = 5.0
+                        if self.barge_in_active:
+                            barge_start = getattr(self, '_barge_in_started_ts', None)
+                            if barge_start:
+                                barge_age = now - barge_start
+                                if barge_age > BARGE_IN_TIMEOUT_SEC:
+                                    print(f"🔧 [BUILD 302] BARGE-IN TIMEOUT! Clearing after {barge_age:.1f}s (speech_stopped never received)")
+                                    self.barge_in_active = False
+                                    self._barge_in_started_ts = None
                         
-                        # 🔥 FIX: Guard against None before subtraction to prevent TypeError
-                        if self._stuck_flags_first_seen_ts is None:
-                            stuck_flags_age = 0.0
+                        # 🎯 SAFETY CHECK 6: Sanity fuse for stuck flag combination
+                        # Detects: ai_response_active=True BUT is_ai_speaking=False AND active_response_id=None
+                        # This catches 99% of edge cases where flags get out of sync
+                        STUCK_FLAGS_TIMEOUT_SEC = 1.5
+                        if (hasattr(self, 'ai_response_active') and self.ai_response_active and
+                            not self.is_ai_speaking_event.is_set() and
+                            self.active_response_id is None):
+                            # Track how long this inconsistent state has persisted
+                            # 🔥 FIX: Check for None explicitly, not just hasattr (attribute can exist but be None)
+                            if self._stuck_flags_first_seen_ts is None:
+                                self._stuck_flags_first_seen_ts = now
+                            
+                            # 🔥 FIX: Guard against None before subtraction to prevent TypeError
+                            if self._stuck_flags_first_seen_ts is None:
+                                stuck_flags_age = 0.0
+                            else:
+                                stuck_flags_age = now - self._stuck_flags_first_seen_ts
+                            
+                            if stuck_flags_age > STUCK_FLAGS_TIMEOUT_SEC:
+                                print(f"🔧 [SAFETY_FUSE] STUCK FLAGS DETECTED! ai_response_active=True but is_ai_speaking=False and active_response_id=None for {stuck_flags_age:.1f}s")
+                                print(f"   Force resetting 3 response-scoped flags...")
+                                # Reset only response-scoped flags (not global session state)
+                                self.ai_response_active = False
+                                self.is_ai_speaking_event.clear()
+                                if hasattr(self, 'speaking'):
+                                    self.speaking = False
+                                self._stuck_flags_first_seen_ts = None
+                                print(f"   ✅ Flags reset - system recovered")
                         else:
-                            stuck_flags_age = now - self._stuck_flags_first_seen_ts
-                        
-                        if stuck_flags_age > STUCK_FLAGS_TIMEOUT_SEC:
-                            print(f"🔧 [SAFETY_FUSE] STUCK FLAGS DETECTED! ai_response_active=True but is_ai_speaking=False and active_response_id=None for {stuck_flags_age:.1f}s")
-                            print(f"   Force resetting 3 response-scoped flags...")
-                            # Reset only response-scoped flags (not global session state)
-                            self.ai_response_active = False
-                            self.is_ai_speaking_event.clear()
-                            if hasattr(self, 'speaking'):
-                                self.speaking = False
+                            # Flags are consistent - reset tracking
                             self._stuck_flags_first_seen_ts = None
-                            print(f"   ✅ Flags reset - system recovered")
-                    else:
-                        # Flags are consistent - reset tracking
-                        self._stuck_flags_first_seen_ts = None
+                    
+                    except Exception as monitor_err:
+                        # 🔥 CRITICAL: Never let monitoring logic kill the audio sender thread
+                        # Catching broad Exception is INTENTIONAL - monitoring is "best effort"
+                        # Any error in monitoring (TypeError, KeyError, AttributeError, etc.) should NOT break audio
+                        logger.exception(f"[AUDIO_SENDER] Soft-fail in monitoring logic - continuing: {monitor_err}")
+                        # DO NOT EXIT THREAD - just continue sending audio
                     
                     logger.debug(
                         f"[PIPELINE STATUS] sent={self._stats_audio_sent} blocked={self._stats_audio_blocked} | "
