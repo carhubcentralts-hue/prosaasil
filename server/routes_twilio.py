@@ -1284,6 +1284,9 @@ CALL_STATUS_INITIATED = "initiated"
 CALL_STATUS_IN_PROGRESS = "in_progress"
 CALL_STATUS_STREAMING = "streaming"
 
+# Early-stage call statuses that can be updated by AMD
+EARLY_STAGE_STATUSES = [CALL_STATUS_INITIATED, CALL_STATUS_IN_PROGRESS, CALL_STATUS_STREAMING]
+
 # AMD Status Constants - Max 32 chars (status field limit)
 AMD_STATUS_VOICEMAIL = "voicemail"  # Generic voicemail/machine
 AMD_STATUS_HUMAN = "answered_human"  # Human answered
@@ -1329,7 +1332,7 @@ def amd_status():
                     else:
                         # Human answered - only update if call is still in early stages
                         # Avoid overwriting terminal statuses like "completed" or "recorded"
-                        if call_log.status in [CALL_STATUS_INITIATED, CALL_STATUS_IN_PROGRESS, CALL_STATUS_STREAMING]:
+                        if call_log.status in EARLY_STAGE_STATUSES:
                             call_log.status = AMD_STATUS_HUMAN
                     db.session.commit()
             except Exception as db_err:
