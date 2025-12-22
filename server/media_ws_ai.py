@@ -1805,6 +1805,7 @@ class MediaStreamHandler:
         
         # ✅ REMOVED: active_response_id, ai_response_active, speaking flags
         # New simplified barge-in only uses ai_audio_playing flag above
+        self._cancelled_response_ids = set()  # 🔥 FIX: Initialize cancelled response IDs set
         self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
         self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
         self._cancelled_response_max_size = 100  # Cap at 100 entries
@@ -6934,11 +6935,36 @@ class MediaStreamHandler:
             traceback.print_exc()
             logger.error(f"[REALTIME_FATAL] Exception in audio receiver: {e}")
             
+            # 🔥 FIX: Set closed flag to prevent further processing
+            self.closed = True
+            _orig_print(f"🔥 [REALTIME_FATAL] Set self.closed=True to stop processing", flush=True)
+            
+            # 🔥 FIX: Clear all audio state flags to prevent stuck states
+            if hasattr(self, 'drop_ai_audio_until_done'):
+                self.drop_ai_audio_until_done = False
+                _orig_print(f"🔥 [REALTIME_FATAL] Cleared drop_ai_audio_until_done", flush=True)
+            
+            if hasattr(self, 'openai_response_in_progress'):
+                self.openai_response_in_progress = False
+                _orig_print(f"🔥 [REALTIME_FATAL] Cleared openai_response_in_progress", flush=True)
+            
+            if hasattr(self, 'ai_audio_playing'):
+                self.ai_audio_playing = False
+                _orig_print(f"🔥 [REALTIME_FATAL] Cleared ai_audio_playing", flush=True)
+            
             # 🔥 CRITICAL: Reset greeting state on exception to prevent hangup block
             if self.is_playing_greeting:
                 print(f"🛡️ [EXCEPTION CLEANUP] Resetting is_playing_greeting due to exception")
                 self.is_playing_greeting = False
                 self.greeting_completed_at = time.time()
+            
+            # 🔥 FIX: Close WebSocket cleanly to signal connection is dead
+            try:
+                if hasattr(self, 'close_session'):
+                    self.close_session(f"realtime_fatal_error: {type(e).__name__}")
+                    _orig_print(f"🔥 [REALTIME_FATAL] Called close_session() for clean shutdown", flush=True)
+            except Exception as close_err:
+                _orig_print(f"⚠️ [REALTIME_FATAL] Error during close_session: {close_err}", flush=True)
         
         # 🔥 CRITICAL: Always reset greeting state when receiver ends
         if self.is_playing_greeting:
