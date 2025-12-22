@@ -1819,6 +1819,10 @@ class MediaStreamHandler:
         # ✅ P0 FIX: Track which response IDs we've sent cancel for (prevent duplicate cancel)
         self._cancel_sent_for_response_ids = set()  # Response IDs we've already sent cancel event for
         
+        # 🔥 TEXT BARGE-IN: Track pending text during active response
+        self._barge_in_pending_cancel = False  # Flag: Cancel in progress, waiting for response.cancelled/done
+        self._pending_user_text = None  # Store user text while waiting for cancel to complete
+        
         # 🧘 BUILD 345: Post-greeting breathing window state
         self._post_greeting_breath_window_sec = 3.5
         self._post_greeting_window_active = False
@@ -3750,6 +3754,13 @@ class MediaStreamHandler:
             print(f"🛑 [RESPONSE GUARD] USER_SPEAKING=True - blocking response until speech complete ({reason})")
             return False
         
+        # 🔥 TEXT BARGE-IN GUARD: Block response.create if active response exists
+        # Prevents "conversation_already_has_active_response" error
+        if getattr(self, 'ai_response_active', False) and not is_greeting and not force:
+            print(f"🛑 [RESPONSE GUARD] AI_RESPONSE_ACTIVE=True - blocking response.create ({reason})")
+            logger.debug(f"[RESPONSE GUARD] Active response exists (active_response_id={self.active_response_id[:20] if self.active_response_id else 'None'}...)")
+            return False
+        
         # 🛡️ GUARD 0.25: BUILD 310 - Block new AI responses when hangup is pending
         # Don't let AI start new conversation loops after call should end
         if getattr(self, 'pending_hangup', False):
@@ -4159,9 +4170,20 @@ class MediaStreamHandler:
                                 self.ai_response_active = False
                             
                             # 🎯 BARGE-IN FIX: Release pending flag if this was a cancelled response
+                            # 🔥 TEXT BARGE-IN: Create response from pending text after response completes
                             if getattr(self, '_barge_in_pending_cancel', False):
                                 self._barge_in_pending_cancel = False
                                 logger.info(f"[BARGE-IN] ✅ Released pending flag on response.done (response_id={resp_id[:20] if resp_id else 'None'}...)")
+                                
+                                # Check if we have pending user text to process
+                                if self._pending_user_text:
+                                    txt = self._pending_user_text
+                                    self._pending_user_text = None
+                                    print(f"🎯 [TEXT_BARGE_IN] response.done received, creating response for pending text")
+                                    await self._create_response_from_text(txt)
+                                    self._barge_in_event_count += 1
+                                    logger.info(f"[TEXT_BARGE_IN] 📊 Barge-in event counted (total={self._barge_in_event_count})")
+
                             
                             _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
@@ -4248,6 +4270,18 @@ class MediaStreamHandler:
                         self.is_ai_speaking_event.clear()
                         self.speaking = False
                         print(f"✅ [STATE_RESET] response.cancelled cleanup: active_response_id=None, is_ai_speaking=False ({cancelled_resp_id[:20]}...)")
+                    
+                    # 🔥 TEXT BARGE-IN: Create response from pending text after cancel completes
+                    if self._barge_in_pending_cancel:
+                        self._barge_in_pending_cancel = False
+                        if self._pending_user_text:
+                            txt = self._pending_user_text
+                            self._pending_user_text = None
+                            print(f"🎯 [TEXT_BARGE_IN] response.cancelled received, creating response for pending text")
+                            await self._create_response_from_text(txt)
+                            self._barge_in_event_count += 1
+                            logger.info(f"[TEXT_BARGE_IN] 📊 Barge-in event counted (total={self._barge_in_event_count})")
+
                 
                 # 🔥 DEBUG: Log errors
                 if event_type == "error":
@@ -6035,6 +6069,67 @@ class MediaStreamHandler:
                     # Transcript is already in session state via conversation.item.input_audio_transcription.completed
                     # No manual conversation.item.create needed - OpenAI handles it automatically
                     logger.info(f"[AI_INPUT] kind=realtime_transcript committed=True text_preview='{text[:100]}'")
+                    
+                    # ═══════════════════════════════════════════════════════════════════════════
+                    # 🔥 TEXT BARGE-IN: Detect committed transcript while AI is speaking
+                    # ═══════════════════════════════════════════════════════════════════════════
+                    # If AI is speaking, cancel the active response and store text for later
+                    # This prevents "conversation_already_has_active_response" error
+                    is_ai_speaking = self.is_ai_speaking_event.is_set()
+                    has_active_response = getattr(self, 'ai_response_active', False) or bool(self.active_response_id)
+                    
+                    if is_ai_speaking or has_active_response:
+                        # A. Snapshot active response ID
+                        rid = self.active_response_id
+                        
+                        print(f"🎤 [TEXT_BARGE_IN] Detected text while AI speaking: '{text[:40]}...'")
+                        logger.info(f"[TEXT_BARGE_IN] ai_speaking={is_ai_speaking}, active_response={rid[:20] if rid else 'None'}...")
+                        
+                        # B. Cancel + Clear + Flush (if we have active response)
+                        if rid:
+                            self._barge_in_pending_cancel = True
+                            print(f"🔄 [TEXT_BARGE_IN] Cancelling active response: {rid[:20]}...")
+                            
+                            try:
+                                # Cancel the active response
+                                await self.realtime_client.cancel_response(rid)
+                                logger.info(f"[TEXT_BARGE_IN] ✅ Cancel sent for: {rid[:20]}...")
+                            except Exception as e:
+                                error_str = str(e).lower()
+                                if 'not_active' in error_str or 'no active' in error_str:
+                                    logger.debug("[TEXT_BARGE_IN] response_cancel_not_active (already ended)")
+                                else:
+                                    logger.warning(f"[TEXT_BARGE_IN] Cancel error: {e}")
+                            
+                            # Send Twilio clear event
+                            if self.stream_sid:
+                                try:
+                                    clear_event = {
+                                        "event": "clear",
+                                        "streamSid": self.stream_sid
+                                    }
+                                    self._ws_send(json.dumps(clear_event))
+                                    logger.info("[TEXT_BARGE_IN] ✅ Sent Twilio clear event")
+                                    print(f"📤 [TEXT_BARGE_IN] Twilio clear sent (stream_sid={self.stream_sid})")
+                                except Exception as e:
+                                    logger.warning(f"[TEXT_BARGE_IN] Failed to send Twilio clear: {e}")
+                            
+                            # Flush TX queue immediately
+                            print(f"🧹 [TEXT_BARGE_IN] Flushing TX queues...")
+                            self._flush_tx_queue_immediate("barge_in_text")
+                            logger.info("[TEXT_BARGE_IN] ✅ TX queues flushed")
+                        
+                        # C. Store pending text instead of creating response now
+                        self._pending_user_text = text
+                        logger.info(f"[TEXT_BARGE_IN] Stored pending text, waiting for response.cancelled/done")
+                        print(f"⏸️ [TEXT_BARGE_IN] Text stored, will create response after cancel completes")
+                        
+                        # Clear candidate flag - transcription received and handled
+                        self._candidate_user_speaking = False
+                        self._utterance_start_ts = None
+                        
+                        # Don't process further - wait for response.cancelled/done to trigger new response
+                        continue
                     
                     # Clear candidate flag - transcription received and validated
                     self._candidate_user_speaking = False
@@ -11715,6 +11810,34 @@ class MediaStreamHandler:
             await self.trigger_response(f"SILENCE_HANDLER:{text[:30]}")
         except Exception as e:
             print(f"❌ [AI] Failed to send text: {e}")
+
+    async def _create_response_from_text(self, text: str):
+        """
+        🔥 TEXT BARGE-IN: Create response for user text (after cancelled response completes)
+        
+        This is called when a pending user transcript needs to trigger a new response
+        after the previous AI response was cancelled due to text barge-in.
+        
+        The transcript is already in OpenAI's conversation context (auto-committed),
+        so we just need to trigger response.create.
+        
+        Args:
+            text: User transcript text (for logging only)
+        """
+        try:
+            if not self.realtime_client:
+                print(f"⚠️ [TEXT_BARGE_IN] No realtime_client - cannot create response")
+                return
+            
+            print(f"🎯 [TEXT_BARGE_IN] Creating response for pending text: '{text[:40]}...'")
+            logger.info(f"[TEXT_BARGE_IN] Triggering response.create for: '{text[:100]}'")
+            
+            # Trigger response via central function
+            await self.trigger_response(f"TEXT_BARGE_IN:{text[:30]}")
+            
+        except Exception as e:
+            print(f"❌ [TEXT_BARGE_IN] Failed to create response: {e}")
+            logger.error(f"[TEXT_BARGE_IN] Error creating response: {e}")
 
     async def _inject_verbatim_reply_and_respond(self, client, user_msg: str, reason: str) -> bool:
         """
