@@ -220,6 +220,9 @@ def start_recording_worker(app):
 def process_recording_async(form_data):
     """✨ עיבוד הקלטה אסינכרוני מלא: תמלול + סיכום חכם + 🆕 POST-CALL EXTRACTION
     
+    🔥 NEW: Updates pipeline status fields (recording_status, transcript_status, summary_status)
+    for deterministic tracking and retry logic
+    
     Returns:
         bool: True if processing succeeded (audio file existed), False if recording not ready (should retry)
     """
@@ -246,10 +249,15 @@ def process_recording_async(form_data):
                 
                 if call_log:
                     # 🔥 CRITICAL: Skip if already processed (prevent duplicate transcription)
-                    if call_log.final_transcript and len(call_log.final_transcript.strip()) > 50:
+                    if call_log.transcript_status == 'completed' and call_log.final_transcript and len(call_log.final_transcript.strip()) > 50:
                         print(f"✅ [OFFLINE_STT] Call {call_sid} already has final_transcript ({len(call_log.final_transcript)} chars) - skipping reprocessing")
                         log.info(f"[OFFLINE_STT] Skipping {call_sid} - already processed with final_transcript")
                         return True  # Already processed successfully
+                    
+                    # 🔥 Update status to processing
+                    call_log.transcript_status = 'processing'
+                    from server.db import db
+                    db.session.commit()
                     
                     # ✅ Use the EXACT same recording that UI plays
                     audio_file = get_recording_file_for_call(call_log)
@@ -269,6 +277,18 @@ def process_recording_async(form_data):
         if not audio_file:
             print(f"⚠️ [OFFLINE_STT] Audio file not available for {call_sid} - need retry")
             log.warning(f"[OFFLINE_STT] Audio file not available for {call_sid}")
+            # 🔥 Update status to failed if max retries reached
+            if call_log:
+                try:
+                    app = get_process_app()
+                    with app.app_context():
+                        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                        if call_log and call_log.retry_count >= 3:
+                            call_log.transcript_status = 'failed'
+                            call_log.last_error = 'Recording file not available after max retries'
+                            db.session.commit()
+                except Exception:
+                    pass
             return False  # Signal that retry is needed
         
         # 2. תמלול עברית (Google STT v2 + Whisper fallback) - for summary
@@ -699,10 +719,14 @@ def save_call_to_db(call_sid, from_number, recording_url, transcription, to_numb
                     call_log.transcription = transcription
                 if summary and len(summary.strip()) > 0:
                     call_log.summary = summary
+                    # 🔥 NEW: Update summary_status when summary is saved
+                    call_log.summary_status = 'completed'
                 
                 # 🆕 POST-CALL EXTRACTION fields - only update if non-empty
                 if final_transcript and len(final_transcript.strip()) > 0:
                     call_log.final_transcript = final_transcript
+                    # 🔥 NEW: Update transcript_status when transcript is saved
+                    call_log.transcript_status = 'completed'
                 if extracted_service and len(extracted_service.strip()) > 0:
                     call_log.extracted_service = extracted_service
                 if extracted_city and len(extracted_city.strip()) > 0:

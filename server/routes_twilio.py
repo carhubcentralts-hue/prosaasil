@@ -72,8 +72,65 @@ def _do_redirect(call_sid, wss_host, reason):
     except Exception:
         current_app.logger.exception("WATCHDOG_REDIRECT_FAIL")
 
+def _start_full_call_recording(call_sid, host):
+    """
+    🔥 CRITICAL FIX: Start full call recording from second 0 via Twilio REST API
+    
+    This ensures recording captures the ENTIRE call from the very beginning,
+    not just after the stream ends. This is the recommended approach per
+    Twilio best practices for complete call recording.
+    
+    Args:
+        call_sid: Twilio Call SID
+        host: Public host for webhook callbacks
+    """
+    try:
+        account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        
+        if not account_sid or not auth_token:
+            logger.error(f"❌ Missing Twilio credentials for recording {call_sid}")
+            return
+        
+        client = Client(account_sid, auth_token)
+        
+        # Start recording via REST API with optimal settings
+        recording = client.calls(call_sid).recordings.create(
+            recording_channels='dual',  # Dual-channel for better quality (separate customer/AI)
+            recording_status_callback=f"https://{host}/webhook/handle_recording",
+            recording_status_callback_event=['completed'],  # Get notified when recording is ready
+            recording_status_callback_method='POST'
+        )
+        
+        logger.info(f"✅ Started full call recording from second 0: {call_sid}, recording_sid={recording.sid}")
+        print(f"✅ [RECORDING] Started from second 0 for {call_sid[:16]}, recording_sid={recording.sid}")
+        
+        # Update CallLog with recording_sid immediately for tracking
+        try:
+            from server.app_factory import get_process_app
+            app = get_process_app()
+            with app.app_context():
+                from server.models_sql import CallLog, db
+                call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+                if call_log:
+                    call_log.recording_sid = recording.sid
+                    call_log.recording_status = 'recording'  # Mark as recording in progress
+                    db.session.commit()
+                    logger.info(f"✅ Updated CallLog with recording_sid: {recording.sid}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update CallLog with recording_sid: {e}")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to start full call recording for {call_sid}: {e}")
+        print(f"❌ [RECORDING] Failed to start for {call_sid[:16]}: {e}")
+
 def _trigger_recording_for_call(call_sid):
-    """חפש או עורר הקלטה לשיחה לאחר שהזרם נגמר"""
+    """חפש או עורר הקלטה לשיחה לאחר שהזרם נגמר
+    
+    🔥 NOTE: This function is now LEGACY - recording should already be started
+    by _start_full_call_recording() at call beginning. This function remains
+    as a fallback to check for existing recordings.
+    """
     try:
         # וידוא שיש אישורי Twilio
         account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -535,6 +592,17 @@ def incoming_call():
             name=f"LeadCreation-{call_sid[:8]}"
         ).start()
     
+    # 🔥 CRITICAL FIX: Start FULL CALL RECORDING from second 0 via REST API
+    # This ensures recording captures the entire call, not just after stream ends
+    # Recording starts immediately in parallel with TwiML response (non-blocking)
+    if call_sid:
+        threading.Thread(
+            target=_start_full_call_recording,
+            args=(call_sid, host),
+            daemon=True,
+            name=f"RecordStart-{call_sid[:8]}"
+        ).start()
+    
     # ⏱️ מדידה
     t1 = time.time()
     twiml_ms = int((t1 - t0) * 1000)
@@ -674,6 +742,17 @@ def outbound_call():
             args=(call_sid, business_id),
             daemon=True,
             name=f"PromptBuildOut-{call_sid[:8]}"
+        ).start()
+    
+    # 🔥 CRITICAL FIX: Start FULL CALL RECORDING from second 0 via REST API
+    # This ensures recording captures the entire outbound call, not just after stream ends
+    # Recording starts immediately in parallel with TwiML response (non-blocking)
+    if call_sid:
+        threading.Thread(
+            target=_start_full_call_recording,
+            args=(call_sid, host),
+            daemon=True,
+            name=f"RecordStart-{call_sid[:8]}"
         ).start()
     
     t1 = time.time()
@@ -819,15 +898,20 @@ def handle_recording():
                 if to_number and to_number != "unknown" and call_log.to_number == "unknown":
                     call_log.to_number = to_number
             
-            # 🔥 FIX: עדכן recording_url AND recording_sid
+            # 🔥 FIX: עדכן recording_url AND recording_sid AND recording_status
             if rec_url:
                 call_log.recording_url = rec_url
             if rec_sid:
                 call_log.recording_sid = rec_sid
                 print(f"✅ handle_recording: Saved recording_sid {rec_sid} for {call_sid}")
             
+            # 🔥 NEW: Update recording_status to 'completed' when recording is ready
+            if rec_status == 'completed':
+                call_log.recording_status = 'completed'
+                print(f"✅ handle_recording: Recording completed for {call_sid}")
+            
             db.session.commit()
-            print(f"✅ handle_recording: Updated call_log for {call_sid} (direction={call_log.direction}, parent={parent_call_sid})")
+            print(f"✅ handle_recording: Updated call_log for {call_sid} (direction={call_log.direction}, parent={parent_call_sid}, rec_status={rec_status})")
         except Exception as e:
             print(f"⚠️ handle_recording DB error: {e}")
             db.session.rollback()

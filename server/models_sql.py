@@ -111,6 +111,13 @@ class CallLog(db.Model):
     detected_topic_confidence = db.Column(db.Float, nullable=True)  # Confidence score (0.0-1.0)
     detected_topic_source = db.Column(db.String(32), default="embedding")  # "embedding" - classification method
     
+    # 🔥 PIPELINE STATUS FIELDS: Track progress of recording → transcript → summary pipeline
+    recording_status = db.Column(db.String(32), default="pending")  # pending | recording | completed | failed
+    transcript_status = db.Column(db.String(32), default="pending")  # pending | processing | completed | failed
+    summary_status = db.Column(db.String(32), default="pending")  # pending | processing | completed | failed
+    last_error = db.Column(db.Text, nullable=True)  # Last error message if any stage failed
+    retry_count = db.Column(db.Integer, default=0)  # Number of retry attempts for failed stages
+    
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

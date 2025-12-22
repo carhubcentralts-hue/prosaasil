@@ -1309,6 +1309,53 @@ def apply_migrations():
             db.session.rollback()
             raise
         
+        # Migration 44: Recording Pipeline Status Fields - Track recording/transcript/summary progress
+        checkpoint("Migration 44: Recording Pipeline Status Fields for Full Call Recording")
+        try:
+            # Add pipeline status fields to call_log for deterministic recording → transcript → summary pipeline
+            if check_table_exists('call_log'):
+                if not check_column_exists('call_log', 'recording_status'):
+                    log.info("Adding pipeline status fields to call_log...")
+                    db.session.execute(text("""
+                        ALTER TABLE call_log 
+                        ADD COLUMN recording_status VARCHAR(32) DEFAULT 'pending',
+                        ADD COLUMN transcript_status VARCHAR(32) DEFAULT 'pending',
+                        ADD COLUMN summary_status VARCHAR(32) DEFAULT 'pending',
+                        ADD COLUMN last_error TEXT,
+                        ADD COLUMN retry_count INTEGER DEFAULT 0
+                    """))
+                    migrations_applied.append('add_pipeline_status_fields_to_call_log')
+                    log.info("✅ Added pipeline status fields to call_log")
+                
+                # Update existing calls to reflect current status based on existing data
+                # This ensures UI shows correct status for historical calls
+                log.info("Updating existing calls with inferred status...")
+                db.session.execute(text("""
+                    UPDATE call_log SET
+                        recording_status = CASE
+                            WHEN recording_url IS NOT NULL THEN 'completed'
+                            WHEN recording_sid IS NOT NULL THEN 'recording'
+                            ELSE 'pending'
+                        END,
+                        transcript_status = CASE
+                            WHEN final_transcript IS NOT NULL AND LENGTH(final_transcript) > 50 THEN 'completed'
+                            WHEN transcription IS NOT NULL AND LENGTH(transcription) > 50 THEN 'completed'
+                            ELSE 'pending'
+                        END,
+                        summary_status = CASE
+                            WHEN summary IS NOT NULL AND LENGTH(summary) > 20 THEN 'completed'
+                            ELSE 'pending'
+                        END
+                    WHERE recording_status = 'pending'  -- Only update rows that haven't been explicitly set
+                """))
+                log.info("✅ Updated existing call statuses based on current data")
+            
+            log.info("✅ Applied migration 44: Recording Pipeline Status Fields")
+        except Exception as e:
+            log.error(f"❌ Migration 44 failed: {e}")
+            db.session.rollback()
+            raise
+        
         checkpoint("Committing migrations to database...")
         if migrations_applied:
             db.session.commit()
