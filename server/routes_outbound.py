@@ -960,6 +960,15 @@ def get_imported_leads():
         search = request.args.get('search', '').strip()
         statuses_filter = request.args.getlist('statuses[]')  # ✅ Multi-status filter
         
+        # ✅ Validate status filter values against allowed statuses
+        if statuses_filter:
+            # Sanitize: only allow alphanumeric, underscore, dash (prevent injection)
+            import re
+            statuses_filter = [
+                s for s in statuses_filter 
+                if s and re.match(r'^[a-zA-Z0-9_-]+$', s) and len(s) <= 64
+            ]
+        
         # Build query
         query = Lead.query.filter_by(
             tenant_id=tenant_id,
@@ -969,9 +978,10 @@ def get_imported_leads():
         if list_id:
             query = query.filter_by(outbound_list_id=list_id)
         
-        # ✅ Status filter: Support multi-status filtering
+        # ✅ Status filter: Support multi-status filtering with case-insensitive matching
         if statuses_filter:
-            query = query.filter(Lead.status.in_(statuses_filter))
+            from sqlalchemy import func
+            query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
         
         if search:
             search_term = f"%{search}%"

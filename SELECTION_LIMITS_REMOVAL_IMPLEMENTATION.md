@@ -17,6 +17,7 @@ This implementation removes the 3-lead selection limit and adds comprehensive st
 # OLD CODE (REMOVED):
 if len(lead_ids) > 3:
     return jsonify({"error": "ניתן לבחור עד שלושה לידים לשיחות יוצאות במקביל"}), 400
+    # Translation: "You can select up to three leads for simultaneous outbound calls"
 
 # NEW CODE:
 # ✅ REMOVED: 3-lead limit restriction. Now supports unlimited selections.
@@ -33,9 +34,18 @@ if len(lead_ids) > 3:
 # NEW CODE ADDED:
 statuses_filter = request.args.getlist('statuses[]')  # ✅ Multi-status filter
 
-# ✅ Status filter: Support multi-status filtering
+# ✅ Validate status filter values (prevent injection, max 64 chars)
 if statuses_filter:
-    query = query.filter(Lead.status.in_(statuses_filter))
+    import re
+    statuses_filter = [
+        s for s in statuses_filter 
+        if s and re.match(r'^[a-zA-Z0-9_-]+$', s) and len(s) <= 64
+    ]
+
+# ✅ Status filter: Support multi-status filtering with case-insensitive matching
+if statuses_filter:
+    from sqlalchemy import func
+    query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
 ```
 
 ### 2. Frontend Changes (client/src/pages/calls/OutboundCallsPage.tsx)
