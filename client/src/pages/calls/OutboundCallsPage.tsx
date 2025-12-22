@@ -24,17 +24,14 @@ import { Card } from '../../shared/components/ui/Card';
 import { Input } from '../../shared/components/ui/Input';
 import { Select } from '../../shared/components/ui/Select';
 import { MultiStatusSelect } from '../../shared/components/ui/MultiStatusSelect';
+import { StatusCell } from '../../shared/components/ui/StatusCell';
 import { http } from '../../services/http';
 import { OutboundKanbanView } from './components/OutboundKanbanView';
 import { Lead } from '../Leads/types';  // ✅ Use shared Lead type
+import type { LeadStatusConfig } from '../../shared/types/status';
 
-interface LeadStatus {
-  name: string;
-  label: string;
-  color: string;
-  order_index: number;
-  is_system?: boolean;
-}
+// Type alias for backward compatibility
+type LeadStatus = LeadStatusConfig;
 
 interface ImportedLead {
   id: number;
@@ -236,7 +233,26 @@ export function OutboundCallsPage() {
   }, [activeLeadsData]);
 
   const { data: importedLeadsData, isLoading: importedLoading, refetch: refetchImported } = useQuery<ImportedLeadsResponse>({
-    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery],
+    queryKey: ['/api/outbound/import-leads', currentPage, importedSearchQuery, selectedStatuses],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: String(currentPage),
+        page_size: String(pageSize),
+      });
+      
+      if (importedSearchQuery) {
+        params.append('search', importedSearchQuery);
+      }
+
+      // ✅ Add multi-status filter for imported leads
+      if (selectedStatuses.length > 0) {
+        selectedStatuses.forEach(status => {
+          params.append('statuses[]', status);
+        });
+      }
+
+      return await http.get(`/api/outbound/import-leads?${params.toString()}`);
+    },
     enabled: activeTab === 'imported',
     retry: 1,
   });
@@ -945,7 +961,16 @@ export function OutboundCallsPage() {
                       <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
+                      {/* ✅ Editable status dropdown */}
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <StatusCell
+                          leadId={lead.id}
+                          currentStatus={lead.status}
+                          statuses={statuses}
+                          onStatusChange={handleStatusChange}
+                          isUpdating={updatingStatusLeadId === lead.id}
+                        />
+                      </div>
                       <div onClick={(e) => { e.stopPropagation(); handleToggleLead(lead.id); }}>
                         {isSelected ? (
                           <CheckCircle2 className="h-5 w-5 text-blue-600 cursor-pointer" />
@@ -1102,8 +1127,15 @@ export function OutboundCallsPage() {
                       <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
                       <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {/* ✅ Editable status dropdown */}
+                      <StatusCell
+                        leadId={lead.id}
+                        currentStatus={lead.status}
+                        statuses={statuses}
+                        onStatusChange={handleStatusChange}
+                        isUpdating={updatingStatusLeadId === lead.id}
+                      />
                     </div>
                   </div>
                 ))}
@@ -1367,26 +1399,14 @@ export function OutboundCallsPage() {
                             <td className="py-3 px-2 font-medium">{lead.name}</td>
                             <td className="py-3 px-2" dir="ltr">{lead.phone}</td>
                             <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
-                              {updatingStatusLeadId === lead.id ? (
-                                <div className="flex items-center gap-2">
-                                  <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
-                                  <span className="text-xs text-gray-500">שומר...</span>
-                                </div>
-                              ) : (
-                                <Select
-                                  value={lead.status}
-                                  onChange={(e) => handleStatusChange(lead.id, e.target.value)}
-                                  className="text-xs h-7 py-0 px-2 min-w-[100px]"
-                                  data-testid={`select-status-${lead.id}`}
-                                  disabled={updateStatusMutation.isPending}
-                                >
-                                  {statuses.map((status) => (
-                                    <option key={status.name} value={status.name}>
-                                      {status.label}
-                                    </option>
-                                  ))}
-                                </Select>
-                              )}
+                              {/* ✅ Use unified StatusCell component */}
+                              <StatusCell
+                                leadId={lead.id}
+                                currentStatus={lead.status}
+                                statuses={statuses}
+                                onStatusChange={handleStatusChange}
+                                isUpdating={updatingStatusLeadId === lead.id}
+                              />
                             </td>
                             <td className="py-3 px-2 text-gray-500 max-w-[150px] truncate">
                               {lead.notes || '-'}

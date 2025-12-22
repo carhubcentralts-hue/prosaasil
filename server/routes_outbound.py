@@ -11,6 +11,7 @@ import os
 import re
 import logging
 from urllib.parse import quote  # 🔧 BUILD 177: URL encode Hebrew characters
+from sqlalchemy import func
 from flask import Blueprint, jsonify, request, g
 from server.models_sql import db, CallLog, Lead, Business, OutboundCallTemplate, BusinessSettings
 from server.auth_api import require_api_auth
@@ -18,6 +19,9 @@ from server.services.call_limiter import check_call_limits, get_call_counts, MAX
 from twilio.rest import Client
 
 log = logging.getLogger(__name__)
+
+# ✅ Compile regex pattern once at module level for performance
+STATUS_FILTER_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
 
 
 def normalize_israeli_phone(phone: str) -> str:
@@ -219,8 +223,8 @@ def start_outbound_calls():
     if not lead_ids or not isinstance(lead_ids, list):
         return jsonify({"error": "יש לבחור לפחות ליד אחד"}), 400
     
-    if len(lead_ids) > 3:
-        return jsonify({"error": "ניתן לבחור עד שלושה לידים לשיחות יוצאות במקביל"}), 400
+    # ✅ REMOVED: 3-lead limit restriction. Now supports unlimited selections.
+    # If more than 3 leads, the system automatically uses bulk queue mode.
     
     allowed, error_msg = check_call_limits(tenant_id, len(lead_ids))
     if not allowed:
@@ -931,6 +935,7 @@ def get_imported_leads():
     - page_size: Items per page (default 50, max 100)
     - list_id: Optional filter by list ID
     - search: Optional search query
+    - statuses[]: Optional multi-status filter (e.g., ?statuses[]=new&statuses[]=contacted)
     
     Returns:
     {
@@ -957,6 +962,15 @@ def get_imported_leads():
         page_size = min(100, max(1, int(request.args.get('page_size', 50))))
         list_id = request.args.get('list_id', type=int)
         search = request.args.get('search', '').strip()
+        statuses_filter = request.args.getlist('statuses[]')  # ✅ Multi-status filter
+        
+        # ✅ Validate status filter values against allowed statuses
+        # Sanitize: only allow alphanumeric, underscore, dash (prevent injection)
+        if statuses_filter:
+            statuses_filter = [
+                s for s in statuses_filter 
+                if s and STATUS_FILTER_PATTERN.match(s) and len(s) <= 64
+            ]
         
         # Build query
         query = Lead.query.filter_by(
@@ -966,6 +980,10 @@ def get_imported_leads():
         
         if list_id:
             query = query.filter_by(outbound_list_id=list_id)
+        
+        # ✅ Status filter: Support multi-status filtering with case-insensitive matching
+        if statuses_filter:
+            query = query.filter(func.lower(Lead.status).in_([s.lower() for s in statuses_filter]))
         
         if search:
             search_term = f"%{search}%"
