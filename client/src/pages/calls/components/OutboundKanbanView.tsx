@@ -116,21 +116,30 @@ export function OutboundKanbanView({
     if (!over || !onStatusChange || isUpdating) return;
 
     const leadId = active.id as number;
-    const newStatusName = String(over.id); // Ensure it's a string
+    const newStatusName = String(over.id); // This is the status.name from the column
     
     const lead = leads.find(l => l.id === leadId);
-    if (!lead) return;
+    if (!lead) {
+      console.error(`❌ OutboundKanban: Lead ${leadId} not found`);
+      return;
+    }
 
     // Only update if status actually changed
-    const currentStatus = lead.status?.toLowerCase() || 'new';
-    if (currentStatus === newStatusName.toLowerCase()) {
+    // Both values should be compared in their original case (status names are lowercase like 'new', 'contacted', etc.)
+    const currentStatus = (lead.status || 'new').toLowerCase();
+    const targetStatus = newStatusName.toLowerCase();
+    
+    console.log(`🔵 OutboundKanban: Drag ended - lead ${leadId} from '${currentStatus}' to '${targetStatus}'`);
+    
+    if (currentStatus === targetStatus) {
+      console.log(`⏭️ OutboundKanban: Status unchanged, skipping update`);
       return;
     }
 
     try {
       setIsUpdating(true);
-      console.log(`🔵 OutboundKanban: Moving lead ${leadId} from ${currentStatus} to ${newStatusName}`);
-      // Call the status change handler
+      console.log(`🔄 OutboundKanban: Calling onStatusChange for lead ${leadId} to '${newStatusName}'`);
+      // Call the status change handler with the original status name (not lowercase)
       await onStatusChange(leadId, newStatusName);
       console.log(`✅ OutboundKanban: Successfully moved lead ${leadId} to ${newStatusName}`);
     } catch (error) {

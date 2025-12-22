@@ -96,14 +96,14 @@ export function OutboundCallsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('kanban'); // Default to Kanban
   
   // Existing leads state
-  const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
+  const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [callResults, setCallResults] = useState<CallResult[]>([]);
   
   // Imported leads state
-  const [selectedImportedLeads, setSelectedImportedLeads] = useState<number[]>([]);
+  const [selectedImportedLeads, setSelectedImportedLeads] = useState<Set<number>>(new Set());
   const [importedSearchQuery, setImportedSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showImportResult, setShowImportResult] = useState(false);
@@ -112,6 +112,15 @@ export function OutboundCallsPage() {
   const [deleteLeadId, setDeleteLeadId] = useState<number | null>(null);
   const [updatingStatusLeadId, setUpdatingStatusLeadId] = useState<number | null>(null);
   const pageSize = 50;
+  
+  // Queue state
+  const [activeRunId, setActiveRunId] = useState<number | null>(null);
+  const [queueStatus, setQueueStatus] = useState<{
+    queued: number;
+    in_progress: number;
+    completed: number;
+    failed: number;
+  } | null>(null);
 
   // Support deep-link from Lead page tiles: /app/outbound-calls?phone=... or ?leadId=...
   useEffect(() => {
@@ -265,11 +274,35 @@ export function OutboundCallsPage() {
   // Mutations
   const startCallsMutation = useMutation({
     mutationFn: async (data: { lead_ids: number[] }) => {
-      return await http.post<any>('/api/outbound_calls/start', data);
+      // If more than 3 leads, use bulk enqueue, otherwise use direct start
+      if (data.lead_ids.length > 3) {
+        return await http.post<any>('/api/outbound/bulk-enqueue', {
+          lead_ids: data.lead_ids,
+          concurrency: 3
+        });
+      } else {
+        return await http.post<any>('/api/outbound_calls/start', data);
+      }
     },
     onSuccess: (data) => {
-      setCallResults(data.calls || []);
-      setShowResults(true);
+      // Check if this was a bulk queue (has run_id) or direct call (has calls)
+      if (data.run_id) {
+        // Bulk queue started
+        setActiveRunId(data.run_id);
+        setShowResults(true);
+        setCallResults([{
+          lead_id: 0,
+          lead_name: 'תור שיחות',
+          status: 'initiated',
+          call_sid: `Queue started: ${data.queued} leads`
+        }]);
+        // Start polling for queue status
+        startQueuePolling(data.run_id);
+      } else {
+        // Direct calls started
+        setCallResults(data.calls || []);
+        setShowResults(true);
+      }
       refetchCounts();
       queryClient.invalidateQueries({ queryKey: ['/api/calls'] });
     },
@@ -412,33 +445,33 @@ export function OutboundCallsPage() {
   // Handlers
   const handleToggleLead = (leadId: number) => {
     setSelectedLeads(prev => {
-      if (prev.includes(leadId)) {
-        return prev.filter(id => id !== leadId);
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
       }
-      const maxSelectable = Math.min(3, availableSlots);
-      if (prev.length >= maxSelectable) {
-        return prev;
-      }
-      return [...prev, leadId];
+      return newSet;
     });
   };
 
   const handleToggleImportedLead = (leadId: number) => {
     setSelectedImportedLeads(prev => {
-      if (prev.includes(leadId)) {
-        return prev.filter(id => id !== leadId);
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
       }
-      const maxSelectable = Math.min(3, availableSlots);
-      if (prev.length >= maxSelectable) {
-        return prev;
-      }
-      return [...prev, leadId];
+      return newSet;
     });
   };
 
   const handleStartCalls = () => {
     // ✅ FIX: Check correct tab names - 'system' for CRM leads, 'imported' for imported leads
-    const ids = (activeTab === 'system' || activeTab === 'active') ? selectedLeads : selectedImportedLeads;
+    const ids = (activeTab === 'system' || activeTab === 'active') 
+      ? Array.from(selectedLeads)
+      : Array.from(selectedImportedLeads);
     
     if (ids.length === 0) {
       alert('יש לבחור לפחות ליד אחד להפעלת שיחה');
@@ -447,6 +480,46 @@ export function OutboundCallsPage() {
     
     console.log('🔵 Starting calls:', { activeTab, selectedIds: ids, count: ids.length });
     startCallsMutation.mutate({ lead_ids: ids });
+  };
+  
+  const startQueuePolling = (runId: number) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await http.get(`/api/outbound/runs/${runId}`);
+        setQueueStatus({
+          queued: status.queued,
+          in_progress: status.in_progress,
+          completed: status.completed,
+          failed: status.failed
+        });
+        
+        // Stop polling if queue is complete
+        if (status.status === 'completed' || status.status === 'failed') {
+          clearInterval(pollInterval);
+          setActiveRunId(null);
+          refetchCounts();
+        }
+      } catch (error) {
+        console.error('Queue status polling error:', error);
+        clearInterval(pollInterval);
+      }
+    }, 2000); // Poll every 2 seconds
+    
+    // Clean up on unmount
+    return () => clearInterval(pollInterval);
+  };
+
+  const handleStopQueue = async () => {
+    if (!activeRunId) return;
+    
+    try {
+      await http.post(`/api/outbound/stop-queue`, { run_id: activeRunId });
+      setActiveRunId(null);
+      setQueueStatus(null);
+      refetchCounts();
+    } catch (error) {
+      console.error('Failed to stop queue:', error);
+    }
   };
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -476,46 +549,50 @@ export function OutboundCallsPage() {
   };
 
   const handleBulkDelete = () => {
-    if (selectedImportedLeads.length > 0) {
-      bulkDeleteMutation.mutate(selectedImportedLeads);
+    if (selectedImportedLeads.size > 0) {
+      bulkDeleteMutation.mutate(Array.from(selectedImportedLeads));
     }
   };
   
   const handleSelectAllImported = () => {
-    const maxSelectable = Math.min(3, availableSlots);
-    const selectableCount = Math.min(importedLeads.length, maxSelectable);
-    
-    if (selectedImportedLeads.length === selectableCount) {
+    if (selectedImportedLeads.size === importedLeads.length && importedLeads.length > 0) {
       // Deselect all
-      setSelectedImportedLeads([]);
+      setSelectedImportedLeads(new Set());
     } else {
-      // Select up to max
-      const leadsToSelect = importedLeads.slice(0, maxSelectable).map(l => l.id);
-      setSelectedImportedLeads(leadsToSelect);
+      // Select all leads on current page
+      const allIds = importedLeads.map(l => l.id);
+      setSelectedImportedLeads(new Set(allIds));
     }
   };
 
   const handleLeadSelect = (leadId: number, isShiftKey?: boolean) => {
     setSelectedLeads(prev => {
-      if (prev.includes(leadId)) {
-        return prev.filter(id => id !== leadId);
+      const newSet = new Set(prev);
+      if (newSet.has(leadId)) {
+        newSet.delete(leadId);
+      } else {
+        newSet.add(leadId);
       }
-      const maxSelectable = Math.min(DEFAULT_AVAILABLE_SLOTS, availableSlots);
-      if (prev.length >= maxSelectable) {
-        return prev;
-      }
-      return [...prev, leadId];
+      return newSet;
     });
   };
 
   const handleSelectAll = (leadIds: number[]) => {
-    const maxSelectable = Math.min(DEFAULT_AVAILABLE_SLOTS, availableSlots);
-    // Select up to max selectable leads from the provided list
-    setSelectedLeads(leadIds.slice(0, maxSelectable));
+    // Select all provided lead IDs (no limit)
+    // Check which tab we're on to update the correct state
+    if (activeTab === 'imported') {
+      setSelectedImportedLeads(new Set(leadIds));
+    } else {
+      setSelectedLeads(new Set(leadIds));
+    }
   };
 
   const handleClearSelection = () => {
-    setSelectedLeads([]);
+    if (activeTab === 'imported') {
+      setSelectedImportedLeads(new Set());
+    } else {
+      setSelectedLeads(new Set());
+    }
   };
 
   const handleStatusChange = async (leadId: number, newStatus: string) => {
@@ -550,7 +627,7 @@ export function OutboundCallsPage() {
   const totalPages = Math.ceil(totalImported / pageSize);
 
   const statuses = statusesData || [];
-  const selectedLeadIdsSet = new Set(selectedLeads);
+  const selectedLeadIdsSet = selectedLeads; // Already a Set, no need to wrap again
 
   // Log on component mount
   useEffect(() => {
@@ -810,7 +887,7 @@ export function OutboundCallsPage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <Users className="h-5 w-5" />
-                בחירת לידים ({selectedLeads.length}/{Math.min(3, availableSlots)})
+                בחירת לידים ({selectedLeads.size})
               </h3>
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 {viewMode === 'table' && (
@@ -848,30 +925,29 @@ export function OutboundCallsPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto">
                 {filteredLeads.slice(0, 50).map((lead: Lead) => {
-                  const maxSelectable = Math.min(3, availableSlots);
-                  const isDisabled = selectedLeads.length >= maxSelectable && !selectedLeads.includes(lead.id);
+                  const isSelected = selectedLeads.has(lead.id);
                   
                   return (
                   <div
                     key={lead.id}
                     className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
-                      selectedLeads.includes(lead.id)
+                      isSelected
                         ? 'bg-blue-50 border-blue-300'
                         : 'bg-white border-gray-200 hover:bg-gray-50'
-                    } ${isDisabled ? 'opacity-50' : 'cursor-pointer'}`}
+                    } cursor-pointer`}
                     data-testid={`lead-select-${lead.id}`}
                   >
                     <div 
                       className="flex-1"
-                      onClick={() => !isDisabled && handleLeadClick(lead.id)}
+                      onClick={() => handleLeadClick(lead.id)}
                     >
                       <div className="font-medium">{lead.full_name || 'ללא שם'}</div>
                       <div className="text-sm text-gray-500" dir="ltr">{lead.phone_e164}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs bg-gray-100 px-2 py-1 rounded">{lead.status}</span>
-                      <div onClick={(e) => { e.stopPropagation(); !isDisabled && handleToggleLead(lead.id); }}>
-                        {selectedLeads.includes(lead.id) ? (
+                      <div onClick={(e) => { e.stopPropagation(); handleToggleLead(lead.id); }}>
+                        {isSelected ? (
                           <CheckCircle2 className="h-5 w-5 text-blue-600 cursor-pointer" />
                         ) : (
                           <div className="h-5 w-5 border-2 border-gray-300 rounded cursor-pointer"></div>
@@ -889,7 +965,7 @@ export function OutboundCallsPage() {
             <Button
               size="lg"
               disabled={
-                selectedLeads.length === 0 ||
+                selectedLeads.size === 0 ||
                 !canStartCalls ||
                 startCallsMutation.isPending
               }
@@ -905,7 +981,7 @@ export function OutboundCallsPage() {
               ) : (
                 <>
                   <PlayCircle className="h-5 w-5 ml-2" />
-                  הפעל {selectedLeads.length} שיחות
+                  הפעל {selectedLeads.size} שיחות
                 </>
               )}
             </Button>
@@ -1172,7 +1248,7 @@ export function OutboundCallsPage() {
                     leads={importedLeadsAsLeads}
                     statuses={statuses}
                     loading={importedLoading}
-                    selectedLeadIds={new Set(selectedImportedLeads)}
+                    selectedLeadIds={selectedImportedLeads}
                     onLeadSelect={(leadId) => handleToggleImportedLead(leadId)}
                     onLeadClick={handleLeadClick}
                     onStatusChange={handleStatusChange}
@@ -1187,10 +1263,10 @@ export function OutboundCallsPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  לידים מיובאים ({selectedImportedLeads.length}/{Math.min(3, availableSlots)})
+                  לידים מיובאים ({selectedImportedLeads.size})
                 </h3>
                 <div className="flex items-center gap-3">
-                  {selectedImportedLeads.length > 0 && (
+                  {selectedImportedLeads.size > 0 && (
                     <Button
                       variant="destructive"
                       size="sm"
@@ -1203,7 +1279,7 @@ export function OutboundCallsPage() {
                       ) : (
                         <>
                           <Trash2 className="h-4 w-4 ml-1" />
-                          מחק נבחרים ({selectedImportedLeads.length})
+                          מחק נבחרים ({selectedImportedLeads.size})
                         </>
                       )}
                     </Button>
@@ -1247,11 +1323,11 @@ export function OutboundCallsPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b">
-                        <th className="text-right py-3 px-2 font-medium">
+                         <th className="text-right py-3 px-2 font-medium">
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
-                              checked={selectedImportedLeads.length > 0 && selectedImportedLeads.length === Math.min(importedLeads.length, 3, availableSlots)}
+                              checked={selectedImportedLeads.size > 0 && selectedImportedLeads.size === importedLeads.length}
                               onChange={handleSelectAllImported}
                               className="h-4 w-4 rounded border-gray-300"
                               data-testid="checkbox-select-all-imported"
@@ -1270,9 +1346,7 @@ export function OutboundCallsPage() {
                     </thead>
                     <tbody>
                       {importedLeads.map((lead) => {
-                        const maxSelectable = Math.min(3, availableSlots);
-                        const isDisabled = selectedImportedLeads.length >= maxSelectable && !selectedImportedLeads.includes(lead.id);
-                        const isSelected = selectedImportedLeads.includes(lead.id);
+                        const isSelected = selectedImportedLeads.has(lead.id);
                         
                         return (
                           <tr 
@@ -1285,8 +1359,7 @@ export function OutboundCallsPage() {
                               <input
                                 type="checkbox"
                                 checked={isSelected}
-                                onChange={() => !isDisabled && handleToggleImportedLead(lead.id)}
-                                disabled={isDisabled && !isSelected}
+                                onChange={() => handleToggleImportedLead(lead.id)}
                                 className="h-4 w-4 rounded border-gray-300"
                                 data-testid={`checkbox-imported-${lead.id}`}
                               />
@@ -1378,7 +1451,7 @@ export function OutboundCallsPage() {
             <Button
               size="lg"
               disabled={
-                selectedImportedLeads.length === 0 ||
+                selectedImportedLeads.size === 0 ||
                 !canStartCalls ||
                 startCallsMutation.isPending
               }
@@ -1394,7 +1467,7 @@ export function OutboundCallsPage() {
               ) : (
                 <>
                   <PlayCircle className="h-5 w-5 ml-2" />
-                  הפעל {selectedImportedLeads.length} שיחות
+                  הפעל {selectedImportedLeads.size} שיחות
                 </>
               )}
             </Button>
