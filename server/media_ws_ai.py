@@ -4776,8 +4776,9 @@ class MediaStreamHandler:
                                 audio_count = watchdog_data['audio_delta_count']
                                 transcript_count = watchdog_data['transcript_delta_count']
                                 
-                                # SILENT RESPONSE detected: has transcript but NO audio
-                                if audio_count == 0 and (transcript_count > 0 or True):  # Fire even without transcript
+                                # SILENT RESPONSE detected: NO audio (regardless of transcript)
+                                # Fire watchdog if no audio.delta arrived, even if transcript also didn't arrive
+                                if audio_count == 0:
                                     # Check if we already retried this response
                                     if resp_id in self._no_audio_retry_attempted:
                                         logger.warning(f"[NO_AUDIO_WATCHDOG] Already retried response {resp_id[:12]}... - not retrying again")
