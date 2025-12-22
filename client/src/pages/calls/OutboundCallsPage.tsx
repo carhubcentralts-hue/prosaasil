@@ -380,7 +380,7 @@ export function OutboundCallsPage() {
     },
     onSuccess: () => {
       refetchImported();
-      setSelectedImportedLeads([]);
+      setSelectedImportedLeads(new Set());
     },
   });
 
@@ -652,7 +652,11 @@ export function OutboundCallsPage() {
   const totalPages = Math.ceil(totalImported / pageSize);
 
   const statuses = statusesData || [];
-  const selectedLeadIdsSet = selectedLeads; // Already a Set, no need to wrap again
+  
+  // Defensive guard: Ensure selections are always Sets (fix for runtime errors)
+  const safeSelectedLeads = selectedLeads instanceof Set ? selectedLeads : new Set(Array.isArray(selectedLeads) ? selectedLeads : []);
+  const safeSelectedImportedLeads = selectedImportedLeads instanceof Set ? selectedImportedLeads : new Set(Array.isArray(selectedImportedLeads) ? selectedImportedLeads : []);
+  const selectedLeadIdsSet = safeSelectedLeads; // Already a Set, no need to wrap again
 
   // Log on component mount
   useEffect(() => {
@@ -838,8 +842,8 @@ export function OutboundCallsPage() {
             className="mt-4"
             onClick={() => {
               setShowResults(false);
-              setSelectedLeads([]);
-              setSelectedImportedLeads([]);
+              setSelectedLeads(new Set());
+              setSelectedImportedLeads(new Set());
               setCallResults([]);
             }}
             data-testid="button-new-calls"
@@ -879,7 +883,7 @@ export function OutboundCallsPage() {
               <Button
                 size="lg"
                 disabled={
-                  selectedLeads.size === 0 ||
+                  safeSelectedLeads.size === 0 ||
                   !canStartCalls ||
                   startCallsMutation.isPending
                 }
@@ -895,7 +899,7 @@ export function OutboundCallsPage() {
                 ) : (
                   <>
                     <PlayCircle className="h-5 w-5 ml-2" />
-                    הפעל {selectedLeads.size} שיחות
+                    הפעל {safeSelectedLeads.size} שיחות
                   </>
                 )}
               </Button>
@@ -938,7 +942,7 @@ export function OutboundCallsPage() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
               <h3 className="font-semibold flex items-center gap-2">
                 <Users className="h-5 w-5" />
-                בחירת לידים ({selectedLeads.size})
+                בחירת לידים ({safeSelectedLeads.size})
               </h3>
               <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                 {viewMode === 'table' && (
@@ -976,7 +980,7 @@ export function OutboundCallsPage() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto">
                 {filteredLeads.slice(0, 50).map((lead: Lead) => {
-                  const isSelected = selectedLeads.has(lead.id);
+                  const isSelected = safeSelectedLeads.has(lead.id);
                   
                   return (
                   <div
@@ -1267,7 +1271,7 @@ export function OutboundCallsPage() {
               <Button
                 size="lg"
                 disabled={
-                  selectedImportedLeads.size === 0 ||
+                  safeSelectedImportedLeads.size === 0 ||
                   !canStartCalls ||
                   startCallsMutation.isPending
                 }
@@ -1283,7 +1287,7 @@ export function OutboundCallsPage() {
                 ) : (
                   <>
                     <PlayCircle className="h-5 w-5 ml-2" />
-                    הפעל {selectedImportedLeads.size} שיחות
+                    הפעל {safeSelectedImportedLeads.size} שיחות
                   </>
                 )}
               </Button>
@@ -1311,7 +1315,7 @@ export function OutboundCallsPage() {
                     leads={importedLeadsAsLeads}
                     statuses={statuses}
                     loading={importedLoading}
-                    selectedLeadIds={selectedImportedLeads}
+                    selectedLeadIds={safeSelectedImportedLeads}
                     onLeadSelect={(leadId) => handleToggleImportedLead(leadId)}
                     onLeadClick={handleLeadClick}
                     onStatusChange={handleStatusChange}
@@ -1326,10 +1330,10 @@ export function OutboundCallsPage() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold flex items-center gap-2">
                   <Users className="h-5 w-5" />
-                  לידים מיובאים ({selectedImportedLeads.size})
+                  לידים מיובאים ({safeSelectedImportedLeads.size})
                 </h3>
                 <div className="flex items-center gap-3">
-                  {selectedImportedLeads.size > 0 && (
+                  {safeSelectedImportedLeads.size > 0 && (
                     <Button
                       variant="destructive"
                       size="sm"
@@ -1342,7 +1346,7 @@ export function OutboundCallsPage() {
                       ) : (
                         <>
                           <Trash2 className="h-4 w-4 ml-1" />
-                          מחק נבחרים ({selectedImportedLeads.size})
+                          מחק נבחרים ({safeSelectedImportedLeads.size})
                         </>
                       )}
                     </Button>
@@ -1390,7 +1394,7 @@ export function OutboundCallsPage() {
                           <div className="flex items-center gap-2">
                             <input
                               type="checkbox"
-                              checked={selectedImportedLeads.size > 0 && selectedImportedLeads.size === importedLeads.length}
+                              checked={safeSelectedImportedLeads.size > 0 && safeSelectedImportedLeads.size === importedLeads.length}
                               onChange={handleSelectAllImported}
                               className="h-4 w-4 rounded border-gray-300"
                               data-testid="checkbox-select-all-imported"
@@ -1409,7 +1413,7 @@ export function OutboundCallsPage() {
                     </thead>
                     <tbody>
                       {importedLeads.map((lead) => {
-                        const isSelected = selectedImportedLeads.has(lead.id);
+                        const isSelected = safeSelectedImportedLeads.has(lead.id);
                         
                         return (
                           <tr 
