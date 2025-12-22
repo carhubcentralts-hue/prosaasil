@@ -1809,6 +1809,7 @@ class MediaStreamHandler:
         self._cancelled_response_timestamps = {}  # response_id -> timestamp when cancelled
         self._cancelled_response_max_age_sec = 60  # Clean up after 60 seconds
         self._cancelled_response_max_size = 100  # Cap at 100 entries
+        self._response_audio_watchdog = {}  # 🔥 FIX: Initialize watchdog dict (unused but prevents AttributeError)
         
         # 🔥 CRITICAL: User speaking state - blocks response.create until speech complete
         # This is THE key to making barge-in actually listen (not just stop talking)
@@ -3933,7 +3934,9 @@ class MediaStreamHandler:
                 if not response_id and "response" in event:
                     response_id = event.get("response", {}).get("id")
                 
-                if response_id and response_id in self._cancelled_response_ids:
+                # Safe check for cancelled responses
+                cancelled = getattr(self, '_cancelled_response_ids', None) or set()
+                if response_id and response_id in cancelled:
                     if event_type in ("response.done", "response.cancelled"):
                         # ✅ CRITICAL FIX: Reset state on response.cancelled just like response.done
                         # Per הנחיה: Clear all response state flags to prevent stale state
@@ -3951,7 +3954,7 @@ class MediaStreamHandler:
                             logger.info(f"[BARGE-IN] ✅ Released pending flag - cancel acknowledged (response_id={response_id[:20]}...)")
                             print(f"🔓 [BARGE-IN] Released pending flag - cancel complete for {response_id[:20]}...")
                         
-                        self._cancelled_response_ids.discard(response_id)
+                        cancelled.discard(response_id)
                         # ✅ NEW REQ 4: Also remove from timestamps dict
                         self._cancelled_response_timestamps.pop(response_id, None)
                         # ✅ P0 FIX: Also remove from cancel guard set
@@ -4789,9 +4792,10 @@ class MediaStreamHandler:
                         ]
                         for rid in expired_ids:
                             del self._response_created_ts[rid]
-                            # Also cleanup watchdog entries
-                            if rid in self._response_audio_watchdog:
-                                del self._response_audio_watchdog[rid]
+                            # Also cleanup watchdog entries - safe check
+                            watchdog = getattr(self, '_response_audio_watchdog', None) or {}
+                            if rid in watchdog:
+                                watchdog.pop(rid, None)
                         
                         # 🔥 BUILD 187: Response grace period - track when response started (legacy single timestamp)
                         # This prevents false turn_detected from echo/noise in first 500ms
@@ -4843,11 +4847,12 @@ class MediaStreamHandler:
                             }
                         self._response_diagnostics[response_id]['audio_deltas'] += 1
                     
-                    # 🔥 NO-AUDIO WATCHDOG: Mark first audio arrival
-                    if response_id and response_id in self._response_audio_watchdog:
-                        if self._response_audio_watchdog[response_id]['first_audio_ts'] is None:
-                            self._response_audio_watchdog[response_id]['first_audio_ts'] = time.monotonic()
-                        self._response_audio_watchdog[response_id]['audio_delta_count'] += 1
+                    # 🔥 NO-AUDIO WATCHDOG: Mark first audio arrival - safe check
+                    watchdog = getattr(self, '_response_audio_watchdog', None) or {}
+                    if response_id and response_id in watchdog:
+                        if watchdog[response_id]['first_audio_ts'] is None:
+                            watchdog[response_id]['first_audio_ts'] = time.monotonic()
+                        watchdog[response_id]['audio_delta_count'] += 1
                     
                     if audio_b64:
                         # ═══════════════════════════════════════════════════════════════
@@ -4879,7 +4884,8 @@ class MediaStreamHandler:
                         # 🔥 DROP audio.delta for cancelled responses (race condition)
                         # ═══════════════════════════════════════════════════════════════
                         # REQUIREMENT (Hebrew issue): Handle race where audio.delta arrives after cancel
-                        if response_id and response_id in self._cancelled_response_ids:
+                        cancelled = getattr(self, '_cancelled_response_ids', None) or set()
+                        if response_id and response_id in cancelled:
                             response_id_display = response_id[:20] + '...' if len(response_id) > 20 else response_id
                             logger.debug(f"[HARD_GATE] Dropping audio.delta for cancelled response {response_id_display}")
                             continue
@@ -5329,9 +5335,10 @@ class MediaStreamHandler:
                             }
                         self._response_diagnostics[response_id]['transcript_deltas'] += 1
                     
-                    # Track in watchdog
-                    if response_id and response_id in self._response_audio_watchdog:
-                        self._response_audio_watchdog[response_id]['transcript_delta_count'] += 1
+                    # Track in watchdog - safe check
+                    watchdog = getattr(self, '_response_audio_watchdog', None) or {}
+                    if response_id and response_id in watchdog:
+                        watchdog[response_id]['transcript_delta_count'] += 1
                 
                 elif event_type == "response.audio_transcript.done":
                     transcript = event.get("transcript", "")
@@ -11663,6 +11670,12 @@ class MediaStreamHandler:
         if not response_id:
             return
         
+        # Ensure attributes exist - safe initialization
+        if not hasattr(self, '_cancelled_response_ids'):
+            self._cancelled_response_ids = set()
+        if not hasattr(self, '_cancelled_response_timestamps'):
+            self._cancelled_response_timestamps = {}
+        
         # ✅ NEW REQ 4: Cleanup old entries before adding new one
         now = time.time()
         
@@ -11706,14 +11719,15 @@ class MediaStreamHandler:
         if not response_id:
             return False
         
-        # Condition 2: Check if we already sent cancel for this response
-        if response_id in self._cancel_sent_for_response_ids:
+        # Condition 2: Check if we already sent cancel for this response - safe check
+        if response_id in getattr(self, '_cancel_sent_for_response_ids', set()):
             print(f"⏭️ [CANCEL_GUARD] Skipping duplicate cancel for response {response_id[:20]}... (already sent)")
             return False
         
-        # Condition 3: Check if response already done/cancelled (don't cancel completed responses)
+        # Condition 3: Check if response already done/cancelled (don't cancel completed responses) - safe check
         # If response is in _cancelled_response_ids, we already processed its completion
-        if response_id in self._cancelled_response_ids:
+        cancelled = getattr(self, '_cancelled_response_ids', None) or set()
+        if response_id in cancelled:
             print(f"⏭️ [CANCEL_GUARD] Skipping cancel for completed response {response_id[:20]}... (already done)")
             return False
         
@@ -11787,11 +11801,9 @@ class MediaStreamHandler:
 
     async def _create_response_from_text(self, text: str):
         """
-        🔥 TEXT BARGE-IN: Create response for user text (after cancelled response completes)
+        🔥 LEGACY: Create response for user text (after cancelled response completes)
         
-        This is called when a pending user transcript needs to trigger a new response
-        after the previous AI response was cancelled due to text barge-in.
-        
+        NOTE: This function is currently unused but kept for potential future use.
         The transcript is already in OpenAI's conversation context (auto-committed),
         so we just need to trigger response.create.
         
@@ -11800,18 +11812,18 @@ class MediaStreamHandler:
         """
         try:
             if not self.realtime_client:
-                print(f"⚠️ [TEXT_BARGE_IN] No realtime_client - cannot create response")
+                print(f"⚠️ [RESPONSE_CREATE] No realtime_client - cannot create response")
                 return
             
-            print(f"🎯 [TEXT_BARGE_IN] Creating response for pending text: '{text[:40]}...'")
-            logger.info(f"[TEXT_BARGE_IN] Triggering response.create for: '{text[:100]}'")
+            print(f"🎯 [RESPONSE_CREATE] Creating response for pending text: '{text[:40]}...'")
+            logger.info(f"[RESPONSE_CREATE] Triggering response.create for: '{text[:100]}'")
             
             # Trigger response via central function
-            await self.trigger_response(f"TEXT_BARGE_IN:{text[:30]}")
+            await self.trigger_response(f"RESPONSE_CREATE:{text[:30]}")
             
         except Exception as e:
-            print(f"❌ [TEXT_BARGE_IN] Failed to create response: {e}")
-            logger.error(f"[TEXT_BARGE_IN] Error creating response: {e}")
+            print(f"❌ [RESPONSE_CREATE] Failed to create response: {e}")
+            logger.error(f"[RESPONSE_CREATE] Error creating response: {e}")
 
     async def _inject_verbatim_reply_and_respond(self, client, user_msg: str, reason: str) -> bool:
         """
