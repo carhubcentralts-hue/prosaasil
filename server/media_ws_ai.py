@@ -11515,6 +11515,7 @@ class MediaStreamHandler:
             logger.debug("[BARGE-IN] Skipped duplicate cancel")
         
         # Step 3: Send Twilio "clear" event to stop audio already buffered on Twilio side
+        # 🎯 CRITICAL: This clears Twilio's internal buffer (audio that already left our queues)
         if self.stream_sid:
             try:
                 clear_event = {
@@ -11522,10 +11523,14 @@ class MediaStreamHandler:
                     "streamSid": self.stream_sid
                 }
                 self._ws_send(json.dumps(clear_event))
-                logger.debug("[BARGE-IN] Sent Twilio clear event")
-                print(f"📤 [BARGE-IN] Step 3: Sent Twilio clear event")
+                logger.info("[BARGE-IN] ✅ Sent Twilio clear event to flush Twilio-side buffer")
+                print(f"📤 [BARGE-IN] Step 3: Sent Twilio clear event (stream_sid={self.stream_sid})")
             except Exception as e:
-                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
+                logger.warning(f"[BARGE-IN] ⚠️ Failed to send Twilio clear event: {e}")
+                print(f"⚠️ [BARGE-IN] Failed to send Twilio clear: {e}")
+        else:
+            logger.warning("[BARGE-IN] ⚠️ No stream_sid - cannot send Twilio clear event")
+            print(f"⚠️ [BARGE-IN] No stream_sid - Twilio clear event NOT sent")
         
         # Step 4: Flush audio frames IMMEDIATELY during barge-in (no time window check)
         # 🎯 CRITICAL: Clear TX queues to stop audio playback immediately
@@ -14500,11 +14505,20 @@ class MediaStreamHandler:
                         if DEBUG_TX:
                             _orig_print(f"[TX_RESYNC] Behind by {-delay_until_send*1000:.0f}ms, resyncing to now", flush=True)
                     
-                    # Sleep until scheduled send time (maintain steady 20ms pacing)
+                    # 🎯 CRITICAL FIX: Always maintain minimum spacing to prevent bursts
+                    # Even if we're slightly late, we MUST sleep at least a minimal amount
+                    # to prevent sending 2-5 frames in rapid succession (causes stuttering)
+                    MIN_FRAME_SPACING_SEC = 0.018  # 18ms minimum (slightly less than 20ms for tolerance)
+                    
                     if delay_until_send > 0:
+                        # On schedule or early - sleep until scheduled time
                         time.sleep(delay_until_send)
-                    elif delay_until_send < 0 and delay_until_send > -LATE_THRESHOLD_SEC:
-                        # Slightly late (but not enough to resync) - still track it
+                    elif delay_until_send >= -LATE_THRESHOLD_SEC:
+                        # Slightly late but not catastrophic (0-200ms behind)
+                        # Still enforce minimum spacing to prevent burst
+                        # This prevents: frame1 → 0ms → frame2 → 0ms → frame3 (burst!)
+                        # Instead ensures: frame1 → 18ms → frame2 → 18ms → frame3 (steady)
+                        time.sleep(MIN_FRAME_SPACING_SEC)
                         self._tx_late_frames += 1
                     
                     # Track actual timing delta for jitter calculation (limited buffer)
@@ -14513,12 +14527,27 @@ class MediaStreamHandler:
                         self._tx_timing_deltas.append(actual_delta * 1000)  # Store as ms
                     
                     # Send frame to Twilio WS (item already has correct format from enqueue)
+                    # 🎯 VALIDATION: Verify frame size is exactly 160 bytes
+                    frame_payload = None
                     if item.get("event") == "media" and "media" in item:
+                        frame_payload = item.get("media", {}).get("payload", "")
                         success = self._ws_send(json.dumps(item))
                     else:
                         # Old format - convert (pre-build dict to minimize work)
-                        payload = {"event": "media", "streamSid": self.stream_sid, "media": {"payload": item["payload"]}}
+                        frame_payload = item.get("payload", "")
+                        payload = {"event": "media", "streamSid": self.stream_sid, "media": {"payload": frame_payload}}
                         success = self._ws_send(json.dumps(payload))
+                    
+                    # 🎯 VALIDATION: Decode and verify size for first few frames
+                    if success and frames_sent_total < 5 and frame_payload:
+                        import base64
+                        try:
+                            decoded_bytes = base64.b64decode(frame_payload)
+                            actual_size = len(decoded_bytes)
+                            if actual_size != 160:
+                                _orig_print(f"⚠️ [TX_VALIDATION] Frame {frames_sent_total+1} is {actual_size} bytes (expected 160)!", flush=True)
+                        except Exception:
+                            pass  # Ignore validation errors
                     
                     if success:
                         self.tx += 1
