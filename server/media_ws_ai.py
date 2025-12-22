@@ -3423,8 +3423,11 @@ class MediaStreamHandler:
                         # 🔥 BUILD 301: SAFETY NET - Clear stuck active_response_id
                         # If active_response_id has been set for >10 seconds, it's stuck (response.done was missed)
                         # This prevents AI freeze without adding a watchdog - just inline check
+                        # 🎯 BUG FIX #4: Don't interfere during barge-in cancellation
                         response_stuck_seconds = 10.0
-                        if self.active_response_id:
+                        
+                        # Skip if barge-in cancel is pending (don't interfere with cancellation)
+                        if not getattr(self, '_barge_in_pending_cancel', False) and self.active_response_id:
                             # Get response start time - use _response_created_ts dict lookup
                             # 🔥 FIX: _response_created_ts is a dict (response_id -> timestamp), not a single value
                             response_started_val = None
@@ -3484,8 +3487,14 @@ class MediaStreamHandler:
                         # 🎯 SAFETY CHECK 6: Sanity fuse for stuck flag combination
                         # Detects: ai_response_active=True BUT is_ai_speaking=False AND active_response_id=None
                         # This catches 99% of edge cases where flags get out of sync
+                        # 🔥 FIX: Don't interfere during barge-in cancellation
                         STUCK_FLAGS_TIMEOUT_SEC = 1.5
-                        if (hasattr(self, 'ai_response_active') and self.ai_response_active and
+                        
+                        # Skip SAFETY_FUSE if barge-in cancel is pending
+                        if getattr(self, '_barge_in_pending_cancel', False):
+                            # Don't touch response state during barge-in cancellation
+                            logger.debug("[SAFETY_FUSE] Skipping - barge-in cancel in progress")
+                        elif (hasattr(self, 'ai_response_active') and self.ai_response_active and
                             not self.is_ai_speaking_event.is_set() and
                             self.active_response_id is None):
                             # Track how long this inconsistent state has persisted
@@ -3900,6 +3909,12 @@ class MediaStreamHandler:
                                 self.ai_response_active = False
                             print(f"✅ [STATE_RESET] Cancelled response cleanup: active_response_id=None, is_ai_speaking=False, ai_response_active=False (response_id={response_id[:20]}...)")
                         
+                        # 🎯 BARGE-IN FIX: Release pending flag when cancelled response completes
+                        if getattr(self, '_barge_in_pending_cancel', False):
+                            self._barge_in_pending_cancel = False
+                            logger.info(f"[BARGE-IN] ✅ Released pending flag - cancel acknowledged (response_id={response_id[:20]}...)")
+                            print(f"🔓 [BARGE-IN] Released pending flag - cancel complete for {response_id[:20]}...")
+                        
                         self._cancelled_response_ids.discard(response_id)
                         # ✅ NEW REQ 4: Also remove from timestamps dict
                         self._cancelled_response_timestamps.pop(response_id, None)
@@ -4142,6 +4157,12 @@ class MediaStreamHandler:
                             self.barge_in_active = False
                             if hasattr(self, 'ai_response_active'):
                                 self.ai_response_active = False
+                            
+                            # 🎯 BARGE-IN FIX: Release pending flag if this was a cancelled response
+                            if getattr(self, '_barge_in_pending_cancel', False):
+                                self._barge_in_pending_cancel = False
+                                logger.info(f"[BARGE-IN] ✅ Released pending flag on response.done (response_id={resp_id[:20] if resp_id else 'None'}...)")
+                            
                             _orig_print(f"✅ [STATE_RESET] Response complete: active_response_id=None, is_ai_speaking=False, ai_response_active=False, barge_in=False ({resp_id[:20]}... status={status})", flush=True)
                         elif self.active_response_id:
                             # Mismatch - log but still clear to prevent deadlock
@@ -7800,10 +7821,12 @@ class MediaStreamHandler:
                 chunk_bytes = base64.b64decode(audio_b64)
                 self.realtime_tx_bytes += len(chunk_bytes)
                 
-                # 🔥 PART C: Log first frame and stream_sid state
-                if not _first_frame_logged:
-                    _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK received! bytes={len(chunk_bytes)}, stream_sid={self.stream_sid}", flush=True)
-                    _first_frame_logged = True
+                # Skip if no stream_sid (check BEFORE buffering to avoid wasting memory)
+                if not self.stream_sid:
+                    _frames_skipped_no_stream_sid += 1
+                    if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
+                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping frame - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
+                    continue
                 
                 # 🔥 RECORDING TRIGGER: Start recording when first audio sent (from TX loop flag)
                 # This is done here in background thread, NOT in TX loop itself
@@ -7812,17 +7835,22 @@ class MediaStreamHandler:
                     _orig_print(f"✅ [AUDIO_OUT_LOOP] Starting recording (triggered by FIRST_AUDIO_SENT flag)", flush=True)
                     threading.Thread(target=self._start_call_recording, daemon=True).start()
                 
-                if not self.stream_sid:
-                    _frames_skipped_no_stream_sid += 1
-                    if _frames_skipped_no_stream_sid <= 3 or _frames_skipped_no_stream_sid % 50 == 0:
-                        _orig_print(f"⚠️ [AUDIO_OUT_LOOP] Skipping frame - no stream_sid (skipped={_frames_skipped_no_stream_sid})", flush=True)
-                    continue
-                
+                # 🎯 BUG FIX #1: Buffer incoming audio and chunk to exactly 160 bytes
+                # This ensures FIRST_CHUNK and all subsequent chunks are 160 bytes (20ms at 8kHz μ-law)
+                # Prevents clipping/resyncing at start of speech
                 audio_buffer += chunk_bytes
                 
                 while len(audio_buffer) >= TWILIO_FRAME_SIZE:
                     frame_bytes = audio_buffer[:TWILIO_FRAME_SIZE]
                     audio_buffer = audio_buffer[TWILIO_FRAME_SIZE:]
+                    
+                    # 🔥 Log FIRST frame AFTER chunking (must be exactly 160 bytes)
+                    if not _first_frame_logged:
+                        _orig_print(f"🔊 [AUDIO_OUT_LOOP] FIRST_CHUNK bytes={len(frame_bytes)} stream_sid={self.stream_sid}", flush=True)
+                        _first_frame_logged = True
+                        # Validate frame size
+                        if len(frame_bytes) != TWILIO_FRAME_SIZE:
+                            _orig_print(f"⚠️ [AUDIO_OUT_LOOP] WARNING: First frame is {len(frame_bytes)} bytes, expected {TWILIO_FRAME_SIZE}!", flush=True)
                     
                     frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
                     twilio_frame = {
@@ -8725,20 +8753,28 @@ class MediaStreamHandler:
                                 f"frames={self._barge_in_consec_frames}"
                             )
                             
-                            # Mark as pending for async execution (can't await in sync code)
-                            self._barge_in_pending_cancel = True
-                            self._barge_in_speech_frames_count = self._barge_in_consec_frames
+                            # 🎯 Step 1: Snapshot active_response_id BEFORE any state changes
+                            # This prevents race conditions if SAFETY_FUSE or other code modifies it
+                            active_response_id_snapshot = self.active_response_id
                             
-                            # Execute cancel immediately (will be picked up by event loop)
-                            # Note: This is called from sync context, so we schedule it
-                            active_response_id = self.active_response_id
-                            if active_response_id:
-                                logger.info(f"[BARGE_IN_AUDIO] Scheduling cancel for: {active_response_id[:20]}...")
+                            if active_response_id_snapshot:
+                                # 🎯 Step 2: Set pending flag to lock response state
+                                # This prevents SAFETY_FUSE from resetting active_response_id during cancel
+                                self._barge_in_pending_cancel = True
+                                self._barge_in_speech_frames_count = self._barge_in_consec_frames
+                                self._last_barge_in_ts = time.time()
                                 
-                                # Schedule async cancel execution
+                                logger.info(f"[BARGE_IN_AUDIO] Scheduling cancel for: {active_response_id_snapshot[:20]}...")
+                                print(f"🔒 [BARGE_IN_AUDIO] Locked response state for cancel: {active_response_id_snapshot[:20]}...")
+                                
+                                # 🎯 Step 3: Schedule async cancel execution
                                 async def _execute_cancel():
-                                    await self._execute_atomic_barge_in_cancel("barge_in_audio_frames")
-                                    self._barge_in_pending_cancel = False
+                                    try:
+                                        await self._execute_atomic_barge_in_cancel("barge_in_audio_frames", active_response_id_snapshot)
+                                        logger.info(f"[BARGE_IN_AUDIO] ✅ Cancel complete for: {active_response_id_snapshot[:20]}...")
+                                    except Exception as e:
+                                        logger.error(f"[BARGE_IN_AUDIO] ❌ Cancel failed: {e}")
+                                    # Note: Pending flag will be released in response.done/cancelled handler
                                 
                                 # Create task to execute cancel
                                 try:
@@ -8750,6 +8786,8 @@ class MediaStreamHandler:
                                     # Fallback: speech_started event handler will execute cancel via OpenAI API
                                     # The pending flag ensures cancel happens eventually
                                     logger.debug("[BARGE_IN_AUDIO] No event loop - cancel will be handled by speech_started")
+                            else:
+                                logger.debug("[BARGE_IN_AUDIO] No active response to cancel")
                             
                             # Reset consecutive frames counter
                             self._barge_in_consec_frames = 0
@@ -11416,7 +11454,7 @@ class MediaStreamHandler:
         self._post_greeting_window_active = False
         print(f"🧘 [GREETING] Breathing window ended ({reason})")
 
-    async def _execute_atomic_barge_in_cancel(self, source: str = "barge_in"):
+    async def _execute_atomic_barge_in_cancel(self, source: str = "barge_in", response_id_snapshot: Optional[str] = None):
         """
         🎯 FIX: Response-scoped barge-in cancel with atomic state cleanup
         
@@ -11429,19 +11467,22 @@ class MediaStreamHandler:
         1. Verify response is still active (not completed)
         2. Cancel active response with OpenAI
         3. Send Twilio clear event  
-        4. Flush audio frames for THIS response only
+        4. Flush audio frames immediately (barge-in mode - no time window check)
         5. **RESPONSE-SCOPED CLEANUP** - Clear ONLY flags tied to cancelled response
         6. Ensure TX is unpaused and ready
         7. Mark cancel timestamp for cooldown bypass
+        8. Increment barge-in counter
         
         Args:
             source: Source of cancel for logging (default: "barge_in")
+            response_id_snapshot: Pre-snapshotted response ID to cancel (prevents race conditions)
         """
-        if not self.active_response_id:
-            logger.debug(f"[BARGE-IN] No active response to cancel")
-            return
+        # Use snapshot if provided, otherwise use current active_response_id
+        cancelled_id = response_id_snapshot or self.active_response_id
         
-        cancelled_id = self.active_response_id
+        if not cancelled_id:
+            logger.debug(f"[BARGE-IN] No response to cancel (snapshot={response_id_snapshot}, active={self.active_response_id})")
+            return
         
         # 🎯 SAFETY CHECK 1: Don't cancel if response already completed
         # Race condition: response.done arrived just before cancel
@@ -11450,14 +11491,18 @@ class MediaStreamHandler:
             return
         
         logger.info(f"[BARGE-IN] 🔥 Executing response-scoped cancel for {cancelled_id[:20]}... (source={source})")
+        print(f"🔥 [BARGE-IN] Step 2: Sending response.cancel for {cancelled_id[:20]}...")
         
         # Step 2: Cancel active response (with duplicate guard)
+        cancel_sent = False
         if self._should_send_cancel(cancelled_id):
             try:
                 await self.realtime_client.cancel_response(cancelled_id)
                 # Mark as cancelled locally to track state
                 self._mark_response_cancelled_locally(cancelled_id, source)
+                cancel_sent = True
                 logger.info(f"[BARGE-IN] ✅ Cancelled response {cancelled_id[:20]}...")
+                print(f"✅ [BARGE-IN] response.cancel sent for {cancelled_id[:20]}...")
             except Exception as e:
                 error_str = str(e).lower()
                 # Gracefully handle not_active errors
@@ -11470,6 +11515,7 @@ class MediaStreamHandler:
             logger.debug("[BARGE-IN] Skipped duplicate cancel")
         
         # Step 3: Send Twilio "clear" event to stop audio already buffered on Twilio side
+        # 🎯 CRITICAL: This clears Twilio's internal buffer (audio that already left our queues)
         if self.stream_sid:
             try:
                 clear_event = {
@@ -11477,13 +11523,20 @@ class MediaStreamHandler:
                     "streamSid": self.stream_sid
                 }
                 self._ws_send(json.dumps(clear_event))
-                logger.debug("[BARGE-IN] Sent Twilio clear event")
+                logger.info("[BARGE-IN] ✅ Sent Twilio clear event to flush Twilio-side buffer")
+                print(f"📤 [BARGE-IN] Step 3: Sent Twilio clear event (stream_sid={self.stream_sid})")
             except Exception as e:
-                logger.debug(f"[BARGE-IN] Error sending clear event: {e}")
+                logger.warning(f"[BARGE-IN] ⚠️ Failed to send Twilio clear event: {e}")
+                print(f"⚠️ [BARGE-IN] Failed to send Twilio clear: {e}")
+        else:
+            logger.warning("[BARGE-IN] ⚠️ No stream_sid - cannot send Twilio clear event")
+            print(f"⚠️ [BARGE-IN] No stream_sid - Twilio clear event NOT sent")
         
-        # Step 4: Flush audio frames for this response only
-        # 🎯 SAFETY CHECK 2: Flush only frames belonging to cancelled response
-        self._flush_tx_queue_for_response(cancelled_id)
+        # Step 4: Flush audio frames IMMEDIATELY during barge-in (no time window check)
+        # 🎯 CRITICAL: Clear TX queues to stop audio playback immediately
+        # Don't wait for time windows - user is interrupting NOW
+        print(f"🧹 [BARGE-IN] Step 4: Clearing TX queues immediately (reason=barge_in)")
+        self._flush_tx_queue_immediate(reason="barge_in")
         
         # Step 5: **RESPONSE-SCOPED CLEANUP** - Only clear state tied to THIS response
         # Guard: Only clean if this is still the active response
@@ -11508,6 +11561,7 @@ class MediaStreamHandler:
             # - Any business logic flags
             
             logger.debug("[BARGE-IN] Response-scoped state cleared")
+            print(f"✅ [BARGE-IN] Step 5: Response state cleared (active_response_id=None, is_ai_speaking=False)")
         else:
             logger.debug(f"[BARGE-IN] Active response changed during cancel - skip cleanup")
         
@@ -11522,7 +11576,14 @@ class MediaStreamHandler:
         # 🎯 SAFETY CHECK 5: Mark cancel timestamp for cooldown bypass
         self._last_cancel_ts = time.time()
         
+        # Step 8: Increment barge-in event counter (only if cancel was actually sent)
+        if cancel_sent:
+            self._barge_in_event_count += 1
+            logger.info(f"[BARGE-IN] 📊 Barge-in event counted (total={self._barge_in_event_count})")
+            print(f"📊 [BARGE-IN] Event counted: barge_in_events={self._barge_in_event_count}")
+        
         logger.info("[BARGE-IN] ✅ Response-scoped cancel complete - TX ready for user speech")
+        print(f"✅ [BARGE-IN] Cancel sequence complete - waiting for response.done or response.cancelled")
 
     def _mark_response_cancelled_locally(self, response_id: Optional[str], source: str = ""):
         """
@@ -14156,12 +14217,16 @@ class MediaStreamHandler:
     def _fallback_response(self, hebrew_text: str) -> str:
         """Simple fallback response when AI service fails - uses business settings"""
         try:
-            from server.models_sql import Business
-            business = Business.query.get(self.business_id)
-            if business and business.greeting_message:
-                return business.greeting_message
-        except:
-            pass
+            # 🎯 BUG FIX #5: Wrap DB query with app_context to avoid "Working outside of application context" error
+            app = _get_flask_app()
+            with app.app_context():
+                from server.models_sql import Business
+                business = Business.query.get(self.business_id)
+                if business and business.greeting_message:
+                    return business.greeting_message
+        except Exception as e:
+            # Log error but don't crash - return generic response
+            logger.debug(f"[FALLBACK] Could not load business greeting: {e}")
         
         # Generic neutral response (no business name exposed)
         return "איך אוכל לעזור?"
@@ -14242,6 +14307,57 @@ class MediaStreamHandler:
         except Exception as e:
             _orig_print(f"⚠️ [BARGE-IN FLUSH] Error flushing queues: {e}", flush=True)
     
+    def _flush_tx_queue_immediate(self, reason: str = "barge_in"):
+        """
+        🎯 BARGE-IN FIX: Immediate TX queue flush without time window restrictions
+        
+        During barge-in, we MUST clear queues immediately to stop audio playback.
+        Unlike _flush_tx_queue_for_response which checks time windows to prevent
+        clearing new response audio, this method flushes unconditionally.
+        
+        This is safe during barge-in because:
+        1. We just sent response.cancel, so OpenAI won't generate more audio for this response
+        2. No new response has been created yet (user is speaking)
+        3. The goal is to stop current audio ASAP, not protect future audio
+        
+        Args:
+            reason: Reason for flush (for logging)
+        """
+        realtime_flushed = 0
+        tx_flushed = 0
+        
+        try:
+            # Flush OpenAI → TX queue (realtime_audio_out_queue)
+            if hasattr(self, 'realtime_audio_out_queue') and self.realtime_audio_out_queue:
+                while True:
+                    try:
+                        self.realtime_audio_out_queue.get_nowait()
+                        realtime_flushed += 1
+                    except queue.Empty:
+                        break
+            
+            # Flush TX → Twilio queue (tx_q)
+            if hasattr(self, 'tx_q') and self.tx_q:
+                while True:
+                    try:
+                        self.tx_q.get_nowait()
+                        tx_flushed += 1
+                    except queue.Empty:
+                        break
+            
+            total_flushed = realtime_flushed + tx_flushed
+            # 🔥 REQUIREMENT: Track outbound frames cleared (separate from inbound drops)
+            if hasattr(self, '_outbound_frames_cleared_on_barge_in'):
+                self._outbound_frames_cleared_on_barge_in += total_flushed
+            
+            if total_flushed > 0:
+                logger.info(f"[BARGE-IN] 🧹 Cleared {total_flushed} frames from TX queues ({reason})")
+                print(f"🧹 [BARGE-IN] Cleared {total_flushed} frames from TX queues (realtime={realtime_flushed}, tx={tx_flushed}, reason={reason})")
+            else:
+                logger.debug(f"[BARGE-IN] TX queues already empty ({reason})")
+        except Exception as e:
+            logger.error(f"[BARGE-IN] Error flushing TX queues: {e}")
+    
     def _flush_tx_queue_for_response(self, response_id: str):
         """
         🎯 SAFETY CHECK 2: Flush only frames belonging to specific response
@@ -14307,9 +14423,16 @@ class MediaStreamHandler:
         
         FRAME_INTERVAL = AUDIO_CONFIG["frame_pacing_ms"] / 1000.0  # 20ms
         # 🔥 FIX: Use perf_counter for stable timing (monotonic, higher resolution)
+        # 🎯 BUG FIX #2: Initialize next_send properly to avoid initial reset
+        # Start from current time, not 0, so first frame doesn't trigger reset
         next_send = time.perf_counter()
         frames_sent_total = 0
         _first_frame_sent = False
+        
+        # 🎯 BUG FIX #2: More lenient late frame threshold (200ms instead of 100ms)
+        # Prevents spurious resets during normal operation
+        # Only reset if we're truly stuck (e.g., queue was empty for a while)
+        LATE_THRESHOLD_SEC = 0.2  # 200ms - more than 10 frames late
         
         # Pre-format event templates (outside loop to avoid json.dumps inside)
         clear_event_template = {"event": "clear", "streamSid": self.stream_sid}
@@ -14368,21 +14491,34 @@ class MediaStreamHandler:
                             self._drop_stop_logged = True
                         continue
                     
-                    # 🔥 FIX: Check timing - if we're >100ms late, resync to avoid burst
+                    # 🎯 BUG FIX #2: Check timing - only resync if we're REALLY behind
+                    # Use 200ms threshold instead of 100ms to avoid spurious resets
                     now = time.perf_counter()
                     delay_until_send = next_send - now
                     
-                    if delay_until_send < -0.1:  # More than 100ms late
+                    if delay_until_send < -LATE_THRESHOLD_SEC:  # More than 200ms late (10+ frames)
                         # We're way behind - resync to current time instead of bursting
+                        # This happens when queue was empty for a while, not during normal flow
                         self._tx_schedule_resets += 1
                         next_send = now
                         delay_until_send = 0
+                        if DEBUG_TX:
+                            _orig_print(f"[TX_RESYNC] Behind by {-delay_until_send*1000:.0f}ms, resyncing to now", flush=True)
                     
-                    # Sleep until scheduled send time
+                    # 🎯 CRITICAL FIX: Always maintain minimum spacing to prevent bursts
+                    # Even if we're slightly late, we MUST sleep at least a minimal amount
+                    # to prevent sending 2-5 frames in rapid succession (causes stuttering)
+                    MIN_FRAME_SPACING_SEC = 0.018  # 18ms minimum (slightly less than 20ms for tolerance)
+                    
                     if delay_until_send > 0:
+                        # On schedule or early - sleep until scheduled time
                         time.sleep(delay_until_send)
-                    else:
-                        # Frame is late
+                    elif delay_until_send >= -LATE_THRESHOLD_SEC:
+                        # Slightly late but not catastrophic (0-200ms behind)
+                        # Still enforce minimum spacing to prevent burst
+                        # This prevents: frame1 → 0ms → frame2 → 0ms → frame3 (burst!)
+                        # Instead ensures: frame1 → 18ms → frame2 → 18ms → frame3 (steady)
+                        time.sleep(MIN_FRAME_SPACING_SEC)
                         self._tx_late_frames += 1
                     
                     # Track actual timing delta for jitter calculation (limited buffer)
@@ -14391,12 +14527,27 @@ class MediaStreamHandler:
                         self._tx_timing_deltas.append(actual_delta * 1000)  # Store as ms
                     
                     # Send frame to Twilio WS (item already has correct format from enqueue)
+                    # 🎯 VALIDATION: Verify frame size is exactly 160 bytes
+                    frame_payload = None
                     if item.get("event") == "media" and "media" in item:
+                        frame_payload = item.get("media", {}).get("payload", "")
                         success = self._ws_send(json.dumps(item))
                     else:
                         # Old format - convert (pre-build dict to minimize work)
-                        payload = {"event": "media", "streamSid": self.stream_sid, "media": {"payload": item["payload"]}}
+                        frame_payload = item.get("payload", "")
+                        payload = {"event": "media", "streamSid": self.stream_sid, "media": {"payload": frame_payload}}
                         success = self._ws_send(json.dumps(payload))
+                    
+                    # 🎯 VALIDATION: Decode and verify size for first few frames
+                    if success and frames_sent_total < 5 and frame_payload:
+                        import base64
+                        try:
+                            decoded_bytes = base64.b64decode(frame_payload)
+                            actual_size = len(decoded_bytes)
+                            if actual_size != 160:
+                                _orig_print(f"⚠️ [TX_VALIDATION] Frame {frames_sent_total+1} is {actual_size} bytes (expected 160)!", flush=True)
+                        except Exception:
+                            pass  # Ignore validation errors
                     
                     if success:
                         self.tx += 1
