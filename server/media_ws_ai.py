@@ -3439,7 +3439,10 @@ class MediaStreamHandler:
                             
                             # Convert to float and validate
                             try:
-                                response_started_val = float(response_started_val) if response_started_val is not None else None
+                                if response_started_val is not None:
+                                    response_started_val = float(response_started_val)
+                                else:
+                                    response_started_val = None
                             except (TypeError, ValueError):
                                 response_started_val = None
                             
@@ -3512,6 +3515,8 @@ class MediaStreamHandler:
                     
                     except Exception as monitor_err:
                         # 🔥 CRITICAL: Never let monitoring logic kill the audio sender thread
+                        # Catching broad Exception is INTENTIONAL - monitoring is "best effort"
+                        # Any error in monitoring (TypeError, KeyError, AttributeError, etc.) should NOT break audio
                         logger.exception(f"[AUDIO_SENDER] Soft-fail in monitoring logic - continuing: {monitor_err}")
                         # DO NOT EXIT THREAD - just continue sending audio
                     
