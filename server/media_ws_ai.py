@@ -2505,6 +2505,13 @@ class MediaStreamHandler:
         self._user_speech_start = None
         self._ai_speech_start = None
         
+        # 🔥 FIX: Reset barge-in flags at call start to prevent stuck state
+        # These flags should always start False for each new call/stream
+        self.drop_ai_audio_until_done = False
+        self.ai_audio_playing = False
+        self.openai_response_in_progress = False
+        _orig_print("🔄 [CALL_START] Barge-in flags reset: drop_ai_audio_until_done=False, ai_audio_playing=False, openai_response_in_progress=False", flush=True)
+        
         try:
             t_start = time.time()
             
@@ -2944,6 +2951,11 @@ class MediaStreamHandler:
                 # Reset flags since greeting failed
                 self.greeting_sent = False
                 self.is_playing_greeting = False
+                # 🔥 FIX: Clear greeting_lock if greeting response.create failed
+                # This prevents the lock from getting stuck and blocking all audio
+                self.greeting_lock_active = False
+                self._greeting_lock_response_id = None
+                _orig_print("🔓 [GREETING_LOCK] cleared (greeting trigger failed)", flush=True)
 
             # 🚀 Start audio/text bridges after greeting trigger attempt:
             # - If greeting triggered: start immediately after trigger to enforce "bot speaks first"
@@ -3027,6 +3039,12 @@ class MediaStreamHandler:
                         self.is_playing_greeting = False
                         self.greeting_sent = True  # Mark as done so we don't retry
                         self.barge_in_enabled_after_greeting = True  # Allow barge-in
+                        
+                        # 🔥 FIX: Clear greeting_lock on timeout to prevent stuck state
+                        # If greeting audio never arrives, we must release the lock
+                        self.greeting_lock_active = False
+                        self._greeting_lock_response_id = None
+                        _orig_print("🔓 [GREETING_LOCK] cleared (greeting timeout)", flush=True)
 
                         # Don't set realtime_failed - the call can still proceed.
                         # Just skip the greeting and let user audio through.
@@ -3729,11 +3747,17 @@ class MediaStreamHandler:
             print(f"⏸️ [RESPONSE GUARD] Hangup pending - blocking new responses ({reason})")
             return False
         
-        # 🔥 REQUIREMENT: Block new response.create when session is closing
-        # Prevents "audio after close" issue (response continues after WS_STOP)
-        if getattr(self, 'closed', False) or getattr(self, 'realtime_stop_flag', False):
-            print(f"🛑 [RESPONSE GUARD] Session closing/closed - blocking new responses ({reason})")
+        # 🔥 FIX: Only block if websocket is actually closed, not on early flags
+        # Session flags should only be set after real WS_STOP or websocket exception
+        # Don't block at call start when flags might be incorrectly set
+        if getattr(self, 'closed', False):
+            # Only check 'closed' flag which is set after actual websocket close
+            print(f"🛑 [RESPONSE GUARD] Websocket closed - blocking new responses ({reason})")
             return False
+        
+        # Note: realtime_stop_flag removed from this check - it can be set prematurely
+        # during greeting setup or other initialization, causing false blocking at call start.
+        # Only actual websocket closure (self.closed) should block response.create
         
         # 🛡️ GUARD 0.5: BUILD 308 - POST-REJECTION TRACKING
         # After user says "לא", city is cleared so AI will naturally ask for it again
@@ -11285,9 +11309,9 @@ class MediaStreamHandler:
                             
                             print(f"🔇 [SILENCE] Max warnings exceeded BUT lead not confirmed - sending final prompt")
                             self._silence_warning_count = self.silence_max_warnings - 1  # Allow one more warning
-                            await self._send_text_to_ai(
-                                "[SYSTEM] Customer is silent and hasn't confirmed. Ask for confirmation one last time."
-                            )
+                            # 🔥 PROMPT-ONLY MODE FIX: Don't send synthetic silence events
+                            # Just reset timer and let AI handle naturally
+                            print(f"🔇 [SILENCE] PROMPT-ONLY MODE - not sending synthetic event, resetting timer")
                             self._last_speech_time = time.time()
                             # Mark that we gave extra chance - next time really close
                             self._silence_final_chance_given = getattr(self, '_silence_final_chance_given', False)
@@ -11310,8 +11334,8 @@ class MediaStreamHandler:
                         if SIMPLE_MODE:
                             print(f"🔇 [SILENCE] SIMPLE_MODE - max warnings exceeded but NOT hanging up")
                             print(f"   Keeping line open - user may return or Twilio will disconnect")
-                            # Optionally send a final message
-                            await self._send_text_to_ai("[SYSTEM] User silent. Say you'll keep the line open if they need anything.")
+                            # 🔥 PROMPT-ONLY MODE FIX: Don't send synthetic silence events
+                            print(f"🔇 [SILENCE] PROMPT-ONLY MODE - not sending synthetic event")
                             # Reset timer to avoid immediate re-triggering, but don't close
                             self._last_speech_time = time.time()
                             continue  # Stay in monitor loop
@@ -11369,12 +11393,16 @@ class MediaStreamHandler:
             # 🔥 BUILD 172 FIX: If we collected fields but not confirmed, ask for confirmation again
             fields_collected = self._check_lead_captured() if hasattr(self, '_check_lead_captured') else False
             if fields_collected and not self.verification_confirmed:
+                # Hebrew leads with unconfirmed data still get a confirmation prompt
                 warning_prompt = "[SYSTEM] הלקוח שותק. שאל בקצרה אם הפרטים שמסר נכונים."
+                await self._send_text_to_ai(warning_prompt)
             else:
-                # 🔥 BUILD 311.1: Dynamic - let AI continue naturally based on conversation context
-                # Let AI decide based on context and Business Prompt
-                warning_prompt = "[SYSTEM] Customer is silent. Continue naturally per your instructions."
-            await self._send_text_to_ai(warning_prompt)
+                # 🔥 PROMPT-ONLY MODE FIX: Don't send synthetic "Customer is silent" events
+                # In prompt-only mode, the AI should handle silence naturally based on its instructions
+                # Sending synthetic events causes issues and blocks in the logs (per problem statement)
+                print(f"🔇 [SILENCE] PROMPT-ONLY MODE - not sending synthetic silence event")
+                # Don't send anything - let AI handle silence naturally
+                return
         except Exception as e:
             print(f"❌ [SILENCE] Failed to send warning: {e}")
     
